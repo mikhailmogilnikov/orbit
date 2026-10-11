@@ -76,7 +76,8 @@
 - Isolated sessions: copies of sessions closed while Orbit wasn't running (or
   crashed) stay in `~/Library/Application Support/Orbit/isolated` — no cleanup
   yet; a project on a non-APFS volume gets a full (slow) copy; Apply is
-  all-or-nothing per file (no picking files); untested by hand.
+  all-or-nothing per file (no picking files); undoing an applied change in
+  the project counts it as not applied again; untested by hand.
 - Agent sessions: listing an agent's conversations spawns that agent once per
   folder per launch.
 - Replace in files has no undo beyond the editor's own (files that weren't

@@ -121,10 +121,15 @@ final class IsolatedCopies: AgentIsolation {
         }.value
     }
 
-    /// The project already has the copy's version (applied earlier, or made the same change).
+    /// The project already has the agent's changes to this file (applied earlier,
+    /// possibly merged with the user's own edits, or made the same way).
     private func isApplied(_ change: Change, to target: URL) -> Bool {
         guard let data = change.contents else { return !FileManager.default.fileExists(atPath: target.path) }
-        if let text = String(data: data, encoding: .utf8) { return workspace.documents.currentText(of: target) == text }
-        return (try? Data(contentsOf: target)) == data
+        guard let text = String(data: data, encoding: .utf8) else { return (try? Data(contentsOf: target)) == data }
+        guard let current = workspace.documents.currentText(of: target) else { return false }
+        if current == text { return true }
+        // Merging again would add nothing.
+        guard let base = change.baseline else { return false }
+        return LineDiff.merge(base: base, mine: current, theirs: text) == current
     }
 }
