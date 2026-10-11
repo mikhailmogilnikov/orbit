@@ -24,7 +24,7 @@
   Message via a hidden agent session (`AgentCompletion` service); diff tabs
   for working-tree / staged changes; git colors and badges in the explorer
   (`FileStatusProviding` service)
-- Syntax highlighting in git diff and commit tabs (`SyntaxHighlighting`
+- Syntax highlighting in git diff and commit tabs and agent tool cards (`SyntaxHighlighting`
   service: a one-shot tree-sitter parse in the editor's theme)
 - Git stash (stash with untracked files, pop/apply/delete), History (last 200
   commits; expand for files, click for a read-only diff tab), blame of the
@@ -33,7 +33,8 @@
   wedge for deletions) against the index, via `VersionControlBaseline`
 - Prompt attachments: `@` in the composer picks project files (⌘P ranking via
   `ProjectFileIndex`), ⌘L attaches the editor selection (`EditorSelectionProviding`),
-  files and images by drop, the paperclip menu or "Paste Image"; chips show on
+  files and images by drop, ⌘V or the paperclip menu; `@` works anywhere in
+  the draft; chips show on
   the composer and on sent messages
 - Agent sessions persist: open tabs come back on launch (their agent starts
   and replays the conversation via ACP `session/load` when the tab is shown);
@@ -72,13 +73,11 @@
   turn leaves.
 - Agent sessions: listing an agent's conversations spawns that agent once per
   folder per launch.
-- Attachments: ⌘V can't paste an image into the composer (the text field eats
-  the paste); use the paperclip menu's "Paste Image". @-mentions only work at
-  the end of the draft.
+- Composer: ⌘V of images / Finder files and @-mentions mid-draft are written
+  blind (key monitor, `TextField(selection:)`) — verify by hand.
 - Replace in files has no undo beyond the editor's own (files that weren't
   open are written straight to disk); written while unverified in the UI.
-- Git: diff tabs are unified (no side-by-side); agent tool-card diffs aren't
-  syntax-highlighted; History shows only the
+- Git: diff tabs are unified (no side-by-side); History shows only the
   current branch, without search or a graph; blame is only the caret's line
   (no per-line annotations).
 - Claude Code requires the standalone `claude` CLI to be logged in (`claude` → `/login`).

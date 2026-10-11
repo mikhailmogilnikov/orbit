@@ -102,7 +102,7 @@ struct GitCommitDiffView: View {
         lineCount = diff.1
         isLoaded = true
         if let url = tab.url {
-            highlighting = await DiffSyntax.highlighting(old: old, new: new, url: url, hunks: diff.0, with: model.highlighter)
+            highlighting = await DiffHighlighting.make(old: old, new: new, url: url, hunks: diff.0, with: model.highlighter)
         }
     }
 

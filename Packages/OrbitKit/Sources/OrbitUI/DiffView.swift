@@ -13,6 +13,25 @@ public struct DiffHighlighting: Sendable, Equatable {
         self.new = new
     }
 
+    /// Colors for the lines `hunks` show, in the editor's theme; nil without a highlighter
+    /// or for an unknown language.
+    @MainActor
+    public static func make(old: String, new: String, url: URL, hunks: [DiffHunk], with highlighter: SyntaxHighlighting?) async -> DiffHighlighting? {
+        guard let highlighter, !hunks.isEmpty else { return nil }
+        // Whole texts, so a line inside a multi-line string or comment is colored right.
+        let oldSpans = await highlighter.highlight(old, as: url)
+        let newSpans = await highlighter.highlight(new, as: url)
+        guard !oldSpans.isEmpty || !newSpans.isEmpty else { return nil }
+        let oldNumbers = Set(hunks.flatMap { $0.lines.compactMap(\.oldNumber) })
+        let newNumbers = Set(hunks.flatMap { $0.lines.compactMap(\.newNumber) })
+        return await Task.detached(priority: .userInitiated) {
+            DiffHighlighting(
+                old: DiffHighlighting.lines(of: old, spans: oldSpans, numbers: oldNumbers),
+                new: DiffHighlighting.lines(of: new, spans: newSpans, numbers: newNumbers)
+            )
+        }.value
+    }
+
     func text(for line: DiffLine) -> AttributedString? {
         line.kind == .removed ? line.oldNumber.flatMap { old[$0] } : line.newNumber.flatMap { new[$0] }
     }
@@ -147,12 +166,33 @@ struct DiffLineRow: View {
     }
 }
 
+private struct SyntaxHighlighterKey: EnvironmentKey {
+    static var defaultValue: (any SyntaxHighlighting)? { nil }
+}
+
+extension EnvironmentValues {
+    /// Colors code in diffs below; set by plugins that resolved the service.
+    public var syntaxHighlighter: (any SyntaxHighlighting)? {
+        get { self[SyntaxHighlighterKey.self] }
+        set { self[SyntaxHighlighterKey.self] = newValue }
+    }
+}
+
 /// Compact old→new preview, used inside agent tool-call cards.
 public struct CompactDiffView: View {
+    let old: String
+    let new: String
+    let url: URL?
     let hunks: [DiffHunk]
     let maxLines: Int
+    @Environment(\.syntaxHighlighter) private var highlighter
+    @State private var highlighting: DiffHighlighting?
 
-    public init(old: String, new: String, maxLines: Int = 40) {
+    /// `url` picks the language for syntax colors.
+    public init(old: String, new: String, url: URL? = nil, maxLines: Int = 40) {
+        self.old = old
+        self.new = new
+        self.url = url
         hunks = LineDiff.hunks(old: old, new: new, context: 2)
         self.maxLines = maxLines
     }
@@ -164,7 +204,7 @@ public struct CompactDiffView: View {
                 if index > 0 {
                     Rectangle().fill(Theme.hairline).frame(height: 1).padding(.vertical, 2)
                 }
-                DiffHunkView(hunk: hunk, showsLineNumbers: false)
+                DiffHunkView(hunk: hunk, showsLineNumbers: false, highlighting: highlighting)
             }
             if truncatedLines > 0 {
                 Text("\(truncatedLines) more lines…")
@@ -172,6 +212,10 @@ public struct CompactDiffView: View {
                     .foregroundStyle(.secondary)
                     .padding(6)
             }
+        }
+        .task(id: [old, new]) {
+            guard let url else { return }
+            highlighting = await DiffHighlighting.make(old: old, new: new, url: url, hunks: hunks, with: highlighter)
         }
     }
 

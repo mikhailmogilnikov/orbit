@@ -131,6 +131,7 @@ final class AgentStore {
     }
 
     var fileIndex: ProjectFileIndex? { services.resolve(ProjectFileIndex.self) }
+    var highlighter: SyntaxHighlighting? { services.resolve(SyntaxHighlighting.self) }
 
     /// Into the selected session, starting one if there's none.
     func attachToChat(_ attachment: PromptAttachment) {

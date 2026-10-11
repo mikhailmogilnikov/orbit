@@ -22,6 +22,7 @@ struct AgentsPanel: View {
                 }
             }
         }
+        .environment(\.syntaxHighlighter, store.highlighter)
         .onAppear { store.loadAgentHistory() }
         .onChange(of: store.workspace.root) { store.loadAgentHistory() }
     }
@@ -467,7 +468,7 @@ struct ToolCallCard: View {
                         Text(URL(fileURLWithPath: path).lastPathComponent)
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
-                        CompactDiffView(old: old ?? "", new: new)
+                        CompactDiffView(old: old ?? "", new: new, url: URL(fileURLWithPath: path))
                             .clipShape(.rect(cornerRadius: Theme.smallCorner))
                     }
                 }
@@ -615,6 +616,8 @@ struct Composer: View {
     /// Escape hides the file list until the @-word changes.
     @State private var dismissedMention: String?
     @State private var isDropTargeted = false
+    @State private var selection: TextSelection?
+    @State private var paste = PasteInterceptor()
 
     var body: some View {
         // The file list sits in the layout above the composer (which is at the
@@ -626,7 +629,12 @@ struct Composer: View {
             card
         }
         .padding(10)
-        .onAppear { isFocused = true }
+        .onAppear {
+            isFocused = true
+            paste.install(for: session)
+        }
+        .onDisappear { paste.remove() }
+        .onChange(of: isFocused, initial: true) { paste.isActive = isFocused }
         .onChange(of: focusRequest) { isFocused = true }
     }
 
@@ -635,7 +643,7 @@ struct Composer: View {
             if !session.attachments.isEmpty {
                 AttachmentChips(attachments: session.attachments) { session.detach($0) }
             }
-            TextField("Ask \(session.provider.name)… (@ to add files)", text: $session.draft, axis: .vertical)
+            TextField("Ask \(session.provider.name)… (@ to add files)", text: $session.draft, selection: $selection, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .lineLimit(1...10)
@@ -760,13 +768,27 @@ struct Composer: View {
 
     // MARK: @-mentions
 
-    /// The word being typed at the end of the draft, when it starts with @.
-    private var activeMention: String? {
-        guard let at = session.draft.lastIndex(of: "@") else { return nil }
-        let query = session.draft[session.draft.index(after: at)...]
+    /// The insertion point; the end of the draft until the field reports one.
+    private var caret: String.Index {
+        let draft = session.draft
+        guard let selection, case .selection(let range) = selection.indices, range.isEmpty,
+              range.upperBound <= draft.endIndex else { return draft.endIndex }
+        return range.upperBound
+    }
+
+    /// The @-word the caret is in or right after: from the @ to the caret.
+    private var mentionRange: Range<String.Index>? {
+        let draft = session.draft
+        let caret = caret
+        guard let at = draft[..<caret].lastIndex(of: "@") else { return nil }
+        let query = draft[draft.index(after: at)..<caret]
         guard !query.contains(where: \.isWhitespace) else { return nil }
-        if at > session.draft.startIndex, !session.draft[session.draft.index(before: at)].isWhitespace { return nil }
-        return String(query)
+        if at > draft.startIndex, !draft[draft.index(before: at)].isWhitespace { return nil }
+        return at..<caret
+    }
+
+    private var activeMention: String? {
+        mentionRange.map { String(session.draft[$0].dropFirst()) }
     }
 
     private var mentionMatches: [String] {
@@ -790,7 +812,19 @@ struct Composer: View {
 
     /// The @-word is replaced by the file's chip.
     private func pick(_ path: String) {
-        if let at = session.draft.lastIndex(of: "@") { session.draft.removeSubrange(at...) }
+        if let range = mentionRange {
+            let offset = session.draft.distance(from: session.draft.startIndex, to: range.lowerBound)
+            var draft = session.draft
+            draft.removeSubrange(range)
+            // Don't leave two spaces where the word was.
+            if offset > 0, draft.index(draft.startIndex, offsetBy: offset) < draft.endIndex,
+               draft[draft.index(draft.startIndex, offsetBy: offset)] == " ",
+               draft[draft.index(draft.startIndex, offsetBy: offset - 1)] == " " {
+                draft.remove(at: draft.index(draft.startIndex, offsetBy: offset))
+            }
+            session.draft = draft
+            selection = TextSelection(insertionPoint: draft.index(draft.startIndex, offsetBy: offset))
+        }
         session.attach(.file(session.cwd.appendingPathComponent(path).standardizedFileURL))
         dismissedMention = nil
         isFocused = true
@@ -811,6 +845,49 @@ struct Composer: View {
     private func pasteImage() {
         let image = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage
         if let attachment = PromptAttachment.imageAttachment(from: image) { session.attach(attachment) }
+    }
+}
+
+/// ⌘V in the composer: images and files copied in Finder become attachments.
+/// The text field would paste only their names (or nothing), and SwiftUI gives
+/// no hook before it, so a local key monitor catches the shortcut first.
+@MainActor
+final class PasteInterceptor {
+    var isActive = false
+    private var monitor: Any?
+
+    func install(for session: AgentSession) {
+        remove()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak session] event in
+            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  event.charactersIgnoringModifiers == "v",
+                  let self, let session else { return event }
+            let handled = MainActor.assumeIsolated {
+                guard self.isActive, let attachments = PasteInterceptor.attachments(in: .general) else { return false }
+                for attachment in attachments { session.attach(attachment) }
+                return true
+            }
+            return handled ? nil : event
+        }
+    }
+
+    func remove() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    /// Nil when the pasteboard is text to paste as usual.
+    static func attachments(in pasteboard: NSPasteboard) -> [PromptAttachment]? {
+        let files = (pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        if !files.isEmpty {
+            return files.map { PromptAttachment.from(fileURL: $0) }
+        }
+        // Rich text from some apps carries an image too; text wins then.
+        guard pasteboard.string(forType: .string) == nil,
+              pasteboard.canReadObject(forClasses: [NSImage.self], options: nil),
+              let image = pasteboard.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+              let attachment = PromptAttachment.imageAttachment(from: image) else { return nil }
+        return [attachment]
     }
 }
 

@@ -319,3 +319,14 @@ immediately so the state is unambiguous again. ⌘S re-checks the disk and asks
 before overwriting a change; Save All skips conflicted files. ACP
 `fs/write_text_file` still replaces the buffer: the agent read it through the
 buffer, so it already saw the unsaved edits.
+
+### D34. Composer paste and mid-draft mentions
+⌘V with an image (screenshot) or files copied in Finder on the pasteboard
+attaches them instead of pasting names; plain text — even when an image rides
+along, as with rich text from some apps — pastes as usual. SwiftUI's text
+field consumes the paste before any SwiftUI hook, so a local key-down monitor,
+active only while the composer is focused, catches ⌘V first. @-mentions
+follow the caret via `TextField(text:selection:)`, so a file can be mentioned
+in the middle of a sentence; picking one removes the @-word where it was.
+Tool-card diffs get syntax colors through the same `SyntaxHighlighting`
+service as git diffs, passed down as a SwiftUI environment value.
