@@ -149,30 +149,33 @@ final class TerminalStore {
 }
 
 extension TerminalStore: AgentTerminalHosting {
-    /// Opens the command in a background tab: it never takes the selection,
-    /// focus or the panel away from the user.
+    /// The command owns a process here and may ask for input, so it gets a tab
+    /// right away, in the background: it never takes the selection, focus or
+    /// the panel away from the user.
     func run(_ request: AgentTerminalRequest) -> AgentTerminal {
         let terminal = AgentTerminal(request: request)
-        adopt(TerminalSession(agentTerminal: terminal), for: terminal)
+        let session = add(TerminalSession(agentTerminal: terminal))
+        if selectedID == nil { selectedID = session.id }
+        wire(terminal)
         return terminal
     }
 
+    /// Output only: the tool card shows it, and a tab opens just when the user
+    /// asks for it (Show in Terminal).
     func display(_ request: AgentTerminalRequest) -> AgentTerminal {
         let terminal = AgentTerminal(request: request, ownsProcess: false)
-        adopt(TerminalSession(displaying: terminal), for: terminal)
+        wire(terminal)
         return terminal
     }
 
-    private func adopt(_ session: TerminalSession, for terminal: AgentTerminal) {
-        add(session)
-        if selectedID == nil { selectedID = session.id }
+    private func wire(_ terminal: AgentTerminal) {
         terminal.onKill = { [weak self, weak terminal] in
             guard let terminal else { return }
             self?.tab(showing: terminal)?.kill()
         }
         terminal.onReveal = { [weak self, weak terminal] in
             guard let self, let terminal else { return }
-            // A closed or pruned tab comes back, redrawn from what the command printed.
+            // Opened on demand, or again after being closed: drawn from what the command printed.
             let shown = tab(showing: terminal) ?? add(TerminalSession(displaying: terminal))
             selectedID = shown.id
             ui.revealBottomPanel(Self.panelID)

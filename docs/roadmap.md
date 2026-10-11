@@ -24,9 +24,10 @@
   Message via a hidden agent session (`AgentCompletion` service); diff tabs
   for working-tree / staged changes; git colors and badges in the explorer
   (`FileStatusProviding` service)
-- Agent commands in background tabs of the terminal panel: display-only for
-  Claude Code / Codex (`_meta.terminal_output`), real PTYs for agents using ACP
-  `terminal/*`; the tool card shows the output with Stop / Show in Terminal
+- Agent commands: the tool card shows their output with Stop / Show in
+  Terminal; terminal tabs are display-only for Claude Code / Codex
+  (`_meta.terminal_output`, opened on demand), real PTYs for agents using ACP
+  `terminal/*`
 - Save / Don't Save / Cancel prompt when unsaved edits would be lost: closing
   the last tab of a file, opening another folder, quitting
 - App icon (Icon Composer) and brand mark in the UI; welcome screen with clickable actions
