@@ -28,6 +28,18 @@ struct OrbitApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var host: PluginHost?
+    /// Set by the main window; brings it back when a quit is cancelled after
+    /// its last window was already closed.
+    @MainActor static var reopenMainWindow: (@MainActor () -> Void)?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated {
+            guard let workspace = Self.host?.workspace,
+                  !workspace.confirmUnsavedChanges(in: workspace.documents.dirtyDocuments) else { return .terminateNow }
+            if !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) { Self.reopenMainWindow?() }
+            return .terminateCancel
+        }
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { Self.host?.shutdown() }

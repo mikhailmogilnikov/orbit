@@ -74,7 +74,7 @@ public final class Workspace {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Open"
-        if panel.runModal() == .OK, let url = panel.url { openFolder(url) }
+        if panel.runModal() == .OK, let url = panel.url, confirmUnsavedChanges(in: documents.dirtyDocuments) { openFolder(url) }
     }
 
     public func open(_ tab: EditorTab) {
@@ -109,8 +109,56 @@ public final class Workspace {
         }
     }
 
+    /// Closes a tab for the user: asks first when that would drop unsaved edits.
+    /// Programmatic closes (e.g. a deleted file) use `close` and never ask.
+    public func requestClose(_ tabID: EditorTab.ID) {
+        guard let tab = tabs.first(where: { $0.id == tabID }) else { return }
+        if tab.kind == EditorTab.fileKind, let url = tab.url,
+           !tabs.contains(where: { $0.id != tabID && $0.url == url }),
+           let document = documents.existingDocument(for: url),
+           !confirmUnsavedChanges(in: [document]) { return }
+        close(tabID)
+    }
+
     public func closeActiveTab() {
-        if let activeTabID { close(activeTabID) }
+        if let activeTabID { requestClose(activeTabID) }
+    }
+
+    /// Asks what to do with unsaved edits that are about to be lost (closing a
+    /// tab, opening another folder, quitting) and saves them if asked to.
+    /// Returns false when the user cancels or saving fails.
+    public func confirmUnsavedChanges(in documents: [TextDocument]) -> Bool {
+        let dirty = documents.filter(\.isDirty).sorted { $0.url.path < $1.url.path }
+        guard !dirty.isEmpty else { return true }
+        let alert = NSAlert()
+        if dirty.count == 1 {
+            alert.messageText = "Do you want to save the changes you made to “\(dirty[0].url.lastPathComponent)”?"
+            alert.informativeText = "Your changes will be lost if you don't save them."
+        } else {
+            let shown = dirty.prefix(8).map { relativePath($0.url) }
+            let more = dirty.count > shown.count ? "\n…and \(dirty.count - shown.count) more" : ""
+            alert.messageText = "Do you want to save the changes to \(dirty.count) files?"
+            alert.informativeText = "Your changes will be lost if you don't save them.\n\n" + shown.joined(separator: "\n") + more
+        }
+        alert.addButton(withTitle: dirty.count == 1 ? "Save" : "Save All")
+        alert.addButton(withTitle: "Cancel")
+        let discard = alert.addButton(withTitle: "Don't Save")
+        discard.keyEquivalent = "d"
+        discard.keyEquivalentModifierMask = .command
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            do {
+                for document in dirty { try document.save() }
+            } catch {
+                NSAlert(error: error).runModal()
+                return false
+            }
+            return true
+        case .alertThirdButtonReturn:
+            return true
+        default:
+            return false
+        }
     }
 
     public func relativePath(_ url: URL) -> String {

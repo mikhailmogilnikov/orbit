@@ -7,6 +7,7 @@ struct MainWindow: View {
     @State private var inspectorPanelID: String?
     @State private var showsInspector = true
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @Environment(\.openWindow) private var openWindow
 
     private var workspace: Workspace { host.workspace }
     private var ui: UIRegistry { host.ui }
@@ -46,6 +47,9 @@ struct MainWindow: View {
                 QuickPickOverlay(pick: pick) { ui.dismissQuickPick() }
                     .id(pick.id)
             }
+        }
+        .onAppear {
+            AppDelegate.reopenMainWindow = { openWindow(id: "main") }
         }
         .onChange(of: ui.requestedInspectorPanel) { _, id in
             guard let id else { return }
@@ -278,7 +282,7 @@ struct TabItem: View {
             ZStack {
                 if isHovering || (isActive && !isDirty) {
                     Button {
-                        workspace.close(tab.id)
+                        workspace.requestClose(tab.id)
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .bold))
@@ -302,9 +306,9 @@ struct TabItem: View {
         .onTapGesture { workspace.activeTabID = tab.id }
         .onHover { isHovering = $0 }
         .contextMenu {
-            Button("Close") { workspace.close(tab.id) }
+            Button("Close") { workspace.requestClose(tab.id) }
             Button("Close Others") {
-                for other in workspace.tabs where other.id != tab.id { workspace.close(other.id) }
+                for other in workspace.tabs where other.id != tab.id { workspace.requestClose(other.id) }
             }
             if let url = tab.url {
                 Divider()

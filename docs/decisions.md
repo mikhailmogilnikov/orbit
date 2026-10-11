@@ -190,3 +190,15 @@ CPU per 120 pt scroll step, Debug): 47 ms before → ~13 ms after.
   can use them. ⌘P with an empty query lists them without the current file, so
   ⌘P ↩ goes back to the previous file; with a query they get a small score
   bonus that only wins near-ties.
+
+### D26. Ask before unsaved edits are lost
+A standard macOS Save / Cancel / Don't Save alert (⌘D for Don't Save; one
+alert listing every file when several are dirty) guards the three ways edits
+could vanish: closing the last tab of a dirty file, opening another folder and
+quitting. It lives in the kernel (`Workspace.confirmUnsavedChanges`,
+`requestClose`) so plugins' user-facing close actions can reuse it, while
+programmatic `close` (e.g. a rejected agent file was deleted) never asks.
+Quitting asks in `applicationShouldTerminate`; closing the window quits the
+app, so a cancelled quit reopens the main window (the workspace and its
+buffers live in `PluginHost`, so nothing is lost). App-modal `runModal` rather
+than a sheet: it also has to work after the window is gone.

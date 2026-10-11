@@ -16,7 +16,12 @@ Read before significant work:
 - Doesn't know Swift well and delegates technical decisions: pick the best
   solution yourself, explain it briefly in plain terms. Ask only about product/UX.
 - Cares a lot about looks and native feel — verify UI visually, don't guess.
-- Don't commit unless asked.
+- Don't commit unless asked. Exception — cloud sessions (claude.ai/code): the
+  author can't see changes otherwise, so commit and push straight to `master`
+  (no feature branches or PRs), authored as
+  `Mikhail Mogilnikov <mikhail.mogilnikov02@gmail.com>`, without
+  `Co-Authored-By` / `Claude-Session` trailers. The cloud container is Linux:
+  nothing here builds, so say what wasn't verified and expect screenshots back.
 
 ## Commands
 

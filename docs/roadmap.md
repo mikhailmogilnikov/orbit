@@ -24,6 +24,8 @@
   Message via a hidden agent session (`AgentCompletion` service); diff tabs
   for working-tree / staged changes; git colors and badges in the explorer
   (`FileStatusProviding` service)
+- Save / Don't Save / Cancel prompt when unsaved edits would be lost: closing
+  the last tab of a file, opening another folder, quitting
 - App icon (Icon Composer) and brand mark in the UI; welcome screen with clickable actions
 
 ## Next (rough priority)
@@ -43,7 +45,6 @@
   verified by hand.
 - Dirty buffers vs agent writing the same file on disk: no conflict UI yet
   (clean buffers reload automatically).
-- No unsaved-changes prompt on quit.
 - Terminal: no find-in-terminal, font size follows the editor only, panel
   hides when the last shell exits.
 - Replace in files has no undo beyond the editor's own (files that weren't
