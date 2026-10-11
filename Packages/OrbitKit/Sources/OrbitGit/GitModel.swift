@@ -56,6 +56,8 @@ final class GitModel {
         }
     }
 
+    var highlighter: SyntaxHighlighting? { services.resolve(SyntaxHighlighting.self) }
+
     private var repository: GitRepository? {
         root.map { GitRepository(root: $0, environment: environment) }
     }

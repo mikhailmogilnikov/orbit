@@ -12,6 +12,9 @@ struct GitDiffView: View {
     @State private var lineCount = 0
     @State private var isBinary = false
     @State private var isLoaded = false
+    @State private var highlighting: DiffHighlighting?
+    /// Which sides `highlighting` was made for; the view reloads every few seconds.
+    @State private var highlightedSides: Int?
 
     var body: some View {
         let file = model.file(at: url)
@@ -30,7 +33,7 @@ struct GitDiffView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(hunks.enumerated()), id: \.element.id) { index, hunk in
                             GapRow(hidden: hiddenLines(before: index))
-                            DiffHunkView(hunk: hunk)
+                            DiffHunkView(hunk: hunk, highlighting: highlighting)
                         }
                         GapRow(hidden: hiddenLinesAfterLast)
                     }
@@ -114,6 +117,14 @@ struct GitDiffView: View {
         if hunks != result.0 { hunks = result.0 }
         lineCount = result.1
         isLoaded = true
+        var sides = Hasher()
+        sides.combine(old)
+        sides.combine(new)
+        let key = sides.finalize()
+        if key != highlightedSides {
+            highlightedSides = key
+            highlighting = await DiffSyntax.highlighting(old: old, new: new, url: url, hunks: result.0, with: model.highlighter)
+        }
     }
 
     private func hiddenLines(before index: Int) -> Int {
@@ -151,5 +162,25 @@ struct GapRow: View {
                 .padding(.vertical, 4)
                 .background(Theme.subtleFill)
         }
+    }
+}
+
+/// Syntax colors for the lines a diff shows, in the editor's theme.
+@MainActor
+enum DiffSyntax {
+    static func highlighting(old: String, new: String, url: URL, hunks: [DiffHunk], with highlighter: SyntaxHighlighting?) async -> DiffHighlighting? {
+        guard let highlighter, !hunks.isEmpty else { return nil }
+        // Whole files, so a line inside a multi-line string or comment is colored right.
+        let oldSpans = await highlighter.highlight(old, as: url)
+        let newSpans = await highlighter.highlight(new, as: url)
+        guard !oldSpans.isEmpty || !newSpans.isEmpty else { return nil }
+        let oldNumbers = Set(hunks.flatMap { $0.lines.compactMap(\.oldNumber) })
+        let newNumbers = Set(hunks.flatMap { $0.lines.compactMap(\.newNumber) })
+        return await Task.detached(priority: .userInitiated) {
+            DiffHighlighting(
+                old: DiffHighlighting.lines(of: old, spans: oldSpans, numbers: oldNumbers),
+                new: DiffHighlighting.lines(of: new, spans: newSpans, numbers: newNumbers)
+            )
+        }.value
     }
 }

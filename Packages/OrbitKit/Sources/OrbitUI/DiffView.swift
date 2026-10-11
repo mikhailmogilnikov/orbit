@@ -1,22 +1,83 @@
 import OrbitAPI
 import SwiftUI
 
+/// Syntax-colored lines for a diff, by 1-based line number in each side.
+public struct DiffHighlighting: Sendable, Equatable {
+    public var old: [Int: AttributedString] = [:]
+    public var new: [Int: AttributedString] = [:]
+
+    public init() {}
+
+    public init(old: [Int: AttributedString], new: [Int: AttributedString]) {
+        self.old = old
+        self.new = new
+    }
+
+    func text(for line: DiffLine) -> AttributedString? {
+        line.kind == .removed ? line.oldNumber.flatMap { old[$0] } : line.newNumber.flatMap { new[$0] }
+    }
+
+    /// Colored copies of the given lines of `text` (only those: a diff shows few).
+    public static func lines(of text: String, spans: [SyntaxSpan], numbers: Set<Int>) -> [Int: AttributedString] {
+        guard !spans.isEmpty, !numbers.isEmpty else { return [:] }
+        let string = text as NSString
+        var starts = [0]
+        for index in 0..<string.length where string.character(at: index) == 0x0A { starts.append(index + 1) }
+        func line(containing offset: Int) -> Int {
+            var low = 0, high = starts.count - 1
+            while low < high {
+                let mid = (low + high + 1) / 2
+                if starts[mid] <= offset { low = mid } else { high = mid - 1 }
+            }
+            return low + 1
+        }
+        // Spans by the wanted lines they touch, keeping their order (later ones win).
+        var spansByLine: [Int: [SyntaxSpan]] = [:]
+        for span in spans where span.range.length > 0 {
+            let first = line(containing: span.range.location)
+            let last = line(containing: NSMaxRange(span.range) - 1)
+            for number in first...last where numbers.contains(number) { spansByLine[number, default: []].append(span) }
+        }
+        var result: [Int: AttributedString] = [:]
+        for number in numbers where number >= 1 && number <= starts.count {
+            let start = starts[number - 1]
+            var end = number < starts.count ? starts[number] - 1 : string.length
+            if end > start, string.character(at: end - 1) == 0x0D { end -= 1 }
+            let lineRange = NSRange(location: start, length: end - start)
+            let lineText = string.substring(with: lineRange)
+            var attributed = AttributedString(lineText)
+            for span in spansByLine[number] ?? [] {
+                let clipped = NSIntersectionRange(span.range, lineRange)
+                guard clipped.length > 0,
+                      let range = Range(NSRange(location: clipped.location - start, length: clipped.length), in: lineText),
+                      let lower = AttributedString.Index(range.lowerBound, within: attributed),
+                      let upper = AttributedString.Index(range.upperBound, within: attributed) else { continue }
+                attributed[lower..<upper].foregroundColor = span.color
+            }
+            result[number] = attributed
+        }
+        return result
+    }
+}
+
 /// Renders one hunk as unified-diff lines with a two-column gutter.
 public struct DiffHunkView<Actions: View>: View {
     let hunk: DiffHunk
     let showsLineNumbers: Bool
+    let highlighting: DiffHighlighting?
     let actions: Actions
 
-    public init(hunk: DiffHunk, showsLineNumbers: Bool = true, @ViewBuilder actions: () -> Actions) {
+    public init(hunk: DiffHunk, showsLineNumbers: Bool = true, highlighting: DiffHighlighting? = nil, @ViewBuilder actions: () -> Actions) {
         self.hunk = hunk
         self.showsLineNumbers = showsLineNumbers
+        self.highlighting = highlighting
         self.actions = actions()
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(hunk.lines) { line in
-                DiffLineRow(line: line, showsLineNumbers: showsLineNumbers)
+                DiffLineRow(line: line, showsLineNumbers: showsLineNumbers, highlighted: highlighting?.text(for: line))
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -26,14 +87,15 @@ public struct DiffHunkView<Actions: View>: View {
 }
 
 extension DiffHunkView where Actions == EmptyView {
-    public init(hunk: DiffHunk, showsLineNumbers: Bool = true) {
-        self.init(hunk: hunk, showsLineNumbers: showsLineNumbers) { EmptyView() }
+    public init(hunk: DiffHunk, showsLineNumbers: Bool = true, highlighting: DiffHighlighting? = nil) {
+        self.init(hunk: hunk, showsLineNumbers: showsLineNumbers, highlighting: highlighting) { EmptyView() }
     }
 }
 
 struct DiffLineRow: View {
     let line: DiffLine
     let showsLineNumbers: Bool
+    var highlighted: AttributedString?
 
     var body: some View {
         // Top-aligned, and no empty Texts: an empty Text has no baseline, and
@@ -50,7 +112,7 @@ struct DiffLineRow: View {
                 .frame(width: 14)
                 .foregroundStyle(markerColor)
             // Long lines wrap so every row's background spans the full width.
-            Text(line.text.isEmpty ? " " : line.text)
+            Text(highlighted.flatMap { $0.characters.isEmpty ? nil : $0 } ?? AttributedString(line.text.isEmpty ? " " : line.text))
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

@@ -24,6 +24,8 @@
   Message via a hidden agent session (`AgentCompletion` service); diff tabs
   for working-tree / staged changes; git colors and badges in the explorer
   (`FileStatusProviding` service)
+- Syntax highlighting in git diff and commit tabs (`SyntaxHighlighting`
+  service: a one-shot tree-sitter parse in the editor's theme)
 - Git stash (stash with untracked files, pop/apply/delete), History (last 200
   commits; expand for files, click for a read-only diff tab), blame of the
   caret's line in the status bar (`EditorSelectionProviding.cursor`)
@@ -70,7 +72,8 @@
   the end of the draft.
 - Replace in files has no undo beyond the editor's own (files that weren't
   open are written straight to disk); written while unverified in the UI.
-- Git: diff tabs are unified and not syntax-highlighted; History shows only the
+- Git: diff tabs are unified (no side-by-side); agent tool-card diffs aren't
+  syntax-highlighted; History shows only the
   current branch, without search or a graph; blame is only the caret's line
   (no per-line annotations).
 - Claude Code requires the standalone `claude` CLI to be logged in (`claude` → `/login`).

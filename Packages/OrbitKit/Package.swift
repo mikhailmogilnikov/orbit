@@ -42,6 +42,6 @@ let package = Package(
             name: "OrbitKit",
             dependencies: ["OrbitAPI", "OrbitUI", "OrbitExplorer", "OrbitEditor", "OrbitReview", "OrbitSearch", "OrbitGit", "OrbitTerminal", "OrbitAgents"]
         ),
-        .testTarget(name: "OrbitKitTests", dependencies: ["OrbitAPI", "OrbitACP", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents"]),
+        .testTarget(name: "OrbitKitTests", dependencies: ["OrbitAPI", "OrbitACP", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI"]),
     ]
 )

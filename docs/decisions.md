@@ -295,3 +295,12 @@ own inline review (D7); the two don't interact.
   and is cached per file contents. The cursor comes from the Editor plugin
   through `EditorSelectionProviding.cursor`, debounced, and looked up lazily
   (Git activates before Editor).
+
+### D32. Syntax colors in diffs
+The Editor plugin owns tree-sitter, so it serves a `SyntaxHighlighting`
+service: one parse of a whole text off the main actor, captures mapped
+through the editor's theme into `SyntaxSpan`s. Diffs highlight the full old
+and new file (so lines inside multi-line strings or comments are right), then
+color only the lines the hunks show (`DiffHighlighting`, OrbitUI). The
+working-tree diff reloads every few seconds, so it re-highlights only when
+either side's text changed. Texts over 1 MB stay plain.

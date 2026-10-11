@@ -1,4 +1,6 @@
+import SwiftUI
 import Testing
+@testable import OrbitUI
 @testable import OrbitACP
 @testable import OrbitAPI
 
@@ -75,5 +77,29 @@ import Foundation
         #expect(markers.deletedAbove == IndexSet(integer: 1))
         #expect(markers.added.isEmpty && markers.modified.isEmpty)
         #expect(LineMarkers(baseline: "same", current: "same").isEmpty)
+    }
+}
+
+@Suite struct DiffHighlightingTests {
+    @Test func colorsOnlyTheRequestedLinesAndClipsSpansToThem() throws {
+        let text = "let a = 1\n/* multi\nline */ b\n"
+        // "let" and a comment spanning lines 2–3.
+        let spans = [
+            SyntaxSpan(range: NSRange(location: 0, length: 3), color: .red),
+            SyntaxSpan(range: NSRange(location: 10, length: 16), color: .green),
+        ]
+        let lines = DiffHighlighting.lines(of: text, spans: spans, numbers: [1, 3])
+        #expect(Set(lines.keys) == [1, 3])
+        let first = try #require(lines[1])
+        #expect(String(first.characters) == "let a = 1")
+        #expect(colors(first) == [.red, nil])
+        let third = try #require(lines[3])
+        #expect(String(third.characters) == "line */ b")
+        // The comment ends at "*/": the rest of the line keeps the default color.
+        #expect(colors(third) == [.green, nil])
+    }
+
+    private func colors(_ text: AttributedString) -> [Color?] {
+        text.runs.map { $0[AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute.self] }
     }
 }

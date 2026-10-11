@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Neon
 import STPluginNeon
 import STTextView
@@ -230,5 +231,32 @@ private final class HighlightTextInterface: TextSystemInterface {
             return .zero
         }
         return NSRange(viewportRange, provider: textView.textContentManager)
+    }
+}
+
+/// Highlights whole texts at once for read-only views: one tree-sitter parse
+/// off the main actor, no text view involved.
+@MainActor
+final class StaticHighlighter: SyntaxHighlighting {
+    /// Bigger texts aren't worth a parse just to color a diff.
+    private static let maxLength = 1_000_000
+
+    func highlight(_ text: String, as url: URL) async -> [SyntaxSpan] {
+        guard text.utf16.count <= Self.maxLength else { return [] }
+        let captures = await Task.detached(priority: .userInitiated) { Self.captures(in: text, url: url) }.value
+        let theme = STPluginNeon.Theme.default
+        return captures.compactMap { name, range in
+            guard range.length > 0, let color = theme.color(forToken: TokenName(name)) else { return nil }
+            return SyntaxSpan(range: range, color: Color(nsColor: color))
+        }
+    }
+
+    /// Capture names and ranges, less specific first (later ones win).
+    nonisolated private static func captures(in text: String, url: URL) -> [(String, NSRange)] {
+        guard let language = Language.treeSitter(for: url), let query = HighlightQueries.query(for: language) else { return [] }
+        let parser = Parser()
+        guard (try? parser.setLanguage(SwiftTreeSitter.Language(language: language.parser))) != nil,
+              let tree = parser.parse(text) else { return [] }
+        return query.execute(in: tree).resolve(with: .init(string: text)).highlights().map { ($0.name, $0.range) }
     }
 }

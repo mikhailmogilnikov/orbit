@@ -13,6 +13,7 @@ struct GitCommitDiffView: View {
     @State private var lineCount = 0
     @State private var isBinary = false
     @State private var isLoaded = false
+    @State private var highlighting: DiffHighlighting?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,7 +30,7 @@ struct GitCommitDiffView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(hunks.enumerated()), id: \.element.id) { index, hunk in
                             GapRow(hidden: hiddenLines(before: index))
-                            DiffHunkView(hunk: hunk)
+                            DiffHunkView(hunk: hunk, highlighting: highlighting)
                         }
                         GapRow(hidden: hiddenLinesAfterLast)
                     }
@@ -100,6 +101,9 @@ struct GitCommitDiffView: View {
         hunks = diff.0
         lineCount = diff.1
         isLoaded = true
+        if let url = tab.url {
+            highlighting = await DiffSyntax.highlighting(old: old, new: new, url: url, hunks: diff.0, with: model.highlighter)
+        }
     }
 
     private func hiddenLines(before index: Int) -> Int {

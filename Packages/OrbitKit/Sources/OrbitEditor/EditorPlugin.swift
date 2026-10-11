@@ -63,6 +63,7 @@ public final class EditorPlugin: OrbitPlugin {
 
         registerChangeCommands(context)
         context.services.register(EditorSelectionProviding.self, EditorSelectionService.shared)
+        context.services.register(SyntaxHighlighting.self, StaticHighlighter())
     }
 
     private func registerChangeCommands(_ context: PluginContext) {
