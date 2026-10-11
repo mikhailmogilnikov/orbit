@@ -215,6 +215,8 @@ failure):
   `_meta.terminal_info`, stream `terminal_output_delta` and report
   `terminal_exit`. The tab is display-only: no Stop, typing goes nowhere.
   Claude sends a command's output in one piece when it finishes; Codex streams.
+  Only `execute` tool calls get a tab: Codex also reads and lists files through
+  the shell, and those flooded the panel (their output stays in the card).
 - **ACP `terminal/*`** (other ACP agents) when the Terminal plugin is enabled:
   the command is a real PTY we own, so colors, interactive prompts and Stop
   work like any terminal.
@@ -228,4 +230,4 @@ failure):
   `PAGER`/`GIT_PAGER` are `cat` so nothing waits for a keypress. Stop sends
   SIGTERM to the whole process group.
 - Tabs don't pile up: a released command's tab closes unless it's selected,
-  and only the 3 newest finished agent tabs are kept.
+  and only the 5 newest finished agent tabs are kept.

@@ -136,7 +136,7 @@ final class TerminalStore {
         for session in finished.dropLast(Self.keptAgentTabs) { remove(session, automatic: true) }
     }
 
-    private static let keptAgentTabs = 3
+    private static let keptAgentTabs = 5
 
     func terminateAll() {
         for session in sessions { session.terminate() }

@@ -233,7 +233,9 @@ final class AgentSession: Identifiable {
         if let kind = update["kind"]?.string { entry.toolKind = kind }
         if let command = update["rawInput"]?["command"]?.string { entry.command = command }
         let meta = update["_meta"]
-        if let info = meta?["terminal_info"], let id = info["terminal_id"]?.string, terminals[id] == nil, let host = terminalHost {
+        // Agents also read and list files through the shell; only real commands get a terminal tab.
+        if entry.toolKind == "execute", let info = meta?["terminal_info"], let id = info["terminal_id"]?.string,
+           terminals[id] == nil, let host = terminalHost {
             let directory = info["cwd"]?.string.map { workspace.resolve(path: $0) } ?? cwd
             let command = entry.command ?? (entry.title.isEmpty ? "command" : entry.title)
             terminals[id] = host.display(AgentTerminalRequest(command: command, environment: [:], directory: directory))
