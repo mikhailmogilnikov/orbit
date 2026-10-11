@@ -617,6 +617,20 @@ struct Composer: View {
     @State private var isDropTargeted = false
 
     var body: some View {
+        // The file list sits in the layout above the composer (which is at the
+        // bottom of the panel), so it grows upward instead of off the window.
+        VStack(spacing: 6) {
+            if !mentionMatches.isEmpty {
+                MentionList(paths: mentionMatches, selected: mentionIndex) { pick($0) }
+            }
+            card
+        }
+        .padding(10)
+        .onAppear { isFocused = true }
+        .onChange(of: focusRequest) { isFocused = true }
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !session.attachments.isEmpty {
                 AttachmentChips(attachments: session.attachments) { session.detach($0) }
@@ -638,6 +652,7 @@ struct Composer: View {
                     return .handled
                 }
                 .onChange(of: activeMention) { mentionIndex = 0 }
+                .onChange(of: session.draft) { old, new in attachDroppedPaths(old, new) }
 
             HStack(spacing: 6) {
                 Menu {
@@ -705,19 +720,37 @@ struct Composer: View {
                 RoundedRectangle(cornerRadius: 16).strokeBorder(.tint, lineWidth: 2)
             }
         }
-        .overlay(alignment: .top) {
-            if !mentionMatches.isEmpty {
-                MentionList(paths: mentionMatches, selected: mentionIndex) { pick($0) }
-                    .alignmentGuide(.top) { $0[.bottom] + 6 }
-            }
-        }
         .dropDestination(for: URL.self) { urls, _ in
             for url in urls where url.isFileURL { session.attach(.from(fileURL: url)) }
             return urls.contains { $0.isFileURL }
         } isTargeted: { isDropTargeted = $0 }
-        .padding(10)
-        .onAppear { isFocused = true }
-        .onChange(of: focusRequest) { isFocused = true }
+    }
+
+    /// A file dropped on the text field itself lands as its path (the field
+    /// takes the drop before we can): turn freshly inserted paths of existing
+    /// files into attachments.
+    private func attachDroppedPaths(_ old: String, _ new: String) {
+        guard new.count > old.count else { return }
+        let prefix = zip(old, new).prefix { $0.0 == $0.1 }.count
+        let suffix = zip(old.reversed(), new.reversed()).prefix { $0.0 == $0.1 }.count
+        let start = new.index(new.startIndex, offsetBy: prefix)
+        let end = new.index(new.endIndex, offsetBy: -min(suffix, old.count - prefix))
+        guard start < end else { return }
+        let inserted = String(new[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard inserted.hasPrefix("/") || inserted.hasPrefix("file://") else { return }
+        let candidates = FileManager.default.fileExists(atPath: Self.path(inserted)) ? [inserted]
+            : inserted.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        let files = candidates.map(Self.path)
+        var isDirectory: ObjCBool = false
+        guard !files.isEmpty, files.allSatisfy({ FileManager.default.fileExists(atPath: $0, isDirectory: &isDirectory) && !isDirectory.boolValue }) else { return }
+        session.draft = String(new[..<start]) + String(new[end...])
+        for file in files { session.attach(.from(fileURL: URL(fileURLWithPath: file))) }
+    }
+
+    private static func path(_ text: String) -> String {
+        if text.hasPrefix("file://"), let url = URL(string: text) { return url.path }
+        // Some drops escape spaces as in a shell.
+        return text.replacingOccurrences(of: "\\ ", with: " ")
     }
 
     private var isDisabled: Bool {
