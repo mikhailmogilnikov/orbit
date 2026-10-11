@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Neon
+import OrbitAPI
 import STPluginNeon
 import STTextView
 import SwiftTreeSitter
