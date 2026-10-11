@@ -73,8 +73,6 @@
   turn leaves.
 - Agent sessions: listing an agent's conversations spawns that agent once per
   folder per launch.
-- Composer: ⌘V of images / Finder files and @-mentions mid-draft are written
-  blind (key monitor, `TextField(selection:)`) — verify by hand.
 - Replace in files has no undo beyond the editor's own (files that weren't
   open are written straight to disk); written while unverified in the UI.
 - Git: diff tabs are unified (no side-by-side); History shows only the
