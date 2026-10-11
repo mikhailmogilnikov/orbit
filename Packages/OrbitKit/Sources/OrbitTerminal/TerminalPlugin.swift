@@ -168,17 +168,17 @@ extension TerminalStore: AgentTerminalHosting {
         if selectedID == nil { selectedID = session.id }
         terminal.onKill = { [weak self, weak terminal] in
             guard let terminal else { return }
-            self?.session(showing: terminal)?.kill()
+            self?.tab(showing: terminal)?.kill()
         }
         terminal.onReveal = { [weak self, weak terminal] in
             guard let self, let terminal else { return }
             // A closed or pruned tab comes back, redrawn from what the command printed.
-            let shown = session(showing: terminal) ?? add(TerminalSession(displaying: terminal))
+            let shown = tab(showing: terminal) ?? add(TerminalSession(displaying: terminal))
             selectedID = shown.id
             ui.revealBottomPanel(Self.panelID)
         }
         terminal.onRelease = { [weak self, weak terminal] in
-            guard let self, let terminal, let shown = session(showing: terminal), shown.id != selectedID else { return }
+            guard let self, let terminal, let shown = tab(showing: terminal), shown.id != selectedID else { return }
             remove(shown, automatic: true)
         }
     }
@@ -190,7 +190,7 @@ extension TerminalStore: AgentTerminalHosting {
         return session
     }
 
-    private func session(showing terminal: AgentTerminal) -> TerminalSession? {
+    private func tab(showing terminal: AgentTerminal) -> TerminalSession? {
         sessions.first { $0.agentTerminal === terminal }
     }
 }
