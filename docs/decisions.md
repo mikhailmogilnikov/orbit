@@ -203,14 +203,21 @@ app, so a cancelled quit reopens the main window (the workspace and its
 buffers live in `PluginHost`, so nothing is lost). App-modal `runModal` rather
 than a sheet: it also has to work after the window is gone.
 
-### D27. Agent commands run in our terminal (ACP `terminal/*`)
-When the Terminal plugin is enabled we advertise the `terminal` capability, so
-agents run shell commands through Orbit instead of in their own hidden
-process. Each command is a real PTY in a background tab of the terminal panel
-(sparkles icon): colors, interactive prompts and Stop work like any terminal,
-and it never takes selection, focus or the panel from the user. The tool card
-streams the same output as plain text and stays expanded while the command
-runs or after it fails.
+### D27. Agent commands show up in our terminal
+Two paths, both ending in a background tab of the terminal panel (sparkles
+icon) that never takes selection, focus or the panel from the user, plus the
+same output as plain text in the tool card (expanded while running or after a
+failure):
+- **Display terminals** (what Claude Code and Codex actually use): their
+  adapters never call `terminal/*` — they run commands themselves (checked in
+  claude-agent-acp and codex-acp source). When we declare
+  `clientCapabilities._meta.terminal_output(_delta)` they tag tool calls with
+  `_meta.terminal_info`, stream `terminal_output_delta` and report
+  `terminal_exit`. The tab is display-only: no Stop, typing goes nowhere.
+  Claude sends a command's output in one piece when it finishes; Codex streams.
+- **ACP `terminal/*`** (other ACP agents) when the Terminal plugin is enabled:
+  the command is a real PTY we own, so colors, interactive prompts and Stop
+  work like any terminal.
 - Plugins stay independent: `AgentTerminalHosting` + the `AgentTerminal` model
   live in `OrbitAPI`; Terminal hosts, Agents asks.
 - What the agent reads is the raw byte stream turned into text

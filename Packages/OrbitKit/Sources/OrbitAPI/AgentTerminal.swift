@@ -1,11 +1,15 @@
 import Foundation
 import Observation
 
-/// Runs agent commands (ACP `terminal/*`) in terminals the user can watch and
-/// type into. Implemented by the Terminal plugin.
+/// Shows agent commands in terminals the user can watch. Implemented by the
+/// Terminal plugin.
 @MainActor
 public protocol AgentTerminalHosting: AnyObject {
+    /// Runs the command for the agent (ACP `terminal/*`); the user can type into it.
     func run(_ request: AgentTerminalRequest) -> AgentTerminal
+    /// Only shows the output of a command the agent runs itself and streams to
+    /// us (the `_meta.terminal_output` extension of Claude Code and Codex).
+    func display(_ request: AgentTerminalRequest) -> AgentTerminal
 }
 
 public struct AgentTerminalRequest: Sendable {
@@ -69,6 +73,8 @@ public final class AgentTerminal: Identifiable {
 
     public nonisolated let id: String
     public let request: AgentTerminalRequest
+    /// False for display-only terminals: the agent owns the process, so it can't be stopped from here.
+    public let ownsProcess: Bool
     public private(set) var output = ""
     public private(set) var isTruncated = false
     public private(set) var exitStatus: TerminalExitStatus?
@@ -78,14 +84,18 @@ public final class AgentTerminal: Identifiable {
     @ObservationIgnored public var onKill: () -> Void = {}
     @ObservationIgnored public var onReveal: () -> Void = {}
     @ObservationIgnored public var onRelease: () -> Void = {}
+    @ObservationIgnored public var onFinish: () -> Void = {}
+    /// Display-only terminals: output to draw, as it arrives.
+    @ObservationIgnored public var onDisplay: (ArraySlice<UInt8>) -> Void = { _ in }
 
     @ObservationIgnored private var capture: TerminalTextCapture
     @ObservationIgnored private var waiters: [CheckedContinuation<TerminalExitStatus, Never>] = []
     @ObservationIgnored private var flushScheduled = false
 
-    public init(id: String = UUID().uuidString, request: AgentTerminalRequest) {
+    public init(id: String = UUID().uuidString, request: AgentTerminalRequest, ownsProcess: Bool = true) {
         self.id = id
         self.request = request
+        self.ownsProcess = ownsProcess
         capture = TerminalTextCapture(byteLimit: request.outputByteLimit ?? Self.defaultByteLimit)
     }
 
@@ -107,6 +117,7 @@ public final class AgentTerminal: Identifiable {
         exitStatus = status
         for waiter in waiters { waiter.resume(returning: status) }
         waiters.removeAll()
+        onFinish()
     }
 
     public func hostDidCloseTerminal() {
@@ -114,6 +125,13 @@ public final class AgentTerminal: Identifiable {
     }
 
     // MARK: Client side
+
+    /// Output the agent streamed for a display-only terminal.
+    public func append(_ text: String) {
+        let bytes = Array(text.utf8)[...]
+        receive(bytes)
+        onDisplay(bytes)
+    }
 
     /// Everything captured so far, including bytes not yet published to views.
     public func currentOutput() -> (output: String, isTruncated: Bool) {
@@ -127,7 +145,7 @@ public final class AgentTerminal: Identifiable {
     }
 
     public func kill() {
-        if isRunning { onKill() }
+        if isRunning, ownsProcess { onKill() }
     }
 
     public func reveal() {

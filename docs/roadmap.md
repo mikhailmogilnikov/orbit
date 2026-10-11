@@ -24,9 +24,9 @@
   Message via a hidden agent session (`AgentCompletion` service); diff tabs
   for working-tree / staged changes; git colors and badges in the explorer
   (`FileStatusProviding` service)
-- ACP terminal: agent commands run in background tabs of the terminal panel
-  (real PTY: colors, the user can type into or stop them); the tool card shows
-  live output with Stop / Show in Terminal
+- Agent commands in background tabs of the terminal panel: display-only for
+  Claude Code / Codex (`_meta.terminal_output`), real PTYs for agents using ACP
+  `terminal/*`; the tool card shows the output with Stop / Show in Terminal
 - Save / Don't Save / Cancel prompt when unsaved edits would be lost: closing
   the last tab of a file, opening another folder, quitting
 - App icon (Icon Composer) and brand mark in the UI; welcome screen with clickable actions
@@ -49,9 +49,9 @@
   (clean buffers reload automatically).
 - Terminal: no find-in-terminal, font size follows the editor only, panel
   hides when the last shell exits.
-- ACP terminal is unverified with real agents: whether Claude Code / Codex
-  adapters actually route their shell commands through `terminal/*` when we
-  advertise it, and how many tabs a busy turn leaves.
+- Agent terminals: the `terminal/*` (PTY) path is untested with a real agent
+  (Claude Code and Codex use display terminals); check how many tabs a busy
+  turn leaves.
 - Replace in files has no undo beyond the editor's own (files that weren't
   open are written straight to disk); written while unverified in the UI.
 - Git: diff tabs are unified and not syntax-highlighted; no gutter change

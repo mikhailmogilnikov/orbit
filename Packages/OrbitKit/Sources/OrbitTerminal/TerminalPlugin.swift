@@ -154,7 +154,17 @@ extension TerminalStore: AgentTerminalHosting {
     /// focus or the panel away from the user.
     func run(_ request: AgentTerminalRequest) -> AgentTerminal {
         let terminal = AgentTerminal(request: request)
-        let session = TerminalSession(agentTerminal: terminal)
+        adopt(TerminalSession(agentTerminal: terminal), for: terminal)
+        return terminal
+    }
+
+    func display(_ request: AgentTerminalRequest) -> AgentTerminal {
+        let terminal = AgentTerminal(request: request, ownsProcess: false)
+        adopt(TerminalSession(displaying: terminal), for: terminal)
+        return terminal
+    }
+
+    private func adopt(_ session: TerminalSession, for terminal: AgentTerminal) {
         session.onExit = { [weak self] _ in self?.pruneAgentSessions() }
         terminal.onKill = { [weak session] in session?.kill() }
         terminal.onReveal = { [weak self, weak session] in
@@ -168,7 +178,6 @@ extension TerminalStore: AgentTerminalHosting {
         }
         sessions.append(session)
         if selectedID == nil { selectedID = session.id }
-        return terminal
     }
 }
 

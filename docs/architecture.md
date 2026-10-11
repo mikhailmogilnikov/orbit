@@ -77,9 +77,10 @@ on restart. Built-ins use exactly the public API — no private hooks.
   permission requests are applied in arrival order.
 - Client capabilities: `fs.readTextFile` / `fs.writeTextFile` (served from open
   buffers, so agents see unsaved edits); `terminal` when the Terminal plugin is
-  enabled: commands run in background tabs of the terminal panel (PTY), the
-  tool card streams their plain-text output (`AgentTerminal`,
-  `TerminalTextCapture`).
+  enabled (commands as PTYs in background terminal tabs); and
+  `_meta.terminal_output(_delta)`, through which Claude Code / Codex stream the
+  commands they run themselves into display-only tabs. Either way the tool
+  card shows plain-text output (`AgentTerminal`, `TerminalTextCapture`).
 - Built-in providers (npx, unpinned so they auto-update):
   `@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`.
 - `ShellEnvironment` resolves PATH etc. from `$SHELL -ilc env` once at startup

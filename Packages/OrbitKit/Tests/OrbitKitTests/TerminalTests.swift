@@ -50,6 +50,27 @@ import Testing
     }
 }
 
+@MainActor
+@Suite struct DisplayTerminalTests {
+    @Test func showsStreamedOutputAndEndsWithTheAgentsExit() {
+        let terminal = AgentTerminal(
+            request: AgentTerminalRequest(command: "git status", environment: [:], directory: FileManager.default.temporaryDirectory),
+            ownsProcess: false
+        )
+        let session = TerminalSession(displaying: terminal)
+        var stopped = false
+        terminal.onKill = { stopped = true }
+        terminal.append("On branch master\n")
+        terminal.append("\u{1B}[32mclean\u{1B}[0m\n")
+        #expect(terminal.currentOutput().output == "On branch master\nclean\n")
+        // The agent owns the process: nothing to stop from here.
+        terminal.kill()
+        #expect(!stopped)
+        terminal.finish(TerminalExitStatus(exitCode: 0))
+        #expect(!session.isRunning)
+    }
+}
+
 @Suite struct TerminalTextCaptureTests {
     private func capture(_ chunks: [String], limit: Int = 1 << 20) -> TerminalTextCapture {
         var capture = TerminalTextCapture(byteLimit: limit)

@@ -43,14 +43,17 @@ public final class ACPClient: Sendable {
         try connection.start()
     }
 
-    /// `terminal`: whether we implement `terminal/*`, so agents run shell
-    /// commands through us instead of on their own.
+    /// `terminal`: whether we implement `terminal/*`, so agents may run shell
+    /// commands through us. Claude Code and Codex never do; they stream the
+    /// output of commands they run themselves when we declare `terminal_output`
+    /// (`_meta.terminal_info` / `terminal_output_delta` / `terminal_exit` on tool calls).
     public func initialize(terminal: Bool = false) async throws -> JSONValue {
         try await connection.request("initialize", [
             "protocolVersion": .number(Double(Self.protocolVersion)),
             "clientCapabilities": [
                 "fs": ["readTextFile": true, "writeTextFile": true],
                 "terminal": .bool(terminal),
+                "_meta": ["terminal_output": true, "terminal_output_delta": true],
             ],
             "clientInfo": ["name": "orbit", "title": "Orbit", "version": "0.1.0"],
         ])

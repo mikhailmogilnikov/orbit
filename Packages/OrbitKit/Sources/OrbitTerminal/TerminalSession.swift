@@ -68,6 +68,31 @@ final class TerminalSession: Identifiable {
         )
     }
 
+    /// Shows a command the agent runs itself: no process here, only its output.
+    init(displaying agentTerminal: AgentTerminal) {
+        title = agentTerminal.request.displayCommand
+        self.agentTerminal = agentTerminal
+        let view = OrbitTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 240))
+        self.view = view
+        view.feed(byteArray: Self.terminalLines("$ \(title)\n")[...])
+        agentTerminal.onDisplay = { [weak view] bytes in view?.feed(byteArray: Self.terminalLines(bytes)[...]) }
+        agentTerminal.onFinish = { [weak self] in self?.processDidExit(nil) }
+    }
+
+    /// Agents send plain `\n` line ends; a terminal needs `\r\n` to return to column 0.
+    private static func terminalLines(_ bytes: some Sequence<UInt8>) -> [UInt8] {
+        var result: [UInt8] = []
+        var previous: UInt8 = 0
+        for byte in bytes {
+            if byte == 0x0A, previous != 0x0D { result.append(0x0D) }
+            result.append(byte)
+            previous = byte
+        }
+        return result
+    }
+
+    private static func terminalLines(_ text: String) -> [UInt8] { terminalLines(Array(text.utf8)) }
+
     var isAgent: Bool { agentTerminal != nil }
 
     func terminate() {
@@ -80,7 +105,7 @@ final class TerminalSession: Identifiable {
 
     /// Stops an agent command and whatever it started (the whole process group).
     func kill() {
-        guard isRunning else { return }
+        guard isRunning, agentTerminal?.ownsProcess != false else { return }
         let pid = view.process.shellPid
         if pid > 0 { Darwin.kill(-pid, SIGTERM) }
         // SwiftTerm stops watching the process here, so report the exit ourselves.

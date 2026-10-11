@@ -468,7 +468,7 @@ struct AgentTerminalOutput: View {
                     .font(.caption)
                     .foregroundStyle(isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 Spacer(minLength: 4)
-                if terminal.isRunning {
+                if terminal.isRunning, terminal.ownsProcess {
                     Button("Stop") { terminal.kill() }
                         .buttonStyle(.glass)
                 }

@@ -232,20 +232,36 @@ final class AgentSession: Identifiable {
         if let title = update["title"]?.string { entry.title = title }
         if let kind = update["kind"]?.string { entry.toolKind = kind }
         if let command = update["rawInput"]?["command"]?.string { entry.command = command }
+        let meta = update["_meta"]
+        if let info = meta?["terminal_info"], let id = info["terminal_id"]?.string, terminals[id] == nil, let host = terminalHost {
+            let directory = info["cwd"]?.string.map { workspace.resolve(path: $0) } ?? cwd
+            let command = entry.command ?? (entry.title.isEmpty ? "command" : entry.title)
+            terminals[id] = host.display(AgentTerminalRequest(command: command, environment: [:], directory: directory))
+            entry.terminalID = id
+        }
         if let contents = update["content"]?.array {
             let parsed = contents.compactMap(parseToolContent)
             if !parsed.isEmpty || entry.contents.isEmpty { entry.contents = parsed }
             if let id = contents.lazy.compactMap({ $0["type"]?.string == "terminal" ? $0["terminalId"]?.string : nil }).first {
                 entry.terminalID = id
-                entry.terminal = terminals[id]
             }
         }
-        if let delta = update["_meta"]?["terminal_output_delta"]?["data"]?.string {
-            entry.output += delta
-            if entry.output.count > 20_000 { entry.output = String(entry.output.suffix(20_000)) }
+        if let id = entry.terminalID, entry.terminal == nil { entry.terminal = terminals[id] }
+        if let delta = meta?["terminal_output_delta"]?["data"]?.string {
+            if let terminal = entry.terminal, !terminal.ownsProcess {
+                terminal.append(delta)
+            } else {
+                entry.output += delta
+                if entry.output.count > 20_000 { entry.output = String(entry.output.suffix(20_000)) }
+            }
+        }
+        if let exit = meta?["terminal_exit"], let terminal = entry.terminal, !terminal.ownsProcess {
+            terminal.finish(TerminalExitStatus(exitCode: exit["exit_code"]?.int, signal: exit["signal"]?.string))
         }
         let wasRunning = entry.isRunning
         if let status = update["status"]?.string { entry.status = status }
+        // Not every adapter reports an exit for the commands it runs.
+        if !entry.isRunning, let terminal = entry.terminal, !terminal.ownsProcess { terminal.finish(TerminalExitStatus()) }
 
         if wasRunning, !entry.isRunning, Self.mutatingKinds.contains(entry.toolKind) || entry.contents.contains(where: { if case .diff = $0 { true } else { false } }) {
             Task { await tracker?.refreshAgentChanges() }
