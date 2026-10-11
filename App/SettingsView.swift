@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Settings take over the window, laid out like System Settings: sections in
 /// the sidebar (plugins add their own) with search, the section's form as the
-/// detail. The gear in the same place, or Esc, goes back to the workspace.
+/// detail. Done, or Esc, goes back to the workspace.
 struct SettingsScreen: View {
     let host: PluginHost
     @State private var query = ""
@@ -62,15 +62,10 @@ struct SettingsScreen: View {
         .navigationTitle(current?.title ?? "Settings")
         .navigationSubtitle("Settings")
         .toolbar {
-            // Where the workspace has its gear, so the same click goes back.
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    ui.isSettingsVisible = false
-                } label: {
-                    Label("Close Settings", systemImage: "gearshape.fill")
-                }
-                .keyboardShortcut(.cancelAction)
-                .help("Close Settings (Esc)")
+            ToolbarItem(placement: .primaryAction) {
+                Button("Done") { ui.isSettingsVisible = false }
+                    .keyboardShortcut(.cancelAction)
+                    .help("Back to the project (Esc)")
             }
         }
     }

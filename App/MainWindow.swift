@@ -67,15 +67,6 @@ struct MainWindow: View {
         .navigationTitle(workspace.name)
         .navigationSubtitle(workspace.activeTab?.url.map(workspace.relativePath) ?? "")
         .toolbar {
-            // Next to the sidebar toggle.
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    ui.showSettings()
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .help("Settings (⌘,)")
-            }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     CommandPalette.toggle(in: host)

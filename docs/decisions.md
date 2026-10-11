@@ -355,8 +355,9 @@ at the copy, maps prompt attachments into it and skips project turn tracking.
 ### D36. Settings as a page in the main window
 The small macOS Settings window held two tabs and couldn't grow. Settings now
 take over the main window as their own native split view (sidebar with search,
-the section's form as detail, like System Settings), opened by ⌘, or a gear
-next to the sidebar toggle and closed by the same gear or Esc. A hand-made
+the section's form as detail, like System Settings), opened by ⌘, (Orbit menu) and closed by Done or Esc. A toolbar gear was
+tried and dropped: macOS pins its own sidebar toggle first, so the gear
+couldn't sit where it belongs. A hand-made
 overlay on top of the workspace clashed with the glass sidebar and the title
 bar; swapping views costs the editors' scroll positions, but documents,
 terminals and agent sessions live outside the views and survive — closer to Cursor/VS Code, where settings
