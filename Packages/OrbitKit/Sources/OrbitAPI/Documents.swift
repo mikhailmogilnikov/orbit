@@ -36,6 +36,7 @@ public final class TextDocument: Identifiable {
     public func save() throws {
         try text.write(to: url, atomically: true, encoding: .utf8)
         savedText = text
+        diskConflict = nil
     }
 
     /// Replaces both buffer and disk contents (used by agents and review actions).
@@ -44,10 +45,54 @@ public final class TextDocument: Identifiable {
         try save()
     }
 
-    func reloadFromDiskIfClean() {
-        guard !isDirty, let contents = try? String(contentsOf: url, encoding: .utf8), contents != savedText else { return }
-        savedText = contents
-        text = contents
+    /// The file's new contents when it changed on disk under unsaved edits and
+    /// the two couldn't be merged; the editor asks which version to keep.
+    public private(set) var diskConflict: String?
+
+    /// Picks up changes made on disk by agents, git or other apps. A clean
+    /// buffer reloads; unsaved edits get the change merged in when it touches
+    /// other lines, otherwise `diskConflict` is set.
+    public func syncWithDisk() {
+        guard loadError == nil, let disk = try? String(contentsOf: url, encoding: .utf8) else { return }
+        guard disk != savedText else {
+            diskConflict = nil
+            return
+        }
+        if isDirty, disk != text {
+            guard let merged = LineDiff.merge(base: savedText, mine: text, theirs: disk) else {
+                diskConflict = disk
+                return
+            }
+            text = merged
+        } else {
+            text = disk
+        }
+        savedText = disk
+        diskConflict = nil
+    }
+
+    /// Resolves a conflict in favor of the buffer by writing it over the disk.
+    public func keepMine() throws {
+        try save()
+        diskConflict = nil
+    }
+
+    /// Resolves a conflict by dropping unsaved edits for the disk version.
+    public func useDiskVersion() {
+        guard let disk = diskConflict else { return }
+        text = disk
+        savedText = disk
+        diskConflict = nil
+    }
+
+    /// Takes one block of the disk version (a hunk of buffer → disk) into the buffer.
+    public func takeFromDisk(_ hunk: DiffHunk) {
+        guard let disk = diskConflict else { return }
+        text = LineDiff.keep(hunk, current: disk, baseline: text)
+        if text == disk {
+            savedText = disk
+            diskConflict = nil
+        }
     }
 }
 
@@ -90,7 +135,7 @@ public final class DocumentStore {
     func close(_ url: URL) { open[url.standardizedFileURL] = nil }
     func closeAll() { open.removeAll() }
 
-    func reloadCleanDocumentsFromDisk() {
-        for document in open.values { document.reloadFromDiskIfClean() }
+    public func syncWithDisk() {
+        for document in open.values { document.syncWithDisk() }
     }
 }

@@ -45,6 +45,10 @@
   `terminal/*`
 - Save / Don't Save / Cancel prompt when unsaved edits would be lost: closing
   the last tab of a file, opening another folder, quitting
+- Files changed on disk under unsaved edits (agents, git, other apps): edits
+  on other lines merge in silently; overlapping ones get a "Changed on disk"
+  banner with Compare (take blocks one by one) / Use Disk Version / Keep Mine;
+  ⌘S over such a change asks first
 - App icon (Icon Composer) and brand mark in the UI; welcome screen with clickable actions
 
 ## Next (rough priority)
@@ -58,8 +62,9 @@
 ## Known gaps / to verify
 - Manual typing inside a highlighted diff block is implemented but not yet
   verified by hand.
-- Dirty buffers vs agent writing the same file on disk: no conflict UI yet
-  (clean buffers reload automatically).
+- Disk conflicts: merging an agent's edit into unsaved edits makes those edits
+  count as agent changes in the inline review (its baseline is the disk before
+  the turn); a file deleted on disk under unsaved edits isn't flagged.
 - Terminal: no find-in-terminal, font size follows the editor only, panel
   hides when the last shell exits.
 - Agent terminals: the `terminal/*` (PTY) path is untested with a real agent

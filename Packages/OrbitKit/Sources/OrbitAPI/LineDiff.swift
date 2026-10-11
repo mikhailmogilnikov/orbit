@@ -130,6 +130,39 @@ public enum LineDiff {
     }
 }
 
+extension LineDiff {
+    /// Three-way line merge: both sides' changes to `base` applied together.
+    /// `nil` when they touch the same or adjacent lines (like git, adjacent
+    /// edits count as a conflict — their order can't be told safely).
+    public static func merge(base: String, mine: String, theirs: String) -> String? {
+        if mine == theirs || theirs == base { return mine }
+        if mine == base { return theirs }
+        let baseLines = lines(base), mineLines = lines(mine), theirLines = lines(theirs)
+        typealias Edit = (old: Range<Int>, new: ArraySlice<String>)
+        let ours: [Edit] = changeBlocks(oldLines: baseLines, newLines: mineLines).map { ($0.old, mineLines[$0.new]) }
+        var edits = ours
+        for block in changeBlocks(oldLines: baseLines, newLines: theirLines) {
+            let edit: Edit = (block.old, theirLines[block.new])
+            let clashes = ours.filter { $0.old.lowerBound <= edit.old.upperBound && edit.old.lowerBound <= $0.old.upperBound }
+            if clashes.isEmpty {
+                edits.append(edit)
+            } else if clashes.count > 1 || clashes[0].old != edit.old || clashes[0].new != edit.new {
+                return nil
+            }
+        }
+        edits.sort { $0.old.lowerBound < $1.old.lowerBound }
+        var result: [String] = []
+        var position = 0
+        for edit in edits {
+            result += baseLines[position..<edit.old.lowerBound]
+            result += edit.new
+            position = edit.old.upperBound
+        }
+        result += baseLines[position...]
+        return result.joined(separator: "\n")
+    }
+}
+
 /// Per-line change markers of a file against a baseline, for a gutter.
 public struct LineMarkers: Equatable, Sendable {
     /// 0-based lines of the current text.

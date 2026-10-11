@@ -304,3 +304,18 @@ and new file (so lines inside multi-line strings or comments are right), then
 color only the lines the hunks show (`DiffHighlighting`, OrbitUI). The
 working-tree diff reloads every few seconds, so it re-highlights only when
 either side's text changed. Texts over 1 MB stay plain.
+
+### D33. Disk changes under unsaved edits
+Agents (Codex and any shell edit) write straight to disk, so a buffer with
+unsaved edits used to keep its stale copy and the next save silently undid
+the agent's work. Now every open buffer syncs with disk whenever the disk may
+have changed (`fileSystemDidChange`, and on app activation for other apps):
+clean buffers reload; dirty ones get a three-way line merge (base = last
+saved text) — changes on other lines just appear, like a teammate's edit in a
+shared doc. Only when both touched the same or adjacent lines (git's rule) does
+the editor show a "Changed on disk" banner: Compare opens your text against the
+disk version with "Use Disk" per block, or take one side whole. Keep Mine saves
+immediately so the state is unambiguous again. ⌘S re-checks the disk and asks
+before overwriting a change; Save All skips conflicted files. ACP
+`fs/write_text_file` still replaces the buffer: the agent read it through the
+buffer, so it already saw the unsaved edits.

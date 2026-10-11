@@ -61,13 +61,14 @@ struct CodeEditor: NSViewRepresentable {
         // Only push text in when it changed outside the view (agent, review, reload).
         if document.revision != coordinator.syncedRevision {
             coordinator.syncedRevision = document.revision
-            if textView.text != document.text {
-                let selection = textView.textSelection
+            let old = (textView.text ?? "") as NSString
+            if old as String != document.text {
+                let new = document.text as NSString
+                let location = Self.location(textView.textSelection.location, from: old, to: new)
                 coordinator.isApplyingExternalChange = true
                 textView.text = document.text
                 coordinator.isApplyingExternalChange = false
-                let length = (document.text as NSString).length
-                textView.textSelection = NSRange(location: min(selection.location, length), length: 0)
+                textView.textSelection = NSRange(location: location, length: 0)
                 coordinator.inlineDiff.invalidate()
             }
         }
@@ -83,6 +84,19 @@ struct CodeEditor: NSViewRepresentable {
                 onRevealHandled()
             }
         }
+    }
+
+    /// Keeps the caret on the same text when lines above it changed (a merged-in agent edit).
+    static func location(_ location: Int, from old: NSString, to new: NSString) -> Int {
+        let shorter = min(old.length, new.length)
+        var prefix = 0
+        while prefix < shorter, old.character(at: prefix) == new.character(at: prefix) { prefix += 1 }
+        guard location > prefix else { return min(location, new.length) }
+        var suffix = 0
+        while suffix < shorter - prefix,
+              old.character(at: old.length - 1 - suffix) == new.character(at: new.length - 1 - suffix) { suffix += 1 }
+        if location >= old.length - suffix { return min(new.length, max(0, location + new.length - old.length)) }
+        return min(location, new.length)
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {

@@ -103,3 +103,84 @@ import Foundation
         text.runs.map { $0[AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute.self] }
     }
 }
+
+@Suite struct LineMergeTests {
+    let base = "a\nb\nc\nd\ne\nf\ng"
+
+    @Test func mergesChangesOnDifferentLines() {
+        let merged = LineDiff.merge(base: base, mine: "A\nb\nc\nd\ne\nf\ng", theirs: "a\nb\nc\nd\ne\nf\nG\nh")
+        #expect(merged == "A\nb\nc\nd\ne\nf\nG\nh")
+    }
+
+    @Test func sameOrAdjacentLinesConflict() {
+        #expect(LineDiff.merge(base: base, mine: "a\nb\nX\nd\ne\nf\ng", theirs: "a\nb\nY\nd\ne\nf\ng") == nil)
+        #expect(LineDiff.merge(base: base, mine: "a\nB\nc\nd\ne\nf\ng", theirs: "a\nb\nC\nd\ne\nf\ng") == nil)
+    }
+
+    @Test func identicalChangesMergeOnce() {
+        let mine = "a\nb\nX\nd\ne\nf\ng"
+        #expect(LineDiff.merge(base: base, mine: mine, theirs: mine + "\nh") == mine + "\nh")
+        #expect(LineDiff.merge(base: base, mine: "h\n" + mine, theirs: mine) == "h\n" + mine)
+    }
+
+    @Test func oneSideUnchanged() {
+        #expect(LineDiff.merge(base: base, mine: base, theirs: "x") == "x")
+        #expect(LineDiff.merge(base: base, mine: "x", theirs: base) == "x")
+    }
+}
+
+@MainActor
+@Suite struct DiskSyncTests {
+    private func makeFile(_ text: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-sync-\(UUID().uuidString).txt")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    @Test func cleanBufferReloads() throws {
+        let url = try makeFile("one\ntwo")
+        let document = TextDocument(url: url)
+        try "one\nthree".write(to: url, atomically: true, encoding: .utf8)
+        document.syncWithDisk()
+        #expect(document.text == "one\nthree")
+        #expect(!document.isDirty)
+    }
+
+    @Test func unsavedEditsMergeWithDiskChange() throws {
+        let url = try makeFile("a\nb\nc\nd\ne")
+        let document = TextDocument(url: url)
+        document.text = "A\nb\nc\nd\ne"
+        try "a\nb\nc\nd\nE".write(to: url, atomically: true, encoding: .utf8)
+        document.syncWithDisk()
+        #expect(document.text == "A\nb\nc\nd\nE")
+        #expect(document.savedText == "a\nb\nc\nd\nE")
+        #expect(document.diskConflict == nil)
+    }
+
+    @Test func overlappingChangeConflictsUntilResolved() throws {
+        let url = try makeFile("a\nb\nc")
+        let document = TextDocument(url: url)
+        document.text = "a\nmine\nc"
+        try "a\ntheirs\nc".write(to: url, atomically: true, encoding: .utf8)
+        document.syncWithDisk()
+        #expect(document.text == "a\nmine\nc")
+        #expect(document.diskConflict == "a\ntheirs\nc")
+
+        let hunk = try #require(LineDiff.hunks(old: document.text, new: "a\ntheirs\nc").first)
+        document.takeFromDisk(hunk)
+        #expect(document.text == "a\ntheirs\nc")
+        #expect(document.diskConflict == nil)
+        #expect(!document.isDirty)
+    }
+
+    @Test func keepMineOverwritesDisk() throws {
+        let url = try makeFile("a\nb\nc")
+        let document = TextDocument(url: url)
+        document.text = "a\nmine\nc"
+        try "a\ntheirs\nc".write(to: url, atomically: true, encoding: .utf8)
+        document.syncWithDisk()
+        try document.keepMine()
+        #expect(try String(contentsOf: url, encoding: .utf8) == "a\nmine\nc")
+        #expect(document.diskConflict == nil)
+    }
+}

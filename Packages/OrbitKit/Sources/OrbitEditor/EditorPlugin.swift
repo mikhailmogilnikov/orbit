@@ -1,3 +1,4 @@
+import AppKit
 import OrbitAPI
 import OrbitUI
 import SwiftUI
@@ -9,6 +10,8 @@ public final class EditorPlugin: OrbitPlugin {
         summary: "TextKit 2 editor with tree-sitter highlighting.",
         systemImage: "chevron.left.forwardslash.chevron.right"
     )
+
+    private var activationObserver: NSObjectProtocol?
 
     public init() {}
 
@@ -39,7 +42,7 @@ public final class EditorPlugin: OrbitPlugin {
             shortcut: KeyboardShortcut("s", modifiers: .command),
             isEnabled: { Self.activeDocument(workspace)?.isDirty == true }
         ) {
-            try? Self.activeDocument(workspace)?.save()
+            if let document = Self.activeDocument(workspace) { Self.save(document) }
         })
 
         context.commands.register(OrbitCommand(
@@ -48,7 +51,9 @@ public final class EditorPlugin: OrbitPlugin {
             category: "File",
             shortcut: KeyboardShortcut("s", modifiers: [.command, .option])
         ) {
-            for document in workspace.documents.dirtyDocuments { try? document.save() }
+            // Conflicted files wait for the user's pick in their banner.
+            workspace.documents.syncWithDisk()
+            for document in workspace.documents.dirtyDocuments where document.diskConflict == nil { try? document.save() }
         })
 
         context.commands.register(OrbitCommand(
@@ -60,6 +65,13 @@ public final class EditorPlugin: OrbitPlugin {
         ) {
             workspace.closeActiveTab()
         })
+
+        // Edits made in other apps or an external terminal while Orbit was in the background.
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { workspace.documents.syncWithDisk() }
+        }
 
         registerChangeCommands(context)
         context.services.register(EditorSelectionProviding.self, EditorSelectionService.shared)
@@ -122,6 +134,28 @@ public final class EditorPlugin: OrbitPlugin {
         })
     }
 
+    public func deactivate() {
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+    }
+
+    /// Saving over a change made on disk since the file was loaded needs a confirmation.
+    static func save(_ document: TextDocument) {
+        document.syncWithDisk()
+        if document.diskConflict != nil {
+            let alert = NSAlert()
+            alert.messageText = "“\(document.url.lastPathComponent)” was changed on disk."
+            alert.informativeText = "Saving replaces the version on disk with yours. Use Compare in the banner to take parts of it instead."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Save Anyway")
+            guard alert.runModal() == .alertSecondButtonReturn else { return }
+        }
+        do {
+            try document.save()
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+
     static func activeDocument(_ workspace: Workspace) -> TextDocument? {
         guard let tab = workspace.activeTab, tab.kind == EditorTab.fileKind, let url = tab.url else { return nil }
         return workspace.documents.existingDocument(for: url)
@@ -135,11 +169,15 @@ struct FileEditorView: View {
     let versionControl: VersionControlBaseline?
     /// What the gutter's change markers compare against.
     @State private var gitBaseline: String?
+    @State private var isComparing = false
 
     var body: some View {
         let url = document.url
         let hunks = changes?.hunks(for: url) ?? []
         VStack(spacing: 0) {
+            if document.diskConflict != nil {
+                DiskConflictBanner(document: document, isComparing: $isComparing)
+            }
             if let changes, !hunks.isEmpty {
                 AgentChangesBanner(url: url, hunks: hunks, changes: changes)
             }
@@ -159,6 +197,12 @@ struct FileEditorView: View {
         }
         .task(id: versionControl?.baselineGeneration ?? -1) {
             gitBaseline = await versionControl?.baseline(for: url)
+        }
+        .sheet(isPresented: $isComparing) {
+            DiskConflictComparison(document: document)
+        }
+        .onChange(of: document.diskConflict == nil) { _, resolved in
+            if resolved { isComparing = false }
         }
     }
 }

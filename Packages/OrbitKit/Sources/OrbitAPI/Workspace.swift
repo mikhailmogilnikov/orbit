@@ -191,7 +191,7 @@ public final class Workspace {
 
     /// Call after something outside the editor touched the disk.
     public func fileSystemDidChange() {
-        documents.reloadCleanDocumentsFromDisk()
+        documents.syncWithDisk()
         fileSystemGeneration += 1
     }
 }
