@@ -59,6 +59,11 @@ final class SessionHistory {
         save()
     }
 
+    /// Isolated copies that open tabs (in any folder) still use.
+    var copiesInUse: [IsolatedCopy] {
+        stored.open.values.joined().compactMap(\.isolated)
+    }
+
     func hide(_ id: String) {
         stored.hidden.append(id)
         if stored.hidden.count > Self.hiddenLimit { stored.hidden.removeFirst(stored.hidden.count - Self.hiddenLimit) }

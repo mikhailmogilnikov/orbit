@@ -173,6 +173,17 @@ import Foundation
         #expect(!document.isDirty)
     }
 
+    @Test func deletionIsFlaggedUntilSaved() throws {
+        let url = try makeFile("a")
+        let document = TextDocument(url: url)
+        try FileManager.default.removeItem(at: url)
+        document.syncWithDisk()
+        #expect(document.isDeletedOnDisk)
+        try document.save()
+        #expect(!document.isDeletedOnDisk)
+        #expect(try String(contentsOf: url, encoding: .utf8) == "a")
+    }
+
     @Test func keepMineOverwritesDisk() throws {
         let url = try makeFile("a\nb\nc")
         let document = TextDocument(url: url)

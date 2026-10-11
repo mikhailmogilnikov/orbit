@@ -175,7 +175,9 @@ struct FileEditorView: View {
         let url = document.url
         let hunks = changes?.hunks(for: url) ?? []
         VStack(spacing: 0) {
-            if document.diskConflict != nil {
+            if document.isDeletedOnDisk {
+                DiskDeletedBanner(document: document, workspace: workspace)
+            } else if document.diskConflict != nil {
                 DiskConflictBanner(document: document, isComparing: $isComparing)
             }
             if let changes, !hunks.isEmpty {

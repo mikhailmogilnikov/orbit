@@ -49,12 +49,14 @@
 - Files changed on disk under unsaved edits (agents, git, other apps): edits
   on other lines merge in silently; overlapping ones get a "Changed on disk"
   banner with Compare (take blocks one by one) / Use Disk Version / Keep Mine;
-  ⌘S over such a change asks first
+  ⌘S over such a change asks first; a file deleted on disk gets a "Deleted on
+  disk" banner (Close / Save)
 - Isolated agent sessions (opt-in: checkbox on the start screen, + ▸ Isolated
   Copy, ⌥⇧⌘N): the agent works in an APFS clone of the project; Apply brings
   its changes back as inline-reviewed agent changes, merging with project
   edits on other lines and reporting same-line conflicts; closing the session
-  deletes the copy (asks when changes weren't applied)
+  deletes the copy (asks when changes weren't applied); copies no open tab
+  uses are deleted at launch
 - App icon (Icon Composer) and brand mark in the UI; welcome screen with clickable actions
 
 ## Next (rough priority)
@@ -67,15 +69,13 @@
   verified by hand.
 - Disk conflicts: merging an agent's edit into unsaved edits makes those edits
   count as agent changes in the inline review (its baseline is the disk before
-  the turn); a file deleted on disk under unsaved edits isn't flagged.
+  the turn).
 - Terminal: no find-in-terminal, font size follows the editor only, panel
   hides when the last shell exits.
 - Agent terminals: the `terminal/*` (PTY) path is untested with a real agent
   (Claude Code and Codex use display terminals); check how many tabs a busy
   turn leaves.
-- Isolated sessions: copies of sessions closed while Orbit wasn't running (or
-  crashed) stay in `~/Library/Application Support/Orbit/isolated` — no cleanup
-  yet; a project on a non-APFS volume gets a full (slow) copy; Apply is
+- Isolated sessions: a project on a non-APFS volume gets a full (slow) copy; Apply is
   all-or-nothing per file (no picking files); undoing an applied change in
   the project counts it as not applied again; untested by hand.
 - Agent sessions: listing an agent's conversations spawns that agent once per

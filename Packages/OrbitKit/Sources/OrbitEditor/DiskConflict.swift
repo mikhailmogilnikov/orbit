@@ -45,6 +45,38 @@ struct DiskConflictBanner: View {
     }
 }
 
+/// The open file is gone from disk (an agent, git or another app removed or moved it).
+struct DiskDeletedBanner: View {
+    let document: TextDocument
+    let workspace: Workspace
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "trash")
+                .foregroundStyle(.orange)
+            Text("Deleted on disk")
+                .font(.callout.weight(.medium))
+            Text("Save to keep this file.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer()
+            Button("Close") { workspace.requestClose(EditorTab.file(document.url).id) }
+                .buttonStyle(.glass)
+            Button("Save") {
+                do { try document.save() } catch { NSAlert(error: error).runModal() }
+            }
+            .buttonStyle(.glassProminent)
+            .help("Write this text back to disk")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.orange.opacity(0.08))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
 /// Your buffer against the disk version, with each differing block takeable on its own.
 struct DiskConflictComparison: View {
     let document: TextDocument

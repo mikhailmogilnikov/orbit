@@ -99,6 +99,20 @@ final class IsolatedCopies: AgentIsolation {
         }
     }
 
+    func discardCopies(except kept: [IsolatedCopy]) {
+        let storage = Self.storage
+        let keep = Set(kept.map { $0.directory.deletingLastPathComponent().standardizedFileURL.lastPathComponent })
+        Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            guard let folders = try? fileManager.contentsOfDirectory(at: storage, includingPropertiesForKeys: nil) else { return }
+            for folder in folders where !keep.contains(folder.lastPathComponent) {
+                let copies = (try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+                for copy in copies { try? fileManager.removeItem(at: Checkpoints(root: copy).gitDir) }
+                try? fileManager.removeItem(at: folder)
+            }
+        }
+    }
+
     // MARK: Changes in a copy
 
     private struct Change: Sendable {

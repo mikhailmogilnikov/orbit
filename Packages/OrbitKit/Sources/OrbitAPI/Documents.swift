@@ -24,6 +24,7 @@ public final class TextDocument: Identifiable {
             let contents = try String(contentsOf: url, encoding: .utf8)
             text = contents
             savedText = contents
+            existsOnDisk = true
         } catch {
             text = ""
             savedText = ""
@@ -37,6 +38,8 @@ public final class TextDocument: Identifiable {
         try text.write(to: url, atomically: true, encoding: .utf8)
         savedText = text
         diskConflict = nil
+        existsOnDisk = true
+        isDeletedOnDisk = false
     }
 
     /// Replaces both buffer and disk contents (used by agents and review actions).
@@ -52,8 +55,20 @@ public final class TextDocument: Identifiable {
     /// Picks up changes made on disk by agents, git or other apps. A clean
     /// buffer reloads; unsaved edits get the change merged in when it touches
     /// other lines, otherwise `diskConflict` is set.
+    /// The file was removed (or moved) on disk while open; saving puts it back.
+    public private(set) var isDeletedOnDisk = false
+    /// A buffer for a file that was never written isn't "deleted".
+    private var existsOnDisk = false
+
     public func syncWithDisk() {
-        guard loadError == nil, let disk = try? String(contentsOf: url, encoding: .utf8) else { return }
+        guard loadError == nil else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            isDeletedOnDisk = existsOnDisk
+            return
+        }
+        isDeletedOnDisk = false
+        existsOnDisk = true
+        guard let disk = try? String(contentsOf: url, encoding: .utf8) else { return }
         guard disk != savedText else {
             diskConflict = nil
             return

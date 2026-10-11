@@ -141,6 +141,7 @@ final class AgentStore {
         folder = workspace.root
         restoreTabs()
         observeFolder()
+        services.resolve(AgentIsolation.self)?.discardCopies(except: history.copiesInUse)
     }
 
     var fileIndex: ProjectFileIndex? { services.resolve(ProjectFileIndex.self) }

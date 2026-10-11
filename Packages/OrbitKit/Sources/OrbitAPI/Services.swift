@@ -169,4 +169,7 @@ public protocol AgentIsolation: AnyObject {
     func apply(_ copy: IsolatedCopy) async -> IsolatedApplyResult
     /// Deletes the copy.
     func discard(_ copy: IsolatedCopy)
+    /// Deletes every copy except these (left behind by a crash, or by a
+    /// session whose agent never started).
+    func discardCopies(except kept: [IsolatedCopy])
 }
