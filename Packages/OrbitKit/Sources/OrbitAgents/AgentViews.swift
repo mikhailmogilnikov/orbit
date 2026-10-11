@@ -143,7 +143,12 @@ struct SessionChip: View {
 
 struct StartSessionView: View {
     let store: AgentStore
-    @State private var isolated = false
+    @State private var isolated: Bool
+
+    init(store: AgentStore) {
+        self.store = store
+        _isolated = State(initialValue: store.isolatedByDefault)
+    }
 
     var body: some View {
         VStack(spacing: 20) {

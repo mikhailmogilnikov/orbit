@@ -19,6 +19,34 @@ public struct PanelContribution: Identifiable {
     }
 }
 
+/// A section of the Settings screen. Plugins add their own; the shell adds
+/// General, Keyboard Shortcuts and Plugins.
+public struct SettingsPane: Identifiable {
+    public let id: String
+    public let title: String
+    public let systemImage: String
+    public let order: Int
+    /// Extra words the settings search matches (option names).
+    public let keywords: [String]
+    public let makeView: @MainActor () -> AnyView
+
+    public init<V: View>(
+        id: String,
+        title: String,
+        systemImage: String,
+        order: Int = 100,
+        keywords: [String] = [],
+        @ViewBuilder view: @escaping @MainActor () -> V
+    ) {
+        self.id = id
+        self.title = title
+        self.systemImage = systemImage
+        self.order = order
+        self.keywords = keywords
+        makeView = { AnyView(view()) }
+    }
+}
+
 /// Opens tabs. The provider with the highest priority that accepts a tab wins,
 /// so a plugin can override how e.g. Markdown files are shown.
 public struct EditorProvider: Identifiable {
@@ -75,6 +103,10 @@ public final class UIRegistry {
     public var selectedBottomPanel: String?
     public private(set) var editorProviders: [EditorProvider] = []
     public private(set) var statusItems: [StatusItem] = []
+    public private(set) var settingsPanes: [SettingsPane] = []
+    /// The Settings screen covers the window while shown.
+    public var isSettingsVisible = false
+    public var selectedSettingsPane: String?
 
     /// UI requests from plugins to the shell (e.g. "reveal the Agents panel").
     public var requestedSidebarPanel: String?
@@ -102,6 +134,16 @@ public final class UIRegistry {
     public func addEditorProvider(_ provider: EditorProvider) {
         editorProviders.append(provider)
         editorProviders.sort { $0.priority > $1.priority }
+    }
+
+    public func addSettingsPane(_ pane: SettingsPane) {
+        settingsPanes.append(pane)
+        settingsPanes.sort { $0.order < $1.order }
+    }
+
+    public func showSettings(_ paneID: String? = nil) {
+        if let paneID { selectedSettingsPane = paneID }
+        isSettingsVisible = true
     }
 
     public func addStatusItem(_ item: StatusItem) {

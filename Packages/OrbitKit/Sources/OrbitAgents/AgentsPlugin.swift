@@ -25,6 +25,13 @@ public final class AgentsPlugin: OrbitPlugin {
         self.completion = completion
         context.services.register(AgentCompletion.self, completion)
 
+        ui.addSettingsPane(SettingsPane(
+            id: "agents", title: "Agents", systemImage: "sparkles", order: 20,
+            keywords: ["claude", "codex", "default", "isolated", "copy", "custom", "acp", "login"]
+        ) {
+            AgentsSettingsPane(store: store)
+        })
+
         ui.addInspectorPanel(PanelContribution(id: "agents", title: "Agents", systemImage: "sparkles", order: 0) {
             AgentsPanel(store: store)
         })
@@ -60,7 +67,7 @@ public final class AgentsPlugin: OrbitPlugin {
             isEnabled: { context.workspace.root != nil }
         ) {
             ui.revealInspectorPanel("agents")
-            store.newSession(store.preferredProvider)
+            store.newSession(store.preferredProvider, isolated: store.isolatedByDefault)
         })
 
         context.commands.register(OrbitCommand(
@@ -136,6 +143,8 @@ final class AgentStore {
         settings = context.settings
         providers = AgentProvider.loadAll()
         history = SessionHistory(settings: context.settings)
+        preferredProviderID = context.settings.string("lastProvider")
+        isolatedByDefault = context.settings.bool("isolatedByDefault")
         // Resolve the login-shell environment up front; spawning agents needs it.
         environmentTask = Task.detached { await ShellEnvironment.resolve() }
         folder = workspace.root
@@ -183,14 +192,23 @@ final class AgentStore {
 
     func environment() async -> [String: String] { await environmentTask.value }
 
+    /// The last agent started; new sessions and helpers (commit messages) use it.
+    var preferredProviderID: String? {
+        didSet { settings.set(preferredProviderID, for: "lastProvider") }
+    }
+
     var preferredProvider: AgentProvider {
-        let id = settings.string("lastProvider")
-        return providers.first { $0.id == id } ?? providers[0]
+        providers.first { $0.id == preferredProviderID } ?? providers[0]
+    }
+
+    /// ⇧⌘N and the start screen make isolated sessions unless asked otherwise.
+    var isolatedByDefault: Bool {
+        didSet { settings.set(isolatedByDefault, for: "isolatedByDefault") }
     }
 
     func newSession(_ provider: AgentProvider, isolated: Bool = false) {
         guard let root = workspace.root else { return }
-        settings.set(provider.id, for: "lastProvider")
+        preferredProviderID = provider.id
         let session = makeSession(provider, project: root, isolated: isolated)
         sessions.append(session)
         selectedID = session.id

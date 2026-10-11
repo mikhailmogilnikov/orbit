@@ -18,17 +18,20 @@ struct CodeEditor: NSViewRepresentable {
     var onRevealHandled: () -> Void = {}
     /// Git's copy of the file; the gutter marks lines that differ from it.
     var gitBaseline: String?
+    var fontSize = Preferences.defaultCodeFontSize
+    var wrapsLines = false
+    var highlightsCurrentLine = true
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = OrbitTextView.scrollableTextView()
         let textView = scrollView.documentView as! STTextView
-        textView.font = .monospacedSystemFont(ofSize: Theme.codeFontSize, weight: .regular)
+        textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         // Our own ruler instead of STTextView's gutter (see LineNumberRuler).
         textView.showsLineNumbers = false
-        textView.highlightSelectedLine = true
-        textView.isHorizontallyResizable = true
+        textView.highlightSelectedLine = highlightsCurrentLine
+        textView.isHorizontallyResizable = !wrapsLines
         textView.isIncrementalSearchingEnabled = true
         textView.text = document.text
         textView.textDelegate = context.coordinator
@@ -73,6 +76,12 @@ struct CodeEditor: NSViewRepresentable {
             }
         }
 
+        if textView.font.pointSize != fontSize {
+            textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            coordinator.inlineDiff.invalidate()
+        }
+        if textView.isHorizontallyResizable == wrapsLines { textView.isHorizontallyResizable = !wrapsLines }
+        if textView.highlightSelectedLine != highlightsCurrentLine { textView.highlightSelectedLine = highlightsCurrentLine }
         coordinator.setGitBaseline(gitBaseline)
         coordinator.inlineDiff.onKeep = onKeep
         coordinator.inlineDiff.onRevert = onRevert

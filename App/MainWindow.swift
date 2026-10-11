@@ -23,9 +23,25 @@ struct MainWindow: View {
                         .inspectorColumnWidth(min: 340, ideal: 420, max: 720)
                 }
         }
-        .navigationTitle(workspace.name)
-        .navigationSubtitle(workspace.activeTab?.url.map(workspace.relativePath) ?? "")
+        .overlay {
+            if ui.isSettingsVisible {
+                SettingsScreen(host: host)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: ui.isSettingsVisible)
+        .navigationTitle(ui.isSettingsVisible ? "Settings" : workspace.name)
+        .navigationSubtitle(ui.isSettingsVisible ? "" : workspace.activeTab?.url.map(workspace.relativePath) ?? "")
         .toolbar {
+            // Next to the sidebar toggle.
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    ui.isSettingsVisible.toggle()
+                } label: {
+                    Label("Settings", systemImage: ui.isSettingsVisible ? "gearshape.fill" : "gearshape")
+                }
+                .help("Settings (⌘,)")
+            }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     CommandPalette.toggle(in: host)
@@ -50,6 +66,13 @@ struct MainWindow: View {
         }
         .onAppear {
             AppDelegate.reopenMainWindow = { openWindow(id: "main") }
+        }
+        .onChange(of: Preferences.shared.appearance, initial: true) { _, appearance in
+            NSApp.appearance = switch appearance {
+            case .system: nil
+            case .light: NSAppearance(named: .aqua)
+            case .dark: NSAppearance(named: .darkAqua)
+            }
         }
         .onChange(of: ui.requestedInspectorPanel) { _, id in
             guard let id else { return }

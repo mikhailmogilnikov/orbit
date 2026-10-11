@@ -19,10 +19,6 @@ struct OrbitApp: App {
         }
         .windowToolbarStyle(.unified)
         .commands { OrbitMenus(host: host) }
-
-        Settings {
-            SettingsView(host: host)
-        }
     }
 }
 
@@ -55,6 +51,14 @@ struct OrbitMenus: Commands {
     private static let builtInCategories: Set<String> = ["File", "Agents", "Review", "Git", "Terminal"]
 
     var body: some Commands {
+        // Settings open inside the main window (see SettingsScreen), not as a separate one.
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                AppDelegate.reopenMainWindow?()
+                host.ui.showSettings()
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
         CommandGroup(replacing: .newItem) {
             items(in: "File", excluding: ["editor.save", "editor.saveAll", "editor.closeTab"])
         }

@@ -4,7 +4,6 @@ import SwiftUI
 /// Design tokens shared by all plugins so the app reads as one system.
 public enum Theme {
     public static let codeFont = Font.system(size: 12, design: .monospaced)
-    public static let codeFontSize: CGFloat = 12.5
     public static let corner: CGFloat = 10
     public static let smallCorner: CGFloat = 6
 

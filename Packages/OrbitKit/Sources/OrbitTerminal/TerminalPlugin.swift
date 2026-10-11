@@ -206,7 +206,7 @@ struct TerminalPanel: View {
             TerminalTabs(store: store)
             Divider()
             if let session = store.selected {
-                TerminalHost(session: session)
+                TerminalHost(session: session, fontSize: Preferences.shared.codeFontSize)
                     .padding(.leading, 8)
                     .padding(.top, 4)
             } else {
@@ -290,6 +290,7 @@ private struct TerminalTab: View {
 /// re-creating this representable never tears the terminal down.
 private struct TerminalHost: NSViewRepresentable {
     let session: TerminalSession
+    let fontSize: Double
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
@@ -299,6 +300,9 @@ private struct TerminalHost: NSViewRepresentable {
 
     func updateNSView(_ container: NSView, context: Context) {
         if session.view.superview !== container { attach(to: container) }
+        if session.view.font.pointSize != fontSize {
+            session.view.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        }
     }
 
     private func attach(to container: NSView) {

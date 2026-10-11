@@ -351,3 +351,15 @@ project already matches are skipped. The bar above the composer counts files
 not applied yet. The service (`AgentIsolation`) lives in the Change Review
 plugin, which owns change tracking; the Agents plugin only points the agent
 at the copy, maps prompt attachments into it and skips project turn tracking.
+
+### D36. Settings as a page in the main window
+The small macOS Settings window held two tabs and couldn't grow. Settings now
+cover the main window (an overlay, so editors and terminals keep their state)
+with a searchable list of sections on the left, opened by ⌘, or a gear next to
+the sidebar toggle and closed by Esc — closer to Cursor/VS Code, where settings
+are something you browse. Plugins contribute sections through
+`UIRegistry.addSettingsPane` with search keywords; the shell adds General,
+Keyboard Shortcuts and Plugins. Options more than one plugin reads (theme, the
+code font size used by the editor and terminal) live in `Preferences` in
+OrbitAPI; a plugin's own options stay in its `PluginSettings`. Everything
+applies live, no restart (except enabling plugins).

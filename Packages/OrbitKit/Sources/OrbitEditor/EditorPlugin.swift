@@ -19,6 +19,14 @@ public final class EditorPlugin: OrbitPlugin {
         HighlightQueries.prewarm()
         let workspace = context.workspace
         let services = context.services
+        let options = EditorOptions(settings: context.settings)
+
+        context.ui.addSettingsPane(SettingsPane(
+            id: "editor", title: "Editor", systemImage: "chevron.left.forwardslash.chevron.right", order: 10,
+            keywords: ["font", "size", "wrap", "line", "highlight"]
+        ) {
+            EditorSettingsPane(options: options)
+        })
 
         context.ui.addEditorProvider(EditorProvider(
             id: "editor.text",
@@ -29,7 +37,8 @@ public final class EditorPlugin: OrbitPlugin {
                 document: workspace.documents.document(for: tab.url!),
                 workspace: workspace,
                 changes: services.resolve(ChangeTracking.self),
-                versionControl: services.resolve(VersionControlBaseline.self)
+                versionControl: services.resolve(VersionControlBaseline.self),
+                options: options
             )
             .id(tab.id)
         })
@@ -167,6 +176,7 @@ struct FileEditorView: View {
     let workspace: Workspace
     let changes: ChangeTracking?
     let versionControl: VersionControlBaseline?
+    let options: EditorOptions
     /// What the gutter's change markers compare against.
     @State private var gitBaseline: String?
     @State private var isComparing = false
@@ -193,7 +203,10 @@ struct FileEditorView: View {
                     onRevert: { changes?.revert($0, in: url) },
                     revealLine: workspace.pendingReveal?.url == url ? workspace.pendingReveal?.line : nil,
                     onRevealHandled: { workspace.pendingReveal = nil },
-                    gitBaseline: gitBaseline
+                    gitBaseline: gitBaseline,
+                    fontSize: Preferences.shared.codeFontSize,
+                    wrapsLines: options.wrapsLines,
+                    highlightsCurrentLine: options.highlightsCurrentLine
                 )
             }
         }

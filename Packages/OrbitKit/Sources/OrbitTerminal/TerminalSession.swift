@@ -181,7 +181,7 @@ final class OrbitTerminalView: LocalProcessTerminalView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        font = .monospacedSystemFont(ofSize: Theme.codeFontSize, weight: .regular)
+        font = .monospacedSystemFont(ofSize: Preferences.shared.codeFontSize, weight: .regular)
         // Option types special characters (macOS keyboard layouts), as in Terminal.app.
         optionAsMetaKey = false
         applyColors()

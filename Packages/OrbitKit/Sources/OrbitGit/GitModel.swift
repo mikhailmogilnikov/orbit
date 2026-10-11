@@ -45,9 +45,25 @@ final class GitModel {
     private(set) var isGenerating = false
     private var generateTask: Task<Void, Never>?
 
-    init(workspace: Workspace, services: ServiceRegistry) {
+    /// Gutter bars for lines changed since the index.
+    var showsChangeMarkers: Bool {
+        didSet {
+            settings.set(showsChangeMarkers, for: "showsChangeMarkers")
+            baselineGeneration += 1
+        }
+    }
+    /// The caret line's last commit in the status bar.
+    var showsBlame: Bool {
+        didSet { settings.set(showsBlame, for: "showsBlame") }
+    }
+    @ObservationIgnored private let settings: PluginSettings
+
+    init(workspace: Workspace, services: ServiceRegistry, settings: PluginSettings) {
         self.workspace = workspace
         self.services = services
+        self.settings = settings
+        showsChangeMarkers = settings.bool("showsChangeMarkers", default: true)
+        showsBlame = settings.bool("showsBlame", default: true)
         environment = ShellEnvironment.withoutHostAgentVariables()
         Task {
             // Push/pull may need credential helpers from the user's PATH (gh, brew git…).
@@ -313,7 +329,7 @@ final class GitModel {
     /// Blame of the editor's current text, so unsaved edits don't shift lines.
     /// Nil for files git doesn't track.
     func blame(_ url: URL, contents: String) async -> [GitBlameLine]? {
-        guard let repository, state == .ready, let root else { return nil }
+        guard showsChangeMarkers, let repository, state == .ready, let root else { return nil }
         let prefix = root.standardizedFileURL.path + "/"
         let path = url.standardizedFileURL.path
         guard path.hasPrefix(prefix), fileKinds[path] != .untracked, status.hasCommits else { return nil }

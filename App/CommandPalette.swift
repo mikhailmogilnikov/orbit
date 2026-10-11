@@ -208,6 +208,10 @@ extension KeyboardShortcut {
         case .delete: result += "⌫"
         case .escape: result += "⎋"
         case .tab: result += "⇥"
+        case .upArrow: result += "↑"
+        case .downArrow: result += "↓"
+        case .leftArrow: result += "←"
+        case .rightArrow: result += "→"
         default: result += String(key.character).uppercased()
         }
         return result

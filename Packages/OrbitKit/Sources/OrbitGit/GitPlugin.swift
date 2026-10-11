@@ -17,7 +17,14 @@ public final class GitPlugin: OrbitPlugin {
     public func activate(_ context: PluginContext) {
         let workspace = context.workspace
         let ui = context.ui
-        let model = GitModel(workspace: workspace, services: context.services)
+        let model = GitModel(workspace: workspace, services: context.services, settings: context.settings)
+
+        ui.addSettingsPane(SettingsPane(
+            id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", order: 30,
+            keywords: ["git", "blame", "gutter", "markers", "changes"]
+        ) {
+            GitSettingsPane(model: model)
+        })
         context.services.register(FileStatusProviding.self, model)
         context.services.register(VersionControlBaseline.self, model)
 
@@ -87,7 +94,7 @@ public final class GitPlugin: OrbitPlugin {
         ui.addStatusItem(StatusItem(
             id: "git.blame", placement: .trailing, order: 50,
             isVisible: {
-                guard model.state == .ready, model.status.hasCommits,
+                guard model.showsBlame, model.state == .ready, model.status.hasCommits,
                       let cursor = services.resolve(EditorSelectionProviding.self)?.cursor else { return false }
                 return cursor.url == workspace.activeTab?.url && model.status(of: cursor.url) != .untracked
             }

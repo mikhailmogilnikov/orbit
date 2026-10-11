@@ -3,6 +3,11 @@
 ## Done
 - App shell: navigator / tabs / inspector / status bar, command palette, menus from commands, settings
 - Plugin kernel (UI, commands, services registries; enable/disable)
+- Settings screen inside the window (⌘, or the gear by the sidebar toggle):
+  searchable sections on the left, plugins add their own (`SettingsPane`);
+  General (theme), Editor (font size shared with terminal, wrap, current line),
+  Agents (default agent, isolated by default, installed / custom agents),
+  Source Control (gutter markers, blame), Keyboard Shortcuts, Plugins
 - Explorer (lazy file tree)
 - Editor: STTextView, line numbers, tree-sitter highlighting (~20 languages), save
 - Agents over ACP: Claude Code, Codex, custom JSON agents; parallel sessions;
