@@ -19,6 +19,7 @@ public final class GitPlugin: OrbitPlugin {
         let ui = context.ui
         let model = GitModel(workspace: workspace, services: context.services)
         context.services.register(FileStatusProviding.self, model)
+        context.services.register(VersionControlBaseline.self, model)
 
         ui.addEditorProvider(EditorProvider(
             id: "git.diff",

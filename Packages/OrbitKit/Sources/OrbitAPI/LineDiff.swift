@@ -129,3 +129,29 @@ public enum LineDiff {
         return baselineLines.joined(separator: "\n")
     }
 }
+
+/// Per-line change markers of a file against a baseline, for a gutter.
+public struct LineMarkers: Equatable, Sendable {
+    /// 0-based lines of the current text.
+    public var added = IndexSet()
+    public var modified = IndexSet()
+    /// Lines with deleted lines right above them; the line count marks a deletion at the end.
+    public var deletedAbove = IndexSet()
+
+    public init() {}
+
+    public init(baseline: String, current: String) {
+        let newLines = LineDiff.lines(current)
+        for block in LineDiff.changeBlocks(oldLines: LineDiff.lines(baseline), newLines: newLines) {
+            if block.new.isEmpty {
+                deletedAbove.insert(block.new.lowerBound)
+            } else if block.old.isEmpty {
+                added.insert(integersIn: block.new)
+            } else {
+                modified.insert(integersIn: block.new)
+            }
+        }
+    }
+
+    public var isEmpty: Bool { added.isEmpty && modified.isEmpty && deletedAbove.isEmpty }
+}

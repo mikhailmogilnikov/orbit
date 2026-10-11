@@ -1,4 +1,5 @@
 import AppKit
+import OrbitAPI
 @_spi(Plugins) import STTextView
 
 /// Line numbers drawn in one pass by a scroll-view ruler. Replaces STTextView's
@@ -11,6 +12,10 @@ final class LineNumberRuler: NSRulerView {
     private var lineStarts: [Int] = [0]
     private var storageObserver: NSObjectProtocol?
     private var scrollObserver: NSObjectProtocol?
+    /// Git change bars at the leading edge.
+    var markers = LineMarkers() {
+        didSet { if markers != oldValue { needsDisplay = true } }
+    }
 
     private let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
     private let leadingPadding: CGFloat = 12
@@ -101,6 +106,17 @@ final class LineNumberRuler: NSRulerView {
             let start = contentManager.offset(from: documentStart, to: fragment.rangeInElement.location)
             let index = line(at: start)
             let frame = fragment.layoutFragmentFrame
+            if !markers.isEmpty, let first = fragment.textLineFragments.first {
+                // The line's own text, not the inline-diff gap above it.
+                let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 || $0 === first }
+                let top = convert(NSPoint(x: 0, y: content.minY + frame.minY + first.typographicBounds.minY), from: textView).y
+                let bottom = convert(NSPoint(x: 0, y: content.minY + frame.minY + (lines.last ?? first).typographicBounds.maxY), from: textView).y
+                drawMarker(for: index, top: top, bottom: bottom)
+                // A deletion at the very end shows below the last line.
+                if index == lineStarts.count - 1, markers.deletedAbove.contains(lineStarts.count) {
+                    drawDeletion(at: bottom)
+                }
+            }
             for (position, lineFragment) in fragment.textLineFragments.enumerated() {
                 // Wrapped continuation lines get no number; the empty line after a final
                 // newline (an "extra" fragment with no characters) does.
@@ -112,6 +128,31 @@ final class LineNumberRuler: NSRulerView {
             }
             return true
         }
+    }
+
+    private static let markerX: CGFloat = 3
+    private static let markerWidth: CGFloat = 3
+
+    private func drawMarker(for line: Int, top: CGFloat, bottom: CGFloat) {
+        let color: NSColor? = markers.added.contains(line) ? .systemGreen
+            : markers.modified.contains(line) ? .systemBlue
+            : nil
+        if let color {
+            color.withAlphaComponent(0.85).setFill()
+            NSBezierPath(roundedRect: NSRect(x: Self.markerX, y: top, width: Self.markerWidth, height: max(2, bottom - top)), xRadius: 1, yRadius: 1).fill()
+        }
+        if markers.deletedAbove.contains(line) { drawDeletion(at: top) }
+    }
+
+    /// A small red wedge on the boundary where lines were removed.
+    private func drawDeletion(at y: CGFloat) {
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: Self.markerX - 1, y: y - 4))
+        path.line(to: NSPoint(x: Self.markerX + 5, y: y))
+        path.line(to: NSPoint(x: Self.markerX - 1, y: y + 4))
+        path.close()
+        NSColor.systemRed.withAlphaComponent(0.85).setFill()
+        path.fill()
     }
 }
 

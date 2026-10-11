@@ -15,8 +15,14 @@ final class GitModel {
     private let services: ServiceRegistry
     private(set) var state: State = .noFolder
     private(set) var status = GitStatus() {
-        didSet { if status != oldValue { rebuildDecorations() } }
+        didSet {
+            guard status != oldValue else { return }
+            rebuildDecorations()
+            baselineGeneration += 1
+        }
     }
+    /// See `VersionControlBaseline`.
+    private(set) var baselineGeneration = 0
     /// Absolute paths → decoration, derived from `status`.
     private(set) var fileKinds: [String: FileChangeKind] = [:]
     private(set) var folderKinds: [String: FileChangeKind] = [:]
@@ -301,7 +307,11 @@ final class GitModel {
                 guard let self else { return }
                 if let failure { self.error = failure } else { onSuccess() }
                 // A checkout or pull rewrites files: reload clean buffers, the tree, search.
-                if changesFiles { self.workspace.fileSystemDidChange() }
+                if changesFiles {
+                    self.workspace.fileSystemDidChange()
+                    // Status can read the same before and after (clean → clean), the index can't.
+                    self.baselineGeneration += 1
+                }
                 self.refresh()
             }
         }
@@ -334,6 +344,20 @@ final class GitModel {
         alert.addButton(withTitle: "Cancel")
         alert.buttons[0].hasDestructiveAction = true
         return alert.runModal() == .alertFirstButtonReturn
+    }
+}
+
+extension GitModel: VersionControlBaseline {
+    func baseline(for url: URL) async -> String? {
+        guard let repository, state == .ready, let root else { return nil }
+        let prefix = root.standardizedFileURL.path + "/"
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(prefix), fileKinds[path] != .untracked else { return nil }
+        let relative = String(path.dropFirst(prefix.count))
+        return await Task.detached(priority: .utility) {
+            guard case .text(let text) = repository.blob(":\(relative)", missing: nil) else { return nil }
+            return text
+        }.value
     }
 }
 

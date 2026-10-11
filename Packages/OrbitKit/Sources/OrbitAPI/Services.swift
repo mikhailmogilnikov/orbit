@@ -111,3 +111,13 @@ public protocol EditorSelectionProviding: AnyObject {
     /// Nil when nothing is selected.
     var selection: EditorSelection? { get }
 }
+
+/// The version-control copy of files, for change markers in the editor.
+/// Implemented by the Git plugin.
+@MainActor
+public protocol VersionControlBaseline: AnyObject {
+    /// Changes whenever baselines may have (commit, stage, checkout, pull…); observable.
+    var baselineGeneration: Int { get }
+    /// The file as staged in the index; nil when untracked, ignored, binary or not in a repository.
+    func baseline(for url: URL) async -> String?
+}

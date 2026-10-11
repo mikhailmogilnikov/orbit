@@ -25,7 +25,8 @@ public final class EditorPlugin: OrbitPlugin {
             FileEditorView(
                 document: workspace.documents.document(for: tab.url!),
                 workspace: workspace,
-                changes: services.resolve(ChangeTracking.self)
+                changes: services.resolve(ChangeTracking.self),
+                versionControl: services.resolve(VersionControlBaseline.self)
             )
             .id(tab.id)
         })
@@ -130,6 +131,9 @@ struct FileEditorView: View {
     let document: TextDocument
     let workspace: Workspace
     let changes: ChangeTracking?
+    let versionControl: VersionControlBaseline?
+    /// What the gutter's change markers compare against.
+    @State private var gitBaseline: String?
 
     var body: some View {
         let url = document.url
@@ -147,9 +151,13 @@ struct FileEditorView: View {
                     onKeep: { changes?.keep($0, in: url) },
                     onRevert: { changes?.revert($0, in: url) },
                     revealLine: workspace.pendingReveal?.url == url ? workspace.pendingReveal?.line : nil,
-                    onRevealHandled: { workspace.pendingReveal = nil }
+                    onRevealHandled: { workspace.pendingReveal = nil },
+                    gitBaseline: gitBaseline
                 )
             }
+        }
+        .task(id: versionControl?.baselineGeneration ?? -1) {
+            gitBaseline = await versionControl?.baseline(for: url)
         }
     }
 }

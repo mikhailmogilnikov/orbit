@@ -58,3 +58,22 @@ import Testing
 }
 
 import Foundation
+
+@Suite struct LineMarkersTests {
+    @Test func marksAddedModifiedAndDeletedLines() {
+        let baseline = "a\nb\nc\nd\ne"
+        let current = "a\nB\nc\nnew\nd"
+        let markers = LineMarkers(baseline: baseline, current: current)
+        #expect(markers.modified == IndexSet(integer: 1))
+        #expect(markers.added == IndexSet(integer: 3))
+        // "e" was removed after the last line.
+        #expect(markers.deletedAbove == IndexSet(integer: 5))
+    }
+
+    @Test func deletionInTheMiddleMarksTheLineBelow() {
+        let markers = LineMarkers(baseline: "a\nb\nc", current: "a\nc")
+        #expect(markers.deletedAbove == IndexSet(integer: 1))
+        #expect(markers.added.isEmpty && markers.modified.isEmpty)
+        #expect(LineMarkers(baseline: "same", current: "same").isEmpty)
+    }
+}

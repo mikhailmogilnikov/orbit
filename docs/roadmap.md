@@ -24,6 +24,8 @@
   Message via a hidden agent session (`AgentCompletion` service); diff tabs
   for working-tree / staged changes; git colors and badges in the explorer
   (`FileStatusProviding` service)
+- Git change markers in the editor gutter (green added, blue modified, red
+  wedge for deletions) against the index, via `VersionControlBaseline`
 - Prompt attachments: `@` in the composer picks project files (⌘P ranking via
   `ProjectFileIndex`), ⌘L attaches the editor selection (`EditorSelectionProviding`),
   files and images by drop, the paperclip menu or "Paste Image"; chips show on
@@ -65,6 +67,6 @@
   the end of the draft.
 - Replace in files has no undo beyond the editor's own (files that weren't
   open are written straight to disk); written while unverified in the UI.
-- Git: diff tabs are unified and not syntax-highlighted; no gutter change
-  markers in the editor; no stash, history or blame.
+- Git: diff tabs are unified and not syntax-highlighted; no stash, history or
+  blame.
 - Claude Code requires the standalone `claude` CLI to be logged in (`claude` → `/login`).

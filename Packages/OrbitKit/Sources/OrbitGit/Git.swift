@@ -209,19 +209,20 @@ struct GitRepository: Sendable {
     /// index → working tree for the rest. Missing sides are empty (added/deleted files).
     func diffSides(of file: GitFileStatus, staged: Bool) -> (old: Side, new: Side) {
         if staged {
-            let old = file.staged == .added ? .text("") : blob("HEAD:\(file.originalPath ?? file.path)")
-            let new = file.staged == .deleted ? .text("") : blob(":\(file.path)")
+            let old: Side = file.staged == .added ? .text("") : blob("HEAD:\(file.originalPath ?? file.path)") ?? .text("")
+            let new: Side = file.staged == .deleted ? .text("") : blob(":\(file.path)") ?? .text("")
             return (old, new)
         }
-        let old = file.unstaged == .untracked ? .text("") : blob(":\(file.path)")
+        let old: Side = file.unstaged == .untracked ? .text("") : blob(":\(file.path)") ?? .text("")
         let new: Side = file.unstaged == .deleted
             ? .text("")
             : (try? Data(contentsOf: root.appendingPathComponent(file.path))).map(Self.side) ?? .text("")
         return (old, new)
     }
 
-    private func blob(_ spec: String) -> Side {
-        (try? run(["show", spec])).map(Self.side) ?? .text("")
+    /// A blob's contents; `missing` when it doesn't exist (e.g. a file new in this side).
+    func blob(_ spec: String, missing: Side? = .text("")) -> Side? {
+        (try? run(["show", spec])).map(Self.side) ?? missing
     }
 
     private static func side(_ data: Data) -> Side {

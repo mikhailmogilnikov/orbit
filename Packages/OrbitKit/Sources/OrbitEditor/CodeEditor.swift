@@ -16,6 +16,8 @@ struct CodeEditor: NSViewRepresentable {
     /// 0-based line to scroll to once; `onRevealHandled` clears the request.
     var revealLine: Int?
     var onRevealHandled: () -> Void = {}
+    /// Git's copy of the file; the gutter marks lines that differ from it.
+    var gitBaseline: String?
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document) }
 
@@ -70,6 +72,7 @@ struct CodeEditor: NSViewRepresentable {
             }
         }
 
+        coordinator.setGitBaseline(gitBaseline)
         coordinator.inlineDiff.onKeep = onKeep
         coordinator.inlineDiff.onRevert = onRevert
         coordinator.inlineDiff.update(hunks: hunks, revision: document.revision)
@@ -100,9 +103,37 @@ struct CodeEditor: NSViewRepresentable {
         }
 
         func textViewDidChangeText(_ notification: Notification) {
+            scheduleGitMarkers()
             guard !isApplyingExternalChange, let textView else { return }
             document.text = textView.text ?? ""
             syncedRevision = document.revision
+        }
+
+        // MARK: Git change markers
+
+        private var gitBaseline: String?
+        private var markersTask: Task<Void, Never>?
+
+        func setGitBaseline(_ baseline: String?) {
+            guard baseline != gitBaseline else { return }
+            gitBaseline = baseline
+            scheduleGitMarkers(delay: .zero)
+        }
+
+        /// Diffing a big file on every keystroke would stutter: wait for a pause, diff off the main actor.
+        private func scheduleGitMarkers(delay: Duration = .milliseconds(300)) {
+            markersTask?.cancel()
+            guard let baseline = gitBaseline else {
+                ruler?.markers = LineMarkers()
+                return
+            }
+            markersTask = Task { [weak self] in
+                if delay > .zero { try? await Task.sleep(for: delay) }
+                guard !Task.isCancelled, let current = self?.textView?.text else { return }
+                let markers = await Task.detached(priority: .utility) { LineMarkers(baseline: baseline, current: current) }.value
+                guard !Task.isCancelled else { return }
+                self?.ruler?.markers = markers
+            }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

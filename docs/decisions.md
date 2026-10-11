@@ -270,3 +270,13 @@ as `session/update` before answering) and `session/list`.
   the selection (`EditorSelectionProviding`, Editor) are OrbitAPI services.
 - Switching folders brings back that folder's saved agent tabs; idle tabs of
   the previous folder close (saved, they return with it), busy ones keep going.
+
+### D30. Git change markers in the gutter
+Like VS Code's quick diff: bars on the line-number ruler (green added, blue
+modified, a red wedge where lines were deleted), against the **index**, so
+staged lines stop being marked. The Git plugin serves the index copy through
+`VersionControlBaseline` (OrbitAPI) and bumps `baselineGeneration` whenever
+status changes or an operation rewrote files; the editor refetches on that and
+re-diffs 300 ms after typing stops, off the main actor (`LineMarkers` in
+`LineDiff.swift`). Untracked files get no markers. Agent changes keep their
+own inline review (D7); the two don't interact.
