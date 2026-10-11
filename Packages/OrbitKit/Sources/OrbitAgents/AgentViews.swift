@@ -745,6 +745,16 @@ struct Composer: View {
         let end = new.index(new.endIndex, offsetBy: -min(suffix, old.count - prefix))
         guard start < end else { return }
         let inserted = String(new[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Files copied in Finder paste as their names if ⌘V slipped past PasteInterceptor
+        // (Edit ▸ Paste, another shortcut).
+        let pasteboard = NSPasteboard.general
+        if inserted == pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let files = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           !files.isEmpty {
+            session.draft = String(new[..<start]) + String(new[end...])
+            for file in files { session.attach(.from(fileURL: file)) }
+            return
+        }
         guard inserted.hasPrefix("/") || inserted.hasPrefix("file://") else { return }
         let candidates = FileManager.default.fileExists(atPath: Self.path(inserted)) ? [inserted]
             : inserted.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -855,12 +865,14 @@ struct Composer: View {
 final class PasteInterceptor {
     var isActive = false
     private var monitor: Any?
+    private nonisolated static let vKeyCode: UInt16 = 9
 
     func install(for session: AgentSession) {
         remove()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak session] event in
+            // The V key by position too: with a Russian layout it types "м".
             guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                  event.charactersIgnoringModifiers == "v",
+                  event.keyCode == Self.vKeyCode || event.charactersIgnoringModifiers == "v",
                   let self, let session else { return event }
             let handled = MainActor.assumeIsolated {
                 guard self.isActive, let attachments = PasteInterceptor.attachments(in: .general) else { return false }
