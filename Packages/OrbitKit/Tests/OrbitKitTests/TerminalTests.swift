@@ -68,6 +68,13 @@ import Testing
         #expect(!stopped)
         terminal.finish(TerminalExitStatus(exitCode: 0))
         #expect(!session.isRunning)
+
+        // A tab opened again redraws everything, colors included.
+        let reopened = TerminalSession(displaying: terminal)
+        #expect(!reopened.isRunning)
+        let screen = reopened.view.getTerminal()
+        let text = (0..<screen.rows).compactMap { screen.getLine(row: $0)?.translateToString(trimRight: true) }.joined(separator: "\n")
+        #expect(text.contains("$ git status\nOn branch master\nclean"))
     }
 }
 

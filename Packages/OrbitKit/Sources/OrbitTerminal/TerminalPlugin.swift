@@ -116,7 +116,6 @@ final class TerminalStore {
     private func remove(_ session: TerminalSession, automatic: Bool = false) {
         guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
         sessions.remove(at: index)
-        session.agentTerminal?.hostDidCloseTerminal()
         if selectedID == session.id {
             selectedID = sessions.isEmpty ? nil : sessions[min(index, sessions.count - 1)].id
         }
@@ -165,19 +164,34 @@ extension TerminalStore: AgentTerminalHosting {
     }
 
     private func adopt(_ session: TerminalSession, for terminal: AgentTerminal) {
-        session.onExit = { [weak self] _ in self?.pruneAgentSessions() }
-        terminal.onKill = { [weak session] in session?.kill() }
-        terminal.onReveal = { [weak self, weak session] in
-            guard let self, let session, sessions.contains(where: { $0.id == session.id }) else { return }
-            selectedID = session.id
+        add(session)
+        if selectedID == nil { selectedID = session.id }
+        terminal.onKill = { [weak self, weak terminal] in
+            guard let terminal else { return }
+            self?.session(showing: terminal)?.kill()
+        }
+        terminal.onReveal = { [weak self, weak terminal] in
+            guard let self, let terminal else { return }
+            // A closed or pruned tab comes back, redrawn from what the command printed.
+            let shown = session(showing: terminal) ?? add(TerminalSession(displaying: terminal))
+            selectedID = shown.id
             ui.revealBottomPanel(Self.panelID)
         }
-        terminal.onRelease = { [weak self, weak session] in
-            guard let self, let session, session.id != selectedID else { return }
-            remove(session, automatic: true)
+        terminal.onRelease = { [weak self, weak terminal] in
+            guard let self, let terminal, let shown = session(showing: terminal), shown.id != selectedID else { return }
+            remove(shown, automatic: true)
         }
+    }
+
+    @discardableResult
+    private func add(_ session: TerminalSession) -> TerminalSession {
+        session.onExit = { [weak self] _ in self?.pruneAgentSessions() }
         sessions.append(session)
-        if selectedID == nil { selectedID = session.id }
+        return session
+    }
+
+    private func session(showing terminal: AgentTerminal) -> TerminalSession? {
+        sessions.first { $0.agentTerminal === terminal }
     }
 }
 

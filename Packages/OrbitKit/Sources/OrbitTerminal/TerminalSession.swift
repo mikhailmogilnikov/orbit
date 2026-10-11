@@ -68,13 +68,17 @@ final class TerminalSession: Identifiable {
         )
     }
 
-    /// Shows a command the agent runs itself: no process here, only its output.
+    /// Shows output without a process of its own: a command the agent runs
+    /// itself, or one whose tab was closed and is opened again. Draws what it
+    /// printed so far, then follows along while it still runs.
     init(displaying agentTerminal: AgentTerminal) {
         title = agentTerminal.request.displayCommand
+        isRunning = agentTerminal.isRunning
         self.agentTerminal = agentTerminal
         let view = OrbitTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 240))
         self.view = view
         view.feed(byteArray: Self.terminalLines("$ \(title)\n")[...])
+        view.feed(byteArray: Self.terminalLines(agentTerminal.transcript)[...])
         agentTerminal.onDisplay = { [weak view] bytes in view?.feed(byteArray: Self.terminalLines(bytes)[...]) }
         agentTerminal.onFinish = { [weak self] in self?.processDidExit(nil) }
     }

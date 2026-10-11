@@ -78,8 +78,8 @@ public final class AgentTerminal: Identifiable {
     public private(set) var output = ""
     public private(set) var isTruncated = false
     public private(set) var exitStatus: TerminalExitStatus?
-    /// False once the host closed its terminal tab.
-    public private(set) var canReveal = true
+    /// Raw output, colors included, so a closed tab can be drawn again.
+    @ObservationIgnored public private(set) var transcript: [UInt8] = []
 
     @ObservationIgnored public var onKill: () -> Void = {}
     @ObservationIgnored public var onReveal: () -> Void = {}
@@ -105,6 +105,8 @@ public final class AgentTerminal: Identifiable {
 
     public func receive(_ bytes: ArraySlice<UInt8>) {
         capture.feed(bytes)
+        transcript += bytes
+        if transcript.count > Self.defaultByteLimit * 2 { transcript.removeFirst(transcript.count - Self.defaultByteLimit) }
         guard !flushScheduled else { return }
         // Output arrives in many small chunks; publish it once per run-loop turn.
         flushScheduled = true
@@ -118,10 +120,6 @@ public final class AgentTerminal: Identifiable {
         for waiter in waiters { waiter.resume(returning: status) }
         waiters.removeAll()
         onFinish()
-    }
-
-    public func hostDidCloseTerminal() {
-        canReveal = false
     }
 
     // MARK: Client side
@@ -149,7 +147,7 @@ public final class AgentTerminal: Identifiable {
     }
 
     public func reveal() {
-        if canReveal { onReveal() }
+        onReveal()
     }
 
     /// Kills the command if it still runs; the host may then drop its terminal.

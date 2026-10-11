@@ -230,4 +230,6 @@ failure):
   `PAGER`/`GIT_PAGER` are `cat` so nothing waits for a keypress. Stop sends
   SIGTERM to the whole process group.
 - Tabs don't pile up: a released command's tab closes unless it's selected,
-  and only the 5 newest finished agent tabs are kept.
+  and only the 5 newest finished agent tabs are kept. "Show in Terminal" works
+  anyway: a closed tab is opened again and redrawn from the command's raw
+  output (`AgentTerminal.transcript`, colors included).

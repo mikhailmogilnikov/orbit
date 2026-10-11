@@ -472,10 +472,8 @@ struct AgentTerminalOutput: View {
                     Button("Stop") { terminal.kill() }
                         .buttonStyle(.glass)
                 }
-                if terminal.canReveal {
-                    Button("Show in Terminal", systemImage: "terminal") { terminal.reveal() }
-                        .buttonStyle(.glass)
-                }
+                Button("Show in Terminal", systemImage: "terminal") { terminal.reveal() }
+                    .buttonStyle(.glass)
             }
             .controlSize(.small)
         }
