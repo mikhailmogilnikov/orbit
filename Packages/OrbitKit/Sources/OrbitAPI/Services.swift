@@ -134,3 +134,39 @@ public protocol VersionControlBaseline: AnyObject {
     /// The file as staged in the index; nil when untracked, ignored, binary or not in a repository.
     func baseline(for url: URL) async -> String?
 }
+
+/// A private copy of the project an agent session works in, so parallel
+/// agents don't trip over each other or over the user's edits.
+public struct IsolatedCopy: Codable, Hashable, Sendable {
+    public var project: URL
+    public var directory: URL
+    /// Snapshot of the copy when it was made; the agent's changes are measured from it.
+    public var checkpoint: String
+
+    public init(project: URL, directory: URL, checkpoint: String) {
+        self.project = project
+        self.directory = directory
+        self.checkpoint = checkpoint
+    }
+}
+
+public struct IsolatedApplyResult: Sendable {
+    /// Project files written (or deleted).
+    public var applied: [URL] = []
+    /// Project files left alone: changed in the project too, on the same lines.
+    public var conflicts: [URL] = []
+
+    public init() {}
+}
+
+/// Makes isolated copies and brings their changes back as agent changes
+/// (inline review). Implemented by the Change Review plugin.
+@MainActor
+public protocol AgentIsolation: AnyObject {
+    func makeCopy(of project: URL) async throws -> IsolatedCopy
+    /// Project files the agent changed in the copy that the project doesn't have yet.
+    func unappliedChanges(in copy: IsolatedCopy) async -> [URL]
+    func apply(_ copy: IsolatedCopy) async -> IsolatedApplyResult
+    /// Deletes the copy.
+    func discard(_ copy: IsolatedCopy)
+}

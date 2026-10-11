@@ -1,3 +1,4 @@
+import AppKit
 import OrbitACP
 import OrbitAPI
 import OrbitUI
@@ -60,6 +61,18 @@ public final class AgentsPlugin: OrbitPlugin {
         ) {
             ui.revealInspectorPanel("agents")
             store.newSession(store.preferredProvider)
+        })
+
+        context.commands.register(OrbitCommand(
+            id: "agents.newIsolated",
+            title: "New Isolated Agent Session",
+            category: "Agents",
+            systemImage: "square.on.square.dashed",
+            shortcut: KeyboardShortcut("n", modifiers: [.command, .shift, .option]),
+            isEnabled: { context.workspace.root != nil }
+        ) {
+            ui.revealInspectorPanel("agents")
+            store.newSession(store.preferredProvider, isolated: true)
         })
 
         for provider in store.providers {
@@ -155,7 +168,7 @@ final class AgentStore {
     private func folderDidChange() {
         guard workspace.root != folder else { return }
         folder = workspace.root
-        for session in sessions where session.cwd.path != folder?.path && !session.isBusy && !session.hasPendingPermission {
+        for session in sessions where session.project.path != folder?.path && !session.isBusy && !session.hasPendingPermission {
             session.shutdown()
             sessions.removeAll { $0.id == session.id }
         }
@@ -174,10 +187,10 @@ final class AgentStore {
         return providers.first { $0.id == id } ?? providers[0]
     }
 
-    func newSession(_ provider: AgentProvider) {
+    func newSession(_ provider: AgentProvider, isolated: Bool = false) {
         guard let root = workspace.root else { return }
         settings.set(provider.id, for: "lastProvider")
-        let session = makeSession(provider, cwd: root)
+        let session = makeSession(provider, project: root, isolated: isolated)
         sessions.append(session)
         selectedID = session.id
         focusComposer()
@@ -190,13 +203,17 @@ final class AgentStore {
             return
         }
         guard let provider = providers.first(where: { $0.id == saved.providerID }) else { return }
-        let session = makeSession(provider, cwd: URL(fileURLWithPath: saved.cwd), restoring: saved)
+        let session = makeSession(provider, project: URL(fileURLWithPath: saved.cwd), restoring: saved)
         sessions.append(session)
         selectedID = session.id
         focusComposer()
     }
 
     func close(_ session: AgentSession) {
+        if session.isolatedCopy != nil {
+            guard confirmDiscardingCopy(of: session) else { return }
+            session.discardIsolatedCopy()
+        }
         session.shutdown()
         guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
         sessions.remove(at: index)
@@ -204,6 +221,19 @@ final class AgentStore {
             selectedID = sessions.isEmpty ? nil : sessions[max(0, index - 1)].id
         }
         saveTabs()
+    }
+
+    /// Closing an isolated session deletes its copy; changes not applied yet go with it.
+    private func confirmDiscardingCopy(of session: AgentSession) -> Bool {
+        let count = session.unappliedChanges.count
+        guard count > 0 else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Close “\(session.title)”?"
+        alert.informativeText = "Its isolated copy has \(count) changed file\(count == 1 ? "" : "s") not applied to the project. Closing deletes the copy."
+        alert.addButton(withTitle: "Cancel")
+        let discard = alert.addButton(withTitle: "Close and Delete Copy")
+        discard.hasDestructiveAction = true
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     /// Earlier conversations in this folder that aren't open in a tab, newest first.
@@ -251,9 +281,9 @@ final class AgentStore {
         }
     }
 
-    private func makeSession(_ provider: AgentProvider, cwd: URL, restoring saved: SavedSession? = nil) -> AgentSession {
+    private func makeSession(_ provider: AgentProvider, project: URL, isolated: Bool = false, restoring saved: SavedSession? = nil) -> AgentSession {
         let task = environmentTask
-        let session = AgentSession(provider: provider, cwd: cwd, restoring: saved, workspace: workspace, services: services) {
+        let session = AgentSession(provider: provider, project: project, isolated: isolated, restoring: saved, workspace: workspace, services: services) {
             await task.value
         }
         session.onChange = { [weak self, weak session] in
@@ -271,7 +301,7 @@ final class AgentStore {
         let open = Set(sessions.compactMap { $0.saved?.id })
         for entry in saved where !open.contains(entry.id) {
             guard let provider = providers.first(where: { $0.id == entry.providerID }) else { continue }
-            sessions.append(makeSession(provider, cwd: root, restoring: entry))
+            sessions.append(makeSession(provider, project: root, restoring: entry))
         }
         selectedID = sessions.first { $0.saved?.sessionID == selected }?.id ?? sessions.last?.id
         if let session = self.selected, session.status == .dormant { Task { await session.start() } }
@@ -279,7 +309,7 @@ final class AgentStore {
 
     private func saveTabs() {
         guard let root = workspace.root else { return }
-        let open = sessions.filter { $0.cwd.path == root.path }
+        let open = sessions.filter { $0.project.path == root.path }
         history.saveOpenTabs(open.compactMap(\.saved), selected: selected?.saved?.sessionID, in: root)
     }
 

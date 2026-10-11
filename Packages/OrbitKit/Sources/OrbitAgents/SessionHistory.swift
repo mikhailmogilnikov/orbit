@@ -10,6 +10,8 @@ struct SavedSession: Codable, Hashable, Identifiable, Sendable {
     /// Project folder path.
     var cwd: String
     var updatedAt: Date
+    /// The session's own copy of the project, if it's isolated.
+    var isolated: IsolatedCopy? = nil
 
     var id: String { "\(providerID):\(sessionID)" }
 }

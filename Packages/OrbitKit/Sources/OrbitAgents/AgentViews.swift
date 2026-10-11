@@ -53,6 +53,17 @@ struct SessionTabs: View {
                         Label(provider.name, systemImage: provider.icon)
                     }
                 }
+                Menu {
+                    ForEach(store.providers) { provider in
+                        Button {
+                            store.newSession(provider, isolated: true)
+                        } label: {
+                            Label(provider.name, systemImage: provider.icon)
+                        }
+                    }
+                } label: {
+                    Label("Isolated Copy", systemImage: "square.on.square.dashed")
+                }
                 let recent = store.recent.prefix(10)
                 if !recent.isEmpty {
                     Section("Recent") {
@@ -89,6 +100,12 @@ struct SessionChip: View {
     var body: some View {
         HStack(spacing: 5) {
             statusDot
+            if session.isIsolated {
+                Image(systemName: "square.on.square.dashed")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .help("Works in an isolated copy of the project")
+            }
             Text(session.title)
                 .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
                 .lineLimit(1)
@@ -126,6 +143,7 @@ struct SessionChip: View {
 
 struct StartSessionView: View {
     let store: AgentStore
+    @State private var isolated = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -144,7 +162,7 @@ struct StartSessionView: View {
             VStack(spacing: 8) {
                 ForEach(store.providers) { provider in
                     Button {
-                        store.newSession(provider)
+                        store.newSession(provider, isolated: isolated)
                     } label: {
                         Label(provider.name, systemImage: provider.icon)
                             .frame(maxWidth: 200)
@@ -152,6 +170,11 @@ struct StartSessionView: View {
                     .buttonStyle(.glass)
                     .controlSize(.large)
                 }
+                Toggle("Isolated copy", isOn: $isolated)
+                    .toggleStyle(.checkbox)
+                    .font(.callout)
+                    .padding(.top, 4)
+                    .help("The agent works in its own copy of the project; Apply brings its changes back for review. For agents running side by side.")
             }
             Text("⇧⌘N new session · ⌘L focus chat")
                 .font(.caption)
@@ -234,8 +257,55 @@ struct SessionView: View {
                 .padding(.vertical, 12)
             }
             .defaultScrollAnchor(.bottom)
+            if session.isIsolated {
+                IsolationBar(session: session)
+            }
             Composer(session: session, focusRequest: focusRequest, fileIndex: fileIndex)
         }
+    }
+}
+
+/// State of an isolated session's copy, with Apply.
+struct IsolationBar: View {
+    let session: AgentSession
+
+    var body: some View {
+        let count = session.unappliedChanges.count
+        HStack(spacing: 8) {
+            Image(systemName: "square.on.square.dashed")
+                .foregroundStyle(.secondary)
+            Group {
+                if session.isolatedCopy == nil {
+                    Text("Making an isolated copy…")
+                } else if count == 0 {
+                    Text("Isolated copy · no changes to apply")
+                } else {
+                    Text("Isolated copy · \(count) file\(count == 1 ? "" : "s") changed")
+                        .help(session.unappliedChanges.map(\.lastPathComponent).joined(separator: "\n"))
+                }
+            }
+            .font(.system(size: 11.5))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            Spacer(minLength: 4)
+            if let copy = session.isolatedCopy {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([copy.directory])
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .help("Show the copy in Finder")
+            }
+            Button(session.isApplying ? "Applying…" : "Apply") { session.applyIsolatedChanges() }
+                .buttonStyle(.glassProminent)
+                .disabled(count == 0 || session.isApplying || session.status == .working)
+                .help(session.status == .working ? "Wait for the agent to finish" : "Bring these changes into the project for review")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .overlay(alignment: .top) { Divider() }
     }
 }
 

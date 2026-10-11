@@ -24,7 +24,16 @@ final class AgentSession: Identifiable {
 
     let id = UUID()
     let provider: AgentProvider
-    let cwd: URL
+    /// The project folder the session belongs to.
+    let project: URL
+    /// Works in its own copy of the project (see `AgentIsolation`).
+    let isIsolated: Bool
+    private(set) var isolatedCopy: IsolatedCopy? { didSet { if isolatedCopy != oldValue { onChange() } } }
+    /// Project files the agent changed in its copy that aren't in the project yet.
+    private(set) var unappliedChanges: [URL] = []
+    private(set) var isApplying = false
+    /// Where the agent runs: its copy when isolated.
+    var cwd: URL { isolatedCopy?.directory ?? project }
     var title: String { didSet { if title != oldValue { onChange() } } }
     private(set) var status: Status = .dormant
     /// Called when what's worth remembering changed (id, title, activity).
@@ -57,18 +66,28 @@ final class AgentSession: Identifiable {
     private let environment: @MainActor () async -> [String: String]
 
     private var tracker: ChangeTracking? { services.resolve(ChangeTracking.self) }
+    /// Turns are tracked for inline review only when the agent edits the project itself;
+    /// a copy's changes arrive through Apply.
+    private var projectTracker: ChangeTracking? { isIsolated ? nil : tracker }
+    private var isolation: AgentIsolation? { services.resolve(AgentIsolation.self) }
     private var terminalHost: AgentTerminalHosting? { services.resolve(AgentTerminalHosting.self) }
 
     init(
         provider: AgentProvider,
-        cwd: URL,
+        project: URL,
+        isolated: Bool = false,
         restoring saved: SavedSession? = nil,
         workspace: Workspace,
         services: ServiceRegistry,
         environment: @escaping @MainActor () async -> [String: String]
     ) {
         self.provider = provider
-        self.cwd = cwd
+        self.project = project
+        // A restored copy that was deleted meanwhile: the session goes on in the project.
+        let copy = saved?.isolated.flatMap { FileManager.default.fileExists(atPath: $0.directory.path) ? $0 : nil }
+        isolatedCopy = copy
+        isIsolated = saved.map { _ in copy != nil } ?? isolated
+        lostCopy = saved?.isolated != nil && copy == nil
         self.workspace = workspace
         self.services = services
         self.environment = environment
@@ -80,9 +99,13 @@ final class AgentSession: Identifiable {
         }
     }
 
+    private let lostCopy: Bool
+
     /// What it takes to open this conversation again later.
     var saved: SavedSession? {
-        sessionID.map { SavedSession(providerID: provider.id, sessionID: $0, title: title, cwd: cwd.path, updatedAt: updatedAt) }
+        sessionID.map {
+            SavedSession(providerID: provider.id, sessionID: $0, title: title, cwd: project.path, updatedAt: updatedAt, isolated: isolatedCopy)
+        }
     }
 
     var isBusy: Bool { status == .working || status == .starting }
@@ -93,6 +116,19 @@ final class AgentSession: Identifiable {
     func start() async {
         guard status == .dormant else { return }
         status = .starting
+        if lostCopy { notice("This session's isolated copy was deleted; it continues in the project.", isError: true) }
+        if isIsolated, isolatedCopy == nil {
+            guard let isolation else {
+                status = .failed("Isolated sessions need the Change Review plugin.")
+                return
+            }
+            do {
+                isolatedCopy = try await isolation.makeCopy(of: project)
+            } catch {
+                status = .failed("Couldn't make an isolated copy of the project: \(error.localizedDescription)")
+                return
+            }
+        }
         let (stream, continuation) = AsyncStream.makeStream(of: AgentEvent.self)
         eventTask = Task { [weak self] in
             for await event in stream {
@@ -133,6 +169,7 @@ final class AgentSession: Identifiable {
             applyConfigOptions(session?["configOptions"])
             if configOptions.isEmpty { applyLegacyModes(session?["modes"]) }
             status = .ready
+            await refreshUnappliedChanges()
         } catch {
             status = .failed(describe(error))
         }
@@ -193,14 +230,15 @@ final class AgentSession: Identifiable {
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canSend, let client, let sessionID else { return }
-        let attached = attachments
+        let shown = attachments
+        let attached = attachments.map(intoCopy)
         draft = ""
         attachments = []
         let entry = TranscriptEntry(kind: .user, text: text)
-        entry.attachments = attached
+        entry.attachments = shown
         entries.append(entry)
         updatedAt = Date()
-        let summary = text.isEmpty ? attached.map(\.label).joined(separator: ", ") : text
+        let summary = text.isEmpty ? shown.map(\.label).joined(separator: ", ") : text
         if title == provider.name { title = String(summary.prefix(40)) } else { onChange() }
         let content = PromptBuilder.content(text: text, attachments: attached, capabilities: promptCapabilities) { url in
             workspace.documents.currentText(of: url)
@@ -209,7 +247,7 @@ final class AgentSession: Identifiable {
         planEntry = nil
 
         Task {
-            await tracker?.beginAgentTurn()
+            await projectTracker?.beginAgentTurn()
             do {
                 let result = try await client.prompt(sessionID: sessionID, content: content)
                 switch result["stopReason"]?.string {
@@ -222,8 +260,9 @@ final class AgentSession: Identifiable {
             } catch {
                 notice(describe(error), isError: true)
             }
-            await tracker?.endAgentTurn()
+            await projectTracker?.endAgentTurn()
             if status == .working { status = .ready }
+            await refreshUnappliedChanges()
         }
     }
 
@@ -360,7 +399,10 @@ final class AgentSession: Identifiable {
         if !entry.isRunning, let terminal = entry.terminal, !terminal.ownsProcess { terminal.finish(TerminalExitStatus()) }
 
         if wasRunning, !entry.isRunning, !isReplaying, Self.mutatingKinds.contains(entry.toolKind) || entry.contents.contains(where: { if case .diff = $0 { true } else { false } }) {
-            Task { await tracker?.refreshAgentChanges() }
+            Task {
+                await projectTracker?.refreshAgentChanges()
+                await refreshUnappliedChanges()
+            }
         }
         return entry
     }
@@ -463,10 +505,10 @@ final class AgentSession: Identifiable {
                 return
             }
             let url = workspace.resolve(path: path)
-            tracker?.recordBaseline(workspace.documents.currentText(of: url), for: url)
+            projectTracker?.recordBaseline(workspace.documents.currentText(of: url), for: url)
             do {
                 try workspace.documents.write(content, to: url)
-                workspace.fileSystemDidChange()
+                if !isIsolated { workspace.fileSystemDidChange() }
                 reply.resume(returning: .null)
             } catch {
                 reply.resume(throwing: JSONRPCError(code: -32603, message: error.localizedDescription))
@@ -552,6 +594,55 @@ final class AgentSession: Identifiable {
             "exitCode": status.exitCode.map { JSONValue.number(Double($0)) } ?? .null,
             "signal": status.signal.map { JSONValue.string($0) } ?? .null,
         ]
+    }
+
+    // MARK: Isolated copy
+
+    func refreshUnappliedChanges() async {
+        guard let copy = isolatedCopy, let isolation else { return }
+        unappliedChanges = await isolation.unappliedChanges(in: copy)
+    }
+
+    /// Brings the copy's changes into the project, where they show inline for review.
+    func applyIsolatedChanges() {
+        guard let copy = isolatedCopy, let isolation, !isApplying else { return }
+        isApplying = true
+        Task {
+            let result = await isolation.apply(copy)
+            isApplying = false
+            let names = { (urls: [URL]) in urls.map { self.workspace.relativePath($0) }.joined(separator: "\n") }
+            if !result.applied.isEmpty {
+                let count = result.applied.count
+                notice("Applied \(count) file\(count == 1 ? "" : "s") to the project; review the changes in the editor.")
+            }
+            if !result.conflicts.isEmpty {
+                notice("Not applied, changed in the project on the same lines:\n" + names(result.conflicts), isError: true)
+            }
+            if result.applied.isEmpty, result.conflicts.isEmpty { notice("The project already has these changes.") }
+            await refreshUnappliedChanges()
+        }
+    }
+
+    func discardIsolatedCopy() {
+        guard let copy = isolatedCopy else { return }
+        isolation?.discard(copy)
+    }
+
+    /// Attachments point at project files; the agent should read its own copy of them.
+    private func intoCopy(_ attachment: PromptAttachment) -> PromptAttachment {
+        guard let copy = isolatedCopy else { return attachment }
+        func map(_ url: URL) -> URL {
+            let root = project.standardizedFileURL.path + "/"
+            guard url.path.hasPrefix(root) else { return url }
+            return copy.directory.appendingPathComponent(String(url.path.dropFirst(root.count)))
+        }
+        switch attachment {
+        case .file(let url): return .file(map(url))
+        case .selection(var selection):
+            selection.url = map(selection.url)
+            return .selection(selection)
+        case .image: return attachment
+        }
     }
 
     // MARK: Helpers

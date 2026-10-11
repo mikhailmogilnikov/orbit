@@ -330,3 +330,24 @@ follow the caret via `TextField(text:selection:)`, so a file can be mentioned
 in the middle of a sentence; picking one removes the @-word where it was.
 Tool-card diffs get syntax colors through the same `SyntaxHighlighting`
 service as git diffs, passed down as a SwiftUI environment value.
+
+### D35. Isolated sessions use APFS clones, not git worktrees
+Amends D21. An isolated session's agent works in a clone of the whole project
+folder (`clonefile`, one syscall, copy-on-write) under Application Support,
+instead of a `git worktree`. A worktree starts from a commit: it lacks the
+user's uncommitted work, untracked files, `node_modules`, `.env` and build
+caches, so the agent couldn't build or run tests without a setup step. A clone
+has all of it, costs almost no disk, works in non-git folders, and the agent's
+own git commands (even commits) stay inside the copy. Changes are measured
+against a shadow-git snapshot taken right after cloning (same `Checkpoints`
+as turn tracking, so `node_modules` and friends never count).
+
+Apply writes each changed file into the project through the document store
+and records its previous contents as the agent baseline, so the result looks
+exactly like a normal agent turn: inline Keep/Undo. If the project changed the
+same file meanwhile, a three-way merge (D33) keeps both when they touch other
+lines; otherwise the file is skipped and listed. Apply can repeat: files the
+project already matches are skipped. The bar above the composer counts files
+not applied yet. The service (`AgentIsolation`) lives in the Change Review
+plugin, which owns change tracking; the Agents plugin only points the agent
+at the copy, maps prompt attachments into it and skips project turn tracking.

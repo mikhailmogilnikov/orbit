@@ -15,6 +15,7 @@ public final class ReviewPlugin: OrbitPlugin {
     public func activate(_ context: PluginContext) {
         let tracker = ChangeTracker(workspace: context.workspace)
         context.services.register(ChangeTracking.self, tracker)
+        context.services.register(AgentIsolation.self, IsolatedCopies(workspace: context.workspace, tracker: tracker))
 
         context.ui.addSidebarPanel(PanelContribution(id: "changes", title: "Changes", systemImage: "plusminus", order: 10) {
             ChangesListView(tracker: tracker)
