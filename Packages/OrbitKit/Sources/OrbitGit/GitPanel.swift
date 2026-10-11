@@ -218,51 +218,196 @@ private struct ErrorBanner: View {
 }
 
 private struct ChangesList: View {
-    let model: GitModel
+    @Bindable var model: GitModel
+    @State private var showsStashes = true
+    @State private var showsHistory = true
+    @State private var stashMessage = ""
 
     var body: some View {
         let status = model.status
-        if status.files.isEmpty {
-            EmptyStateView("No Changes", systemImage: "checkmark.circle", message: "The working tree is clean.")
-                .frame(maxHeight: 200)
-            Spacer()
-        } else {
-            List {
-                if !status.conflicted.isEmpty {
-                    Section {
-                        ForEach(status.conflicted, id: \.path) { file in
-                            ChangeRow(file: file, kind: .conflicted, model: model, section: .unstaged)
+        Group {
+            if status.files.isEmpty, model.stashes.isEmpty, model.history.isEmpty {
+                EmptyStateView("No Changes", systemImage: "checkmark.circle", message: "The working tree is clean.")
+                    .frame(maxHeight: 200)
+                Spacer()
+            } else {
+                List {
+                    if status.files.isEmpty {
+                        Label("No changes, the working tree is clean", systemImage: "checkmark.circle")
+                            .foregroundStyle(.secondary)
+                    }
+                    if !status.conflicted.isEmpty {
+                        Section {
+                            ForEach(status.conflicted, id: \.path) { file in
+                                ChangeRow(file: file, kind: .conflicted, model: model, section: .unstaged)
+                            }
+                        } header: {
+                            SectionHeader(title: "Merge Conflicts", count: status.conflicted.count)
                         }
-                    } header: {
-                        SectionHeader(title: "Merge Conflicts", count: status.conflicted.count)
+                    }
+                    if !status.staged.isEmpty {
+                        Section {
+                            ForEach(status.staged, id: \.path) { file in
+                                ChangeRow(file: file, kind: file.staged ?? .modified, model: model, section: .staged)
+                            }
+                        } header: {
+                            SectionHeader(title: "Staged Changes", count: status.staged.count) {
+                                IconButton("minus", help: "Unstage All") { model.unstage(status.staged) }
+                            }
+                        }
+                    }
+                    if !status.unstaged.isEmpty {
+                        Section {
+                            ForEach(status.unstaged, id: \.path) { file in
+                                ChangeRow(file: file, kind: file.unstaged ?? .modified, model: model, section: .unstaged)
+                            }
+                        } header: {
+                            SectionHeader(title: "Changes", count: status.unstaged.count) {
+                                IconButton("tray.and.arrow.down", help: "Stash All Changes") { model.isNamingStash = true }
+                                IconButton("arrow.uturn.backward", help: "Discard All Changes") { model.discard(status.unstaged) }
+                                IconButton("plus", help: "Stage All") { model.stage(status.unstaged) }
+                            }
+                        }
+                    }
+                    if !model.stashes.isEmpty {
+                        Section(isExpanded: $showsStashes) {
+                            ForEach(model.stashes) { stash in
+                                StashRow(stash: stash, model: model)
+                            }
+                        } header: {
+                            SectionHeader(title: "Stashes", count: model.stashes.count)
+                        }
+                    }
+                    if !model.history.isEmpty {
+                        Section(isExpanded: $showsHistory) {
+                            ForEach(model.history) { commit in
+                                CommitRow(commit: commit, model: model)
+                            }
+                        } header: {
+                            SectionHeader(title: "History", count: model.history.count)
+                        }
                     }
                 }
-                if !status.staged.isEmpty {
-                    Section {
-                        ForEach(status.staged, id: \.path) { file in
-                            ChangeRow(file: file, kind: file.staged ?? .modified, model: model, section: .staged)
-                        }
-                    } header: {
-                        SectionHeader(title: "Staged Changes", count: status.staged.count) {
-                            IconButton("minus", help: "Unstage All") { model.unstage(status.staged) }
-                        }
-                    }
+                .listStyle(.sidebar)
+            }
+        }
+        .alert("Stash Changes", isPresented: $model.isNamingStash) {
+            TextField("Message (optional)", text: $stashMessage)
+            Button("Stash") {
+                model.stash(message: stashMessage)
+                stashMessage = ""
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Puts all changes, new files included, aside and leaves a clean working tree.")
+        }
+    }
+}
+
+private struct StashRow: View {
+    let stash: GitStash
+    let model: GitModel
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "tray.full")
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(stash.message.isEmpty ? stash.ref : stash.message)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            if isHovered {
+                IconButton("trash", help: "Delete Stash…") { model.dropStash(stash) }
+                IconButton("tray.and.arrow.up", help: "Pop (apply and delete)") { model.applyStash(stash, drop: true) }
+            } else {
+                Text(stash.date, format: .relative(presentation: .named))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+        .contentShape(.rect)
+        .onHover { isHovered = $0 }
+        .contextMenu {
+            Button("Pop (Apply and Delete)") { model.applyStash(stash, drop: true) }
+            Button("Apply") { model.applyStash(stash, drop: false) }
+            Divider()
+            Button("Delete…") { model.dropStash(stash) }
+        }
+        .help("\(stash.ref): \(stash.message)")
+    }
+}
+
+/// A commit; expanding it lists its files, clicking one opens what changed in it.
+private struct CommitRow: View {
+    let commit: GitCommit
+    let model: GitModel
+    @State private var isExpanded = false
+    @State private var files: [GitCommitFile]?
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            if let files {
+                ForEach(files) { file in
+                    CommitFileRow(file: file)
+                        .onTapGesture { model.openDiff(file, in: commit) }
                 }
-                if !status.unstaged.isEmpty {
-                    Section {
-                        ForEach(status.unstaged, id: \.path) { file in
-                            ChangeRow(file: file, kind: file.unstaged ?? .modified, model: model, section: .unstaged)
-                        }
-                    } header: {
-                        SectionHeader(title: "Changes", count: status.unstaged.count) {
-                            IconButton("arrow.uturn.backward", help: "Discard All Changes") { model.discard(status.unstaged) }
-                            IconButton("plus", help: "Stage All") { model.stage(status.unstaged) }
-                        }
-                    }
+            } else {
+                ProgressView().controlSize(.mini)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(commit.subject)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text(commit.date, format: .relative(presentation: .named))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+            .help("\(commit.shortHash) · \(commit.author) · \(commit.date.formatted(date: .abbreviated, time: .shortened))\n\(commit.subject)")
+            .contextMenu {
+                Button("Copy Commit Hash") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(commit.hash, forType: .string)
                 }
             }
-            .listStyle(.sidebar)
         }
+        .task(id: isExpanded) {
+            if isExpanded, files == nil { files = await model.files(in: commit) }
+        }
+    }
+}
+
+private struct CommitFileRow: View {
+    let file: GitCommitFile
+
+    var body: some View {
+        let name = (file.path as NSString).lastPathComponent
+        let folder = (file.path as NSString).deletingLastPathComponent
+        HStack(spacing: 6) {
+            Image(systemName: FileIcon.systemImage(for: URL(fileURLWithPath: file.path)))
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(name)
+                .strikethrough(file.status == .deleted)
+                .lineLimit(1)
+                .layoutPriority(1)
+            if !folder.isEmpty {
+                Text(folder)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+            Spacer(minLength: 4)
+            Text(String(file.status.rawValue))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(file.status.color)
+                .frame(width: 12)
+        }
+        .contentShape(.rect)
+        .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 }
 
@@ -329,7 +474,7 @@ private struct ChangeRow: View {
             }
             Text(String(kind.rawValue))
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(color)
+                .foregroundStyle(kind.color)
                 .frame(width: 12)
         }
         .contentShape(.rect)
@@ -355,8 +500,11 @@ private struct ChangeRow: View {
         .help(file.originalPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 
-    private var color: Color {
-        switch kind {
+}
+
+extension GitFileStatus.Kind {
+    var color: Color {
+        switch self {
         case .added, .untracked: Theme.added
         case .deleted, .conflicted: Theme.removed
         case .renamed, .copied: .blue

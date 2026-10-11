@@ -138,7 +138,7 @@ struct GitDiffView: View {
 }
 
 /// "⋯ 42 unchanged lines" between hunks.
-private struct GapRow: View {
+struct GapRow: View {
     let hidden: Int
 
     var body: some View {

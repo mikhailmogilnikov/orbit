@@ -280,3 +280,18 @@ status changes or an operation rewrote files; the editor refetches on that and
 re-diffs 300 ms after typing stops, off the main actor (`LineMarkers` in
 `LineDiff.swift`). Untracked files get no markers. Agent changes keep their
 own inline review (D7); the two don't interact.
+
+### D31. Stash, history and blame in the Source Control panel
+- Stashes and History are collapsible sections under the changes, so the
+  panel stays one list. Stashing always includes untracked files: the point
+  is a clean tree ("stash, switch, pop"). Pop is the default action; delete
+  asks first.
+- History is the last 200 commits of HEAD. Expanding a commit lists its files
+  (`--diff-merges=first-parent`, so a merge shows what it brought in); a file
+  opens a read-only diff tab (parent → commit) like the working-tree diffs.
+- Blame shows only for the caret's line, in the status bar, rather than as
+  per-line annotations that would crowd the editor. It blames the editor's
+  current text (`git blame --contents -`), so unsaved edits don't shift lines,
+  and is cached per file contents. The cursor comes from the Editor plugin
+  through `EditorSelectionProviding.cursor`, debounced, and looked up lazily
+  (Git activates before Editor).

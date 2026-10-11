@@ -139,6 +139,7 @@ struct CodeEditor: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             ActiveEditor.shared.coordinator = self
             ruler?.needsDisplay = true
+            EditorSelectionService.shared.cursorMoved(in: self)
         }
 
         /// 0-based line of the insertion point.
@@ -205,7 +206,24 @@ final class ActiveEditor {
 }
 
 @MainActor
+@Observable
 final class EditorSelectionService: EditorSelectionProviding {
+    static let shared = EditorSelectionService()
+
+    private(set) var cursor: EditorCursor?
+    @ObservationIgnored private var cursorTask: Task<Void, Never>?
+
+    /// Counting lines walks the text, so wait until the caret rests.
+    func cursorMoved(in coordinator: CodeEditor.Coordinator) {
+        cursorTask?.cancel()
+        cursorTask = Task { [weak coordinator] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, let coordinator else { return }
+            let cursor = EditorCursor(url: coordinator.document.url, line: coordinator.cursorLine)
+            if cursor != self.cursor { self.cursor = cursor }
+        }
+    }
+
     var selection: EditorSelection? {
         guard let coordinator = ActiveEditor.shared.coordinator, let textView = coordinator.textView else { return nil }
         let text = (textView.text ?? "") as NSString

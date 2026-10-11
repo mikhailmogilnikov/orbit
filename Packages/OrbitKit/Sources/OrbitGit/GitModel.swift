@@ -27,10 +27,15 @@ final class GitModel {
     private(set) var fileKinds: [String: FileChangeKind] = [:]
     private(set) var folderKinds: [String: FileChangeKind] = [:]
     private(set) var branches: [String] = []
+    private(set) var stashes: [GitStash] = []
+    /// Recent commits of HEAD, newest first.
+    private(set) var history: [GitCommit] = []
     private(set) var isBusy = false
     /// Last failure (hook output, push rejection…), shown until dismissed.
     var error: String?
     var commitMessage = ""
+    /// Asks for a stash message (from the panel or its menu).
+    var isNamingStash = false
 
     private var environment: [String: String]
     private var root: URL?
@@ -98,19 +103,25 @@ final class GitModel {
             root = workspace.root
             status = GitStatus()
             branches = []
+            stashes = []
+            history = []
+            commitFiles = [:]
+            blameCache = nil
             state = root == nil ? .noFolder : .loading
         }
         guard let repository else { return }
         refreshTask?.cancel()
         refreshTask = Task {
-            let result = await Task.detached(priority: .utility) { () -> (GitStatus, [String])? in
+            let result = await Task.detached(priority: .utility) { () -> (GitStatus, [String], [GitStash], [GitCommit])? in
                 guard repository.isRepository(), let status = try? repository.status() else { return nil }
-                return (status, (try? repository.branches()) ?? [])
+                return (status, (try? repository.branches()) ?? [], repository.stashes(), status.hasCommits ? repository.log() : [])
             }.value
             guard !Task.isCancelled, repository.root == root else { return }
-            if let (status, branches) = result {
+            if let (status, branches, stashes, history) = result {
                 if self.status != status { self.status = status }
                 if self.branches != branches { self.branches = branches }
+                if self.stashes != stashes { self.stashes = stashes }
+                if self.history != history { self.history = history }
                 state = .ready
             } else {
                 status = GitStatus()
@@ -228,6 +239,87 @@ final class GitModel {
 
     func switchBranch(_ name: String, create: Bool = false) {
         perform(changesFiles: true) { try $0.switchBranch(name, create: create) }
+    }
+
+    // MARK: - Stash
+
+    func stash(message: String) {
+        let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        perform(changesFiles: true) { try $0.stash(message: message) }
+    }
+
+    /// `drop`: pop (apply and remove) rather than just apply.
+    func applyStash(_ stash: GitStash, drop: Bool) {
+        perform(changesFiles: true) { try $0.applyStash(stash, drop: drop) }
+    }
+
+    func dropStash(_ stash: GitStash) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete the stash “\(stash.message)”?"
+        alert.informativeText = "Its changes will be lost."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].hasDestructiveAction = true
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        perform { try $0.dropStash(stash) }
+    }
+
+    // MARK: - History
+
+    static let commitKind = "git.commit"
+    /// Files per commit hash; commits never change.
+    @ObservationIgnored private var commitFiles: [String: [GitCommitFile]] = [:]
+
+    func files(in commit: GitCommit) async -> [GitCommitFile] {
+        if let cached = commitFiles[commit.hash] { return cached }
+        guard let repository else { return [] }
+        let files = await Task.detached(priority: .userInitiated) { repository.files(in: commit.hash) }.value
+        commitFiles[commit.hash] = files
+        return files
+    }
+
+    /// A read-only tab with what the commit changed in the file.
+    func openDiff(_ file: GitCommitFile, in commit: GitCommit) {
+        guard let root else { return }
+        let url = root.appendingPathComponent(file.path)
+        workspace.open(EditorTab(
+            id: "\(Self.commitKind):\(commit.hash):\(file.path)",
+            kind: Self.commitKind,
+            title: "\(url.lastPathComponent) (\(commit.shortHash))",
+            systemImage: "clock.arrow.circlepath",
+            url: url
+        ))
+    }
+
+    /// The commit and file a commit-diff tab shows, from its id.
+    func commitDiff(for tab: EditorTab) async -> (commit: GitCommit?, file: GitCommitFile, sides: (old: GitRepository.Side, new: GitRepository.Side))? {
+        let parts = tab.id.split(separator: ":", maxSplits: 2).map(String.init)
+        guard parts.count == 3, let repository else { return nil }
+        let hash = parts[1], path = parts[2]
+        let commit = history.first { $0.hash == hash }
+        let probe = GitCommit(hash: hash, shortHash: String(hash.prefix(7)), author: "", date: .distantPast, subject: "")
+        let file = await files(in: commit ?? probe).first { $0.path == path } ?? GitCommitFile(status: .modified, path: path, oldPath: nil)
+        let sides = await Task.detached(priority: .userInitiated) { repository.commitSides(hash, file: file) }.value
+        return (commit, file, sides)
+    }
+
+    // MARK: - Blame
+
+    @ObservationIgnored private var blameCache: (path: String, contents: String, lines: [GitBlameLine])?
+
+    /// Blame of the editor's current text, so unsaved edits don't shift lines.
+    /// Nil for files git doesn't track.
+    func blame(_ url: URL, contents: String) async -> [GitBlameLine]? {
+        guard let repository, state == .ready, let root else { return nil }
+        let prefix = root.standardizedFileURL.path + "/"
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(prefix), fileKinds[path] != .untracked, status.hasCommits else { return nil }
+        if let cache = blameCache, cache.path == path, cache.contents == contents { return cache.lines }
+        let relative = String(path.dropFirst(prefix.count))
+        let lines = await Task.detached(priority: .utility) { repository.blame(path: relative, contents: contents) }.value
+        if let lines { blameCache = (path, contents, lines) }
+        return lines
     }
 
     func pull() { perform(changesFiles: true) { try $0.pull() } }

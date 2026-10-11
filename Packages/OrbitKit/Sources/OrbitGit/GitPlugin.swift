@@ -29,6 +29,14 @@ public final class GitPlugin: OrbitPlugin {
                 .id(tab.id)
         })
 
+        ui.addEditorProvider(EditorProvider(
+            id: "git.commit",
+            accepts: { $0.kind == GitModel.commitKind }
+        ) { tab in
+            GitCommitDiffView(model: model, tab: tab)
+                .id(tab.id)
+        })
+
         ui.addSidebarPanel(PanelContribution(id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", order: 15) {
             GitPanel(model: model)
         })
@@ -60,6 +68,34 @@ public final class GitPlugin: OrbitPlugin {
         context.commands.register(OrbitCommand(
             id: "git.fetch", title: "Fetch", category: "Git", systemImage: "arrow.triangle.2.circlepath", isEnabled: isReady
         ) { model.fetch() })
+        context.commands.register(OrbitCommand(
+            id: "git.stash", title: "Stash Changes…", category: "Git", systemImage: "tray.and.arrow.down",
+            isEnabled: { isReady() && !model.status.files.isEmpty }
+        ) {
+            ui.revealSidebarPanel("git")
+            model.isNamingStash = true
+        })
+        context.commands.register(OrbitCommand(
+            id: "git.stashPop", title: "Pop Latest Stash", category: "Git", systemImage: "tray.and.arrow.up",
+            isEnabled: { isReady() && !model.stashes.isEmpty }
+        ) {
+            if let latest = model.stashes.first { model.applyStash(latest, drop: true) }
+        })
+
+        // The Editor plugin activates later; look its service up when drawing.
+        let services = context.services
+        ui.addStatusItem(StatusItem(
+            id: "git.blame", placement: .trailing, order: 50,
+            isVisible: {
+                guard model.state == .ready, model.status.hasCommits,
+                      let cursor = services.resolve(EditorSelectionProviding.self)?.cursor else { return false }
+                return cursor.url == workspace.activeTab?.url && model.status(of: cursor.url) != .untracked
+            }
+        ) {
+            if let editor = services.resolve(EditorSelectionProviding.self) {
+                BlameStatus(model: model, editor: editor, workspace: workspace)
+            }
+        })
 
         // Status follows the folder, agent edits and anything done outside (terminal, other apps).
         Self.observe(workspace) { model.refresh() }

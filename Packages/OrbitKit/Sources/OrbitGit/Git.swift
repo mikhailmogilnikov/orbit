@@ -241,3 +241,175 @@ private final class ErrorBuffer: @unchecked Sendable {
     var value: Data { lock.withLock { data } }
     func set(_ data: Data) { lock.withLock { self.data = data } }
 }
+
+// MARK: - Stash, history, blame
+
+struct GitStash: Identifiable, Hashable, Sendable {
+    let index: Int
+    let message: String
+    let date: Date
+
+    var id: Int { index }
+    var ref: String { "stash@{\(index)}" }
+}
+
+struct GitCommit: Identifiable, Hashable, Sendable {
+    let hash: String
+    let shortHash: String
+    let author: String
+    let date: Date
+    let subject: String
+
+    var id: String { hash }
+}
+
+struct GitCommitFile: Identifiable, Hashable, Sendable {
+    let status: GitFileStatus.Kind
+    let path: String
+    /// For renames and copies.
+    let oldPath: String?
+
+    var id: String { path }
+}
+
+struct GitBlameLine: Hashable, Sendable {
+    let hash: String
+    let author: String
+    let date: Date
+    let summary: String
+
+    /// Lines that exist only in the working copy blame to the all-zero hash.
+    var isCommitted: Bool { hash.contains { $0 != "0" } }
+}
+
+extension GitRepository {
+    func stashes() -> [GitStash] {
+        GitParse.stashes(String(decoding: (try? run(["stash", "list", "--format=%gd%x1f%ct%x1f%gs"])) ?? Data(), as: UTF8.self))
+    }
+
+    /// Untracked files go into the stash too, so "stash, switch, pop" moves everything.
+    func stash(message: String) throws(GitError) {
+        var arguments = ["stash", "push", "--include-untracked"]
+        if !message.isEmpty { arguments += ["--message", message] }
+        try run(arguments)
+    }
+
+    func applyStash(_ stash: GitStash, drop: Bool) throws(GitError) {
+        try run(["stash", drop ? "pop" : "apply", stash.ref])
+    }
+
+    func dropStash(_ stash: GitStash) throws(GitError) {
+        try run(["stash", "drop", stash.ref])
+    }
+
+    func log(limit: Int = 200) -> [GitCommit] {
+        let format = ["%H", "%h", "%an", "%ct", "%s"].joined(separator: "%x1f")
+        return GitParse.commits(String(decoding: (try? run(["log", "-n", "\(limit)", "--format=\(format)"])) ?? Data(), as: UTF8.self))
+    }
+
+    /// Merges show what they brought in relative to their first parent.
+    func files(in commit: String) -> [GitCommitFile] {
+        let data = (try? run(["show", "--format=", "--name-status", "-z", "-M", "--diff-merges=first-parent", commit])) ?? Data()
+        return GitParse.nameStatus(data)
+    }
+
+    /// Both sides of a file in a commit: its parent's copy → the commit's copy.
+    func commitSides(_ commit: String, file: GitCommitFile) -> (old: Side, new: Side) {
+        let old: Side = file.status == .added ? .text("") : blob("\(commit)^:\(file.oldPath ?? file.path)") ?? .text("")
+        let new: Side = file.status == .deleted ? .text("") : blob("\(commit):\(file.path)") ?? .text("")
+        return (old, new)
+    }
+
+    /// Blame of `contents` (the editor's text, unsaved edits included) against
+    /// history; one entry per line.
+    func blame(path: String, contents: String) -> [GitBlameLine]? {
+        guard let data = try? run(["blame", "--porcelain", "--contents", "-", "--", path], input: contents) else { return nil }
+        return GitParse.blame(data)
+    }
+}
+
+enum GitParse {
+    private static let field: Character = "\u{1F}"
+
+    static func stashes(_ text: String) -> [GitStash] {
+        text.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: field, maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count == 3,
+                  let open = parts[0].firstIndex(of: "{"), let close = parts[0].firstIndex(of: "}"),
+                  let index = Int(parts[0][parts[0].index(after: open)..<close]) else { return nil }
+            var message = String(parts[2])
+            // "On main: wip" / "WIP on main: 1a2b3c subject": the branch is noise in a list.
+            if let colon = message.range(of: ": "), message.hasPrefix("On ") || message.hasPrefix("WIP on ") {
+                message = String(message[colon.upperBound...])
+            }
+            return GitStash(index: index, message: message, date: Date(timeIntervalSince1970: TimeInterval(parts[1]) ?? 0))
+        }
+    }
+
+    static func commits(_ text: String) -> [GitCommit] {
+        text.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: field, maxSplits: 4, omittingEmptySubsequences: false)
+            guard parts.count == 5 else { return nil }
+            return GitCommit(
+                hash: String(parts[0]),
+                shortHash: String(parts[1]),
+                author: String(parts[2]),
+                date: Date(timeIntervalSince1970: TimeInterval(parts[3]) ?? 0),
+                subject: String(parts[4])
+            )
+        }
+    }
+
+    /// `--name-status -z`: a status, then one path (two for renames and copies).
+    static func nameStatus(_ data: Data) -> [GitCommitFile] {
+        var tokens = data.split(separator: 0, omittingEmptySubsequences: false).map { String(decoding: $0, as: UTF8.self) }[...]
+        var files: [GitCommitFile] = []
+        while let code = tokens.popFirst() {
+            let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let letter = trimmed.first, let kind = GitFileStatus.Kind(rawValue: letter) else { continue }
+            if kind == .renamed || kind == .copied {
+                guard let old = tokens.popFirst(), let new = tokens.popFirst() else { break }
+                files.append(GitCommitFile(status: kind, path: new, oldPath: old))
+            } else {
+                guard let path = tokens.popFirst() else { break }
+                files.append(GitCommitFile(status: kind, path: path, oldPath: nil))
+            }
+        }
+        return files
+    }
+
+    /// `git blame --porcelain`: each line starts with "<hash> <orig> <final> [<count>]";
+    /// a commit's details come once, the first time it appears.
+    static func blame(_ data: Data) -> [GitBlameLine] {
+        struct Info { var author = ""; var time: TimeInterval = 0; var summary = "" }
+        var infos: [String: Info] = [:]
+        var lines: [Int: String] = [:]
+        var current: String?
+        for raw in String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false) {
+            if raw.hasPrefix("\t") { continue }
+            let words = raw.split(separator: " ", maxSplits: 1)
+            guard let key = words.first else { continue }
+            if key.count == 40, key.allSatisfy(\.isHexDigit) {
+                let hash = String(key)
+                current = hash
+                let numbers = words.count > 1 ? words[1].split(separator: " ") : []
+                if numbers.count >= 2, let final = Int(numbers[1]) { lines[final] = hash }
+                if infos[hash] == nil { infos[hash] = Info() }
+            } else if let hash = current, words.count == 2 {
+                let value = String(words[1])
+                switch key {
+                case "author": infos[hash]?.author = value
+                case "author-time": infos[hash]?.time = TimeInterval(value) ?? 0
+                case "summary": infos[hash]?.summary = value
+                default: break
+                }
+            }
+        }
+        guard let last = lines.keys.max() else { return [] }
+        return (1...last).map { number in
+            let hash = lines[number] ?? String(repeating: "0", count: 40)
+            let info = infos[hash] ?? Info()
+            return GitBlameLine(hash: hash, author: info.author, date: Date(timeIntervalSince1970: info.time), summary: info.summary)
+        }
+    }
+}

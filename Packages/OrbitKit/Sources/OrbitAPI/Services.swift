@@ -105,11 +105,24 @@ public struct EditorSelection: Sendable, Hashable {
     }
 }
 
+public struct EditorCursor: Sendable, Hashable {
+    public var url: URL
+    /// 0-based.
+    public var line: Int
+
+    public init(url: URL, line: Int) {
+        self.url = url
+        self.line = line
+    }
+}
+
 /// The selection of the editor that last had focus. Implemented by the Editor plugin.
 @MainActor
 public protocol EditorSelectionProviding: AnyObject {
     /// Nil when nothing is selected.
     var selection: EditorSelection? { get }
+    /// Where the insertion point is; observable, settles shortly after it moves.
+    var cursor: EditorCursor? { get }
 }
 
 /// The version-control copy of files, for change markers in the editor.

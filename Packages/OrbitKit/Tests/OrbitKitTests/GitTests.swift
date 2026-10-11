@@ -136,3 +136,84 @@ import Testing
         #expect(repo.diffSides(of: n, staged: false) == (.text(""), .text("new\n")))
     }
 }
+
+@Suite struct GitHistoryTests {
+    private func makeRepository() throws -> GitRepository {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-git-history-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        var env = ProcessInfo.processInfo.environment
+        env["GIT_AUTHOR_NAME"] = "Ann Dev"; env["GIT_AUTHOR_EMAIL"] = "a@d.ev"
+        env["GIT_COMMITTER_NAME"] = "Ann Dev"; env["GIT_COMMITTER_EMAIL"] = "a@d.ev"
+        let repo = GitRepository(root: root, environment: env)
+        try repo.initialize()
+        return repo
+    }
+
+    private func write(_ text: String, _ path: String, in repo: GitRepository) throws {
+        try text.write(to: repo.root.appendingPathComponent(path), atomically: true, encoding: .utf8)
+    }
+
+    @Test func stashPopAndDrop() throws {
+        let repo = try makeRepository()
+        defer { try? FileManager.default.removeItem(at: repo.root) }
+        try write("one\n", "a.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "First")
+
+        try write("two\n", "a.txt", in: repo)
+        try write("new\n", "new.txt", in: repo)
+        try repo.stash(message: "my wip")
+        #expect(try repo.status().files.isEmpty)
+        let stashes = repo.stashes()
+        #expect(stashes.map(\.message) == ["my wip"])
+        #expect(stashes.first?.ref == "stash@{0}")
+
+        try repo.applyStash(stashes[0], drop: true)
+        #expect(repo.stashes().isEmpty)
+        #expect(Set(try repo.status().files.map(\.path)) == ["a.txt", "new.txt"])
+
+        try repo.stash(message: "")
+        try repo.dropStash(repo.stashes()[0])
+        #expect(repo.stashes().isEmpty)
+        #expect(try repo.status().files.isEmpty)
+    }
+
+    @Test func historyFilesAndBlame() throws {
+        let repo = try makeRepository()
+        defer { try? FileManager.default.removeItem(at: repo.root) }
+        try write("one\ntwo\n", "a.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "First")
+        try write("one\nTWO\nthree\n", "a.txt", in: repo)
+        try write("x\n", "b.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "Second | with bars")
+
+        let log = repo.log()
+        #expect(log.map(\.subject) == ["Second | with bars", "First"])
+        #expect(log[0].author == "Ann Dev" && log[0].shortHash.count >= 7)
+
+        let files = repo.files(in: log[0].hash)
+        #expect(files.map(\.path).sorted() == ["a.txt", "b.txt"])
+        #expect(files.first { $0.path == "b.txt" }?.status == .added)
+        let sides = repo.commitSides(log[0].hash, file: try #require(files.first { $0.path == "a.txt" }))
+        #expect(sides.old == .text("one\ntwo\n") && sides.new == .text("one\nTWO\nthree\n"))
+        // The first commit has no parent: its files come from nothing.
+        let first = repo.files(in: log[1].hash)
+        #expect(repo.commitSides(log[1].hash, file: first[0]).old == .text(""))
+
+        // Blame the editor's text: an unsaved extra line isn't committed.
+        let blame = try #require(repo.blame(path: "a.txt", contents: "one\nTWO\nthree\nunsaved\n"))
+        #expect(blame.count == 4)
+        #expect(blame[0].summary == "First" && blame[1].summary == "Second | with bars")
+        #expect(blame[0].author == "Ann Dev")
+        #expect(!blame[3].isCommitted && blame[2].isCommitted)
+    }
+
+    @Test func parsesNameStatusWithRenames() {
+        let data = Data("M\0a.txt\0R087\0old name.txt\0new name.txt\0D\0gone.txt\0".utf8)
+        let files = GitParse.nameStatus(data)
+        #expect(files.map(\.path) == ["a.txt", "new name.txt", "gone.txt"])
+        #expect(files[1].status == .renamed && files[1].oldPath == "old name.txt")
+    }
+}
