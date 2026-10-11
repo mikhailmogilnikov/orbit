@@ -58,6 +58,7 @@ public struct PluginSettings: Sendable {
     private func key(_ name: String) -> String { "plugin.\(pluginID).\(name)" }
 
     public func string(_ name: String) -> String? { UserDefaults.standard.string(forKey: key(name)) }
+    public func data(_ name: String) -> Data? { UserDefaults.standard.data(forKey: key(name)) }
     public func bool(_ name: String, default value: Bool = false) -> Bool {
         UserDefaults.standard.object(forKey: key(name)) as? Bool ?? value
     }

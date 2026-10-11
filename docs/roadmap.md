@@ -24,6 +24,10 @@
   Message via a hidden agent session (`AgentCompletion` service); diff tabs
   for working-tree / staged changes; git colors and badges in the explorer
   (`FileStatusProviding` service)
+- Agent sessions persist: open tabs come back on launch (their agent starts
+  and replays the conversation via ACP `session/load` when the tab is shown);
+  "Recent" on the start screen and in the + menu lists earlier conversations of
+  the folder, Orbit's own and the agents' `session/list` (e.g. CLI sessions)
 - Agent commands: the tool card shows their output with Stop / Show in
   Terminal; terminal tabs are display-only for Claude Code / Codex
   (`_meta.terminal_output`, opened on demand), real PTYs for agents using ACP
@@ -40,8 +44,7 @@
    Search plugin's file index via a service)
 3. Minimal LSP: diagnostics, go to definition, hover
 4. External plugins in TypeScript via JavaScriptCore
-5. Session persistence/resume (ACP `loadSession`)
-6. Release build, notarization, Sparkle updates
+5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
 - Manual typing inside a highlighted diff block is implemented but not yet
@@ -53,6 +56,9 @@
 - Agent terminals: the `terminal/*` (PTY) path is untested with a real agent
   (Claude Code and Codex use display terminals); check how many tabs a busy
   turn leaves.
+- Agent sessions: switching to another folder doesn't swap the tabs to that
+  folder's saved ones (only launch restores); listing an agent's conversations
+  spawns that agent once per folder per launch.
 - Replace in files has no undo beyond the editor's own (files that weren't
   open are written straight to disk); written while unverified in the UI.
 - Git: diff tabs are unified and not syntax-highlighted; no gutter change

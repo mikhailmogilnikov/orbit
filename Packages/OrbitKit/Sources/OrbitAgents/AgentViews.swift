@@ -22,6 +22,8 @@ struct AgentsPanel: View {
                 }
             }
         }
+        .onAppear { store.loadAgentHistory() }
+        .onChange(of: store.workspace.root) { store.loadAgentHistory() }
     }
 }
 
@@ -48,6 +50,18 @@ struct SessionTabs: View {
                         store.newSession(provider)
                     } label: {
                         Label(provider.name, systemImage: provider.icon)
+                    }
+                }
+                let recent = store.recent.prefix(10)
+                if !recent.isEmpty {
+                    Section("Recent") {
+                        ForEach(recent) { saved in
+                            Button {
+                                store.resume(saved)
+                            } label: {
+                                Label(saved.title, systemImage: store.provider(for: saved)?.icon ?? "clock")
+                            }
+                        }
                     }
                 }
             } label: {
@@ -101,7 +115,7 @@ struct SessionChip: View {
             ProgressView().controlSize(.mini)
         case .failed:
             Circle().fill(.red).frame(width: 6, height: 6)
-        case .ready:
+        case .ready, .dormant:
             Image(systemName: session.provider.icon)
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(session.hasPendingPermission ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
@@ -141,9 +155,61 @@ struct StartSessionView: View {
             Text("⇧⌘N new session · ⌘L focus chat")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+            let recent = store.recent.prefix(8)
+            if !recent.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Recent")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 2)
+                    ForEach(recent) { saved in
+                        RecentSessionRow(saved: saved, icon: store.provider(for: saved)?.icon ?? "clock") {
+                            store.resume(saved)
+                        }
+                    }
+                }
+                .frame(maxWidth: 320)
+                .padding(.top, 8)
+            }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct RecentSessionRow: View {
+    let saved: SavedSession
+    let icon: String
+    let open: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14)
+                Text(saved.title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                if saved.updatedAt > .distantPast {
+                    Text(saved.updatedAt, format: .relative(presentation: .named))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            .font(.callout)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(isHovering ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.smallCorner))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help(saved.title)
     }
 }
 
@@ -202,7 +268,7 @@ struct StatusFooter: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.orange.opacity(0.08), in: .rect(cornerRadius: Theme.corner))
-        case .ready:
+        case .ready, .dormant:
             EmptyView()
         }
     }

@@ -8,12 +8,16 @@ private enum AgentEvent: Sendable {
     case notification(String, JSONValue)
     case request(String, JSONValue, CheckedContinuation<JSONValue, Error>)
     case exited(Int32, String)
+    /// Sent after `session/load` returns: everything before it was history.
+    case replayFinished
 }
 
 @MainActor
 @Observable
 final class AgentSession: Identifiable {
     enum Status: Equatable {
+        /// A restored tab whose agent isn't running yet; it starts when shown.
+        case dormant
         case starting, ready, working
         case failed(String)
     }
@@ -21,15 +25,22 @@ final class AgentSession: Identifiable {
     let id = UUID()
     let provider: AgentProvider
     let cwd: URL
-    var title: String
-    private(set) var status: Status = .starting
+    var title: String { didSet { if title != oldValue { onChange() } } }
+    private(set) var status: Status = .dormant
+    /// Called when what's worth remembering changed (id, title, activity).
+    @ObservationIgnored var onChange: () -> Void = {}
     private(set) var entries: [TranscriptEntry] = []
     private(set) var configOptions: [ConfigOption] = []
     private(set) var slashCommands: [String] = []
     var draft = ""
 
     private var client: ACPClient?
-    private var sessionID: String?
+    private var sessionID: String? { didSet { if sessionID != oldValue { onChange() } } }
+    /// The conversation to load instead of starting a new one.
+    private let restoredID: String?
+    private var updatedAt = Date()
+    /// While the agent replays a loaded conversation: nothing in it is new.
+    private var isReplaying = false
     private var eventTask: Task<Void, Never>?
     private var toolEntries: [String: TranscriptEntry] = [:]
     private var planEntry: TranscriptEntry?
@@ -46,13 +57,30 @@ final class AgentSession: Identifiable {
     private var tracker: ChangeTracking? { services.resolve(ChangeTracking.self) }
     private var terminalHost: AgentTerminalHosting? { services.resolve(AgentTerminalHosting.self) }
 
-    init(provider: AgentProvider, cwd: URL, workspace: Workspace, services: ServiceRegistry, environment: @escaping @MainActor () async -> [String: String]) {
+    init(
+        provider: AgentProvider,
+        cwd: URL,
+        restoring saved: SavedSession? = nil,
+        workspace: Workspace,
+        services: ServiceRegistry,
+        environment: @escaping @MainActor () async -> [String: String]
+    ) {
         self.provider = provider
         self.cwd = cwd
         self.workspace = workspace
         self.services = services
         self.environment = environment
-        title = provider.name
+        restoredID = saved?.sessionID
+        title = saved?.title ?? provider.name
+        if let saved {
+            sessionID = saved.sessionID
+            updatedAt = saved.updatedAt
+        }
+    }
+
+    /// What it takes to open this conversation again later.
+    var saved: SavedSession? {
+        sessionID.map { SavedSession(providerID: provider.id, sessionID: $0, title: title, cwd: cwd.path, updatedAt: updatedAt) }
     }
 
     var isBusy: Bool { status == .working || status == .starting }
@@ -61,6 +89,7 @@ final class AgentSession: Identifiable {
     // MARK: Lifecycle
 
     func start() async {
+        guard status == .dormant else { return }
         status = .starting
         let (stream, continuation) = AsyncStream.makeStream(of: AgentEvent.self)
         eventTask = Task { [weak self] in
@@ -88,14 +117,38 @@ final class AgentSession: Identifiable {
                 }
             )
             self.client = client
-            _ = try await client.initialize(terminal: terminalHost != nil)
-            let session = try await client.newSession(cwd: cwd)
-            sessionID = session["sessionId"]?.string
-            applyConfigOptions(session["configOptions"])
-            if configOptions.isEmpty { applyLegacyModes(session["modes"]) }
+            let info = try await client.initialize(terminal: terminalHost != nil)
+            var session: JSONValue?
+            if let restoredID {
+                session = await load(restoredID, with: client, canLoad: info["agentCapabilities"]?["loadSession"]?.bool == true)
+                continuation.yield(.replayFinished)
+            }
+            if session == nil {
+                session = try await client.newSession(cwd: cwd)
+                sessionID = session?["sessionId"]?.string
+            }
+            applyConfigOptions(session?["configOptions"])
+            if configOptions.isEmpty { applyLegacyModes(session?["modes"]) }
             status = .ready
         } catch {
             status = .failed(describe(error))
+        }
+    }
+
+    /// Nil when the conversation can't be opened again; a new one starts instead.
+    private func load(_ id: String, with client: ACPClient, canLoad: Bool) async -> JSONValue? {
+        guard canLoad else {
+            notice("\(provider.name) can't reopen earlier conversations; this is a new one.", isError: true)
+            sessionID = nil
+            return nil
+        }
+        isReplaying = true
+        do {
+            return try await client.loadSession(sessionID: id, cwd: cwd)
+        } catch {
+            notice("Couldn't reopen this conversation: \(describe(error))\nThis is a new one.", isError: true)
+            sessionID = nil
+            return nil
         }
     }
 
@@ -115,7 +168,8 @@ final class AgentSession: Identifiable {
         guard !text.isEmpty, status == .ready, let client, let sessionID else { return }
         draft = ""
         entries.append(TranscriptEntry(kind: .user, text: text))
-        if title == provider.name { title = String(text.prefix(40)) }
+        updatedAt = Date()
+        if title == provider.name { title = String(text.prefix(40)) } else { onChange() }
         status = .working
         planEntry = nil
 
@@ -172,6 +226,8 @@ final class AgentSession: Identifiable {
             if method == "session/update", let update = params["update"] { apply(update) }
         case .request(let method, let params, let reply):
             handleRequest(method, params, reply)
+        case .replayFinished:
+            isReplaying = false
         case .exited(let code, let stderr):
             stderrTail = stderr
             for request in pendingPermissions { request.cancel() }
@@ -184,6 +240,9 @@ final class AgentSession: Identifiable {
 
     private func apply(_ update: JSONValue) {
         switch update["sessionUpdate"]?.string {
+        case "user_message_chunk":
+            // Only history replays the user's own messages; live ones are already shown.
+            if isReplaying { appendChunk(.user, update["content"]?["text"]?.string) }
         case "agent_message_chunk":
             appendChunk(.agent, update["content"]?["text"]?.string)
         case "agent_thought_chunk":
@@ -234,7 +293,7 @@ final class AgentSession: Identifiable {
         if let command = update["rawInput"]?["command"]?.string { entry.command = command }
         let meta = update["_meta"]
         // Agents also read and list files through the shell; only real commands get a terminal tab.
-        if entry.toolKind == "execute", let info = meta?["terminal_info"], let id = info["terminal_id"]?.string,
+        if !isReplaying, entry.toolKind == "execute", let info = meta?["terminal_info"], let id = info["terminal_id"]?.string,
            terminals[id] == nil, let host = terminalHost {
             let directory = info["cwd"]?.string.map { workspace.resolve(path: $0) } ?? cwd
             let command = entry.command ?? (entry.title.isEmpty ? "command" : entry.title)
@@ -265,7 +324,7 @@ final class AgentSession: Identifiable {
         // Not every adapter reports an exit for the commands it runs.
         if !entry.isRunning, let terminal = entry.terminal, !terminal.ownsProcess { terminal.finish(TerminalExitStatus()) }
 
-        if wasRunning, !entry.isRunning, Self.mutatingKinds.contains(entry.toolKind) || entry.contents.contains(where: { if case .diff = $0 { true } else { false } }) {
+        if wasRunning, !entry.isRunning, !isReplaying, Self.mutatingKinds.contains(entry.toolKind) || entry.contents.contains(where: { if case .diff = $0 { true } else { false } }) {
             Task { await tracker?.refreshAgentChanges() }
         }
         return entry

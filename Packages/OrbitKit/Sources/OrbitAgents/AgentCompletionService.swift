@@ -42,6 +42,8 @@ final class AgentCompletionService: AgentCompletion {
         guard let sessionID = session["sessionId"]?.string else {
             throw JSONRPCError(code: -32603, message: "\(provider.name) didn't start a session")
         }
+        // The agent will list it with the user's conversations; it isn't one.
+        store.history.hide(SavedSession(providerID: provider.id, sessionID: sessionID, title: "", cwd: directory.path, updatedAt: Date()).id)
         await applyQuickSettings(session["configOptions"], client: client, sessionID: sessionID)
         replies.open(sessionID)
         defer { replies.close(sessionID) }

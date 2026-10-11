@@ -66,6 +66,23 @@ public final class ACPClient: Sendable {
         ])
     }
 
+    /// Reopens an earlier conversation. The agent replays its history as
+    /// `session/update` notifications before it answers.
+    public func loadSession(sessionID: String, cwd: URL) async throws -> JSONValue {
+        try await connection.request("session/load", [
+            "sessionId": .string(sessionID),
+            "cwd": .string(cwd.path),
+            "mcpServers": [],
+        ])
+    }
+
+    /// The agent's earlier conversations in `cwd` (when it declares `sessionCapabilities.list`).
+    public func listSessions(cwd: URL, cursor: String? = nil) async throws -> JSONValue {
+        var params: [String: JSONValue] = ["cwd": .string(cwd.path)]
+        if let cursor { params["cursor"] = .string(cursor) }
+        return try await connection.request("session/list", .object(params))
+    }
+
     /// Resolves when the turn ends; the result carries `stopReason`.
     public func prompt(sessionID: String, content: [JSONValue]) async throws -> JSONValue {
         try await connection.request("session/prompt", [

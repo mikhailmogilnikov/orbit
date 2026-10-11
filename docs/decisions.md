@@ -235,3 +235,21 @@ from the user. Two paths:
   and only the 5 newest finished agent tabs are kept. "Show in Terminal" works
   anyway: a closed tab is opened again and redrawn from the command's raw
   output (`AgentTerminal.transcript`, colors included).
+
+### D28. Agent sessions come back: restored tabs + Recent
+Both adapters support ACP `session/load` (the agent replays the conversation
+as `session/update` before answering) and `session/list`.
+- Open tabs are saved per folder (provider, session id, title, selection) and
+  restored on launch as dormant: an agent process starts only when its tab is
+  shown, so ten old tabs don't mean ten `npx` agents at startup.
+- Replay is marked by an event queued after `session/load` returns (the
+  connection delivers every replayed notification first): while replaying,
+  `user_message_chunk` adds the user's messages, and nothing counts as new —
+  no change tracking refresh, no terminal tabs.
+- If the agent can't load the conversation, the tab says so and continues as
+  a new one.
+- "Recent" merges Orbit's own records with each agent's `session/list` for the
+  folder, which includes conversations started in the agent's CLI. Listing
+  needs the agent's process, so it runs in the background once per folder per
+  launch and the list fills in. Orbit's hidden helper sessions (commit
+  messages) are remembered and filtered out.
