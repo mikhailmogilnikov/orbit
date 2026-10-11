@@ -117,10 +117,10 @@ struct GitDiffView: View {
         if hunks != result.0 { hunks = result.0 }
         lineCount = result.1
         isLoaded = true
-        var sides = Hasher()
-        sides.combine(old)
-        sides.combine(new)
-        let key = sides.finalize()
+        var hasher = Hasher()
+        hasher.combine(old)
+        hasher.combine(new)
+        let key = hasher.finalize()
         if key != highlightedSides {
             highlightedSides = key
             highlighting = await DiffSyntax.highlighting(old: old, new: new, url: url, hunks: result.0, with: model.highlighter)
