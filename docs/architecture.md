@@ -37,7 +37,8 @@ Dependency rule: plugins depend on `OrbitAPI` (+ `OrbitUI`), **never on each
 other**. Cross-plugin features go through service protocols declared in
 `OrbitAPI` (e.g. `ChangeTracking`, implemented by Review, used by Editor and
 Agents; `AgentCompletion`, implemented by Agents, used by Git for commit
-messages).
+messages; `AgentTerminalHosting`, implemented by Terminal, used by Agents to run
+commands).
 
 ## Plugin model
 
@@ -75,7 +76,10 @@ on restart. Built-ins use exactly the public API — no private hooks.
   `AsyncStream` consumed on the main actor, so chunks, tool calls and
   permission requests are applied in arrival order.
 - Client capabilities: `fs.readTextFile` / `fs.writeTextFile` (served from open
-  buffers, so agents see unsaved edits); terminal not yet.
+  buffers, so agents see unsaved edits); `terminal` when the Terminal plugin is
+  enabled: commands run in background tabs of the terminal panel (PTY), the
+  tool card streams their plain-text output (`AgentTerminal`,
+  `TerminalTextCapture`).
 - Built-in providers (npx, unpinned so they auto-update):
   `@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`.
 - `ShellEnvironment` resolves PATH etc. from `$SHELL -ilc env` once at startup

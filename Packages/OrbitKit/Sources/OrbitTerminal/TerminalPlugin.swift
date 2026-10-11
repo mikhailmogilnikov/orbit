@@ -19,6 +19,7 @@ public final class TerminalPlugin: OrbitPlugin {
         let ui = context.ui
         let store = TerminalStore(workspace: context.workspace, ui: ui)
         self.store = store
+        context.services.register(AgentTerminalHosting.self, store)
 
         ui.addBottomPanel(PanelContribution(id: TerminalStore.panelID, title: "Terminal", systemImage: "terminal") {
             TerminalPanel(store: store)
@@ -85,8 +86,11 @@ final class TerminalStore {
             return
         }
         ui.revealBottomPanel(Self.panelID)
-        if sessions.isEmpty { newSession() } else { focusSelected() }
+        if hasShell { focusSelected() } else { newSession() }
     }
+
+    /// Agent command tabs don't count: toggling the terminal should give the user a shell.
+    var hasShell: Bool { sessions.contains { !$0.isAgent } }
 
     func newSession() {
         let session = TerminalSession(directory: workspace.root ?? URL(fileURLWithPath: NSHomeDirectory()))
@@ -107,19 +111,32 @@ final class TerminalStore {
         remove(session)
     }
 
-    /// Also called when the shell exits on its own (`exit`, ⌃D).
-    private func remove(_ session: TerminalSession) {
+    /// Also called when the shell exits on its own (`exit`, ⌃D). Tabs closed
+    /// on the user's behalf (`automatic`) leave the panel and focus alone.
+    private func remove(_ session: TerminalSession, automatic: Bool = false) {
         guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
         sessions.remove(at: index)
+        session.agentTerminal?.hostDidCloseTerminal()
         if selectedID == session.id {
             selectedID = sessions.isEmpty ? nil : sessions[min(index, sessions.count - 1)].id
         }
+        guard !automatic else { return }
         if sessions.isEmpty {
             if isShown { ui.isBottomPanelVisible = false }
         } else {
             focusSelected()
         }
     }
+
+    /// Agents run many commands; keep the tabs from piling up. Released commands
+    /// go away unless the user is looking at them, and only the newest few
+    /// finished ones stay.
+    private func pruneAgentSessions() {
+        let finished = sessions.filter { $0.isAgent && !$0.isRunning && $0.id != selectedID }
+        for session in finished.dropLast(Self.keptAgentTabs) { remove(session, automatic: true) }
+    }
+
+    private static let keptAgentTabs = 3
 
     func terminateAll() {
         for session in sessions { session.terminate() }
@@ -129,6 +146,29 @@ final class TerminalStore {
     /// The view may only now be entering the window; focus on the next pass.
     func focusSelected() {
         DispatchQueue.main.async { [weak self] in self?.selected?.focus() }
+    }
+}
+
+extension TerminalStore: AgentTerminalHosting {
+    /// Opens the command in a background tab: it never takes the selection,
+    /// focus or the panel away from the user.
+    func run(_ request: AgentTerminalRequest) -> AgentTerminal {
+        let terminal = AgentTerminal(request: request)
+        let session = TerminalSession(agentTerminal: terminal)
+        session.onExit = { [weak self] _ in self?.pruneAgentSessions() }
+        terminal.onKill = { [weak session] in session?.kill() }
+        terminal.onReveal = { [weak self, weak session] in
+            guard let self, let session, sessions.contains(where: { $0.id == session.id }) else { return }
+            selectedID = session.id
+            ui.revealBottomPanel(Self.panelID)
+        }
+        terminal.onRelease = { [weak self, weak session] in
+            guard let self, let session, session.id != selectedID else { return }
+            remove(session, automatic: true)
+        }
+        sessions.append(session)
+        if selectedID == nil { selectedID = session.id }
+        return terminal
     }
 }
 
@@ -188,13 +228,15 @@ private struct TerminalTab: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: "terminal")
+            Image(systemName: session.isAgent ? "sparkles" : "terminal")
                 .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(session.isAgent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             Text(session.title)
                 .font(.system(size: 11.5))
                 .lineLimit(1)
+                .truncationMode(.middle)
                 .frame(maxWidth: 180, alignment: .leading)
+                .opacity(session.isAgent && !session.isRunning ? 0.6 : 1)
             Button(action: close) {
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
@@ -204,8 +246,9 @@ private struct TerminalTab: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .opacity(isHovered || isSelected ? 1 : 0)
-            .help("Kill Terminal")
+            .help(session.isAgent && session.isRunning ? "Stop Command" : "Kill Terminal")
         }
+        .help(session.isAgent ? "Agent: \(session.title)" : session.title)
         .padding(.leading, 8)
         .padding(.trailing, 4)
         .frame(height: 22)

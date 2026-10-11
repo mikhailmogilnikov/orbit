@@ -202,3 +202,23 @@ Quitting asks in `applicationShouldTerminate`; closing the window quits the
 app, so a cancelled quit reopens the main window (the workspace and its
 buffers live in `PluginHost`, so nothing is lost). App-modal `runModal` rather
 than a sheet: it also has to work after the window is gone.
+
+### D27. Agent commands run in our terminal (ACP `terminal/*`)
+When the Terminal plugin is enabled we advertise the `terminal` capability, so
+agents run shell commands through Orbit instead of in their own hidden
+process. Each command is a real PTY in a background tab of the terminal panel
+(sparkles icon): colors, interactive prompts and Stop work like any terminal,
+and it never takes selection, focus or the panel from the user. The tool card
+streams the same output as plain text and stays expanded while the command
+runs or after it fails.
+- Plugins stay independent: `AgentTerminalHosting` + the `AgentTerminal` model
+  live in `OrbitAPI`; Terminal hosts, Agents asks.
+- What the agent reads is the raw byte stream turned into text
+  (`TerminalTextCapture`: escape sequences dropped, `\r` redraws collapsed,
+  newest `outputByteLimit` bytes, 1 MB by default), not the rendered screen,
+  so scrollback limits and wrapping don't cut it.
+- A command line without separate args runs through the user's shell (`-c`);
+  `PAGER`/`GIT_PAGER` are `cat` so nothing waits for a keypress. Stop sends
+  SIGTERM to the whole process group.
+- Tabs don't pile up: a released command's tab closes unless it's selected,
+  and only the 3 newest finished agent tabs are kept.

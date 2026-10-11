@@ -362,12 +362,14 @@ struct ToolCallCard: View {
         )
     }
 
+    /// Live commands stay open while they run and when they fail.
     private var defaultExpanded: Bool {
-        entry.permission?.isPending == true || entry.contents.contains { if case .diff = $0 { true } else { false } }
+        if let terminal = entry.terminal, terminal.exitStatus?.succeeded != true { return true }
+        return entry.permission?.isPending == true || entry.contents.contains { if case .diff = $0 { true } else { false } }
     }
 
     private var hasDetails: Bool {
-        !entry.contents.isEmpty || !entry.output.isEmpty || entry.command != nil
+        !entry.contents.isEmpty || !entry.output.isEmpty || entry.command != nil || entry.terminal != nil
     }
 
     @ViewBuilder private var details: some View {
@@ -396,7 +398,9 @@ struct ToolCallCard: View {
                     }
                 }
             }
-            if !entry.output.isEmpty {
+            if let terminal = entry.terminal {
+                AgentTerminalOutput(terminal: terminal)
+            } else if !entry.output.isEmpty {
                 ScrollView {
                     Text(entry.output.split(separator: "\n", omittingEmptySubsequences: false).suffix(200).joined(separator: "\n"))
                         .font(.system(size: 11, design: .monospaced))
@@ -439,6 +443,58 @@ struct ToolCallCard: View {
                 ProgressView().controlSize(.mini)
             }
         }
+    }
+}
+
+/// Output of a command the agent runs in one of our terminals, live while it runs.
+struct AgentTerminalOutput: View {
+    let terminal: AgentTerminal
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !terminal.output.isEmpty {
+                ScrollView {
+                    Text(tail)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 180)
+                .defaultScrollAnchor(.bottom)
+            }
+            HStack(spacing: 6) {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                Spacer(minLength: 4)
+                if terminal.isRunning {
+                    Button("Stop") { terminal.kill() }
+                        .buttonStyle(.glass)
+                }
+                if terminal.canReveal {
+                    Button("Show in Terminal", systemImage: "terminal") { terminal.reveal() }
+                        .buttonStyle(.glass)
+                }
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private var tail: String {
+        terminal.output.split(separator: "\n", omittingEmptySubsequences: false).suffix(200).joined(separator: "\n")
+    }
+
+    private var isFailure: Bool {
+        guard let exit = terminal.exitStatus else { return false }
+        return !exit.succeeded
+    }
+
+    private var status: String {
+        guard let exit = terminal.exitStatus else { return "Running…" }
+        if let code = exit.exitCode { return code == 0 ? "Done" : "Exited with code \(code)" }
+        if let signal = exit.signal { return "Stopped (\(signal))" }
+        return "Ended"
     }
 }
 

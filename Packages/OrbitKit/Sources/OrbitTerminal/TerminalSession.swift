@@ -1,15 +1,19 @@
 import AppKit
 import OrbitACP
+import OrbitAPI
 import OrbitUI
 import SwiftTerm
 
-/// One shell in a pseudo-terminal. The view lives as long as the session, so
-/// hiding the panel or switching tabs never loses scrollback.
+/// One shell, or one agent command, in a pseudo-terminal. The view lives as
+/// long as the session, so hiding the panel or switching tabs never loses scrollback.
 @MainActor
 @Observable
 final class TerminalSession: Identifiable {
     nonisolated let id = UUID()
     private(set) var title: String
+    private(set) var isRunning = true
+    /// Set when this runs an agent's command rather than the user's shell.
+    @ObservationIgnored private(set) var agentTerminal: AgentTerminal?
     @ObservationIgnored let view: OrbitTerminalView
     @ObservationIgnored var onExit: (TerminalSession) -> Void = { _ in }
     @ObservationIgnored private var delegate: Delegate?
@@ -36,8 +40,66 @@ final class TerminalSession: Identifiable {
         )
     }
 
+    /// Runs an agent's command: through the user's shell when it comes as one
+    /// command line, directly when it has separate arguments.
+    init(agentTerminal: AgentTerminal) {
+        let request = agentTerminal.request
+        title = request.displayCommand
+        self.agentTerminal = agentTerminal
+        view = OrbitTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 240))
+        let delegate = Delegate(session: self)
+        self.delegate = delegate
+        view.processDelegate = delegate
+        view.onData = { [weak agentTerminal] bytes in agentTerminal?.receive(bytes) }
+
+        var env = request.environment
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        env["TERM_PROGRAM"] = "Orbit"
+        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
+        let (executable, arguments) = request.arguments.isEmpty
+            ? (Self.loginShell, ["-c", request.command])
+            : ("/usr/bin/env", [request.command] + request.arguments)
+        view.startProcess(
+            executable: executable,
+            args: arguments,
+            environment: env.map { "\($0.key)=\($0.value)" },
+            currentDirectory: request.directory.path
+        )
+    }
+
+    var isAgent: Bool { agentTerminal != nil }
+
     func terminate() {
+        if isAgent {
+            kill()
+        } else {
+            view.terminate()
+        }
+    }
+
+    /// Stops an agent command and whatever it started (the whole process group).
+    func kill() {
+        guard isRunning else { return }
+        let pid = view.process.shellPid
+        if pid > 0 { Darwin.kill(-pid, SIGTERM) }
+        // SwiftTerm stops watching the process here, so report the exit ourselves.
         view.terminate()
+        processDidExit(SIGTERM)
+    }
+
+    fileprivate func processDidExit(_ waitStatus: Int32?) {
+        guard isRunning else { return }
+        isRunning = false
+        if let agentTerminal {
+            let status = waitStatus.map(TerminalExitStatus.init(waitStatus:)) ?? TerminalExitStatus()
+            Task {
+                // The last output may still be on its way from the pty.
+                try? await Task.sleep(for: .milliseconds(150))
+                agentTerminal.finish(status)
+            }
+        }
+        onExit(self)
     }
 
     func focus() {
@@ -45,6 +107,7 @@ final class TerminalSession: Identifiable {
     }
 
     fileprivate func setTitle(_ title: String) {
+        guard !isAgent else { return }
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty { self.title = trimmed }
     }
@@ -74,11 +137,9 @@ final class TerminalSession: Identifiable {
 
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
+        /// `exitCode` is the raw `waitpid` status.
         func processTerminated(source: TerminalView, exitCode: Int32?) {
-            Task { @MainActor [weak session] in
-                guard let session else { return }
-                session.onExit(session)
-            }
+            Task { @MainActor [weak session] in session?.processDidExit(exitCode) }
         }
     }
 }
@@ -86,6 +147,9 @@ final class TerminalSession: Identifiable {
 /// Follows the app's appearance (colors are resolved when assigned, so they
 /// are re-applied on every light/dark switch) and uses the editor's font.
 final class OrbitTerminalView: LocalProcessTerminalView {
+    /// Raw output as it arrives, for agent commands.
+    var onData: (@MainActor (ArraySlice<UInt8>) -> Void)?
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         font = .monospacedSystemFont(ofSize: Theme.codeFontSize, weight: .regular)
@@ -96,6 +160,11 @@ final class OrbitTerminalView: LocalProcessTerminalView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not used")
+    }
+
+    override func dataReceived(slice: ArraySlice<UInt8>) {
+        super.dataReceived(slice: slice)
+        onData?(slice)
     }
 
     override func viewDidChangeEffectiveAppearance() {

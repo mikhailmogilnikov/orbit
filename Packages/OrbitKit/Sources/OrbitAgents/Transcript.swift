@@ -1,5 +1,6 @@
 import Foundation
 import OrbitACP
+import OrbitAPI
 
 /// One row in a session transcript. A class so streaming updates re-render
 /// only the row that changed, not the whole list.
@@ -21,6 +22,9 @@ final class TranscriptEntry: Identifiable {
     var output = ""
     var command: String?
     var permission: PermissionRequest?
+    /// The command's terminal, when the agent runs it through us (ACP `terminal/*`).
+    var terminalID: String?
+    var terminal: AgentTerminal?
 
     // Plans
     var plan: [PlanItem] = []

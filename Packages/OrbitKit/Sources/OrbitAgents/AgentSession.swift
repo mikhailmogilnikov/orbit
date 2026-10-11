@@ -34,6 +34,7 @@ final class AgentSession: Identifiable {
     private var toolEntries: [String: TranscriptEntry] = [:]
     private var planEntry: TranscriptEntry?
     private var pendingPermissions: [PermissionRequest] = []
+    private var terminals: [String: AgentTerminal] = [:]
     private var stderrTail = ""
     /// Whether the agent exposes modes through `modes` rather than `configOptions`.
     private var usesLegacyModes = false
@@ -43,6 +44,7 @@ final class AgentSession: Identifiable {
     private let environment: @MainActor () async -> [String: String]
 
     private var tracker: ChangeTracking? { services.resolve(ChangeTracking.self) }
+    private var terminalHost: AgentTerminalHosting? { services.resolve(AgentTerminalHosting.self) }
 
     init(provider: AgentProvider, cwd: URL, workspace: Workspace, services: ServiceRegistry, environment: @escaping @MainActor () async -> [String: String]) {
         self.provider = provider
@@ -86,7 +88,7 @@ final class AgentSession: Identifiable {
                 }
             )
             self.client = client
-            _ = try await client.initialize()
+            _ = try await client.initialize(terminal: terminalHost != nil)
             let session = try await client.newSession(cwd: cwd)
             sessionID = session["sessionId"]?.string
             applyConfigOptions(session["configOptions"])
@@ -99,6 +101,8 @@ final class AgentSession: Identifiable {
 
     func shutdown() {
         for request in pendingPermissions { request.cancel() }
+        for terminal in terminals.values { terminal.release() }
+        terminals.removeAll()
         client?.terminate()
         client = nil
         eventTask?.cancel()
@@ -231,6 +235,10 @@ final class AgentSession: Identifiable {
         if let contents = update["content"]?.array {
             let parsed = contents.compactMap(parseToolContent)
             if !parsed.isEmpty || entry.contents.isEmpty { entry.contents = parsed }
+            if let id = contents.lazy.compactMap({ $0["type"]?.string == "terminal" ? $0["terminalId"]?.string : nil }).first {
+                entry.terminalID = id
+                entry.terminal = terminals[id]
+            }
         }
         if let delta = update["_meta"]?["terminal_output_delta"]?["data"]?.string {
             entry.output += delta
@@ -352,9 +360,86 @@ final class AgentSession: Identifiable {
                 reply.resume(throwing: JSONRPCError(code: -32603, message: error.localizedDescription))
             }
 
+        case "terminal/create":
+            createTerminal(params, reply)
+
+        case "terminal/output":
+            guard let terminal = lookupTerminal(params, reply) else { return }
+            let (output, truncated) = terminal.currentOutput()
+            var result: [String: JSONValue] = ["output": .string(output), "truncated": .bool(truncated)]
+            if let status = terminal.exitStatus { result["exitStatus"] = Self.json(status) }
+            reply.resume(returning: .object(result))
+
+        case "terminal/wait_for_exit":
+            guard let terminal = lookupTerminal(params, reply) else { return }
+            Task {
+                let status = await terminal.waitForExit()
+                reply.resume(returning: Self.json(status))
+            }
+
+        case "terminal/kill":
+            guard let terminal = lookupTerminal(params, reply) else { return }
+            terminal.kill()
+            reply.resume(returning: [:])
+
+        case "terminal/release":
+            guard let terminal = lookupTerminal(params, reply) else { return }
+            terminals[terminal.id] = nil
+            terminal.release()
+            reply.resume(returning: [:])
+
         default:
             reply.resume(throwing: JSONRPCError.methodNotFound(method))
         }
+    }
+
+    // MARK: Terminals
+
+    private func createTerminal(_ params: JSONValue, _ reply: CheckedContinuation<JSONValue, Error>) {
+        guard let host = terminalHost, let command = params["command"]?.string else {
+            reply.resume(throwing: JSONRPCError(code: -32602, message: "Missing command"))
+            return
+        }
+        let arguments = (params["args"]?.array ?? []).compactMap(\.string)
+        var overrides: [String: String] = [:]
+        for variable in params["env"]?.array ?? [] {
+            if let name = variable["name"]?.string, let value = variable["value"]?.string { overrides[name] = value }
+        }
+        let directory = params["cwd"]?.string.map { workspace.resolve(path: $0) } ?? cwd
+        let limit = params["outputByteLimit"]?.int
+        Task {
+            var env = await environment()
+            // The command runs in a real terminal: a pager would wait for keys nobody presses.
+            env["PAGER"] = "cat"
+            env["GIT_PAGER"] = "cat"
+            env.merge(overrides) { _, new in new }
+            let terminal = host.run(AgentTerminalRequest(
+                command: command,
+                arguments: arguments,
+                environment: env,
+                directory: directory,
+                outputByteLimit: limit
+            ))
+            terminals[terminal.id] = terminal
+            // The tool call that shows it may have arrived first.
+            for entry in toolEntries.values where entry.terminalID == terminal.id { entry.terminal = terminal }
+            reply.resume(returning: ["terminalId": .string(terminal.id)])
+        }
+    }
+
+    private func lookupTerminal(_ params: JSONValue, _ reply: CheckedContinuation<JSONValue, Error>) -> AgentTerminal? {
+        guard let id = params["terminalId"]?.string, let terminal = terminals[id] else {
+            reply.resume(throwing: JSONRPCError(code: -32602, message: "Unknown terminal"))
+            return nil
+        }
+        return terminal
+    }
+
+    private static func json(_ status: TerminalExitStatus) -> JSONValue {
+        [
+            "exitCode": status.exitCode.map { JSONValue.number(Double($0)) } ?? .null,
+            "signal": status.signal.map { JSONValue.string($0) } ?? .null,
+        ]
     }
 
     // MARK: Helpers

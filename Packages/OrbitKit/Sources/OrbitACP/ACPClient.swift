@@ -43,12 +43,14 @@ public final class ACPClient: Sendable {
         try connection.start()
     }
 
-    public func initialize() async throws -> JSONValue {
+    /// `terminal`: whether we implement `terminal/*`, so agents run shell
+    /// commands through us instead of on their own.
+    public func initialize(terminal: Bool = false) async throws -> JSONValue {
         try await connection.request("initialize", [
             "protocolVersion": .number(Double(Self.protocolVersion)),
             "clientCapabilities": [
                 "fs": ["readTextFile": true, "writeTextFile": true],
-                "terminal": false,
+                "terminal": .bool(terminal),
             ],
             "clientInfo": ["name": "orbit", "title": "Orbit", "version": "0.1.0"],
         ])
