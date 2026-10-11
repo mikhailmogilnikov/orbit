@@ -13,8 +13,8 @@ final class LineNumberRuler: NSRulerView {
     private var storageObserver: NSObjectProtocol?
     private var scrollObserver: NSObjectProtocol?
     /// Git change bars at the leading edge.
-    var markers = LineMarkers() {
-        didSet { if markers != oldValue { needsDisplay = true } }
+    var changeMarkers = LineMarkers() {
+        didSet { if changeMarkers != oldValue { needsDisplay = true } }
     }
 
     private let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
@@ -106,14 +106,14 @@ final class LineNumberRuler: NSRulerView {
             let start = contentManager.offset(from: documentStart, to: fragment.rangeInElement.location)
             let index = line(at: start)
             let frame = fragment.layoutFragmentFrame
-            if !markers.isEmpty, let first = fragment.textLineFragments.first {
+            if !changeMarkers.isEmpty, let first = fragment.textLineFragments.first {
                 // The line's own text, not the inline-diff gap above it.
                 let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 || $0 === first }
                 let top = convert(NSPoint(x: 0, y: content.minY + frame.minY + first.typographicBounds.minY), from: textView).y
                 let bottom = convert(NSPoint(x: 0, y: content.minY + frame.minY + (lines.last ?? first).typographicBounds.maxY), from: textView).y
                 drawMarker(for: index, top: top, bottom: bottom)
                 // A deletion at the very end shows below the last line.
-                if index == lineStarts.count - 1, markers.deletedAbove.contains(lineStarts.count) {
+                if index == lineStarts.count - 1, changeMarkers.deletedAbove.contains(lineStarts.count) {
                     drawDeletion(at: bottom)
                 }
             }
@@ -134,14 +134,14 @@ final class LineNumberRuler: NSRulerView {
     private static let markerWidth: CGFloat = 3
 
     private func drawMarker(for line: Int, top: CGFloat, bottom: CGFloat) {
-        let color: NSColor? = markers.added.contains(line) ? .systemGreen
-            : markers.modified.contains(line) ? .systemBlue
+        let color: NSColor? = changeMarkers.added.contains(line) ? .systemGreen
+            : changeMarkers.modified.contains(line) ? .systemBlue
             : nil
         if let color {
             color.withAlphaComponent(0.85).setFill()
             NSBezierPath(roundedRect: NSRect(x: Self.markerX, y: top, width: Self.markerWidth, height: max(2, bottom - top)), xRadius: 1, yRadius: 1).fill()
         }
-        if markers.deletedAbove.contains(line) { drawDeletion(at: top) }
+        if changeMarkers.deletedAbove.contains(line) { drawDeletion(at: top) }
     }
 
     /// A small red wedge on the boundary where lines were removed.

@@ -124,7 +124,7 @@ struct CodeEditor: NSViewRepresentable {
         private func scheduleGitMarkers(delay: Duration = .milliseconds(300)) {
             markersTask?.cancel()
             guard let baseline = gitBaseline else {
-                ruler?.markers = LineMarkers()
+                ruler?.changeMarkers = LineMarkers()
                 return
             }
             markersTask = Task { [weak self] in
@@ -132,7 +132,7 @@ struct CodeEditor: NSViewRepresentable {
                 guard !Task.isCancelled, let current = self?.textView?.text else { return }
                 let markers = await Task.detached(priority: .utility) { LineMarkers(baseline: baseline, current: current) }.value
                 guard !Task.isCancelled else { return }
-                self?.ruler?.markers = markers
+                self?.ruler?.changeMarkers = markers
             }
         }
 
