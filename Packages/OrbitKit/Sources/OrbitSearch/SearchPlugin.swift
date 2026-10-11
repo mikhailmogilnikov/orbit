@@ -17,6 +17,7 @@ public final class SearchPlugin: OrbitPlugin {
         let ui = context.ui
         let files = ProjectFiles(workspace: workspace)
         let search = SearchModel(workspace: workspace, files: files)
+        context.services.register(ProjectFileIndex.self, SearchFileIndex(workspace: workspace, files: files))
 
         ui.addSidebarPanel(PanelContribution(id: "search", title: "Search", systemImage: "magnifyingglass", order: 5) {
             SearchPanel(model: search, workspace: workspace)
@@ -48,6 +49,26 @@ public final class SearchPlugin: OrbitPlugin {
     }
 }
 
+/// The ⌘P index and ranking, for other plugins' file pickers.
+@MainActor
+final class SearchFileIndex: ProjectFileIndex {
+    private let workspace: Workspace
+    private let files: ProjectFiles
+
+    init(workspace: Workspace, files: ProjectFiles) {
+        self.workspace = workspace
+        self.files = files
+    }
+
+    func search(_ query: String, limit: Int) -> [String] {
+        files.refreshIfNeeded()
+        let recent = QuickOpen.recentPaths(workspace: workspace)
+        if query.trimmingCharacters(in: .whitespaces).isEmpty { return Array(recent.prefix(limit)) }
+        let bonus = Dictionary(recent.enumerated().map { ($0.element, $0.offset < 10 ? 15 : 5) }, uniquingKeysWith: max)
+        return QuickOpen.rank(query, entries: files.entries, recentBonus: bonus, limit: limit).map(\.path)
+    }
+}
+
 /// ⌘P: fuzzy file finder over the project index.
 @MainActor
 enum QuickOpen {
@@ -70,7 +91,7 @@ enum QuickOpen {
     }
 
     /// Recently active project files that still exist, newest first.
-    private static func recentPaths(workspace: Workspace) -> [String] {
+    static func recentPaths(workspace: Workspace) -> [String] {
         workspace.recentFiles.compactMap { url in
             let path = workspace.relativePath(url)
             return path != url.path && FileManager.default.fileExists(atPath: url.path) ? path : nil

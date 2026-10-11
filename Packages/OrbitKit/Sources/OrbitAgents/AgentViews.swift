@@ -15,7 +15,7 @@ struct AgentsPanel: View {
                     Divider()
                 }
                 if let session = store.selected {
-                    SessionView(session: session, focusRequest: store.focusRequest)
+                    SessionView(session: session, focusRequest: store.focusRequest, fileIndex: store.fileIndex)
                         .id(session.id)
                 } else {
                     StartSessionView(store: store)
@@ -218,6 +218,7 @@ struct RecentSessionRow: View {
 struct SessionView: View {
     let session: AgentSession
     let focusRequest: Int
+    let fileIndex: ProjectFileIndex?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -232,7 +233,7 @@ struct SessionView: View {
                 .padding(.vertical, 12)
             }
             .defaultScrollAnchor(.bottom)
-            Composer(session: session, focusRequest: focusRequest)
+            Composer(session: session, focusRequest: focusRequest, fileIndex: fileIndex)
         }
     }
 }
@@ -280,8 +281,15 @@ struct EntryView: View {
     var body: some View {
         switch entry.kind {
         case .user:
-            Text(entry.text)
-                .textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 6) {
+                if !entry.attachments.isEmpty {
+                    AttachmentChips(attachments: entry.attachments)
+                }
+                if !entry.text.isEmpty {
+                    Text(entry.text)
+                        .textSelection(.enabled)
+                }
+            }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -601,19 +609,50 @@ struct PermissionBar: View {
 struct Composer: View {
     @Bindable var session: AgentSession
     let focusRequest: Int
+    let fileIndex: ProjectFileIndex?
     @FocusState private var isFocused: Bool
+    @State private var mentionIndex = 0
+    /// Escape hides the file list until the @-word changes.
+    @State private var dismissedMention: String?
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Ask \(session.provider.name)…", text: $session.draft, axis: .vertical)
+            if !session.attachments.isEmpty {
+                AttachmentChips(attachments: session.attachments) { session.detach($0) }
+            }
+            TextField("Ask \(session.provider.name)… (@ to add files)", text: $session.draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .lineLimit(1...10)
                 .focused($isFocused)
                 .onSubmit(session.send)
                 .disabled(isDisabled)
+                .onKeyPress(.upArrow) { moveMention(by: -1) }
+                .onKeyPress(.downArrow) { moveMention(by: 1) }
+                .onKeyPress(.tab) { pickMention() }
+                .onKeyPress(.return) { pickMention() }
+                .onKeyPress(.escape) {
+                    guard let mention = activeMention else { return .ignored }
+                    dismissedMention = mention
+                    return .handled
+                }
+                .onChange(of: activeMention) { mentionIndex = 0 }
 
             HStack(spacing: 6) {
+                Menu {
+                    Button("Attach Files…", systemImage: "doc.badge.plus", action: chooseFiles)
+                    Button("Paste Image", systemImage: "photo.on.rectangle", action: pasteImage)
+                        .disabled(!NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil))
+                } label: {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .menuStyle(.button)
+                .buttonStyle(.borderless)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Attach files or images (or drop them here)")
                 ForEach(session.configOptions) { option in
                     Menu {
                         Picker(option.name, selection: Binding(
@@ -653,7 +692,7 @@ struct Composer: View {
                     }
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.circle)
-                    .disabled(session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session.status != .ready)
+                    .disabled(!session.canSend)
                     .help("Send (↩)")
                 }
             }
@@ -661,6 +700,21 @@ struct Composer: View {
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 16).strokeBorder(.tint, lineWidth: 2)
+            }
+        }
+        .overlay(alignment: .top) {
+            if !mentionMatches.isEmpty {
+                MentionList(paths: mentionMatches, selected: mentionIndex) { pick($0) }
+                    .alignmentGuide(.top) { $0[.bottom] + 6 }
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            for url in urls where url.isFileURL { session.attach(.from(fileURL: url)) }
+            return urls.contains { $0.isFileURL }
+        } isTargeted: { isDropTargeted = $0 }
         .padding(10)
         .onAppear { isFocused = true }
         .onChange(of: focusRequest) { isFocused = true }
@@ -669,6 +723,168 @@ struct Composer: View {
     private var isDisabled: Bool {
         if case .failed = session.status { return true }
         return false
+    }
+
+    // MARK: @-mentions
+
+    /// The word being typed at the end of the draft, when it starts with @.
+    private var activeMention: String? {
+        guard let at = session.draft.lastIndex(of: "@") else { return nil }
+        let query = session.draft[session.draft.index(after: at)...]
+        guard !query.contains(where: \.isWhitespace) else { return nil }
+        if at > session.draft.startIndex, !session.draft[session.draft.index(before: at)].isWhitespace { return nil }
+        return String(query)
+    }
+
+    private var mentionMatches: [String] {
+        guard isFocused, let fileIndex, let query = activeMention, query != dismissedMention else { return [] }
+        return fileIndex.search(query, limit: 8)
+    }
+
+    private func moveMention(by offset: Int) -> KeyPress.Result {
+        let count = mentionMatches.count
+        guard count > 0 else { return .ignored }
+        mentionIndex = (mentionIndex + offset + count) % count
+        return .handled
+    }
+
+    private func pickMention() -> KeyPress.Result {
+        let matches = mentionMatches
+        guard !matches.isEmpty else { return .ignored }
+        pick(matches[min(mentionIndex, matches.count - 1)])
+        return .handled
+    }
+
+    /// The @-word is replaced by the file's chip.
+    private func pick(_ path: String) {
+        if let at = session.draft.lastIndex(of: "@") { session.draft.removeSubrange(at...) }
+        session.attach(.file(session.cwd.appendingPathComponent(path).standardizedFileURL))
+        dismissedMention = nil
+        isFocused = true
+    }
+
+    // MARK: Files and images
+
+    private func chooseFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.directoryURL = session.cwd
+        panel.prompt = "Attach"
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls { session.attach(.from(fileURL: url)) }
+    }
+
+    private func pasteImage() {
+        let image = NSPasteboard.general.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage
+        if let attachment = PromptAttachment.imageAttachment(from: image) { session.attach(attachment) }
+    }
+}
+
+/// File suggestions for an @-mention, shown above the composer.
+struct MentionList: View {
+    let paths: [String]
+    let selected: Int
+    let pick: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(Array(paths.enumerated()), id: \.element) { index, path in
+                let folder = (path as NSString).deletingLastPathComponent
+                Button { pick(path) } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: FileIcon.systemImage(for: URL(fileURLWithPath: path)))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 14)
+                        Text((path as NSString).lastPathComponent)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        if !folder.isEmpty {
+                            Text(folder)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(index == selected ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6))
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(5)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+}
+
+/// Attachment chips: in the composer (removable) and on sent messages.
+struct AttachmentChips: View {
+    let attachments: [PromptAttachment]
+    var remove: ((PromptAttachment) -> Void)?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 5) {
+                ForEach(attachments) { attachment in
+                    AttachmentChip(attachment: attachment, remove: remove.map { remove in { remove(attachment) } })
+                }
+            }
+        }
+        .scrollClipDisabled()
+    }
+}
+
+private struct AttachmentChip: View {
+    let attachment: PromptAttachment
+    let remove: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if case .image(let data, _) = attachment, let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 16, height: 16)
+                    .clipShape(.rect(cornerRadius: 3))
+            } else {
+                Image(systemName: attachment.systemImage)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            Text(attachment.label)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+            if let remove {
+                Button(action: remove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12, height: 12)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help("Remove")
+            }
+        }
+        .padding(.leading, 6)
+        .padding(.trailing, remove == nil ? 7 : 4)
+        .frame(height: 22)
+        .background(Theme.subtleFill, in: .capsule)
+        .overlay(Capsule().strokeBorder(Theme.hairline))
+        .help(help)
+    }
+
+    private var help: String {
+        switch attachment {
+        case .file(let url): url.path
+        case .selection(let selection): "\(selection.url.path), lines \(selection.lines.lowerBound)–\(selection.lines.upperBound)"
+        case .image(let data, _): "Image, \(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))"
+        }
     }
 }
 

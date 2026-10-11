@@ -173,6 +173,24 @@ final class ActiveEditor {
     weak var coordinator: CodeEditor.Coordinator?
 }
 
+@MainActor
+final class EditorSelectionService: EditorSelectionProviding {
+    var selection: EditorSelection? {
+        guard let coordinator = ActiveEditor.shared.coordinator, let textView = coordinator.textView else { return nil }
+        let text = (textView.text ?? "") as NSString
+        let range = NSIntersectionRange(textView.textSelection, NSRange(location: 0, length: text.length))
+        guard range.length > 0 else { return nil }
+        let selected = text.substring(with: range)
+        guard !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let starts = InlineDiffController.lineStarts(of: text)
+        func line(at offset: Int) -> Int { (starts.lastIndex { $0 <= offset } ?? 0) + 1 }
+        // A selection ending right after a newline doesn't include the next line.
+        let first = line(at: range.location)
+        let last = max(first, line(at: NSMaxRange(range) - 1))
+        return EditorSelection(url: coordinator.document.url, text: selected, lines: first...last)
+    }
+}
+
 enum Language {
     static func treeSitter(for url: URL) -> TreeSitterLanguage? {
         switch url.pathExtension.lowercased() {

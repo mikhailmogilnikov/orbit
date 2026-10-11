@@ -35,6 +35,7 @@ public final class AgentsPlugin: OrbitPlugin {
             AgentActivityStatus(store: store)
         })
 
+        // Like Cursor: ⌘L brings up the chat with the editor's selection attached.
         context.commands.register(OrbitCommand(
             id: "agents.focus",
             title: "Focus Agent Chat",
@@ -43,6 +44,9 @@ public final class AgentsPlugin: OrbitPlugin {
             shortcut: KeyboardShortcut("l", modifiers: .command)
         ) {
             ui.revealInspectorPanel("agents")
+            if let selection = context.services.resolve(EditorSelectionProviding.self)?.selection {
+                store.attachToChat(.selection(selection))
+            }
             store.focusComposer()
         })
 
@@ -103,6 +107,8 @@ final class AgentStore {
         }
     }
     let history: SessionHistory
+    /// The folder the tabs belong to; other folders' tabs are saved under their own.
+    private var folder: URL?
     /// Bumped to ask the composer to take keyboard focus.
     private(set) var focusRequest = 0
 
@@ -119,7 +125,43 @@ final class AgentStore {
         history = SessionHistory(settings: context.settings)
         // Resolve the login-shell environment up front; spawning agents needs it.
         environmentTask = Task.detached { await ShellEnvironment.resolve() }
+        folder = workspace.root
         restoreTabs()
+        observeFolder()
+    }
+
+    var fileIndex: ProjectFileIndex? { services.resolve(ProjectFileIndex.self) }
+
+    /// Into the selected session, starting one if there's none.
+    func attachToChat(_ attachment: PromptAttachment) {
+        if selected == nil { newSession(preferredProvider) }
+        selected?.attach(attachment)
+    }
+
+    private func observeFolder() {
+        withObservationTracking {
+            _ = workspace.root
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.folderDidChange()
+                self?.observeFolder()
+            }
+        }
+    }
+
+    /// Another folder brings its own tabs back. Idle sessions of the previous
+    /// folder close (they're saved and come back with it); busy ones keep working.
+    private func folderDidChange() {
+        guard workspace.root != folder else { return }
+        folder = workspace.root
+        for session in sessions where session.cwd.path != folder?.path && !session.isBusy && !session.hasPendingPermission {
+            session.shutdown()
+            sessions.removeAll { $0.id == session.id }
+        }
+        // Restore before touching the selection: saving tabs now would overwrite the new folder's.
+        restoreTabs()
+        if selected == nil, selectedID != nil { selectedID = nil }
+        loadAgentHistory()
     }
 
     var selected: AgentSession? { sessions.first { $0.id == selectedID } }
@@ -225,7 +267,8 @@ final class AgentStore {
     private func restoreTabs() {
         guard let root = workspace.root else { return }
         let (saved, selected) = history.openTabs(in: root)
-        for entry in saved {
+        let open = Set(sessions.compactMap { $0.saved?.id })
+        for entry in saved where !open.contains(entry.id) {
             guard let provider = providers.first(where: { $0.id == entry.providerID }) else { continue }
             sessions.append(makeSession(provider, cwd: root, restoring: entry))
         }

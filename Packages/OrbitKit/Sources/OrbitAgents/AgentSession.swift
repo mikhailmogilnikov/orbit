@@ -33,6 +33,8 @@ final class AgentSession: Identifiable {
     private(set) var configOptions: [ConfigOption] = []
     private(set) var slashCommands: [String] = []
     var draft = ""
+    private(set) var attachments: [PromptAttachment] = []
+    private var promptCapabilities = PromptCapabilities()
 
     private var client: ACPClient?
     private var sessionID: String? { didSet { if sessionID != oldValue { onChange() } } }
@@ -118,6 +120,7 @@ final class AgentSession: Identifiable {
             )
             self.client = client
             let info = try await client.initialize(terminal: terminalHost != nil)
+            promptCapabilities = PromptCapabilities(info["agentCapabilities"]?["promptCapabilities"])
             var session: JSONValue?
             if let restoredID {
                 session = await load(restoredID, with: client, canLoad: info["agentCapabilities"]?["loadSession"]?.bool == true)
@@ -163,20 +166,52 @@ final class AgentSession: Identifiable {
 
     // MARK: Prompting
 
+    var canSend: Bool {
+        status == .ready && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+    }
+
+    func attach(_ attachment: PromptAttachment) {
+        if case .image(let data, _) = attachment {
+            guard data.count <= PromptAttachment.maxImageBytes else {
+                notice("That image is over \(PromptAttachment.maxImageBytes >> 20) MB; agents won't take it.", isError: true)
+                return
+            }
+            // Known only once the agent started; a dormant or starting session gets the benefit of the doubt.
+            if status == .ready, !promptCapabilities.image {
+                notice("\(provider.name) doesn't accept images.", isError: true)
+                return
+            }
+        }
+        guard !attachments.contains(where: { $0.id == attachment.id }) else { return }
+        attachments.append(attachment)
+    }
+
+    func detach(_ attachment: PromptAttachment) {
+        attachments.removeAll { $0.id == attachment.id }
+    }
+
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, status == .ready, let client, let sessionID else { return }
+        guard canSend, let client, let sessionID else { return }
+        let attached = attachments
         draft = ""
-        entries.append(TranscriptEntry(kind: .user, text: text))
+        attachments = []
+        let entry = TranscriptEntry(kind: .user, text: text)
+        entry.attachments = attached
+        entries.append(entry)
         updatedAt = Date()
-        if title == provider.name { title = String(text.prefix(40)) } else { onChange() }
+        let summary = text.isEmpty ? attached.map(\.label).joined(separator: ", ") : text
+        if title == provider.name { title = String(summary.prefix(40)) } else { onChange() }
+        let content = PromptBuilder.content(text: text, attachments: attached, capabilities: promptCapabilities) { url in
+            workspace.documents.currentText(of: url)
+        }
         status = .working
         planEntry = nil
 
         Task {
             await tracker?.beginAgentTurn()
             do {
-                let result = try await client.prompt(sessionID: sessionID, content: [["type": "text", "text": .string(text)]])
+                let result = try await client.prompt(sessionID: sessionID, content: content)
                 switch result["stopReason"]?.string {
                 case "max_tokens": notice("Stopped: output token limit reached.")
                 case "max_turn_requests": notice("Stopped: turn request limit reached.")

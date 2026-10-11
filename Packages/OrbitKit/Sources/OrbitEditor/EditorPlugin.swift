@@ -61,6 +61,7 @@ public final class EditorPlugin: OrbitPlugin {
         })
 
         registerChangeCommands(context)
+        context.services.register(EditorSelectionProviding.self, EditorSelectionService())
     }
 
     private func registerChangeCommands(_ context: PluginContext) {

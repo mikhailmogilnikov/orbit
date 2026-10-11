@@ -82,3 +82,32 @@ public protocol FileStatusProviding: AnyObject {
     /// The most important status among the files inside `url`.
     func folderStatus(of url: URL) -> FileChangeKind?
 }
+
+/// Project files for pickers such as @-mentions. Implemented by the Search plugin.
+@MainActor
+public protocol ProjectFileIndex: AnyObject {
+    /// Best matches for `query` as project-relative paths, file names first;
+    /// recently opened files when the query is empty.
+    func search(_ query: String, limit: Int) -> [String]
+}
+
+/// Text selected in the editor, e.g. to show an agent.
+public struct EditorSelection: Sendable, Hashable {
+    public var url: URL
+    public var text: String
+    /// 1-based, inclusive.
+    public var lines: ClosedRange<Int>
+
+    public init(url: URL, text: String, lines: ClosedRange<Int>) {
+        self.url = url
+        self.text = text
+        self.lines = lines
+    }
+}
+
+/// The selection of the editor that last had focus. Implemented by the Editor plugin.
+@MainActor
+public protocol EditorSelectionProviding: AnyObject {
+    /// Nil when nothing is selected.
+    var selection: EditorSelection? { get }
+}

@@ -253,3 +253,20 @@ as `session/update` before answering) and `session/list`.
   needs the agent's process, so it runs in the background once per folder per
   launch and the list fills in. Orbit's hidden helper sessions (commit
   messages) are remembered and filtered out.
+
+### D29. Prompt attachments: @-files, ⌘L selection, images
+- `@` at the end of the draft opens a file list above the composer, ranked like
+  ⌘P (recent files first for a bare `@`); picking replaces the @-word with a
+  chip. Files go to the agent as embedded `resource` blocks (current buffer
+  text, unsaved edits included) when the agent declares `embeddedContext` and
+  the file is ≤ 200 KB, else as `resource_link`.
+- ⌘L works like Cursor: focus the chat and attach the editor's selection
+  (a `resource` with a `#Lstart-Lend` URI, or a fenced text block for agents
+  without embedded context). A repeat ⌘L doesn't duplicate it.
+- Images (drop, paperclip, "Paste Image") are sent as `image` blocks when the
+  agent declares `image`; PNG/JPEG/GIF/WebP as is, other formats as PNG,
+  5 MB max.
+- Plugins stay independent: the file index (`ProjectFileIndex`, Search) and
+  the selection (`EditorSelectionProviding`, Editor) are OrbitAPI services.
+- Switching folders brings back that folder's saved agent tabs; idle tabs of
+  the previous folder close (saved, they return with it), busy ones keep going.

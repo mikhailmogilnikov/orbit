@@ -12,6 +12,8 @@ final class TranscriptEntry: Identifiable {
     let id = UUID()
     let kind: Kind
     var text = ""
+    /// User messages: what was attached to the prompt.
+    var attachments: [PromptAttachment] = []
 
     // Tool calls
     var toolCallID: String?
