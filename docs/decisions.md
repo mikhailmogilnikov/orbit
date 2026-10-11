@@ -171,3 +171,22 @@ CPU per 120 pt scroll step, Debug): 47 ms before → ~13 ms after.
   heavier tokens (medium keywords), batched into one editing transaction.
 - Neon token requests raised from 1 KB to 4 KB: fewer viewport redraws without
   long first-paint hitches (16 KB averaged slightly better but spiked to ~95 ms).
+
+### D25. Replace in files, path globs, recent files
+- Replace previews each match struck out next to its replacement, computed by
+  the same search pass (`NSRegularExpression` templates, so `$1` works in regex
+  mode; plain mode escapes the template). Replacing re-runs the regex on the
+  current text, never trusting stale result ranges; empty matches are skipped,
+  same as in search. Open files with unsaved edits change in their buffer and
+  stay unsaved; everything else is written through `DocumentStore`. "Replace
+  All" asks for confirmation, per-file replace (hover a file row) doesn't.
+- Include / exclude are VS Code-style comma-separated globs (`*.swift`, `src`,
+  `/docs/**/*.md`, `*.{h,m}`), compiled to case-insensitive regexes; a pattern
+  matches a path or any folder above it, and unanchored patterns match at any
+  depth. Filters keep applying while their fields are hidden (the toggle stays
+  tinted).
+- Recent files live in the kernel (`Workspace.recentFiles`, recorded when a
+  file tab becomes active, 50 per project folder in UserDefaults) so any plugin
+  can use them. ⌘P with an empty query lists them without the current file, so
+  ⌘P ↩ goes back to the previous file; with a query they get a small score
+  bonus that only wins near-ties.

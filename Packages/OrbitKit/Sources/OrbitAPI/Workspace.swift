@@ -29,19 +29,29 @@ public struct EditorTab: Identifiable, Hashable, Sendable {
 public final class Workspace {
     public private(set) var root: URL?
     public private(set) var tabs: [EditorTab] = []
-    public var activeTabID: EditorTab.ID?
+    public var activeTabID: EditorTab.ID? {
+        didSet {
+            if activeTabID != oldValue, let tab = activeTab, tab.kind == EditorTab.fileKind, let url = tab.url { noteRecent(url) }
+        }
+    }
     public let documents = DocumentStore()
+
+    /// Files most recently made active, newest first; remembered per project folder.
+    public private(set) var recentFiles: [URL] = []
 
     /// Bumped whenever files on disk may have changed (agent finished a tool call, etc.).
     public private(set) var fileSystemGeneration = 0
 
     private static let lastRootKey = "orbit.lastWorkspaceRoot"
+    private static let recentFilesKey = "orbit.recentFiles"
+    private static let recentFilesLimit = 50
 
     init() {
         if let path = UserDefaults.standard.string(forKey: Self.lastRootKey),
            FileManager.default.fileExists(atPath: path) {
-            root = URL(fileURLWithPath: path)
+            root = URL(fileURLWithPath: path).standardizedFileURL
         }
+        loadRecentFiles()
     }
 
     public var name: String { root?.lastPathComponent ?? "Orbit" }
@@ -54,6 +64,7 @@ public final class Workspace {
         activeTabID = nil
         documents.closeAll()
         UserDefaults.standard.set(url.path, forKey: Self.lastRootKey)
+        loadRecentFiles()
         fileSystemGeneration += 1
     }
 
@@ -111,6 +122,23 @@ public final class Workspace {
     public func resolve(path: String) -> URL {
         if path.hasPrefix("/") { return URL(fileURLWithPath: path).standardizedFileURL }
         return (root ?? URL(fileURLWithPath: NSHomeDirectory())).appendingPathComponent(path).standardizedFileURL
+    }
+
+    private func noteRecent(_ url: URL) {
+        let url = url.standardizedFileURL
+        guard recentFiles.first != url else { return }
+        recentFiles.removeAll { $0 == url }
+        recentFiles.insert(url, at: 0)
+        if recentFiles.count > Self.recentFilesLimit { recentFiles.removeLast(recentFiles.count - Self.recentFilesLimit) }
+        guard let root else { return }
+        var saved = UserDefaults.standard.dictionary(forKey: Self.recentFilesKey) ?? [:]
+        saved[root.path] = recentFiles.map(relativePath)
+        UserDefaults.standard.set(saved, forKey: Self.recentFilesKey)
+    }
+
+    private func loadRecentFiles() {
+        let saved = root.flatMap { UserDefaults.standard.dictionary(forKey: Self.recentFilesKey)?[$0.path] as? [String] }
+        recentFiles = (saved ?? []).map(resolve(path:))
     }
 
     /// Call after something outside the editor touched the disk.

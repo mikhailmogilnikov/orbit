@@ -12,7 +12,10 @@
 - Inline Cursor-style diffs in the editor with per-block Keep/Undo + navigation
 - Changes panel, status bar counters
 - Open Quickly ⌘P (fuzzy, git-aware file index) and Find in Project ⇧⌘F
-  (in-process parallel search: case / whole word / regex, unsaved buffers included)
+  (in-process parallel search: case / whole word / regex, unsaved buffers included);
+  replace in files with a live preview (per file or all, `$1` groups in regex
+  mode), files to include / exclude globs; ⌘P lists recent files (per project)
+  and nudges them up in results
 - Integrated terminal (SwiftTerm) in a resizable bottom panel: multiple tabs,
   login shell in the project folder, follows light/dark
 - Source Control panel: staged / changes / conflicts, stage / unstage / discard
@@ -34,7 +37,6 @@
 5. External plugins in TypeScript via JavaScriptCore
 6. Session persistence/resume (ACP `loadSession`)
 7. Release build, notarization, Sparkle updates
-8. Search: replace in files, include/exclude globs, recent files in ⌘P
 
 ## Known gaps / to verify
 - Manual typing inside a highlighted diff block is implemented but not yet
@@ -44,6 +46,8 @@
 - No unsaved-changes prompt on quit.
 - Terminal: no find-in-terminal, font size follows the editor only, panel
   hides when the last shell exits.
+- Replace in files has no undo beyond the editor's own (files that weren't
+  open are written straight to disk); written while unverified in the UI.
 - Git: diff tabs are unified and not syntax-highlighted; no gutter change
   markers in the editor; no stash, history or blame.
 - Claude Code requires the standalone `claude` CLI to be logged in (`claude` → `/login`).

@@ -54,25 +54,42 @@ enum QuickOpen {
     static func pick(workspace: Workspace, files: ProjectFiles) -> QuickPick {
         QuickPick(id: "search.quickOpen", placeholder: "Open file by name") { query in
             guard let root = files.root else { return [] }
+            let recent = recentPaths(workspace: workspace)
             if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                // Open tabs, most recently placed first, as a stand-in for recents.
-                return workspace.tabs.compactMap(\.url).reversed().map { url in
-                    item(path: workspace.relativePath(url), root: root, positions: [], workspace: workspace)
+                // The current file is left out so ⌘P ↩ jumps back to the previous one.
+                let current = workspace.activeTab?.url.map(workspace.relativePath)
+                return recent.filter { $0 != current }.map { path in
+                    item(path: path, root: root, positions: [], workspace: workspace)
                 }
             }
-            return rank(query, entries: files.entries).map { path, positions in
+            let bonus = Dictionary(recent.enumerated().map { ($0.element, $0.offset < 10 ? 15 : 5) }, uniquingKeysWith: max)
+            return rank(query, entries: files.entries, recentBonus: bonus).map { path, positions in
                 item(path: path, root: root, positions: positions, workspace: workspace)
             }
         }
     }
 
+    /// Recently active project files that still exist, newest first.
+    private static func recentPaths(workspace: Workspace) -> [String] {
+        workspace.recentFiles.compactMap { url in
+            let path = workspace.relativePath(url)
+            return path != url.path && FileManager.default.fileExists(atPath: url.path) ? path : nil
+        }
+    }
+
     /// File-name matches beat path matches; within a tier higher scores and shorter paths win.
-    nonisolated static func rank(_ query: String, entries: [IndexedPath], limit: Int = 80) -> [(path: String, namePositions: [Int])] {
+    /// Recently opened files get a small nudge so they win near-ties.
+    nonisolated static func rank(
+        _ query: String,
+        entries: [IndexedPath],
+        recentBonus: [String: Int] = [:],
+        limit: Int = 80
+    ) -> [(path: String, namePositions: [Int])] {
         let needle = PathMatcher.needle(query)
         var scored: [(path: String, score: Int, positions: [Int])] = []
         for entry in entries {
             guard let (score, positions) = match(query, needle: needle, entry: entry) else { continue }
-            scored.append((entry.path, score, positions))
+            scored.append((entry.path, score + (recentBonus[entry.path] ?? 0), positions))
         }
         scored.sort { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }

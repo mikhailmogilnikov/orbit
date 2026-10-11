@@ -8,11 +8,26 @@ final class SearchModel {
     private let workspace: Workspace
     private let files: ProjectFiles
 
-    var query = "" { didSet { if query != oldValue { schedule() } } }
+    var query = "" {
+        didSet {
+            guard query != oldValue else { return }
+            replaceFailure = nil
+            schedule()
+        }
+    }
     var options = SearchOptions() { didSet { if options != oldValue { schedule(delay: .zero) } } }
+    /// Comma-separated globs, see `PathFilter`. Applied even while the fields are hidden.
+    var include = "" { didSet { if include != oldValue { schedule() } } }
+    var exclude = "" { didSet { if exclude != oldValue { schedule() } } }
+    var areFiltersVisible = false
+    var replacement = "" { didSet { if replacement != oldValue, isReplaceVisible { schedule() } } }
+    /// Results preview their replacements only while the replace field is shown.
+    var isReplaceVisible = false { didSet { if isReplaceVisible != oldValue { schedule(delay: .zero) } } }
     private(set) var result: SearchResult?
     private(set) var error: String?
     private(set) var isSearching = false
+    /// Files the last replace couldn't write.
+    private(set) var replaceFailure: String?
     /// Paths of files the user collapsed in the results.
     var collapsed: Set<String> = []
     var selection: String?
@@ -38,6 +53,8 @@ final class SearchModel {
             return
         }
         let options = options
+        let include = include, exclude = exclude
+        let replacement = isReplaceVisible ? replacement : nil
         isSearching = true
         task = Task {
             if delay > .zero { try? await Task.sleep(for: delay) }
@@ -48,9 +65,11 @@ final class SearchModel {
             }
             let overrides = unsavedBuffers(root: root)
             let outcome = await Task.detached(priority: .userInitiated) {
+                let pathFilter = PathFilter(include: include, exclude: exclude)
+                let searched = pathFilter.isEmpty ? paths : paths.filter(pathFilter.allows)
                 do throws(TextSearch.Failure) {
                     return Result<SearchResult, TextSearch.Failure>.success(
-                        try await TextSearch.run(query, options: options, root: root, paths: paths, overrides: overrides)
+                        try await TextSearch.run(query, options: options, root: root, paths: searched, overrides: overrides, replacement: replacement)
                     )
                 } catch {
                     return .failure(error)
@@ -73,6 +92,38 @@ final class SearchModel {
     func refresh() {
         guard !query.isEmpty else { return }
         schedule(delay: .zero)
+    }
+
+    var hasFilters: Bool { !include.trimmingCharacters(in: .whitespaces).isEmpty || !exclude.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    var canReplace: Bool { isReplaceVisible && !isSearching && error == nil && !(result?.files.isEmpty ?? true) }
+
+    /// Replaces every match in the given result files (all of them when nil).
+    /// Files with unsaved edits are changed in their buffer and left unsaved,
+    /// like any other edit; the rest are written to disk.
+    func replace(in paths: [String]? = nil) {
+        guard canReplace, let result, let root = files.root,
+              let regex = try? TextSearch.makeRegex(query, options: options) else { return }
+        let template = TextSearch.template(for: replacement, options: options)
+        replaceFailure = nil
+        var failed: [String] = []
+        for path in paths ?? result.files.map(\.path) {
+            let url = root.appendingPathComponent(path)
+            let document = workspace.documents.existingDocument(for: url)
+            guard let text = document?.text ?? TextSearch.readText(url) else { continue }
+            let (replaced, count) = TextSearch.replace(in: text, regex: regex, template: template)
+            guard count > 0 else { continue }
+            if let document, document.isDirty {
+                document.text = replaced
+            } else {
+                do { try workspace.documents.write(replaced, to: url) } catch { failed.append(path) }
+            }
+        }
+        workspace.fileSystemDidChange()
+        schedule(delay: .zero)
+        if !failed.isEmpty {
+            replaceFailure = failed.count == 1 ? "Couldn't write \(failed[0])" : "Couldn't write \(failed.count) files"
+        }
     }
 
     func open(_ id: String) {
@@ -103,13 +154,15 @@ final class SearchModel {
 struct SearchPanel: View {
     @Bindable var model: SearchModel
     let workspace: Workspace
-    @FocusState private var isFieldFocused: Bool
+    @FocusState private var focusedField: SearchFieldKind?
     @State private var handledFocusRequest = 0
+    @State private var isConfirmingReplaceAll = false
 
     var body: some View {
         VStack(spacing: 0) {
-            SearchField(model: model, isFocused: $isFieldFocused)
-                .padding(.horizontal, 10)
+            fields
+                .padding(.leading, 4)
+                .padding(.trailing, 10)
                 .padding(.bottom, 6)
             summary
             results
@@ -121,19 +174,92 @@ struct SearchPanel: View {
             model.collapsed = []
             model.refresh()
         }
+        .alert(replaceAllTitle, isPresented: $isConfirmingReplaceAll) {
+            Button("Replace", role: .destructive) { model.replace() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Files with unsaved changes are edited in the editor; other files are saved to disk.")
+        }
+    }
+
+    private var replaceAllTitle: String {
+        guard let result = model.result else { return "" }
+        let files = result.files.count == 1 ? "1 file" : "\(result.files.count) files"
+        let matches = result.isTruncated ? "all matches" : result.matchCount == 1 ? "1 match" : "\(result.matchCount) matches"
+        let with = model.replacement.isEmpty ? "nothing" : "“\(model.replacement)”"
+        return "Replace \(matches) in \(files) with \(with)?"
     }
 
     private func focusIfRequested() {
         guard model.focusRequest != handledFocusRequest else { return }
         handledFocusRequest = model.focusRequest
         // The panel may have just been revealed; focus once it's in the window.
-        DispatchQueue.main.async { isFieldFocused = true }
+        DispatchQueue.main.async { focusedField = .search }
+    }
+
+    private var fields: some View {
+        HStack(alignment: .top, spacing: 2) {
+            Button {
+                model.isReplaceVisible.toggle()
+                if model.isReplaceVisible { focusedField = .replace }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .rotationEffect(.degrees(model.isReplaceVisible ? 90 : 0))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 26)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help(model.isReplaceVisible ? "Hide Replace" : "Show Replace")
+
+            VStack(spacing: 5) {
+                SearchField(systemImage: "magnifyingglass", placeholder: "Search", text: $model.query, kind: .search, focus: $focusedField) {
+                    OptionToggle(label: "Aa", help: "Match Case", isOn: $model.options.caseSensitive)
+                    OptionToggle(label: "ab", help: "Match Whole Word", underline: true, isOn: $model.options.wholeWord)
+                    OptionToggle(label: ".*", help: "Use Regular Expression", isOn: $model.options.regex)
+                    OptionToggle(
+                        systemImage: "line.3.horizontal.decrease",
+                        help: model.areFiltersVisible ? "Hide Files to Include and Exclude" : "Files to Include and Exclude",
+                        isOn: $model.areFiltersVisible,
+                        isActive: model.hasFilters
+                    )
+                }
+                .onSubmit { model.schedule(delay: .zero) }
+                .onKeyPress(.escape) {
+                    model.query = ""
+                    return .handled
+                }
+
+                if model.isReplaceVisible {
+                    SearchField(systemImage: "arrow.2.squarepath", placeholder: "Replace", text: $model.replacement, kind: .replace, focus: $focusedField) {
+                        Button { isConfirmingReplaceAll = true } label: {
+                            Image(systemName: "text.badge.checkmark")
+                                .font(.system(size: 11, weight: .medium))
+                                .frame(width: 22, height: 20)
+                                .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(model.canReplace ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                        .disabled(!model.canReplace)
+                        .help("Replace All")
+                    }
+                    .onSubmit { if model.canReplace { isConfirmingReplaceAll = true } }
+                }
+
+                if model.areFiltersVisible {
+                    SearchField(systemImage: "folder.badge.plus", placeholder: "Files to include, e.g. *.swift, Sources", text: $model.include, kind: .include, focus: $focusedField) {}
+                    SearchField(systemImage: "folder.badge.minus", placeholder: "Files to exclude", text: $model.exclude, kind: .exclude, focus: $focusedField) {}
+                }
+            }
+        }
     }
 
     @ViewBuilder
     private var summary: some View {
-        let text: String? = if let error = model.error {
-            error
+        let failure = model.error ?? model.replaceFailure
+        let text: String? = if let failure {
+            failure
         } else if let result = model.result {
             result.files.isEmpty
                 ? "No results"
@@ -144,7 +270,7 @@ struct SearchPanel: View {
         if let text {
             HStack(spacing: 6) {
                 Text(text)
-                    .foregroundStyle(model.error == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
+                    .foregroundStyle(failure == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
                 Spacer()
                 if model.isSearching { ProgressView().controlSize(.mini) }
             }
@@ -176,7 +302,7 @@ struct SearchPanel: View {
                                 .tag(match.id)
                         }
                     } label: {
-                        FileRow(file: file)
+                        FileRow(file: file, onReplace: model.canReplace ? { model.replace(in: [file.path]) } : nil)
                     }
                 }
             }
@@ -191,27 +317,27 @@ struct SearchPanel: View {
     }
 }
 
-private struct SearchField: View {
-    @Bindable var model: SearchModel
-    var isFocused: FocusState<Bool>.Binding
+private enum SearchFieldKind: Hashable {
+    case search, replace, include, exclude
+}
+
+private struct SearchField<Accessories: View>: View {
+    let systemImage: String
+    let placeholder: String
+    @Binding var text: String
+    let kind: SearchFieldKind
+    var focus: FocusState<SearchFieldKind?>.Binding
+    @ViewBuilder var accessories: Accessories
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: systemImage)
                 .foregroundStyle(.secondary)
-            TextField("Search", text: $model.query)
+                .frame(width: 14)
+            TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .focused(isFocused)
-                .onSubmit { model.schedule(delay: .zero) }
-                .onKeyPress(.escape) {
-                    model.query = ""
-                    return .handled
-                }
-            HStack(spacing: 1) {
-                OptionToggle(label: "Aa", help: "Match Case", isOn: $model.options.caseSensitive)
-                OptionToggle(label: "ab", help: "Match Whole Word", underline: true, isOn: $model.options.wholeWord)
-                OptionToggle(label: ".*", help: "Use Regular Expression", isOn: $model.options.regex)
-            }
+                .focused(focus, equals: kind)
+            HStack(spacing: 1) { accessories }
         }
         .font(.system(size: 12))
         .padding(.leading, 8)
@@ -223,20 +349,44 @@ private struct SearchField: View {
 }
 
 private struct OptionToggle: View {
-    let label: String
+    var label: String?
+    var systemImage: String?
     let help: String
     var underline = false
     @Binding var isOn: Bool
+    /// Tinted even when off, e.g. filters that still apply while hidden.
+    var isActive = false
+
+    init(label: String, help: String, underline: Bool = false, isOn: Binding<Bool>) {
+        self.label = label
+        self.help = help
+        self.underline = underline
+        _isOn = isOn
+    }
+
+    init(systemImage: String, help: String, isOn: Binding<Bool>, isActive: Bool) {
+        self.systemImage = systemImage
+        self.help = help
+        _isOn = isOn
+        self.isActive = isActive
+    }
 
     var body: some View {
         Button { isOn.toggle() } label: {
-            Text(label)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .underline(underline)
-                .foregroundStyle(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                .frame(width: 22, height: 20)
-                .background(isOn ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 5))
-                .contentShape(.rect)
+            Group {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 11, weight: .medium))
+                } else {
+                    Text(label ?? "")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .underline(underline)
+                }
+            }
+            .foregroundStyle(isOn || isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .frame(width: 22, height: 20)
+            .background(isOn ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 5))
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .help(help)
@@ -245,6 +395,9 @@ private struct OptionToggle: View {
 
 private struct FileRow: View {
     let file: FileMatches
+    /// Set while replacing: offers "Replace in This File" on hover.
+    let onReplace: (() -> Void)?
+    @State private var isHovered = false
 
     var body: some View {
         let name = (file.path as NSString).lastPathComponent
@@ -266,14 +419,25 @@ private struct FileRow: View {
                 Image(systemName: FileIcon.systemImage(for: URL(fileURLWithPath: file.path)))
             }
             Spacer(minLength: 4)
-            Text("\(file.matches.count)")
-                .font(.system(size: 10, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1)
-                .background(Theme.subtleFill, in: .capsule)
+            if let onReplace, isHovered {
+                Button(action: onReplace) {
+                    Image(systemName: "text.badge.checkmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.tint)
+                }
+                .buttonStyle(.borderless)
+                .help("Replace in This File")
+            } else {
+                Text("\(file.matches.count)")
+                    .font(.system(size: 10, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Theme.subtleFill, in: .capsule)
+            }
         }
+        .onHover { isHovered = $0 }
         .help(file.path)
     }
 }
@@ -294,16 +458,31 @@ private struct MatchRow: View {
         }
     }
 
+    /// Matches are highlighted; while replacing, each is struck out and followed by its replacement.
     private var highlighted: AttributedString {
-        var text = AttributedString(match.preview)
-        let string = match.preview
-        for range in match.ranges {
-            guard let swiftRange = Range(range, in: string),
-                  let lower = AttributedString.Index(swiftRange.lowerBound, within: text),
-                  let upper = AttributedString.Index(swiftRange.upperBound, within: text) else { continue }
-            text[lower..<upper].backgroundColor = Color.accentColor.opacity(0.25)
-            text[lower..<upper].inlinePresentationIntent = .stronglyEmphasized
+        let string = match.preview as NSString
+        var text = AttributedString()
+        var last = 0
+        for (index, range) in match.ranges.enumerated() {
+            text += AttributedString(string.substring(with: NSRange(location: last, length: range.location - last)))
+            var found = AttributedString(string.substring(with: range))
+            found.inlinePresentationIntent = .stronglyEmphasized
+            if let replacements = match.replacements, index < replacements.count {
+                let replacement = replacements[index]
+                found.backgroundColor = Theme.removedGutter
+                found.strikethroughStyle = Text.LineStyle(pattern: .solid)
+                text += found
+                var inserted = AttributedString(replacement.replacingOccurrences(of: "\n", with: "↵"))
+                inserted.backgroundColor = Theme.addedGutter
+                inserted.inlinePresentationIntent = .stronglyEmphasized
+                text += inserted
+            } else {
+                found.backgroundColor = Color.accentColor.opacity(0.25)
+                text += found
+            }
+            last = NSMaxRange(range)
         }
+        text += AttributedString(string.substring(from: last))
         return text
     }
 }

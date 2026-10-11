@@ -27,6 +27,87 @@ import Testing
         // Non-ASCII paths take the general matcher and agree with it.
         let unicode = QuickOpen.rank("заметки", entries: [IndexedPath("docs/Заметки.md")])
         #expect(unicode.first?.namePositions == Array(0..<7))
+ 
+    }
+
+    @Test func quickOpenNudgesRecentFiles() {
+        let entries = ["a/Model.swift", "b/deeper/Model.swift"].map(IndexedPath.init)
+        #expect(QuickOpen.rank("model", entries: entries).first?.path == "a/Model.swift")
+        #expect(QuickOpen.rank("model", entries: entries, recentBonus: ["b/deeper/Model.swift": 15]).first?.path == "b/deeper/Model.swift")
+    }
+}
+
+@Suite struct PathFilterTests {
+    @Test func includeGlobs() {
+        func included(_ path: String, _ include: String) -> Bool { PathFilter(include: include).allows(path) }
+        #expect(included("a/b/c.swift", "*.swift"))
+        #expect(!included("a/c.swiftx", "*.swift"))
+        // A folder name covers everything inside it, at any depth unless anchored with "/".
+        #expect(included("Sources/OrbitSearch/X.swift", "Sources"))
+        #expect(included("Packages/Kit/Sources/X.swift", "Sources"))
+        #expect(!included("Packages/Kit/Sources/X.swift", "/Sources"))
+        #expect(included("docs/a.md", "docs/*.md"))
+        #expect(!included("docs/x/a.md", "docs/*.md"))
+        #expect(included("docs/x/a.md", "docs/**/*.md"))
+        #expect(included("docs/a.md", "docs/**/*.md"))
+        #expect(included("a.m", "*.{h,m}, *.c"))
+        #expect(included("a.c", "*.{h,m}, *.c"))
+        #expect(!included("a.cpp", "*.{h,m}"))
+        #expect(included("a1.txt", "a[0-9].txt"))
+        #expect(!included("a1.txt", "a[!0-9].txt"))
+        #expect(included("a(1).txt", "a(1).txt"))
+        #expect(included("README.md", "readme.md"))
+    }
+
+    @Test func excludeGlobs() {
+        let filter = PathFilter(include: "*.swift", exclude: "Tests, build/")
+        #expect(filter.allows("Sources/A.swift"))
+        #expect(!filter.allows("Tests/ATests.swift"))
+        #expect(!filter.allows("x/build/Gen.swift"))
+        #expect(!filter.allows("Sources/a.md"))
+        #expect(PathFilter(include: " , ").isEmpty)
+    }
+}
+
+@Suite struct ReplaceTests {
+    @Test func literalReplacementIgnoresTemplateSyntax() throws {
+        let options = SearchOptions()
+        let regex = try TextSearch.makeRegex("a.b", options: options)
+        let result = TextSearch.replace(in: "a.b axb a.b", regex: regex, template: TextSearch.template(for: "$1\\x", options: options))
+        #expect(result.text == "$1\\x axb $1\\x")
+        #expect(result.count == 2)
+    }
+
+    @Test func regexReplacementUsesGroups() throws {
+        let options = SearchOptions(wholeWord: true, regex: true)
+        let regex = try TextSearch.makeRegex("(\\w+)Old", options: options)
+        let result = TextSearch.replace(in: "fooOld barOld bazOldish", regex: regex, template: TextSearch.template(for: "$1New", options: options))
+        #expect(result.text == "fooNew barNew bazOldish")
+        #expect(result.count == 2)
+    }
+
+    @Test func skipsEmptyMatchesAndKeepsTextWithoutMatches() throws {
+        let options = SearchOptions(regex: true)
+        let regex = try TextSearch.makeRegex("x*", options: options)
+        let replaced = TextSearch.replace(in: "axxb", regex: regex, template: "-")
+        #expect(replaced.text == "a-b" && replaced.count == 1)
+        let untouched = TextSearch.replace(in: "ab", regex: regex, template: "-")
+        #expect(untouched.text == "ab" && untouched.count == 0)
+    }
+
+    @Test func searchPreviewsReplacements() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-replace-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "let oldName = oldName + 1\n".write(to: root.appendingPathComponent("a.swift"), atomically: true, encoding: .utf8)
+
+        let result = try await TextSearch.run("old(\\w+)", options: SearchOptions(regex: true), root: root, paths: ["a.swift"], replacement: "new$1")
+        let match = try #require(result.files.first?.matches.first)
+        #expect(match.replacements == ["newName", "newName"])
+        #expect(match.ranges.count == 2)
+
+        let plain = try await TextSearch.run("oldName", options: SearchOptions(), root: root, paths: ["a.swift"])
+        #expect(plain.files.first?.matches.first?.replacements == nil)
     }
 }
 
