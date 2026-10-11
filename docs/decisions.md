@@ -1,0 +1,173 @@
+# Decision log
+
+Short ADR-style records. Newest at the bottom. Each: context → decision → why.
+
+### D1. Native SwiftUI/AppKit, macOS 26+
+Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
+gives Liquid Glass and modern SwiftUI APIs for free. The author uses the app
+personally, so no need to support older macOS.
+
+### D2. Everything is a plugin
+The author wants a "harness"-like system where anything is pluggable. Built-in
+features are plugins on the same public API; plugins talk only via service
+protocols in `OrbitAPI`.
+
+### D3. ACP for all agents
+One protocol for Claude Code, Codex, Gemini, etc. New agent = JSON manifest.
+Rejected: parsing terminal output (fragile); per-vendor SDKs (N integrations).
+
+### D4. STTextView + tree-sitter for the editor
+Native TextKit 2, gutter, plugin system, maintained. Rejected for now: custom
+Core Text/Metal renderer (too much work up front), CodeEditSourceEditor.
+Revisit if large-file performance becomes a problem.
+
+### D5. Agents write to disk immediately; Orbit reviews after
+Cursor model: edits land, user keeps/undoes per block. Simpler than
+intercepting writes and works with agents that edit via shell.
+
+### D6. Shadow-git checkpoints for change tracking
+Discovered by probing Codex: it edits files with shell commands, producing no
+structured diff. Snapshotting the workspace before each turn into a private git
+repo catches every change. Project `.git` untouched. (Same idea as Cline.)
+
+### D7. Inline diffs in the editor — no separate review tab
+The first version had a review tab; the author explicitly asked for
+Cursor-style diffs *in the code* without switching modes. The review tab was
+removed. Implementation via paragraph-spacing gaps + overlay views (see
+architecture.md).
+
+### D8. Line-based diff with `CollectionDifference`
+No dependency, good enough; change blocks are the unit of keep/undo.
+
+### D9. No App Sandbox, direct distribution
+Agents must spawn arbitrary CLIs (npx, node, codex). App Store is out.
+
+### D10. Login-shell environment, filtered
+GUI apps lack the user's PATH. Resolve once via `$SHELL -ilc env`. Strip host
+agent session variables so agents don't think they're nested inside another
+Claude Code session or use its credentials.
+
+### D11. Built-in agent adapters via unpinned npx
+`npx -y @agentclientprotocol/{claude-agent,codex}-acp` — auto-updates, no
+bundling. Cost: ~1–2 s startup. Revisit (cache/bundle) if startup annoys.
+
+### D12. Per-block keyboard shortcuts
+Keep ⌥⌘↩, Undo ⌥⌘⌫, next/prev ⌥⌘↓/↑, all ⇧⌘↩ / ⇧⌘⌫. ⌘N/⌘Y (Cursor's) were
+avoided because they clash with standard macOS shortcuts.
+
+### D13. App icon as an Icon Composer `.icon`
+`App/AppIcon.icon` is compiled by Xcode directly (`ASSETCATALOG_COMPILER_APPICON_NAME`),
+so the system renders light/dark/tinted Liquid Glass variants. Edit it in
+Icon Composer; no asset catalog or PNG exports.
+
+### D14. Own syntax-highlight plugin instead of `NeonPlugin`
+`OrbitEditor/SyntaxHighlighting.swift` is a trimmed copy of STTextView-Plugin-Neon's
+plugin (still using its `Theme` and tree-sitter grammars). Reason: tree-sitter
+emits zero-length tokens (markdown block markers, MISSING `"` nodes), and
+TextKit 2 throws on `addRenderingAttribute` for an empty range — opening any
+`.md` file or typing a `"` crashed the app. Our copy skips empty/stale ranges
+and keeps the editor's font size (the upstream plugin reset it to 13pt).
+
+### D15. One brand mark, shared by the icon and the UI
+The glyph lives in `App/AppIcon.icon/Assets/orbit-mark.svg`; a copy with the
+viewBox cropped to the glyph is `OrbitUI/Resources/OrbitMark.svg`, exposed as
+the `OrbitMark` view (template image, takes the foreground style). The welcome
+screen shows the real app icon (`NSApp.applicationIconImage`); smaller in-app
+spots (agents empty state) use `OrbitMark`. No SF Symbol stand-ins for the logo.
+If the icon glyph changes, update both SVGs.
+
+
+### D16. Status bar only when there's something to say
+The bottom bar used to be always on, mostly showing just the file's language.
+The language item was dropped (the extension already says it), and
+`StatusItem.isVisible` lets each plugin report whether it has content; the
+shell shows the bar only while at least one item is visible (agents working /
+waiting for approval, changes to review).
+
+### D17. Keep the system window toolbar as is
+Tried moving editor tabs into the toolbar (Safari/Zed style) and hiding its
+items when no file is open. Toolbar items can't stretch, so it needed a
+hand-computed strip width per sidebar/inspector state, and hiding the toolbar
+also removes the traffic lights. Too fragile for little gain: the toolbar stays
+system-managed (title + file path, buttons always visible), tabs are a row
+below it. Don't fight AppKit chrome.
+
+### D18. Share compiled tree-sitter highlight queries
+Compiling a highlight query is slow (~230 ms for Swift in Debug) while parsing
+and highlighting a typical file takes ~20 ms. Each editor compiled its own
+query, so every file open lagged visibly. Queries are now compiled once per
+language (`HighlightQueries`, lock-protected cache) and prewarmed off the main
+thread when the editor plugin activates.
+
+### D19. Quick picks in the kernel; project search without ripgrep
+The command palette overlay became a generic `QuickPick` in `OrbitAPI`, so any
+plugin can show a searchable list; the palette and Open Quickly (⌘P) are both
+quick picks. Results are recomputed only when the query or the observed data
+changes (not on arrow keys).
+
+Find in Project runs in-process (`NSRegularExpression`, files scanned in
+parallel) instead of shelling out to ripgrep: `rg` isn't installed by default
+and a GUI app can't rely on the user's PATH. It is fast enough for typical
+projects (~1.4k files searched in ~0.1 s in Debug). The file list comes from
+`git ls-files -co --exclude-standard` so `.gitignore` is honoured, falling back
+to a directory walk outside git. Unsaved buffers are searched instead of their
+disk copies.
+
+### D20. Terminal: SwiftTerm in a bottom panel
+SwiftTerm (pure Swift, SwiftPM, mature AppKit view) over libghostty, which has
+no stable embedding API yet and needs a Zig build. Pinned below 1.99 (a fresh
+pre-2.0 release). The terminal lives in a new shell slot, `ui.addBottomPanel`,
+under the editor like VS Code/Cursor, toggled with ⌃`. Each session owns its
+NSView, so hiding the panel or switching tabs keeps scrollback; the panel hosts
+it in a container view. Shells start as login shells (`-zsh`) in the project
+folder with the app's environment minus host-agent variables; Option is not
+Meta so macOS layouts can type their characters.
+
+### D21. Source Control panel first; worktrees opt-in with "Apply"
+The git panel came before per-session worktrees: it's needed daily and gives
+the git plumbing worktrees will reuse. It shells out to `/usr/bin/git`
+(porcelain v2 status), runs operations one at a time off the main actor, uses
+the login-shell environment so credential helpers work, and never prompts
+(`GIT_TERMINAL_PROMPT=0`); failures show git's own message. Discarding a new
+file moves it to the Trash. ⌘↩ commits only from the message field because
+the agent composer already owns ⌘↩.
+
+Worktrees (next): opt-in per session via an "Isolated" toggle, off by default,
+so a lone agent keeps working in the project as today. Results come back with
+an "Apply" action that writes the worktree's changes into the project and
+records them as agent changes, so review stays inline (D7) instead of a branch
+merge.
+
+### D22. Generated commit messages go through the user's agent
+Cursor-style ✨ in the commit box. Instead of a separate model API (which would
+need its own key), Git asks the `AgentCompletion` service, implemented by the
+Agents plugin: a hidden ACP session of the last used agent, read-only (no
+permissions granted, no file writes), low reasoning effort when offered. The
+prompt carries the diff (staged, or everything incl. heads of new files,
+capped at 24k chars) and the last 12 subjects for style. The agent process is
+kept warm for 10 minutes and prewarmed when the Source Control panel shows
+changes: measured with Codex ~19 s cold → ~8 s warm; the rest is the agent
+harness and model latency.
+
+### D23. Git diffs open in a tab; explorer shows git colors
+Clicking a file in Source Control opens a read-only diff tab (index → working
+tree, or HEAD → index for staged), like VS Code. This doesn't contradict D7:
+agent changes are still reviewed inline in the editor; the tab is for plain
+git changes and only offers git actions. Explorer decorations come from the
+Git plugin through `FileStatusProviding` (OrbitAPI); colors live on
+`FileChangeKind.color` in OrbitUI so the explorer and the git panel match.
+Folders take their most important child's kind (conflict > deleted/modified >
+renamed > untracked/added).
+
+### D24. Own line-number ruler; cheaper highlighting
+Scrolling stuttered. Measured on an offscreen STTextView (2k-line Swift file,
+CPU per 120 pt scroll step, Debug): 47 ms before → ~13 ms after.
+- STTextView's gutter rebuilt one view per visible line and enumerated every
+  paragraph above the viewport on each layout (slower the deeper you scroll).
+  Replaced with `LineNumberRuler`, an `NSRulerView` that draws visible numbers
+  in one pass using cached line starts; `showsLineNumbers` stays off.
+- Highlighting set a font attribute on every token (a text-storage edit and a
+  relayout each). Colors stay rendering attributes; fonts are only touched for
+  heavier tokens (medium keywords), batched into one editing transaction.
+- Neon token requests raised from 1 KB to 4 KB: fewer viewport redraws without
+  long first-paint hitches (16 KB averaged slightly better but spiked to ~95 ms).

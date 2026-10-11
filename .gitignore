@@ -1,0 +1,6 @@
+.build/
+Orbit.xcodeproj/
+xcuserdata/
+.DS_Store
+Packages/OrbitKit/.build/
+Packages/OrbitKit/.swiftpm/

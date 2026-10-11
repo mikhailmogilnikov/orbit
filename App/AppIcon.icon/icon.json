@@ -1,0 +1,56 @@
+{
+  "fill" : "system-light",
+  "groups" : [
+    {
+      "blur-material-specializations" : [
+        {
+          "value" : null
+        },
+        {
+          "appearance" : "tinted",
+          "value" : null
+        }
+      ],
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "automatic-gradient" : "gray:0.11639,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "automatic-gradient" : "gray:0.83933,1.00000"
+              }
+            }
+          ],
+          "image-name" : "orbit-mark.svg",
+          "name" : "orbit-mark",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              1,
+              11
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.37
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.34
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
