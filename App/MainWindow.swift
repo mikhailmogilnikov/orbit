@@ -13,49 +13,12 @@ struct MainWindow: View {
     private var ui: UIRegistry { host.ui }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarHost(panels: ui.sidebarPanels, selection: $sidebarPanelID)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 420)
-        } detail: {
-            EditorArea(host: host)
-                .inspector(isPresented: $showsInspector) {
-                    InspectorHost(panels: ui.inspectorPanels, selection: $inspectorPanelID)
-                        .inspectorColumnWidth(min: 340, ideal: 420, max: 720)
-                }
-        }
-        .overlay {
+        // Settings replace the workspace view while shown (see SettingsScreen).
+        Group {
             if ui.isSettingsVisible {
                 SettingsScreen(host: host)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeOut(duration: 0.15), value: ui.isSettingsVisible)
-        .navigationTitle(ui.isSettingsVisible ? "Settings" : workspace.name)
-        .navigationSubtitle(ui.isSettingsVisible ? "" : workspace.activeTab?.url.map(workspace.relativePath) ?? "")
-        .toolbar {
-            // Next to the sidebar toggle.
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    ui.isSettingsVisible.toggle()
-                } label: {
-                    Label("Settings", systemImage: ui.isSettingsVisible ? "gearshape.fill" : "gearshape")
-                }
-                .help("Settings (⌘,)")
-            }
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    CommandPalette.toggle(in: host)
-                } label: {
-                    Label("Command Palette", systemImage: "command")
-                }
-                .help("Command Palette (⇧⌘P)")
-
-                Button {
-                    showsInspector.toggle()
-                } label: {
-                    Label("Agents", systemImage: "sidebar.right")
-                }
-                .help("Toggle Agents")
+            } else {
+                workspaceView
             }
         }
         .overlay(alignment: .top) {
@@ -76,15 +39,58 @@ struct MainWindow: View {
         }
         .onChange(of: ui.requestedInspectorPanel) { _, id in
             guard let id else { return }
+            ui.isSettingsVisible = false
             showsInspector = true
             inspectorPanelID = id
             ui.requestedInspectorPanel = nil
         }
         .onChange(of: ui.requestedSidebarPanel) { _, id in
             guard let id else { return }
+            ui.isSettingsVisible = false
             columnVisibility = .all
             sidebarPanelID = id
             ui.requestedSidebarPanel = nil
+        }
+    }
+
+    private var workspaceView: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarHost(panels: ui.sidebarPanels, selection: $sidebarPanelID)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 420)
+        } detail: {
+            EditorArea(host: host)
+                .inspector(isPresented: $showsInspector) {
+                    InspectorHost(panels: ui.inspectorPanels, selection: $inspectorPanelID)
+                        .inspectorColumnWidth(min: 340, ideal: 420, max: 720)
+                }
+        }
+        .navigationTitle(workspace.name)
+        .navigationSubtitle(workspace.activeTab?.url.map(workspace.relativePath) ?? "")
+        .toolbar {
+            // Next to the sidebar toggle.
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    ui.showSettings()
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .help("Settings (⌘,)")
+            }
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    CommandPalette.toggle(in: host)
+                } label: {
+                    Label("Command Palette", systemImage: "command")
+                }
+                .help("Command Palette (⇧⌘P)")
+
+                Button {
+                    showsInspector.toggle()
+                } label: {
+                    Label("Agents", systemImage: "sidebar.right")
+                }
+                .help("Toggle Agents")
+            }
         }
     }
 }

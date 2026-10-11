@@ -1,11 +1,13 @@
 import OrbitKit
 import SwiftUI
 
-/// Settings fill the window, like a page: sections on the left (plugins add
-/// their own), the selected one on the right. ⌘, or the gear opens it, Esc closes.
+/// Settings take over the window, laid out like System Settings: sections in
+/// the sidebar (plugins add their own) with search, the section's form as the
+/// detail. The gear in the same place, or Esc, goes back to the workspace.
 struct SettingsScreen: View {
     let host: PluginHost
     @State private var query = ""
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     private var ui: UIRegistry { host.ui }
 
@@ -36,82 +38,41 @@ struct SettingsScreen: View {
     var body: some View {
         let visible = filtered
         let current = visible.first { $0.id == ui.selectedSettingsPane } ?? visible.first
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                SettingsSearchField(text: $query)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 12)
-                List(selection: Binding(get: { current?.id }, set: { ui.selectedSettingsPane = $0 })) {
-                    ForEach(visible) { pane in
-                        Label(pane.title, systemImage: pane.systemImage)
-                            .tag(pane.id)
-                    }
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            List(selection: Binding(get: { current?.id }, set: { ui.selectedSettingsPane = $0 })) {
+                ForEach(visible) { pane in
+                    Label(pane.title, systemImage: pane.systemImage)
+                        .tag(pane.id)
                 }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
             }
-            .frame(width: 230)
-            .background(Theme.subtleFill)
-
-            Divider()
-
-            VStack(spacing: 0) {
-                HStack {
-                    Text(current?.title ?? "Settings")
-                        .font(.title2.weight(.semibold))
-                    Spacer()
-                    Button {
-                        ui.isSettingsVisible = false
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .semibold))
-                            .frame(width: 26, height: 26)
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .keyboardShortcut(.cancelAction)
-                    .help("Close Settings (Esc)")
-                }
-                .frame(maxWidth: 720)
-                .padding(.horizontal, 28)
-                .padding(.top, 18)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
+        } detail: {
+            Group {
                 if let current {
                     current.makeView()
-                        .frame(maxWidth: 720, maxHeight: .infinity, alignment: .top)
-                        .padding(.horizontal, 8)
                         .id(current.id)
                 } else {
-                    EmptyStateView("No Matches", systemImage: "magnifyingglass", message: "No settings match “\(query)”.")
+                    EmptyStateView("No Results", systemImage: "magnifyingglass", message: "No settings match “\(query)”.")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.background)
         }
-        .background(.background)
-    }
-}
-
-private struct SettingsSearchField: View {
-    @Binding var text: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search", text: $text)
-                .textFieldStyle(.plain)
-            if !text.isEmpty {
+        .searchable(text: $query, placement: .sidebar, prompt: "Search")
+        .navigationTitle(current?.title ?? "Settings")
+        .navigationSubtitle("Settings")
+        .toolbar {
+            // Where the workspace has its gear, so the same click goes back.
+            ToolbarItem(placement: .navigation) {
                 Button {
-                    text = ""
+                    ui.isSettingsVisible = false
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
+                    Label("Close Settings", systemImage: "gearshape.fill")
                 }
-                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+                .help("Close Settings (Esc)")
             }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 28)
-        .background(Theme.subtleFill.opacity(2), in: .rect(cornerRadius: 8))
     }
 }
 

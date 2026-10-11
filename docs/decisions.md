@@ -354,9 +354,12 @@ at the copy, maps prompt attachments into it and skips project turn tracking.
 
 ### D36. Settings as a page in the main window
 The small macOS Settings window held two tabs and couldn't grow. Settings now
-cover the main window (an overlay, so editors and terminals keep their state)
-with a searchable list of sections on the left, opened by ⌘, or a gear next to
-the sidebar toggle and closed by Esc — closer to Cursor/VS Code, where settings
+take over the main window as their own native split view (sidebar with search,
+the section's form as detail, like System Settings), opened by ⌘, or a gear
+next to the sidebar toggle and closed by the same gear or Esc. A hand-made
+overlay on top of the workspace clashed with the glass sidebar and the title
+bar; swapping views costs the editors' scroll positions, but documents,
+terminals and agent sessions live outside the views and survive — closer to Cursor/VS Code, where settings
 are something you browse. Plugins contribute sections through
 `UIRegistry.addSettingsPane` with search keywords; the shell adds General,
 Keyboard Shortcuts and Plugins. Options more than one plugin reads (theme, the
