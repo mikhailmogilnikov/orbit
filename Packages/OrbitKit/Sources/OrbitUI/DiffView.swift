@@ -36,11 +36,13 @@ struct DiffLineRow: View {
     let showsLineNumbers: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
+        // Top-aligned, and no empty Texts: an empty Text has no baseline, and
+        // baseline alignment padded every row with space below the text.
+        HStack(alignment: .top, spacing: 0) {
             if showsLineNumbers {
-                Text(line.oldNumber.map(String.init) ?? "")
+                Text(line.oldNumber.map(String.init) ?? " ")
                     .frame(width: 38, alignment: .trailing)
-                Text(line.newNumber.map(String.init) ?? "")
+                Text(line.newNumber.map(String.init) ?? " ")
                     .frame(width: 38, alignment: .trailing)
                     .padding(.trailing, 6)
             }
@@ -62,7 +64,7 @@ struct DiffLineRow: View {
         switch line.kind {
         case .added: "+"
         case .removed: "−"
-        case .context: ""
+        case .context: " "
         }
     }
 
