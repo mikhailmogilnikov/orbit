@@ -495,3 +495,23 @@ toggle that `NavigationSplitView` adds is removed
 (`.toolbar(removing: .sidebarToggle)`): it floated over the sidebar next to
 our own toggle in the tab row.
 
+
+### D43. Agents panel: always a chat, one options button
+The agents panel always shows tabs and always has a chat to type into: on
+opening a folder its saved tabs come back, or a new chat opens; closing the
+last tab opens a new one. The start screen with a button per agent is gone.
+A new chat that nothing was sent in yet shows recent conversations of the
+folder above the composer; it isn't saved to history or to the open tabs,
+and resuming a conversation from it takes its place.
+The composer has one button (like Cursor) instead of a menu per ACP config
+option: it reads "Opus 5 High Plan" and opens a popover listing the settings
+(effort, mode…) with icons and the model last. The model page has search and
+groups models by agent; other agents' models come from the list each agent
+last reported (cached in settings). Picking another agent's model in an empty
+chat replaces it with a chat of that agent, keeping the draft; in a
+conversation it starts a new chat. Model and effort are remembered per agent
+for new chats; mode is not, so a chat never starts in "bypass permissions".
+Built-in agents show their brand marks (Claude, OpenAI for Codex) instead of
+SF Symbols: SVG paths from Simple Icons (CC0) in `AgentIcon.swift`, rendered
+by NSImage's own SVG support as template images; Claude's is in its orange.
+Custom agents keep their `systemImage`.

@@ -13,7 +13,7 @@ struct AgentsSettingsPane: View {
                     set: { store.preferredProviderID = $0 }
                 )) {
                     ForEach(store.providers) { provider in
-                        Label(provider.name, systemImage: provider.icon).tag(provider.id)
+                        AgentLabel(title: provider.name, provider: provider).tag(provider.id)
                     }
                 }
                 Toggle(isOn: $store.isolatedByDefault) {
@@ -70,9 +70,10 @@ private struct AgentRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: provider.icon)
+            AgentIcon(provider: provider, size: 14)
                 .foregroundStyle(.secondary)
                 .frame(width: 18)
+                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             VStack(alignment: .leading, spacing: 3) {
                 Text(provider.name)
                 Text(([provider.command.executable] + provider.command.arguments).joined(separator: " "))

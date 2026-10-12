@@ -10,15 +10,13 @@ struct AgentsPanel: View {
             if store.workspace.root == nil {
                 EmptyStateView("No Folder Open", systemImage: "folder", message: "Agents work inside a project folder.")
             } else {
-                if !store.sessions.isEmpty {
-                    SessionTabs(store: store)
-                    Divider()
-                }
+                SessionTabs(store: store)
+                Divider()
                 if let session = store.selected {
-                    SessionView(session: session, focusRequest: store.focusRequest, fileIndex: store.fileIndex)
+                    SessionView(session: session, store: store)
                         .id(session.id)
                 } else {
-                    StartSessionView(store: store)
+                    Spacer()
                 }
             }
         }
@@ -46,24 +44,8 @@ struct SessionTabs: View {
                 .padding(.horizontal, 8)
             }
             Menu {
-                ForEach(store.providers) { provider in
-                    Button {
-                        store.newSession(provider)
-                    } label: {
-                        Label(provider.name, systemImage: provider.icon)
-                    }
-                }
-                Menu {
-                    ForEach(store.providers) { provider in
-                        Button {
-                            store.newSession(provider, isolated: true)
-                        } label: {
-                            Label(provider.name, systemImage: provider.icon)
-                        }
-                    }
-                } label: {
-                    Label("Isolated Copy", systemImage: "square.on.square.dashed")
-                }
+                Button("New Chat", systemImage: "plus.bubble") { store.newChat() }
+                Button("New Isolated Chat", systemImage: "square.on.square.dashed") { store.newChat(isolated: true) }
                 let recent = store.recent.prefix(10)
                 if !recent.isEmpty {
                     Section("Recent") {
@@ -71,7 +53,7 @@ struct SessionTabs: View {
                             Button {
                                 store.resume(saved)
                             } label: {
-                                Label(saved.title, systemImage: store.provider(for: saved)?.icon ?? "clock")
+                                AgentLabel(title: saved.title, provider: store.provider(for: saved))
                             }
                         }
                     }
@@ -79,11 +61,13 @@ struct SessionTabs: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 12, weight: .semibold))
+            } primaryAction: {
+                store.newChat()
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("New session")
+            .help("New chat (⇧⌘N); hold for more")
             .padding(.trailing, 10)
         }
         .frame(height: 36)
@@ -108,6 +92,7 @@ struct SessionChip: View {
             }
             Text(session.title)
                 .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(session.isEmptyChat ? .secondary : .primary)
                 .lineLimit(1)
                 .frame(maxWidth: 140)
             if isHovering || isSelected {
@@ -129,97 +114,89 @@ struct SessionChip: View {
 
     @ViewBuilder private var statusDot: some View {
         switch session.status {
-        case .working, .starting:
+        case .working:
             ProgressView().controlSize(.mini)
         case .failed:
             Circle().fill(.red).frame(width: 6, height: 6)
-        case .ready, .dormant:
-            Image(systemName: session.provider.icon)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(session.hasPendingPermission ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+        case .ready, .dormant, .starting:
+            if session.hasPendingPermission {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.orange)
+            } else {
+                AgentIcon(provider: session.provider, size: 11)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
 
-struct StartSessionView: View {
+/// What an empty chat shows above the composer: earlier conversations to pick up.
+struct NewChatView: View {
+    let session: AgentSession
     let store: AgentStore
-    @State private var isolated: Bool
-
-    init(store: AgentStore) {
-        self.store = store
-        _isolated = State(initialValue: store.isolatedByDefault)
-    }
 
     var body: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 8) {
-                OrbitMark()
-                    .frame(width: 40, height: 40)
-                    .foregroundStyle(.primary.opacity(0.85))
-                    .padding(.bottom, 4)
-                Text("Start an agent")
-                    .font(.title3.weight(.semibold))
-                Text("Agents work in this folder. Their edits\nshow up inline in the editor for review.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            VStack(spacing: 8) {
-                ForEach(store.providers) { provider in
-                    Button {
-                        store.newSession(provider, isolated: isolated)
-                    } label: {
-                        Label(provider.name, systemImage: provider.icon)
-                            .frame(maxWidth: 200)
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.large)
+        let recent = store.recent.prefix(12)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if session.hasFailed {
+                    StatusFooter(session: session)
                 }
-                Toggle("Isolated copy", isOn: $isolated)
-                    .toggleStyle(.checkbox)
-                    .font(.callout)
-                    .padding(.top, 4)
-                    .help("The agent works in its own copy of the project; Apply brings its changes back for review. For agents running side by side.")
-            }
-            Text("⇧⌘N new session · ⌘L focus chat")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            let recent = store.recent.prefix(8)
-            if !recent.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Recent")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 2)
-                    ForEach(recent) { saved in
-                        RecentSessionRow(saved: saved, icon: store.provider(for: saved)?.icon ?? "clock") {
-                            store.resume(saved)
+                if recent.isEmpty {
+                    VStack(spacing: 8) {
+                        OrbitMark()
+                            .frame(width: 36, height: 36)
+                            .foregroundStyle(.primary.opacity(0.85))
+                            .padding(.bottom, 4)
+                        Text("What should we build?")
+                            .font(.title3.weight(.semibold))
+                        Text("Edits show up inline in the editor for review.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 60)
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Recent")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.bottom, 4)
+                        ForEach(recent) { saved in
+                            RecentSessionRow(saved: saved, provider: store.provider(for: saved)) {
+                                store.resume(saved)
+                            }
                         }
                     }
                 }
-                .frame(maxWidth: 320)
-                .padding(.top, 8)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 12)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
 struct RecentSessionRow: View {
     let saved: SavedSession
-    let icon: String
+    let provider: AgentProvider?
     let open: () -> Void
     @State private var isHovering = false
 
     var body: some View {
         Button(action: open) {
             HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 14)
+                Group {
+                    if let provider {
+                        AgentIcon(provider: provider, size: 13)
+                    } else {
+                        Image(systemName: "clock").font(.system(size: 10, weight: .semibold))
+                    }
+                }
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
                 Text(saved.title)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -246,26 +223,30 @@ struct RecentSessionRow: View {
 
 struct SessionView: View {
     let session: AgentSession
-    let focusRequest: Int
-    let fileIndex: ProjectFileIndex?
+    let store: AgentStore
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    ForEach(session.entries) { entry in
-                        EntryView(entry: entry)
+            if session.isEmptyChat && session.entries.isEmpty {
+                NewChatView(session: session, store: store)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        ForEach(session.entries) { entry in
+                            EntryView(entry: entry)
+                        }
+                        StatusFooter(session: session)
                     }
-                    StatusFooter(session: session)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .defaultScrollAnchor(.bottom)
             }
-            .defaultScrollAnchor(.bottom)
             if session.isIsolated {
                 IsolationBar(session: session)
             }
-            Composer(session: session, focusRequest: focusRequest, fileIndex: fileIndex)
+            Composer(session: session, store: store)
         }
     }
 }
@@ -684,8 +665,9 @@ struct PermissionBar: View {
 
 struct Composer: View {
     @Bindable var session: AgentSession
-    let focusRequest: Int
-    let fileIndex: ProjectFileIndex?
+    let store: AgentStore
+    private var focusRequest: Int { store.focusRequest }
+    private var fileIndex: ProjectFileIndex? { store.fileIndex }
     @FocusState private var isFocused: Bool
     @State private var mentionIndex = 0
     /// Escape hides the file list until the @-word changes.
@@ -703,7 +685,9 @@ struct Composer: View {
             }
             card
         }
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
         .onAppear {
             isFocused = true
             paste.install(for: session)
@@ -751,52 +735,37 @@ struct Composer: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help("Attach files or images (or drop them here)")
-                ForEach(session.configOptions) { option in
-                    Menu {
-                        Picker(option.name, selection: Binding(
-                            get: { option.currentValue },
-                            set: { session.setConfigOption(option, value: $0) }
-                        )) {
-                            ForEach(option.choices, id: \.value) { choice in
-                                Text(choice.name).tag(choice.value)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                    } label: {
-                        Text(option.currentName)
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .menuStyle(.button)
-                    .buttonStyle(.borderless)
-                    .fixedSize()
-                    .help(option.name)
-                }
+                SessionOptionsButton(session: session, store: store)
                 Spacer()
                 if session.status == .working {
                     Button(action: session.stop) {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 10, weight: .bold))
-                            .frame(width: 24, height: 24)
+                            .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.circle)
+                    .controlSize(.small)
                     .tint(.primary)
                     .help("Stop (⌘.)")
                 } else {
                     Button(action: session.send) {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 12, weight: .bold))
-                            .frame(width: 24, height: 24)
+                            .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.circle)
+                    .controlSize(.small)
                     .disabled(!session.canSend)
                     .help("Send (↩)")
                 }
             }
             .foregroundStyle(.secondary)
         }
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 7)
         .glassEffect(.regular, in: .rect(cornerRadius: 16))
         .overlay {
             if isDropTargeted {

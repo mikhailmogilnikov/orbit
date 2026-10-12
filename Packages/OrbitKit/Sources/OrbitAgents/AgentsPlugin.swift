@@ -67,7 +67,7 @@ public final class AgentsPlugin: OrbitPlugin {
             isEnabled: { context.workspace.root != nil }
         ) {
             ui.revealInspectorPanel("agents")
-            store.newSession(store.preferredProvider, isolated: store.isolatedByDefault)
+            store.newChat()
         })
 
         context.commands.register(OrbitCommand(
@@ -79,7 +79,7 @@ public final class AgentsPlugin: OrbitPlugin {
             isEnabled: { context.workspace.root != nil }
         ) {
             ui.revealInspectorPanel("agents")
-            store.newSession(store.preferredProvider, isolated: true)
+            store.newChat(isolated: true)
         })
 
         for provider in store.providers {
@@ -91,7 +91,7 @@ public final class AgentsPlugin: OrbitPlugin {
                 isEnabled: { context.workspace.root != nil }
             ) {
                 ui.revealInspectorPanel("agents")
-                store.newSession(provider)
+                store.newChat(provider)
             })
         }
 
@@ -145,6 +145,8 @@ final class AgentStore {
         history = SessionHistory(settings: context.settings)
         preferredProviderID = context.settings.string("lastProvider")
         isolatedByDefault = context.settings.bool("isolatedByDefault")
+        lastValues = context.settings.data("lastOptions").flatMap { try? JSONDecoder().decode([String: [String: String]].self, from: $0) } ?? [:]
+        models = context.settings.data("models").flatMap { try? JSONDecoder().decode([String: ConfigOption].self, from: $0) } ?? [:]
         // Resolve the login-shell environment up front; spawning agents needs it.
         environmentTask = Task.detached { await ShellEnvironment.resolve() }
         folder = workspace.root
@@ -158,7 +160,7 @@ final class AgentStore {
 
     /// Into the selected session, starting one if there's none.
     func attachToChat(_ attachment: PromptAttachment) {
-        if selected == nil { newSession(preferredProvider) }
+        if selected == nil { newChat() }
         selected?.attach(attachment)
     }
 
@@ -206,6 +208,33 @@ final class AgentStore {
         didSet { settings.set(isolatedByDefault, for: "isolatedByDefault") }
     }
 
+    /// Option values (by category) remembered per agent for new chats; mode
+    /// isn't among them, a new chat shouldn't start in "bypass permissions".
+    private var lastValues: [String: [String: String]] {
+        didSet { if let data = try? JSONEncoder().encode(lastValues) { settings.set(data, for: "lastOptions") } }
+    }
+    private static let rememberedCategories: Set<String> = ["model", "thought_level"]
+
+    /// Each agent's model list as it last reported it, so the picker can offer
+    /// models of agents that aren't running.
+    private(set) var models: [String: ConfigOption] {
+        didSet { if let data = try? JSONEncoder().encode(models) { settings.set(data, for: "models") } }
+    }
+
+    /// A new conversation with the last used agent; an empty one already open is reused.
+    func newChat(_ provider: AgentProvider? = nil, isolated: Bool? = nil) {
+        let provider = provider ?? preferredProvider
+        let isolated = isolated ?? isolatedByDefault
+        if let empty = sessions.first(where: {
+            $0.isEmptyChat && !$0.hasFailed && $0.provider.id == provider.id && $0.isIsolated == isolated && $0.project.path == workspace.root?.path
+        }) {
+            selectedID = empty.id
+            focusComposer()
+            return
+        }
+        newSession(provider, isolated: isolated)
+    }
+
     func newSession(_ provider: AgentProvider, isolated: Bool = false) {
         guard let root = workspace.root else { return }
         preferredProviderID = provider.id
@@ -215,7 +244,8 @@ final class AgentStore {
         focusComposer()
     }
 
-    /// Opens an earlier conversation, or its tab if it's already open.
+    /// Opens an earlier conversation, or its tab if it's already open. It
+    /// takes the place of an empty new chat.
     func resume(_ saved: SavedSession) {
         if let open = sessions.first(where: { $0.saved?.id == saved.id }) {
             selectedID = open.id
@@ -223,8 +253,40 @@ final class AgentStore {
         }
         guard let provider = providers.first(where: { $0.id == saved.providerID }) else { return }
         let session = makeSession(provider, project: URL(fileURLWithPath: saved.cwd), restoring: saved)
-        sessions.append(session)
+        if let current = selected, current.isEmptyChat, let index = sessions.firstIndex(where: { $0.id == current.id }) {
+            current.discardIsolatedCopy()
+            current.shutdown()
+            sessions[index] = session
+        } else {
+            sessions.append(session)
+        }
         selectedID = session.id
+        focusComposer()
+    }
+
+    /// Sets an option from the picker and remembers it for this agent's next chats.
+    func choose(_ value: String, for option: ConfigOption, in session: AgentSession) {
+        session.setConfigOption(option, value: value)
+        if let category = option.category, Self.rememberedCategories.contains(category) {
+            lastValues[session.provider.id, default: [:]][category] = value
+        }
+    }
+
+    /// A model of another agent. An empty chat changes agent in place, keeping
+    /// the draft; a conversation can't, so a new chat starts.
+    func switchAgent(of session: AgentSession, to provider: AgentProvider, model: String?) {
+        if let model { lastValues[provider.id, default: [:]]["model"] = model }
+        guard session.isEmptyChat, let index = sessions.firstIndex(where: { $0.id == session.id }) else {
+            newSession(provider, isolated: session.isIsolated)
+            return
+        }
+        let replacement = makeSession(provider, project: session.project, isolated: session.isIsolated)
+        replacement.takeDraft(from: session)
+        session.discardIsolatedCopy()
+        session.shutdown()
+        sessions[index] = replacement
+        preferredProviderID = provider.id
+        selectedID = replacement.id
         focusComposer()
     }
 
@@ -239,6 +301,8 @@ final class AgentStore {
         if selectedID == session.id {
             selectedID = sessions.isEmpty ? nil : sessions[max(0, index - 1)].id
         }
+        // The panel always has a chat to type into.
+        if !sessions.contains(where: { $0.project.path == workspace.root?.path }) { newChat() }
         saveTabs()
     }
 
@@ -305,10 +369,17 @@ final class AgentStore {
         let session = AgentSession(provider: provider, project: project, isolated: isolated, restoring: saved, workspace: workspace, services: services) {
             await task.value
         }
+        session.initialValues = lastValues[provider.id] ?? [:]
         session.onChange = { [weak self, weak session] in
-            guard let self, let saved = session?.saved else { return }
-            history.record(saved)
+            guard let self, let session, let saved = session.saved else { return }
+            if !session.isEmptyChat { history.record(saved) }
             saveTabs()
+        }
+        session.onConfigOptions = { [weak self] options in
+            guard let self, let model = options.first(where: { $0.category == "model" }) else { return }
+            var stored = model
+            stored.currentValue = ""
+            if models[provider.id] != stored { models[provider.id] = stored }
         }
         return session
     }
@@ -324,12 +395,15 @@ final class AgentStore {
         }
         selectedID = sessions.first { $0.saved?.sessionID == selected }?.id ?? sessions.last?.id
         if let session = self.selected, session.status == .dormant { Task { await session.start() } }
+        if !sessions.contains(where: { $0.project.path == root.path }) { newChat() }
     }
 
     private func saveTabs() {
         guard let root = workspace.root else { return }
-        let open = sessions.filter { $0.project.path == root.path }
-        history.saveOpenTabs(open.compactMap(\.saved), selected: selected?.saved?.sessionID, in: root)
+        // Empty chats aren't kept: a fresh one opens next time anyway.
+        let open = sessions.filter { $0.project.path == root.path && !$0.isEmptyChat }
+        let current = selected.flatMap { $0.isEmptyChat ? nil : $0.saved?.sessionID }
+        history.saveOpenTabs(open.compactMap(\.saved), selected: current, in: root)
     }
 
     func focusComposer() { focusRequest += 1 }

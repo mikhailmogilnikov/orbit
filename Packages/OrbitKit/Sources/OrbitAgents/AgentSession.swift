@@ -38,6 +38,10 @@ final class AgentSession: Identifiable {
     private(set) var status: Status = .dormant
     /// Called when what's worth remembering changed (id, title, activity).
     @ObservationIgnored var onChange: () -> Void = {}
+    /// Called with the agent's options whenever they change (the store keeps its model list).
+    @ObservationIgnored var onConfigOptions: ([ConfigOption]) -> Void = { _ in }
+    /// Option values (by category) to set once the agent is up: the user's last choices.
+    var initialValues: [String: String] = [:]
     private(set) var entries: [TranscriptEntry] = []
     private(set) var configOptions: [ConfigOption] = []
     private(set) var slashCommands: [String] = []
@@ -49,6 +53,8 @@ final class AgentSession: Identifiable {
     private var sessionID: String? { didSet { if sessionID != oldValue { onChange() } } }
     /// The conversation to load instead of starting a new one.
     private let restoredID: String?
+    /// Until the first message (or the agent) names the conversation, the tab says "New Chat".
+    private var isTitled: Bool
     private var updatedAt = Date()
     /// While the agent replays a loaded conversation: nothing in it is new.
     private var isReplaying = false
@@ -92,7 +98,8 @@ final class AgentSession: Identifiable {
         self.services = services
         self.environment = environment
         restoredID = saved?.sessionID
-        title = saved?.title ?? provider.name
+        title = saved?.title ?? "New Chat"
+        isTitled = saved != nil
         if let saved {
             sessionID = saved.sessionID
             updatedAt = saved.updatedAt
@@ -109,6 +116,9 @@ final class AgentSession: Identifiable {
     }
 
     var isBusy: Bool { status == .working || status == .starting }
+    var hasFailed: Bool { if case .failed = status { true } else { false } }
+    /// A new chat nothing was sent in yet: not worth remembering, and free to swap for another agent.
+    var isEmptyChat: Bool { restoredID == nil && !entries.contains { $0.kind == .user } }
     var hasPendingPermission: Bool { pendingPermissions.contains(where: \.isPending) }
 
     // MARK: Lifecycle
@@ -169,6 +179,7 @@ final class AgentSession: Identifiable {
             applyConfigOptions(session?["configOptions"])
             if configOptions.isEmpty { applyLegacyModes(session?["modes"]) }
             status = .ready
+            applyInitialValues()
             await refreshUnappliedChanges()
         } catch {
             status = .failed(describe(error))
@@ -239,7 +250,12 @@ final class AgentSession: Identifiable {
         entries.append(entry)
         updatedAt = Date()
         let summary = text.isEmpty ? shown.map(\.label).joined(separator: ", ") : text
-        if title == provider.name { title = String(summary.prefix(40)) } else { onChange() }
+        if !isTitled {
+            isTitled = true
+            title = String(summary.prefix(40))
+        } else {
+            onChange()
+        }
         let content = PromptBuilder.content(text: text, attachments: attached, capabilities: promptCapabilities) { url in
             workspace.documents.currentText(of: url)
         }
@@ -273,8 +289,17 @@ final class AgentSession: Identifiable {
         client.cancel(sessionID: sessionID)
     }
 
+    /// Carries the composer over when a new chat changes agent.
+    func takeDraft(from other: AgentSession) {
+        draft = other.draft
+        attachments = other.attachments
+    }
+
     func setConfigOption(_ option: ConfigOption, value: String) {
-        guard let client, let sessionID else { return }
+        guard let client, let sessionID else {
+            if let category = option.category { initialValues[category] = value }
+            return
+        }
         if let index = configOptions.firstIndex(where: { $0.id == option.id }) {
             configOptions[index].currentValue = value
         }
@@ -335,7 +360,10 @@ final class AgentSession: Identifiable {
         case "config_option_update":
             applyConfigOptions(update["configOptions"])
         case "session_info_update":
-            if let title = update["title"]?.string, !title.isEmpty { self.title = String(title.prefix(40)) }
+            if let title = update["title"]?.string, !title.isEmpty {
+                isTitled = true
+                self.title = String(title.prefix(40))
+            }
         default:
             break
         }
@@ -441,6 +469,16 @@ final class AgentSession: Identifiable {
         guard let array = json?.array else { return }
         configOptions = array.compactMap(ConfigOption.init)
             .filter { $0.category != nil && $0.choices.count > 1 && $0.id != "agent" }
+        onConfigOptions(configOptions)
+    }
+
+    private func applyInitialValues() {
+        for (category, value) in initialValues {
+            guard let option = configOptions.first(where: { $0.category == category }),
+                  option.currentValue != value, option.choices.contains(where: { $0.value == value }) else { continue }
+            setConfigOption(option, value: value)
+        }
+        initialValues = [:]
     }
 
     private func applyLegacyModes(_ json: JSONValue?) {
@@ -456,6 +494,7 @@ final class AgentSession: Identifiable {
                 return ConfigOption.Choice(value: id, name: mode["name"]?.string ?? id, description: mode["description"]?.string)
             }
         )]
+        onConfigOptions(configOptions)
     }
 
     // MARK: Client-side methods (agent → Orbit)

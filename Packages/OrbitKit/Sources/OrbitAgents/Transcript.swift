@@ -93,8 +93,8 @@ final class PermissionRequest {
     }
 }
 
-struct ConfigOption: Identifiable, Hashable {
-    struct Choice: Hashable {
+struct ConfigOption: Identifiable, Hashable, Codable {
+    struct Choice: Hashable, Codable {
         var value: String
         var name: String
         var description: String?
@@ -107,12 +107,26 @@ struct ConfigOption: Identifiable, Hashable {
     var choices: [Choice]
 
     var currentName: String { choices.first { $0.value == currentValue }?.name ?? currentValue }
+    var description: String?
+
+    static let onValues: Set<String> = ["on", "true", "enabled"]
+    private static let offValues: Set<String> = ["off", "false", "disabled"]
+
+    /// Two choices that read as on and off (Claude's Fast mode): shown as a switch.
+    var isToggle: Bool {
+        let values = Set(choices.map { $0.value.lowercased() })
+        return values.count == 2 && values.contains(where: Self.onValues.contains) && values.contains(where: Self.offValues.contains)
+    }
+
+    var isOn: Bool { Self.onValues.contains(currentValue.lowercased()) }
+    var isFastMode: Bool { isToggle && (id.lowercased().contains("fast") || name.lowercased().contains("fast")) }
 
     init?(_ json: JSONValue) {
         guard let id = json["id"]?.string, json["type"]?.string == "select" else { return nil }
         self.id = id
         name = json["name"]?.string ?? id
         category = json["category"]?.string
+        description = json["description"]?.string
         currentValue = json["currentValue"]?.string ?? ""
         choices = (json["options"]?.array ?? []).compactMap { option in
             guard let value = option["value"]?.string else { return nil }

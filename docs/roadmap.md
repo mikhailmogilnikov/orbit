@@ -70,6 +70,10 @@
   native glass tinted by the theme background (D41); authoring guide
   in `docs/extensions.md`, samples in `examples/extensions/`
 - App icon (Icon Composer) and brand mark in the UI; welcome screen with clickable actions
+- Agents panel (D43): tabs always on top, a new chat opens by default (or the
+  saved tabs) and lists recent conversations until the first message; one
+  composer button with a popover for effort / mode / model, models grouped by
+  agent with search, another agent's model switches an empty chat to it
 - Explorer dims git-ignored files and folders (from `git ls-files --ignored --directory`); only `.git` and `.DS_Store` are hidden
 
 ## Next (rough priority)
