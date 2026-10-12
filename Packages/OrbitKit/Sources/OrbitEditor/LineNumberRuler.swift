@@ -17,6 +17,19 @@ final class LineNumberRuler: NSRulerView {
         didSet { if changeMarkers != oldValue { needsDisplay = true } }
     }
 
+    struct Colors {
+        var background: NSColor = .textBackgroundColor
+        var number: NSColor = .tertiaryLabelColor
+        var currentNumber: NSColor = .secondaryLabelColor
+        var added: NSColor = .systemGreen
+        var modified: NSColor = .systemBlue
+        var deleted: NSColor = .systemRed
+    }
+
+    var colors = Colors() {
+        didSet { needsDisplay = true }
+    }
+
     private let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
     private let leadingPadding: CGFloat = 12
     private let trailingPadding: CGFloat = 10
@@ -79,7 +92,7 @@ final class LineNumberRuler: NSRulerView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.textBackgroundColor.setFill()
+        colors.background.setFill()
         dirtyRect.intersection(bounds).fill()
 
         guard let textView else { return }
@@ -89,8 +102,8 @@ final class LineNumberRuler: NSRulerView {
         let documentStart = manager.documentRange.location
         let content = textView.contentFrame
         let currentLine = line(at: textView.textSelection.location)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.tertiaryLabelColor]
-        let currentAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colors.number]
+        let currentAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colors.currentNumber]
 
         func drawNumber(_ index: Int, baseline: CGFloat) {
             let point = convert(NSPoint(x: 0, y: baseline), from: textView)
@@ -134,8 +147,8 @@ final class LineNumberRuler: NSRulerView {
     private static let markerWidth: CGFloat = 3
 
     private func drawMarker(for line: Int, top: CGFloat, bottom: CGFloat) {
-        let color: NSColor? = changeMarkers.added.contains(line) ? .systemGreen
-            : changeMarkers.modified.contains(line) ? .systemBlue
+        let color: NSColor? = changeMarkers.added.contains(line) ? colors.added
+            : changeMarkers.modified.contains(line) ? colors.modified
             : nil
         if let color {
             color.withAlphaComponent(0.85).setFill()
@@ -151,7 +164,7 @@ final class LineNumberRuler: NSRulerView {
         path.line(to: NSPoint(x: Self.markerX + 5, y: y))
         path.line(to: NSPoint(x: Self.markerX - 1, y: y + 4))
         path.close()
-        NSColor.systemRed.withAlphaComponent(0.85).setFill()
+        colors.deleted.withAlphaComponent(0.85).setFill()
         path.fill()
     }
 }

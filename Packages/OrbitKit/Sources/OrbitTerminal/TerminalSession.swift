@@ -179,12 +179,21 @@ final class OrbitTerminalView: LocalProcessTerminalView {
     /// Raw output as it arrives, for agent commands.
     var onData: (@MainActor (ArraySlice<UInt8>) -> Void)?
 
+    private var themeObserver: NSObjectProtocol?
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         font = .monospacedSystemFont(ofSize: Preferences.shared.codeFontSize, weight: .regular)
         // Option types special characters (macOS keyboard layouts), as in Terminal.app.
         optionAsMetaKey = false
         applyColors()
+        themeObserver = NotificationCenter.default.addObserver(forName: Extensions.themeDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyColors() }
+        }
+    }
+
+    isolated deinit {
+        if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
     }
 
     required init?(coder: NSCoder) {
@@ -201,14 +210,19 @@ final class OrbitTerminalView: LocalProcessTerminalView {
         applyColors()
     }
 
+    /// The color theme's terminal colors, falling back to its editor colors, then to the system's.
     private func applyColors() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            installColors(isDark ? TerminalPalette.dark : TerminalPalette.light)
-            nativeForegroundColor = .textColor
-            nativeBackgroundColor = .textBackgroundColor
-            caretColor = .controlAccentColor
-            selectedTextBackgroundColor = .selectedTextBackgroundColor
+            let theme = Extensions.shared.colorTheme(dark: isDark)
+            let fallback = isDark ? TerminalPalette.dark : TerminalPalette.light
+            installColors(zip(theme.terminalANSI, fallback).map { themed, system in
+                themed.map(TerminalPalette.color) ?? system
+            })
+            nativeForegroundColor = (theme.terminalForeground ?? theme.editorForeground)?.nsColor ?? .textColor
+            nativeBackgroundColor = (theme.terminalBackground ?? theme.editorBackground)?.nsColor ?? .textBackgroundColor
+            caretColor = theme.cursor?.nsColor ?? .controlAccentColor
+            selectedTextBackgroundColor = theme.selection?.nsColor ?? .selectedTextBackgroundColor
         }
     }
 }
@@ -225,6 +239,10 @@ enum TerminalPalette {
         0x1A1A1A, 0xC9302C, 0x1E8E3E, 0x9A6B00, 0x0B62D6, 0x8E44AD, 0x0E7C9A, 0x8E8E93,
         0x6E6E73, 0xE5483F, 0x28A745, 0xB8860B, 0x2F7DF6, 0xA55BC8, 0x1B98B8, 0x3A3A3C,
     ])
+
+    static func color(_ color: ThemeColor) -> SwiftTerm.Color {
+        SwiftTerm.Color(red: UInt16(color.red * 65535), green: UInt16(color.green * 65535), blue: UInt16(color.blue * 65535))
+    }
 
     private static func colors(_ hex: [UInt32]) -> [SwiftTerm.Color] {
         hex.map { value in

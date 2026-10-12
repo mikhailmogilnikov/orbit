@@ -90,7 +90,7 @@ items when no file is open. Toolbar items can't stretch, so it needed a
 hand-computed strip width per sidebar/inspector state, and hiding the toolbar
 also removes the traffic lights. Too fragile for little gain: the toolbar stays
 system-managed (title + file path, buttons always visible), tabs are a row
-below it. Don't fight AppKit chrome.
+below it. Don't fight AppKit chrome. **Superseded by D42.**
 
 ### D18. Share compiled tree-sitter highlight queries
 Compiling a highlight query is slow (~230 ms for Swift in Debug) while parsing
@@ -367,3 +367,131 @@ Keyboard Shortcuts and Plugins. Options more than one plugin reads (theme, the
 code font size used by the editor and terminal) live in `Preferences` in
 OrbitAPI; a plugin's own options stay in its `PluginSettings`. Everything
 applies live, no restart (except enabling plugins).
+
+### D37. Extensions: data-first packages, a public registry on GitHub
+Orbit gets Zed-style extensions that anyone can publish. An extension is a
+folder with `extension.json` (id, name, version, author, repository, minimum
+Orbit version, list of contributions), installed into
+`~/.orbit/extensions/<id>/`. Contributions are **data first**:
+- `themes` — UI accents and syntax colors (light / dark variants);
+- `iconThemes` — SVG file and folder icons with match rules;
+- `languages` — file types and how to get and launch a language server
+  (npm package, GitHub release asset or a path on `PATH`);
+- `agents` — the existing ACP agent manifests (`~/.orbit/agents/*.json`
+  moves here, the old folder keeps working).
+Code (`main`, TypeScript on JavaScriptCore) comes later in the same package
+format. Data-only packages can't run anything, so most extensions need no
+trust decision; a package that runs code or launches a binary says so and
+the install sheet shows it.
+
+The registry is a public GitHub repository with an `index.json` (id, version,
+archive URL, sha256); authors add or update an entry by pull request, CI
+validates the manifest. No server of our own. Orbit fetches the index,
+installs archives after checking the hash, and offers updates; the UI is an
+Extensions section in Settings (search, Install / Update / Uninstall).
+
+Tree-sitter grammars stay built in: all ~20 together are a few MB, while
+loading native parsers at runtime needs relaxed library validation (or a WASM
+runtime). "Install only the languages you need" pays off for language
+servers, which are large and downloaded on first use of their language.
+Extra grammars in extensions can come later if a language really needs one.
+
+Order: package format + local install with themes and icon themes (pure data,
+proves the pipeline) → LSP kernel as a built-in plugin + language extensions →
+registry and the Extensions UI → code plugins on JavaScriptCore.
+
+### D38. Themes and icon themes use Zed's file formats
+Step 1 of D37. Color themes are Zed theme-family JSON (`themes: [{ name,
+appearance, style }]`) and icon themes are Zed icon-theme JSON, read as is;
+a folder with Zed's `extension.toml` instead of `extension.json` loads too.
+So the hundreds of published Zed themes work by dropping their folder into
+`~/.orbit/extensions`, and authors don't learn a second format.
+
+Orbit reads only what it draws itself: editor background / foreground /
+active line / line numbers, cursor and selection (`players[0]`),
+version-control colors (`version_control.*`, falling back to the older
+`created` / `modified` / `deleted`), the terminal's background and 16 ANSI
+colors, and `syntax`. The window chrome (sidebar, toolbar, tabs, glass) stays
+native and follows only light/dark — a theme repaints content, not macOS.
+Anything a theme leaves out uses the system color, which is how the built-in
+"Orbit Light / Dark" keep the system editor background.
+
+Light and dark themes are picked separately (Settings → General), like Zed's
+`mode: system`: Appearance "System" switches between the two. File icon
+themes are picked per mode the same way (icon sets often ship a light
+variant); every icon theme is offered in both pickers, its own mode's first. Syntax lookup
+tries the exact tree-sitter capture, then its Zed equivalent (our nvim-style
+queries say `include`, `method`, `parameter`; Zed themes say `keyword`,
+`function.method`, `variable.parameter`), then less specific names
+(`keyword.return` → `keyword`). AppKit views (editor, ruler, terminal) resolve
+colors for their current appearance and re-apply on a theme or light/dark
+switch (`Extensions.themeDidChange`); SwiftUI reads them through `Theme`
+and redraws by observation. Icon SVGs render in their own colors through
+`FileIconView`, which falls back to the SF Symbols when no icon theme is
+picked or it has no icon for a file. `~/.orbit/extensions` is watched
+(FSEvents), so editing a theme shows up immediately.
+
+### D39. Themed middle, native edges (like Xcode)
+Amends D38. With only the editor themed, a dark theme with its own background
+(GitHub Dark `#0D1117`) sat in grey chrome like a window inside a window. Now
+the theme's `editor.background` also paints the middle of the window — the
+tab bar, the toolbar area above the editor, the bottom panel and the
+inspector (agent chat) — through `View.editorBackground(fallback:)`. The
+sidebar stays native glass and frames the content, as in Xcode and Nova;
+Settings stay fully native. Themes without a background (the built-in Orbit
+ones) look exactly as before. Zed's per-surface keys (`tab_bar.background`,
+`panel.background`, …) are still ignored: one surface color keeps the middle
+calm and works with any Zed theme.
+**Superseded by D40.**
+
+### D40. Themes color only the code, chrome is native (as in Xcode)
+Reverts D39. Painting the middle of the window fought the system at every
+edge: on macOS 26 the toolbar above a `NavigationSplitView` ignores
+`toolbarBackground`, the floating sidebar and inspector leave seams, and the
+result looked half-painted — worse with every new theme. Now a color theme
+colors exactly what Xcode's Font & Color themes do: the editor text area with
+its gutter, code in diffs, the terminal, and git colors. Tabs, toolbar,
+panels, status bar and the agent chat are always system surfaces in light or
+dark mode. Fewer pixels themed, but every theme looks finished.
+
+### D41. The theme background under the glass (Xcode 26)
+Amends D40. Chrome is still never painted, but the theme's `editor.background`
+now lies under the whole window (`themedWindowBackground()` on the split
+view, plus `NSWindow.backgroundColor` for the transparent macOS 26 toolbar).
+The glass sidebar and inspector float over it and take on its tint, the tab
+bar, bottom panel and status bar drop their own fills (`nativeSurface(_:)`
+steps aside under a theme), so the window reads as one theme the way Xcode 26
+does. Without a theme background everything is plain native, as in D40.
+The toolbar is gone altogether since D42.
+Window properties are only touched outside SwiftUI updates and only on a
+real change: changing them mid-layout crashed in a layout loop.
+
+### D42. No toolbar: tabs in the title bar
+Supersedes D17. Every attempt to theme the system toolbar left something grey
+(the toolbar strip in full screen, then an opaque plate under the title), and
+SwiftUI's tools for it (`toolbar(removing: .title)`,
+`sharedBackgroundVisibility(.hidden)`) crash the full-screen restore. The main
+window now uses `.windowStyle(.hiddenTitleBar)`: no title, no toolbar
+background, the traffic lights stay. The editor area extends into the title
+bar and its top row (`WindowTopBar`) holds the sidebar toggle, the tabs and
+the command palette and agents buttons; with the sidebar hidden the row
+starts after the traffic lights (not in full screen); empty space in it drags the window
+(`WindowDragGesture`). Unlike D17 the tabs are ordinary content, not toolbar
+items, so they stretch and need no width math. The window title (project
+name) remains for the Window menu and Mission Control; the file path is in
+the tab. Settings show their own title and Done in the same row.
+The window toolbar is hidden outright (`toolbarVisibility(.hidden,
+for: .windowToolbar)`): even empty, in full screen it lives in a separate
+window that kept an opaque grey plate for the (hidden) title over the tab
+row, and showing it only on hover covered the sidebar instead.
+Hiding the toolbar also hides AppKit's title bar container with the traffic
+lights (what D17 ran into); `TrafficLightsKeeper` shows it again and keeps it
+shown (KVO). It is transparent and 52 pt tall, so the lights sit centered on
+the tab row.
+In full screen the keeper does the opposite and keeps the container hidden:
+there it lives in AppKit's separate toolbar window, whose opaque background
+showed as a grey plate over the start of the tab row. The system sidebar
+toggle that `NavigationSplitView` adds is removed
+(`.toolbar(removing: .sidebarToggle)`): it floated over the sidebar next to
+our own toggle in the tab row.
+

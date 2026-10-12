@@ -1,0 +1,90 @@
+{
+  "$schema": "https://zed.dev/schema/themes/v0.2.0.json",
+  "name": "Nord",
+  "author": "Orbit",
+  "themes": [
+    {
+      "name": "Nord",
+      "appearance": "dark",
+      "style": {
+        "editor.background": "#2E3440",
+        "editor.foreground": "#D8DEE9",
+        "editor.active_line.background": "#3B425299",
+        "editor.line_number": "#4C566A",
+        "editor.active_line_number": "#D8DEE9",
+        "players": [{ "cursor": "#D8DEE9", "selection": "#434C5ECC" }],
+        "version_control.added": "#A3BE8C",
+        "version_control.modified": "#EBCB8B",
+        "version_control.deleted": "#BF616A",
+        "version_control.renamed": "#88C0D0",
+        "version_control.conflict": "#D08770",
+        "terminal.background": "#2E3440",
+        "terminal.foreground": "#D8DEE9",
+        "terminal.ansi.black": "#3B4252",
+        "terminal.ansi.red": "#BF616A",
+        "terminal.ansi.green": "#A3BE8C",
+        "terminal.ansi.yellow": "#EBCB8B",
+        "terminal.ansi.blue": "#81A1C1",
+        "terminal.ansi.magenta": "#B48EAD",
+        "terminal.ansi.cyan": "#88C0D0",
+        "terminal.ansi.white": "#E5E9F0",
+        "terminal.ansi.bright_black": "#4C566A",
+        "terminal.ansi.bright_red": "#BF616A",
+        "terminal.ansi.bright_green": "#A3BE8C",
+        "terminal.ansi.bright_yellow": "#EBCB8B",
+        "terminal.ansi.bright_blue": "#81A1C1",
+        "terminal.ansi.bright_magenta": "#B48EAD",
+        "terminal.ansi.bright_cyan": "#8FBCBB",
+        "terminal.ansi.bright_white": "#ECEFF4",
+        "syntax": {
+          "keyword": { "color": "#81A1C1" },
+          "boolean": { "color": "#81A1C1" },
+          "constant": { "color": "#81A1C1" },
+          "function": { "color": "#88C0D0" },
+          "type": { "color": "#8FBCBB" },
+          "constructor": { "color": "#8FBCBB" },
+          "property": { "color": "#D8DEE9" },
+          "variable.special": { "color": "#81A1C1" },
+          "string": { "color": "#A3BE8C" },
+          "string.escape": { "color": "#EBCB8B" },
+          "number": { "color": "#B48EAD" },
+          "comment": { "color": "#616E88", "font_style": "italic" },
+          "operator": { "color": "#81A1C1" },
+          "punctuation": { "color": "#ECEFF4" },
+          "attribute": { "color": "#D08770" },
+          "tag": { "color": "#81A1C1" },
+          "title": { "color": "#88C0D0", "font_weight": 700 },
+          "link_uri": { "color": "#88C0D0" }
+        }
+      }
+    },
+    {
+      "name": "Nord Light",
+      "appearance": "light",
+      "style": {
+        "editor.background": "#ECEFF4",
+        "editor.foreground": "#2E3440",
+        "editor.active_line.background": "#E5E9F0",
+        "editor.line_number": "#9AA3B5",
+        "editor.active_line_number": "#2E3440",
+        "players": [{ "cursor": "#2E3440", "selection": "#D8DEE9" }],
+        "version_control.added": "#7F9B68",
+        "version_control.modified": "#C29B4A",
+        "version_control.deleted": "#BF616A",
+        "terminal.background": "#ECEFF4",
+        "terminal.foreground": "#2E3440",
+        "syntax": {
+          "keyword": { "color": "#5E81AC" },
+          "boolean": { "color": "#5E81AC" },
+          "function": { "color": "#3B7A8C" },
+          "type": { "color": "#4C8A88" },
+          "string": { "color": "#5F7F44" },
+          "number": { "color": "#8A5F86" },
+          "comment": { "color": "#8C96A8", "font_style": "italic" },
+          "attribute": { "color": "#B0603A" },
+          "title": { "color": "#3B7A8C", "font_weight": 700 }
+        }
+      }
+    }
+  ]
+}

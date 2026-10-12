@@ -1,0 +1,8 @@
+{
+  "id": "nord",
+  "name": "Nord",
+  "version": "1.0.0",
+  "description": "Arctic, north-bluish colors (palette by Arctic Ice Studio, MIT).",
+  "authors": ["Orbit"],
+  "repository": "https://github.com/mikhailmogilnikov/orbit"
+}

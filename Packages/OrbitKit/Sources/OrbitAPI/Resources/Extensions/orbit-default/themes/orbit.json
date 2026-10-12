@@ -1,0 +1,121 @@
+{
+  "$schema": "https://zed.dev/schema/themes/v0.2.0.json",
+  "name": "Orbit",
+  "author": "Orbit",
+  "themes": [
+    {
+      "name": "Orbit Light",
+      "appearance": "light",
+      "style": {
+        "syntax": {
+          "keyword": {
+            "color": "#9B2393",
+            "font_weight": 500
+          },
+          "keyword.function": {
+            "color": "#326D74",
+            "font_weight": 500
+          },
+          "boolean": {
+            "color": "#9B2393"
+          },
+          "constructor": {
+            "color": "#9B2393",
+            "font_weight": 500
+          },
+          "punctuation.special": {
+            "color": "#9B2393"
+          },
+          "function": {
+            "color": "#0B4F79"
+          },
+          "function.method": {
+            "color": "#326D74"
+          },
+          "type": {
+            "color": "#0B4F79"
+          },
+          "property": {
+            "color": "#326D74"
+          },
+          "variable.special": {
+            "color": "#326D74"
+          },
+          "number": {
+            "color": "#1C00CF"
+          },
+          "title": {
+            "color": "#1C00CF",
+            "font_weight": 500
+          },
+          "string": {
+            "color": "#990000"
+          },
+          "text.literal": {
+            "color": "#990000"
+          },
+          "comment": {
+            "color": "#00000080"
+          }
+        }
+      }
+    },
+    {
+      "name": "Orbit Dark",
+      "appearance": "dark",
+      "style": {
+        "syntax": {
+          "keyword": {
+            "color": "#64DC6C",
+            "font_weight": 500
+          },
+          "keyword.function": {
+            "color": "#CD928B",
+            "font_weight": 500
+          },
+          "boolean": {
+            "color": "#64DC6C"
+          },
+          "constructor": {
+            "color": "#64DC6C",
+            "font_weight": 500
+          },
+          "punctuation.special": {
+            "color": "#64DC6C"
+          },
+          "function": {
+            "color": "#F4B086"
+          },
+          "function.method": {
+            "color": "#CD928B"
+          },
+          "type": {
+            "color": "#F4B086"
+          },
+          "property": {
+            "color": "#CD928B"
+          },
+          "variable.special": {
+            "color": "#CD928B"
+          },
+          "number": {
+            "color": "#E3FF30"
+          },
+          "title": {
+            "color": "#E3FF30",
+            "font_weight": 500
+          },
+          "string": {
+            "color": "#66FFFF"
+          },
+          "text.literal": {
+            "color": "#66FFFF"
+          },
+          "comment": {
+            "color": "#FFFFFF8C"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -65,8 +65,14 @@ on restart. Built-ins use exactly the public API — no private hooks.
 ### Plugin roadmap
 1. Built-in Swift plugins (now).
 2. Code-free agent plugins: JSON manifests in `~/.orbit/agents/*.json` (done).
-3. External TypeScript plugins via JavaScriptCore (in macOS, no Node, small memory).
-4. Heavy plugins out-of-process over JSON-RPC (LSP-style).
+3. Extensions (D37): data-only packages in `~/.orbit/extensions/<id>/`
+   (themes, icon themes, languages + language servers, agents), installed
+   from a public GitHub registry. `Extensions` (OrbitAPI) loads built-ins
+   from its bundle and user folders (FSEvents live reload) and parses themes
+   (Zed formats, D38); `Theme` / `FileIconView` (OrbitUI) expose them to
+   views. Authoring guide: `docs/extensions.md`.
+4. Code in extensions: TypeScript via JavaScriptCore (in macOS, no Node, small memory).
+5. Heavy plugins out-of-process over JSON-RPC (LSP-style).
 
 ## Agents (ACP)
 

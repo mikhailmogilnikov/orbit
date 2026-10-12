@@ -7,6 +7,8 @@ public struct QuickPickItem: Identifiable {
     /// Dimmed text after the title, truncated in the middle (e.g. a folder path).
     public let subtitle: String?
     public let systemImage: String?
+    /// Shows this file's icon (from the icon theme) instead of `systemImage`.
+    public let fileURL: URL?
     /// Right-aligned hint, e.g. a shortcut.
     public let trailing: String?
     public let run: @MainActor () -> Void
@@ -16,6 +18,7 @@ public struct QuickPickItem: Identifiable {
         title: AttributedString,
         subtitle: String? = nil,
         systemImage: String? = nil,
+        fileURL: URL? = nil,
         trailing: String? = nil,
         run: @escaping @MainActor () -> Void
     ) {
@@ -23,6 +26,7 @@ public struct QuickPickItem: Identifiable {
         self.title = title
         self.subtitle = subtitle
         self.systemImage = systemImage
+        self.fileURL = fileURL
         self.trailing = trailing
         self.run = run
     }

@@ -123,7 +123,7 @@ struct DiskConflictComparison: View {
 
     private func header(_ hunks: [DiffHunk]) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: FileIcon.systemImage(for: document.url))
+            FileIconView(url: document.url)
                 .foregroundStyle(.secondary)
             Text(document.url.lastPathComponent)
                 .font(.callout.weight(.medium))

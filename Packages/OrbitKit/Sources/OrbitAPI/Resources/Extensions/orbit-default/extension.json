@@ -1,0 +1,8 @@
+{
+  "id": "orbit-default",
+  "name": "Orbit Themes",
+  "version": "1.0.0",
+  "description": "The default light and dark themes. Editor and terminal backgrounds follow the system.",
+  "authors": ["Orbit"],
+  "themes": ["themes/orbit.json"]
+}

@@ -167,7 +167,11 @@ struct QuickPickRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if let systemImage = item.systemImage {
+            if let fileURL = item.fileURL {
+                FileIconView(url: fileURL, size: 16)
+                    .frame(width: 18)
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            } else if let systemImage = item.systemImage {
                 Image(systemName: systemImage)
                     .frame(width: 18)
                     .foregroundStyle(isSelected ? .primary : .secondary)

@@ -42,8 +42,14 @@ struct ChangedFileRow: View {
             tracker.openReview(for: url)
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: tracker.baseline(for: url) == nil ? "doc.badge.plus" : FileIcon.systemImage(for: url))
-                    .foregroundStyle(.secondary)
+                Group {
+                    if tracker.baseline(for: url) == nil {
+                        Image(systemName: "doc.badge.plus")
+                    } else {
+                        FileIconView(url: url)
+                    }
+                }
+                .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(url.lastPathComponent)
                         .lineLimit(1)

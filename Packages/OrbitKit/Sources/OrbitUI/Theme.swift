@@ -1,3 +1,4 @@
+import AppKit
 import OrbitAPI
 import SwiftUI
 
@@ -7,26 +8,128 @@ public enum Theme {
     public static let corner: CGFloat = 10
     public static let smallCorner: CGFloat = 6
 
-    public static let added = Color.green
-    public static let removed = Color.red
-    public static let addedBackground = Color.green.opacity(0.14)
-    public static let removedBackground = Color.red.opacity(0.13)
-    public static let addedGutter = Color.green.opacity(0.22)
-    public static let removedGutter = Color.red.opacity(0.2)
-    public static let modified = Color.orange
+    // Version-control colors come from the color theme (both variants, so they
+    // follow light/dark); reading them in a body re-renders on a theme switch.
+    @MainActor public static var added: Color { themed(\.added, .systemGreen) }
+    @MainActor public static var removed: Color { themed(\.deleted, .systemRed) }
+    @MainActor public static var modified: Color { themed(\.modified, .systemOrange) }
+    @MainActor public static var renamed: Color { themed(\.renamed, .systemBlue) }
+    @MainActor public static var conflict: Color { themed(\.conflict, .systemRed) }
+    @MainActor public static var addedBackground: Color { added.opacity(0.14) }
+    @MainActor public static var removedBackground: Color { removed.opacity(0.13) }
+    @MainActor public static var addedGutter: Color { added.opacity(0.22) }
+    @MainActor public static var removedGutter: Color { removed.opacity(0.2) }
 
     public static let subtleFill = Color.primary.opacity(0.045)
     public static let hairline = Color.primary.opacity(0.08)
+
+    /// Behind the terminal, so the padding around it matches.
+    @MainActor public static var terminalBackground: Color {
+        themed({ $0.terminalBackground ?? $0.editorBackground }, .textBackgroundColor)
+    }
+
+    @MainActor private static func themed(_ key: (ColorTheme) -> ThemeColor?, _ fallback: NSColor) -> Color {
+        let extensions = Extensions.shared
+        let light = key(extensions.colorTheme(dark: false))?.nsColor ?? fallback
+        let dark = key(extensions.colorTheme(dark: true))?.nsColor ?? fallback
+        return Color(nsColor: .dynamic(light: light, dark: dark))
+    }
+}
+
+/// The color theme's editor background under the whole window, as in Xcode 26:
+/// the editor sits on it and the glass sidebar and inspector float over it and
+/// pick up its tint, so the chrome follows the theme without being painted.
+private struct ThemedWindow: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let color = Extensions.shared.colorTheme(dark: colorScheme == .dark).editorBackground?.nsColor
+        content
+            .background {
+                if let color { Color(nsColor: color).ignoresSafeArea() }
+            }
+            .background(WindowBackground(color: color))
+    }
+}
+
+/// The window's own background, seen wherever no view draws (around the
+/// floating sidebar and inspector, the title bar area).
+private struct WindowBackground: NSViewRepresentable {
+    let color: NSColor?
+
+    func makeNSView(context: Context) -> WindowBackgroundView { WindowBackgroundView() }
+
+    func updateNSView(_ view: WindowBackgroundView, context: Context) {
+        view.color = color
+    }
+
+    final class WindowBackgroundView: NSView {
+        var color: NSColor? {
+            didSet { apply() }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            apply()
+        }
+
+        // Deferred out of the SwiftUI update and only on a real change: touching
+        // the window during layout re-lays out the split view (layout loop crash).
+        private func apply() {
+            let color = color ?? .windowBackgroundColor
+            DispatchQueue.main.async { [weak self] in
+                guard let window = self?.window, window.backgroundColor != color else { return }
+                window.backgroundColor = color
+            }
+        }
+    }
+}
+
+/// A native surface fill that steps aside when the theme colors the window,
+/// so the theme background (set by `themedWindowBackground`) shows through.
+private struct NativeSurface: ViewModifier {
+    let style: AnyShapeStyle
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let isThemed = Extensions.shared.colorTheme(dark: colorScheme == .dark).editorBackground != nil
+        content.background(isThemed ? AnyShapeStyle(.clear) : style)
+    }
+}
+
+extension View {
+    public func themedWindowBackground() -> some View {
+        modifier(ThemedWindow())
+    }
+
+    public func nativeSurface(_ style: some ShapeStyle) -> some View {
+        modifier(NativeSurface(style: AnyShapeStyle(style)))
+    }
+}
+
+extension ThemeColor {
+    public var nsColor: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha) }
+    public var color: Color { Color(nsColor: nsColor) }
+}
+
+extension NSColor {
+    /// Resolves to `light` or `dark` by the appearance it's drawn in.
+    public static func dynamic(light: NSColor, dark: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        }
+    }
 }
 
 extension FileChangeKind {
     /// Decoration color, shared by the explorer and the Source Control panel.
-    public var color: Color {
+    @MainActor public var color: Color {
         switch self {
         case .added, .untracked: Theme.added
-        case .renamed: .blue
+        case .renamed: Theme.renamed
         case .modified: Theme.modified
-        case .deleted, .conflicted: Theme.removed
+        case .deleted: Theme.removed
+        case .conflicted: Theme.conflict
         }
     }
 }

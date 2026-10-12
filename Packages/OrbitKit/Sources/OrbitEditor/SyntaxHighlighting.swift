@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Neon
 import OrbitAPI
+import OrbitUI
 import STPluginNeon
 import STTextView
 import SwiftTreeSitter
@@ -14,7 +15,7 @@ import TreeSitterResource
 /// (markdown block markers, MISSING nodes for an unclosed `"`), and TextKit 2
 /// throws on `addRenderingAttribute` for an empty range, crashing the app.
 struct SyntaxHighlightPlugin: STPlugin {
-    let theme: STPluginNeon.Theme
+    let palette: SyntaxPalette
     let language: TreeSitterLanguage
 
     func setUp(context: any Context) {
@@ -40,7 +41,66 @@ struct SyntaxHighlightPlugin: STPlugin {
     }
 
     func makeCoordinator(context: CoordinatorContext) -> SyntaxHighlightCoordinator {
-        SyntaxHighlightCoordinator(textView: context.textView, theme: theme, language: language)
+        SyntaxHighlightCoordinator(textView: context.textView, palette: palette, language: language)
+    }
+}
+
+/// The color theme an editor highlights with. The editor swaps `theme` on a
+/// theme or light/dark switch and the highlighter restyles what's on screen.
+@MainActor
+final class SyntaxPalette {
+    var theme: ColorTheme {
+        didSet {
+            guard theme != oldValue else { return }
+            styles.removeAll()
+            onChange?()
+        }
+    }
+
+    /// Also called after a font size change: styled tokens carry their own fonts.
+    var onChange: (() -> Void)?
+    private var styles: [String: SyntaxStyle?] = [:]
+    private var fonts: [String: NSFont] = [:]
+
+    init(theme: ColorTheme) {
+        self.theme = theme
+    }
+
+    func style(forCapture capture: String) -> SyntaxStyle? {
+        if let cached = styles[capture] { return cached }
+        let style = theme.style(forCapture: capture)
+        styles[capture] = style
+        return style
+    }
+
+    /// `base` itself unless the style asks for another weight or italics, so most
+    /// tokens need no font edit.
+    func font(for style: SyntaxStyle, base: NSFont) -> NSFont {
+        let weight = style.weight.map(Self.weight) ?? .regular
+        guard weight != .regular || style.isItalic else { return base }
+        let key = "\(base.pointSize)|\(weight.rawValue)|\(style.isItalic)"
+        if let font = fonts[key] { return font }
+        var font = NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: weight)
+        if style.isItalic {
+            let descriptor = font.fontDescriptor.withSymbolicTraits(.italic)
+            font = NSFont(descriptor: descriptor, size: base.pointSize) ?? font
+        }
+        fonts[key] = font
+        return font
+    }
+
+    private static func weight(_ css: Int) -> NSFont.Weight {
+        switch css {
+        case ..<150: .ultraLight
+        case ..<250: .thin
+        case ..<350: .light
+        case ..<450: .regular
+        case ..<550: .medium
+        case ..<650: .semibold
+        case ..<750: .bold
+        case ..<850: .heavy
+        default: .black
+        }
     }
 }
 
@@ -52,7 +112,7 @@ final class SyntaxHighlightCoordinator {
     private let tsClient: TreeSitterClient
     private var prevViewportRange: NSTextRange?
 
-    init(textView: STTextView, theme: STPluginNeon.Theme, language: TreeSitterLanguage) {
+    init(textView: STTextView, palette: SyntaxPalette, language: TreeSitterLanguage) {
         self.language = language
         tsLanguage = SwiftTreeSitter.Language(language: language.parser)
 
@@ -67,17 +127,13 @@ final class SyntaxHighlightCoordinator {
             self?.highlighter?.invalidate(.set(indexSet))
         }
 
-        // Theme fonts only vary the weight; map them onto two editor-sized fonts so
-        // most tokens use the editor's own font object and need no font edit.
-        let base = textView.font
-        let medium = NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: .medium)
-        let interface = HighlightTextInterface(textView: textView) { token in
-            let name = TokenName(token.name)
-            guard let color = theme.color(forToken: name) ?? theme.color(forToken: "plain") else { return nil }
-            let isHeavy = theme.font(forToken: name).map(HighlightTextInterface.isHeavy) ?? false
-            return (color, isHeavy ? medium : base)
+        // Uncolored tokens get no attribute and show in the editor's text color.
+        let interface = HighlightTextInterface(textView: textView) { [weak textView] token in
+            guard let textView, let style = palette.style(forCapture: token.name), let color = style.color else { return nil }
+            return (color.nsColor, palette.font(for: style, base: textView.font))
         }
         highlighter = Neon.Highlighter(textInterface: interface, tokenProvider: tokenProvider(textContentManager: textView.textContentManager))
+        palette.onChange = { [weak self] in self?.highlighter?.invalidate(.all) }
         // Bigger token requests than Neon's 1 KB default: each applied batch redraws the
         // viewport, so fewer, larger ones scroll smoother; 4 KB avoids first-paint hitches.
         highlighter?.requestLengthLimit = 4096
@@ -181,7 +237,7 @@ private final class HighlightTextInterface: TextSystemInterface {
         pendingFonts.removeAll { NSIntersectionRange($0.range, range).length == $0.range.length }
         let base = textView.font
         storage?.enumerateAttribute(.font, in: range) { value, subrange, _ in
-            if let font = value as? NSFont, Self.isHeavy(font) { queueFont(base, for: subrange) }
+            if let font = value as? NSFont, font != base { queueFont(base, for: subrange) }
         }
     }
 
@@ -194,12 +250,6 @@ private final class HighlightTextInterface: TextSystemInterface {
 
         textView.textLayoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
         if font !== textView.font { queueFont(font, for: token.range) }
-    }
-
-    nonisolated static func isHeavy(_ font: NSFont) -> Bool {
-        let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
-        let weight = traits?[.weight] as? CGFloat ?? 0
-        return weight > NSFont.Weight.regular.rawValue + 0.01
     }
 
     private func queueFont(_ font: NSFont, for range: NSRange) {
@@ -245,10 +295,19 @@ final class StaticHighlighter: SyntaxHighlighting {
     func highlight(_ text: String, as url: URL) async -> [SyntaxSpan] {
         guard text.utf16.count <= Self.maxLength else { return [] }
         let captures = await Task.detached(priority: .userInitiated) { Self.captures(in: text, url: url) }.value
-        let theme = STPluginNeon.Theme.default
+        let light = Extensions.shared.colorTheme(dark: false)
+        let dark = Extensions.shared.colorTheme(dark: true)
+        var colors: [String: Color?] = [:]
         return captures.compactMap { name, range in
-            guard range.length > 0, let color = theme.color(forToken: TokenName(name)) else { return nil }
-            return SyntaxSpan(range: range, color: Color(nsColor: color))
+            guard range.length > 0 else { return nil }
+            let color = colors[name] ?? {
+                let lightColor = light.style(forCapture: name)?.color?.nsColor
+                let darkColor = dark.style(forCapture: name)?.color?.nsColor
+                guard lightColor != nil || darkColor != nil else { return nil }
+                return Color(nsColor: .dynamic(light: lightColor ?? .textColor, dark: darkColor ?? .textColor))
+            }()
+            colors[name] = color
+            return color.map { SyntaxSpan(range: range, color: $0) }
         }
     }
 

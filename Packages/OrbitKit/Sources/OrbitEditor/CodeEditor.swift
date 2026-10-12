@@ -36,10 +36,10 @@ struct CodeEditor: NSViewRepresentable {
         textView.text = document.text
         textView.textDelegate = context.coordinator
 
-        if let language = Language.treeSitter(for: document.url) {
-            textView.addPlugin(SyntaxHighlightPlugin(theme: .default, language: language))
-        }
         let coordinator = context.coordinator
+        if let language = Language.treeSitter(for: document.url) {
+            textView.addPlugin(SyntaxHighlightPlugin(palette: coordinator.palette, language: language))
+        }
         coordinator.inlineDiff.textView = textView
         textView.addPlugin(InlineDiffPlugin(controller: coordinator.inlineDiff))
 
@@ -52,6 +52,8 @@ struct CodeEditor: NSViewRepresentable {
 
         coordinator.textView = textView
         coordinator.syncedRevision = document.revision
+        coordinator.applyTheme()
+        (textView as? OrbitTextView)?.onAppearanceChange = { [weak coordinator] in coordinator?.applyTheme() }
         ActiveEditor.shared.coordinator = coordinator
         DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         return scrollView
@@ -79,6 +81,7 @@ struct CodeEditor: NSViewRepresentable {
         if textView.font.pointSize != fontSize {
             textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
             coordinator.inlineDiff.invalidate()
+            coordinator.palette.onChange?()
         }
         if textView.isHorizontallyResizable == wrapsLines { textView.isHorizontallyResizable = !wrapsLines }
         if textView.highlightSelectedLine != highlightsCurrentLine { textView.highlightSelectedLine = highlightsCurrentLine }
@@ -116,13 +119,60 @@ struct CodeEditor: NSViewRepresentable {
     final class Coordinator: NSObject, @preconcurrency STTextViewDelegate {
         let document: TextDocument
         let inlineDiff = InlineDiffController()
+        let palette = SyntaxPalette(theme: .system(dark: false))
         weak var textView: STTextView?
         weak var ruler: LineNumberRuler?
         var syncedRevision = 0
         var isApplyingExternalChange = false
+        private var themeObserver: NSObjectProtocol?
+        private var systemInsertionPoint: NSColor?
 
         init(document: TextDocument) {
             self.document = document
+            super.init()
+            themeObserver = NotificationCenter.default.addObserver(forName: Extensions.themeDidChange, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.applyTheme() }
+            }
+        }
+
+        isolated deinit {
+            if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
+        }
+
+        /// Colors for the view's current appearance; called again on every theme
+        /// or light/dark switch (colors are resolved, not dynamic, so they match the theme picked for that mode).
+        func applyTheme() {
+            guard let textView else { return }
+            let isDark = textView.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let theme = Extensions.shared.colorTheme(dark: isDark)
+            palette.theme = theme
+
+            let background = theme.editorBackground?.nsColor
+            if textView.backgroundColor != background { textView.backgroundColor = background }
+            if let scrollView = textView.enclosingScrollView {
+                scrollView.drawsBackground = background != nil
+                if let background { scrollView.backgroundColor = background }
+            }
+            // Setting the text color restyles the whole document: only when it changes.
+            let foreground = theme.editorForeground?.nsColor ?? .textColor
+            if textView.textColor != foreground {
+                textView.textColor = foreground
+                // Restamping the text color drops the highlighter's colors without telling it.
+                palette.onChange?()
+            }
+            if systemInsertionPoint == nil { systemInsertionPoint = textView.insertionPointColor }
+            textView.insertionPointColor = theme.cursor?.nsColor ?? systemInsertionPoint ?? .controlAccentColor
+            textView.selectedLineHighlightColor = theme.activeLineBackground?.nsColor
+                ?? NSColor.selectedTextBackgroundColor.withAlphaComponent(0.25)
+
+            ruler?.colors = LineNumberRuler.Colors(
+                background: background ?? .textBackgroundColor,
+                number: theme.lineNumber?.nsColor ?? .tertiaryLabelColor,
+                currentNumber: theme.activeLineNumber?.nsColor ?? .secondaryLabelColor,
+                added: theme.added?.nsColor ?? .systemGreen,
+                modified: theme.modified?.nsColor ?? .systemBlue,
+                deleted: theme.deleted?.nsColor ?? .systemRed
+            )
         }
 
         func textViewDidChangeText(_ notification: Notification) {
@@ -206,6 +256,13 @@ struct CodeEditor: NSViewRepresentable {
 /// STTextView hardened against invalid input from accessibility clients
 /// (VoiceOver, automation): out-of-range selections crash the stock view.
 final class OrbitTextView: STTextView {
+    var onAppearanceChange: (() -> Void)?
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onAppearanceChange?()
+    }
+
     override func setAccessibilitySelectedTextRange(_ range: NSRange) {
         super.setAccessibilitySelectedTextRange(clamped(range))
     }

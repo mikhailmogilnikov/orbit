@@ -416,7 +416,7 @@ private struct FileRow: View {
                     }
                 }
             } icon: {
-                Image(systemName: FileIcon.systemImage(for: URL(fileURLWithPath: file.path)))
+                FileIconView(url: URL(fileURLWithPath: file.path))
             }
             Spacer(minLength: 4)
             if let onReplace, isHovered {

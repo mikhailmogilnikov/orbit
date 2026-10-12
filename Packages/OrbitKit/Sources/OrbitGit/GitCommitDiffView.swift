@@ -38,7 +38,7 @@ struct GitCommitDiffView: View {
                 }
             }
         }
-        .background(.background)
+        .nativeSurface(.background)
         .task { await load() }
     }
 
@@ -47,7 +47,7 @@ struct GitCommitDiffView: View {
         let added = hunks.reduce(0) { $0 + $1.added }
         let removed = hunks.reduce(0) { $0 + $1.removed }
         return HStack(spacing: 8) {
-            Image(systemName: FileIcon.systemImage(for: url))
+            FileIconView(url: url)
                 .foregroundStyle(.secondary)
             Text(url.lastPathComponent)
                 .font(.callout.weight(.medium))

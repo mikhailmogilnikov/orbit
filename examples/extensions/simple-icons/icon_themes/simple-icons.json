@@ -1,0 +1,62 @@
+{
+  "$schema": "https://zed.dev/schema/icon_themes/v0.2.0.json",
+  "name": "Simple Icons",
+  "author": "Orbit",
+  "themes": [
+    {
+      "name": "Simple Icons",
+      "appearance": "dark",
+      "directory_icons": {
+        "collapsed": "./icons/folder.svg",
+        "expanded": "./icons/folder-open.svg"
+      },
+      "file_stems": {},
+      "file_suffixes": {
+        "swift": "swift",
+        "ts": "typescript",
+        "tsx": "typescript",
+        "js": "javascript",
+        "mjs": "javascript",
+        "jsx": "javascript",
+        "json": "json",
+        "md": "markdown",
+        "py": "python",
+        "rs": "rust",
+        "sh": "shell",
+        "zsh": "shell"
+      },
+      "file_icons": {
+        "swift": {
+          "path": "./icons/swift.svg"
+        },
+        "typescript": {
+          "path": "./icons/typescript.svg"
+        },
+        "javascript": {
+          "path": "./icons/javascript.svg"
+        },
+        "json": {
+          "path": "./icons/json.svg"
+        },
+        "markdown": {
+          "path": "./icons/markdown.svg"
+        },
+        "python": {
+          "path": "./icons/python.svg"
+        },
+        "rust": {
+          "path": "./icons/rust.svg"
+        },
+        "shell": {
+          "path": "./icons/shell.svg"
+        },
+        "file": {
+          "path": "./icons/file.svg"
+        },
+        "default": {
+          "path": "./icons/file.svg"
+        }
+      }
+    }
+  ]
+}

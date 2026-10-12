@@ -1,0 +1,8 @@
+{
+  "id": "github-theme",
+  "name": "GitHub",
+  "version": "1.0.0",
+  "description": "GitHub's light and dark colors (Primer palette).",
+  "authors": ["Orbit"],
+  "repository": "https://github.com/mikhailmogilnikov/orbit"
+}

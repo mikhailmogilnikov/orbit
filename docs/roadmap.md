@@ -62,14 +62,27 @@
   edits on other lines and reporting same-line conflicts; closing the session
   deletes the copy (asks when changes weren't applied); copies no open tab
   uses are deleted at launch
+- Extensions, step 1 (D37, D38): folders in `~/.orbit/extensions/` (live
+  reload, Settings → Extensions lists them and their errors); color themes and
+  file icon themes in Zed's formats (Zed extensions load unchanged); light and
+  dark theme and file icons picked separately (Settings → General); themes color
+  the editor, gutter, terminal, git colors and code in diffs; the chrome stays
+  native glass tinted by the theme background (D41); authoring guide
+  in `docs/extensions.md`, samples in `examples/extensions/`
 - App icon (Icon Composer) and brand mark in the UI; welcome screen with clickable actions
 
 ## Next (rough priority)
-1. Minimal LSP: diagnostics, go to definition, hover
-2. External plugins in TypeScript via JavaScriptCore
-3. Release build, notarization, Sparkle updates
+1. Minimal LSP as a built-in plugin (diagnostics, go to definition, hover);
+   language extensions declare and download their language servers
+2. Public extension registry (GitHub repo with `index.json`, PR to publish) and
+   an Extensions section in Settings: search, install, update, uninstall
+3. Code plugins in TypeScript via JavaScriptCore, same package format
+4. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
+- Themes and icon themes: not yet checked by hand in the app. Open diff views
+  (git diff tabs, tool cards) keep their syntax colors until reopened after a
+  theme switch; agent inline-diff overlays stay system green/red.
 - Manual typing inside a highlighted diff block is implemented but not yet
   verified by hand.
 - Disk conflicts: merging an agent's edit into unsaved edits makes those edits

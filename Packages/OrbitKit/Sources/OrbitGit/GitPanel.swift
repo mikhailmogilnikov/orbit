@@ -387,7 +387,7 @@ private struct CommitFileRow: View {
         let name = (file.path as NSString).lastPathComponent
         let folder = (file.path as NSString).deletingLastPathComponent
         HStack(spacing: 6) {
-            Image(systemName: FileIcon.systemImage(for: URL(fileURLWithPath: file.path)))
+            FileIconView(url: URL(fileURLWithPath: file.path))
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             Text(name)
@@ -448,7 +448,7 @@ private struct ChangeRow: View {
         let name = (file.path as NSString).lastPathComponent
         let folder = (file.path as NSString).deletingLastPathComponent
         HStack(spacing: 6) {
-            Image(systemName: FileIcon.systemImage(for: URL(fileURLWithPath: file.path)))
+            FileIconView(url: URL(fileURLWithPath: file.path))
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             Text(name)
@@ -503,12 +503,13 @@ private struct ChangeRow: View {
 }
 
 extension GitFileStatus.Kind {
-    var color: Color {
+    @MainActor var color: Color {
         switch self {
         case .added, .untracked: Theme.added
-        case .deleted, .conflicted: Theme.removed
-        case .renamed, .copied: .blue
-        case .modified, .typeChanged: .orange
+        case .deleted: Theme.removed
+        case .conflicted: Theme.conflict
+        case .renamed, .copied: Theme.renamed
+        case .modified, .typeChanged: Theme.modified
         }
     }
 }

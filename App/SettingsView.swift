@@ -14,8 +14,11 @@ struct SettingsScreen: View {
     private var panes: [SettingsPane] {
         let host = host
         let shell = [
-            SettingsPane(id: "general", title: "General", systemImage: "gearshape", order: 0, keywords: ["appearance", "theme", "dark", "light", "version"]) {
+            SettingsPane(id: "general", title: "General", systemImage: "gearshape", order: 0, keywords: ["appearance", "theme", "dark", "light", "colors", "icons", "version"]) {
                 GeneralSettings(host: host)
+            },
+            SettingsPane(id: "extensions", title: "Extensions", systemImage: "shippingbox", order: 85, keywords: ["themes", "icons", "install"]) {
+                ExtensionsSettings()
             },
             SettingsPane(id: "shortcuts", title: "Keyboard Shortcuts", systemImage: "keyboard", order: 80, keywords: ["keys", "hotkeys", "commands"]) {
                 ShortcutsSettings(host: host)
@@ -47,27 +50,41 @@ struct SettingsScreen: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
         } detail: {
-            Group {
-                if let current {
-                    current.makeView()
-                        .id(current.id)
-                } else {
-                    EmptyStateView("No Results", systemImage: "magnifyingglass", message: "No settings match “\(query)”.")
+            VStack(spacing: 0) {
+                // The window has no toolbar (D42): title and Done live here.
+                HStack {
+                    Text(current?.title ?? "Settings")
+                        .font(.system(size: 15, weight: .semibold))
+                    Spacer()
+                    Button("Done") { ui.isSettingsVisible = false }
+                        .keyboardShortcut(.cancelAction)
+                        .buttonStyle(.glass)
+                        .help("Back to the project (Esc)")
                 }
+                .padding(.horizontal, 20)
+                .frame(height: 52)
+                .background {
+                    Color.clear
+                        .contentShape(.rect)
+                        .gesture(WindowDragGesture())
+                }
+                Group {
+                    if let current {
+                        current.makeView()
+                            .id(current.id)
+                    } else {
+                        EmptyStateView("No Results", systemImage: "magnifyingglass", message: "No settings match “\(query)”.")
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(.container, edges: .top)
             .background(.background)
         }
         .searchable(text: $query, placement: .sidebar, prompt: "Search")
         .navigationTitle(current?.title ?? "Settings")
         .navigationSubtitle("Settings")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Done") { ui.isSettingsVisible = false }
-                    .keyboardShortcut(.cancelAction)
-                    .help("Back to the project (Esc)")
-            }
-        }
+
     }
 }
 
@@ -86,13 +103,29 @@ struct GeneralSettings: View {
 
     var body: some View {
         Form {
-            Section("Appearance") {
-                Picker("Theme", selection: $preferences.appearance) {
+            Section {
+                Picker("Appearance", selection: $preferences.appearance) {
                     Text("System").tag(Preferences.Appearance.system)
                     Text("Light").tag(Preferences.Appearance.light)
                     Text("Dark").tag(Preferences.Appearance.dark)
                 }
                 .pickerStyle(.segmented)
+                if preferences.appearance != .dark {
+                    ThemePicker(title: preferences.appearance == .light ? "Theme" : "Light Theme", dark: false)
+                }
+                if preferences.appearance != .light {
+                    ThemePicker(title: preferences.appearance == .dark ? "Theme" : "Dark Theme", dark: true)
+                }
+                if preferences.appearance != .dark {
+                    IconThemePicker(title: preferences.appearance == .light ? "File Icons" : "Light File Icons", dark: false)
+                }
+                if preferences.appearance != .light {
+                    IconThemePicker(title: preferences.appearance == .dark ? "File Icons" : "Dark File Icons", dark: true)
+                }
+            } header: {
+                Text("Appearance")
+            } footer: {
+                Text("More themes and icons come from extensions.")
             }
             if let root = host.workspace.root {
                 Section("Project") {
@@ -112,6 +145,116 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Light and dark are picked separately, so "System" switches between two themes.
+struct ThemePicker: View {
+    let title: String
+    let dark: Bool
+    @Bindable private var preferences = Preferences.shared
+
+    var body: some View {
+        let themes = Extensions.shared.colorThemes.filter { $0.isDark == dark }
+        let selection = dark ? $preferences.darkThemeID : $preferences.lightThemeID
+        let current = Extensions.shared.colorTheme(dark: dark).id
+        Picker(title, selection: Binding(get: { current }, set: { selection.wrappedValue = $0 })) {
+            ForEach(themes) { theme in
+                Text(theme.name).tag(theme.id)
+            }
+        }
+    }
+}
+
+/// Every icon theme is offered in both modes (an icon set marked dark often reads
+/// fine on light), but each mode's own variants come first.
+struct IconThemePicker: View {
+    let title: String
+    let dark: Bool
+    @Bindable private var preferences = Preferences.shared
+
+    var body: some View {
+        let themes = Extensions.shared.iconThemes
+        let matching = themes.filter { $0.isDark == dark }
+        let others = themes.filter { $0.isDark != dark }
+        Picker(title, selection: dark ? $preferences.darkIconThemeID : $preferences.lightIconThemeID) {
+            Text("Orbit").tag(String?.none)
+            if !matching.isEmpty {
+                Divider()
+                ForEach(matching) { Text($0.name).tag(Optional($0.id)) }
+            }
+            if !others.isEmpty {
+                Divider()
+                ForEach(others) { Text($0.name).tag(Optional($0.id)) }
+            }
+        }
+    }
+}
+
+struct ExtensionsSettings: View {
+    private var extensions: Extensions { .shared }
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(extensions.installed) { item in
+                    LabeledContent {
+                        Text(item.isBuiltin ? "Built-in" : item.manifest.version)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.manifest.name)
+                                Text(Self.summary(of: item))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: item.iconThemeCount > 0 && item.themeCount == 0 ? "doc.richtext" : "paintpalette")
+                        }
+                    }
+                    .contextMenu {
+                        if !item.isBuiltin {
+                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.directory]) }
+                        }
+                    }
+                }
+            } header: {
+                Text("Installed")
+            } footer: {
+                HStack {
+                    Text("Drop an extension folder into ~/.orbit/extensions — it loads right away. Zed theme and icon extensions work as they are.")
+                    Spacer()
+                    Button("Open Folder") { NSWorkspace.shared.open(Extensions.userDirectory) }
+                }
+            }
+            if !extensions.problems.isEmpty {
+                Section("Problems") {
+                    ForEach(extensions.problems) { problem in
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(problem.location.lastPathComponent)
+                                Text(problem.message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private static func summary(of item: InstalledExtension) -> String {
+        var parts: [String] = []
+        if let description = item.manifest.description, !description.isEmpty { parts.append(description) }
+        if item.themeCount > 0 { parts.append(item.themeCount == 1 ? "1 theme" : "\(item.themeCount) themes") }
+        if item.iconThemeCount > 0 { parts.append(item.iconThemeCount == 1 ? "1 icon theme" : "\(item.iconThemeCount) icon themes") }
+        return parts.joined(separator: " · ")
     }
 }
 

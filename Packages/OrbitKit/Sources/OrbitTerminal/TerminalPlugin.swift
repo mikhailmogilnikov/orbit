@@ -214,7 +214,7 @@ struct TerminalPanel: View {
             }
         }
         // Opaque, matching the terminal itself, so the tab strip doesn't show the window through.
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Theme.terminalBackground)
         .onAppear {
             // Revealed from the shell (e.g. its own toggle) without a session yet.
             if store.sessions.isEmpty { store.newSession() }

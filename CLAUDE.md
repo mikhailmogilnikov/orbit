@@ -53,8 +53,28 @@ Packages/OrbitKit/
   Sources/OrbitAgents     plugin: providers, AgentSession, transcript & chat UI
   Sources/OrbitKit        BuiltinPlugins list
   Tests/OrbitKitTests     Swift Testing
-docs/                     product & architecture docs
+docs/                     product & architecture docs (extensions.md: authoring guide)
+examples/extensions/      sample extensions (theme, icon theme)
 ```
+
+## Apple references & tooling
+
+- Xcode MCP (`xcode`, local config → `xcrun mcpbridge`; needs Xcode open with
+  `Orbit.xcodeproj`): use `DocumentationSearch` before relying on memory for
+  recent SwiftUI/AppKit APIs, `RenderPreview` to look at a view in isolation,
+  `XcodeRefreshCodeIssuesInFile` for diagnostics. Never use its project-mutating
+  tools (`XcodeMV/RM/MakeDir/NewTarget`, `UpdateTargetBuildSetting`,
+  `AddInfoPlist`, `AddEntitlement`…): the project is generated — edit `project.yml`.
+- Apple's agent guides ship inside Xcode — read the relevant one before touching
+  Liquid Glass, toolbars, styled text or concurrency:
+  `/Applications/Xcode.app/Contents/PlugIns/IDEIntelligenceChat.framework/Versions/A/Resources/AdditionalDocumentation/`
+  (`SwiftUI-Implementing-Liquid-Glass-Design.md`, `AppKit-Implementing-Liquid-Glass-Design.md`,
+  `SwiftUI-New-Toolbar-Features.md`, `SwiftUI-Styled-Text-Editing.md`, `Swift-Concurrency-Updates.md`).
+- Skill `swift-concurrency` (`.claude/skills`, vendored from
+  AvdLee/Swift-Concurrency-Agent-Skill). Settings it asks about: Swift 6
+  language mode everywhere (package tools 6.2, app `SWIFT_VERSION` 6.0), so
+  complete strict checking; no default actor isolation, no upcoming-feature
+  flags, no Approachable Concurrency.
 
 ## Rules of the codebase
 
@@ -69,6 +89,11 @@ docs/                     product & architecture docs
   (state confined to a serial queue).
 - Use `Theme` tokens from OrbitUI for colors/fonts/corners; Liquid Glass button
   styles (`.glass`, `.glassProminent`) for actions.
+- Colors that should follow the color theme come from `Theme` (SwiftUI) or
+  `Extensions.shared.colorTheme(dark:)` + `Extensions.themeDidChange` (AppKit);
+  chrome is never painted: the theme background lies under the window and the
+  glass panels pick it up (D41); use `.nativeSurface(_:)`, not a plain
+  `.background`, for fills in the middle of the window. File icons: `FileIconView`, not `FileIcon.systemImage`.
 - Agent changes are reviewed **inline in the editor** — do not reintroduce a
   separate review mode/tab (explicit product decision D7).
 - Keep comment density low; explain *why*, not *what*.
@@ -99,6 +124,13 @@ docs/                     product & architecture docs
 - Launching Orbit from inside a Claude Code session leaks its env vars into
   Orbit; `ShellEnvironment` strips them, but prefer testing on a scratch
   folder (e.g. a demo project in the scratchpad), not this repo.
+
+- The window has no toolbar (D42): tabs and window buttons are the content's
+  top row (`WindowTopBar`). Window changes must survive restoring a full-screen
+  window (launch Orbit a few times while it was full screen):
+  `.toolbar(removing: .title)`, `.sharedBackgroundVisibility(.hidden)` and a
+  themed fill on the status bar each crashed it in an endless constraint pass. Touch `NSWindow` properties
+  only async and on a real change (`WindowBackground` in OrbitUI/Theme.swift).
 
 - SwiftTerm needs Xcode's Metal Toolchain (`xcodebuild -downloadComponent
   MetalToolchain`, installed here) and its build-tool plugin is trusted via

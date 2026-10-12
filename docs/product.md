@@ -57,7 +57,7 @@ agents and review their work.
 ## Key UX decisions
 
 - **Layout:** left navigator (Explorer, Changes), center tabs + editor + status
-  bar, right inspector with agent sessions. Toggle inspector from the toolbar.
+  bar, right inspector with agent sessions. Tabs sit in the title bar next to the traffic lights; the inspector toggle is at the end of that row.
 - **Agent chat:** multiple sessions as chips; transcript shows streamed text
   (Markdown), collapsible "Thinking", tool-call cards (with diffs/command
   output), plans, and inline permission prompts. Model / mode / effort pickers

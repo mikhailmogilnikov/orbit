@@ -17,7 +17,8 @@ struct OrbitApp: App {
             MainWindow(host: host)
                 .frame(minWidth: 960, minHeight: 600)
         }
-        .windowToolbarStyle(.unified)
+        // Tabs and window buttons live in the content's top row (D42).
+        .windowStyle(.hiddenTitleBar)
         .commands { OrbitMenus(host: host) }
     }
 }

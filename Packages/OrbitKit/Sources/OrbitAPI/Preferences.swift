@@ -23,9 +23,38 @@ public final class Preferences {
         didSet { UserDefaults.standard.set(codeFontSize, forKey: Keys.codeFontSize) }
     }
 
+    /// Picked color themes by `ColorTheme.id`; nil uses Orbit's default.
+    public var lightThemeID: String? {
+        didSet { store(lightThemeID, Keys.lightTheme) }
+    }
+
+    public var darkThemeID: String? {
+        didSet { store(darkThemeID, Keys.darkTheme) }
+    }
+
+    /// Picked `IconTheme.id`s, per mode like color themes; nil uses the built-in SF Symbols.
+    public var lightIconThemeID: String? {
+        didSet { store(lightIconThemeID, Keys.lightIconTheme) }
+    }
+
+    public var darkIconThemeID: String? {
+        didSet { store(darkIconThemeID, Keys.darkIconTheme) }
+    }
+
+    private func store(_ value: String?, _ key: String) {
+        UserDefaults.standard.set(value, forKey: key)
+        NotificationCenter.default.post(name: Extensions.themeDidChange, object: nil)
+    }
+
     private enum Keys {
         static let appearance = "orbit.appearance"
         static let codeFontSize = "orbit.codeFontSize"
+        static let lightTheme = "orbit.lightTheme"
+        static let darkTheme = "orbit.darkTheme"
+        static let lightIconTheme = "orbit.lightIconTheme"
+        static let darkIconTheme = "orbit.darkIconTheme"
+        /// Before icons were picked per mode.
+        static let legacyIconTheme = "orbit.iconTheme"
     }
 
     private init() {
@@ -33,5 +62,10 @@ public final class Preferences {
         appearance = defaults.string(forKey: Keys.appearance).flatMap(Appearance.init) ?? .system
         let size = defaults.double(forKey: Keys.codeFontSize)
         codeFontSize = Self.codeFontSizes.contains(size) ? size : Self.defaultCodeFontSize
+        lightThemeID = defaults.string(forKey: Keys.lightTheme)
+        darkThemeID = defaults.string(forKey: Keys.darkTheme)
+        let legacyIcons = defaults.string(forKey: Keys.legacyIconTheme)
+        lightIconThemeID = defaults.string(forKey: Keys.lightIconTheme) ?? legacyIcons
+        darkIconThemeID = defaults.string(forKey: Keys.darkIconTheme) ?? legacyIcons
     }
 }

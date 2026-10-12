@@ -41,7 +41,7 @@ struct GitDiffView: View {
                 }
             }
         }
-        .background(.background)
+        .nativeSurface(.background)
         .task(id: file) { await load(file) }
         // Edits keep the same git status, so re-read the sides periodically too.
         .task {
@@ -58,7 +58,7 @@ struct GitDiffView: View {
         let added = hunks.reduce(0) { $0 + $1.added }
         let removed = hunks.reduce(0) { $0 + $1.removed }
         return HStack(spacing: 8) {
-            Image(systemName: FileIcon.systemImage(for: url))
+            FileIconView(url: url)
                 .foregroundStyle(.secondary)
             Text(url.lastPathComponent)
                 .font(.callout.weight(.medium))

@@ -990,7 +990,7 @@ struct MentionList: View {
                 let folder = (path as NSString).deletingLastPathComponent
                 Button { pick(path) } label: {
                     HStack(spacing: 7) {
-                        Image(systemName: FileIcon.systemImage(for: URL(fileURLWithPath: path)))
+                        FileIconView(url: URL(fileURLWithPath: path), size: 13)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .frame(width: 14)

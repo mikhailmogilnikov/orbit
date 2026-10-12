@@ -53,36 +53,31 @@ struct MainWindow: View {
         }
     }
 
+    private var subtitle: String {
+        workspace.activeTab?.url.map(workspace.relativePath) ?? ""
+    }
+
     private var workspaceView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarHost(panels: ui.sidebarPanels, selection: $sidebarPanelID)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 420)
+                // Our own toggle is in the tab row; the system one floated over the sidebar.
+                .toolbar(removing: .sidebarToggle)
         } detail: {
-            EditorArea(host: host)
+            EditorArea(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector)
                 .inspector(isPresented: $showsInspector) {
                     InspectorHost(panels: ui.inspectorPanels, selection: $inspectorPanelID)
                         .inspectorColumnWidth(min: 340, ideal: 420, max: 720)
                 }
         }
         .navigationTitle(workspace.name)
-        .navigationSubtitle(workspace.activeTab?.url.map(workspace.relativePath) ?? "")
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    CommandPalette.toggle(in: host)
-                } label: {
-                    Label("Command Palette", systemImage: "command")
-                }
-                .help("Command Palette (⇧⌘P)")
-
-                Button {
-                    showsInspector.toggle()
-                } label: {
-                    Label("Agents", systemImage: "sidebar.right")
-                }
-                .help("Toggle Agents")
-            }
-        }
+        .navigationSubtitle(subtitle)
+        .themedWindowBackground()
+        // No toolbar (hidden title bar): the tab row sits next to the traffic
+        // lights and carries the window buttons, sidebar toggle included. Even
+        // empty, the toolbar kept an opaque grey title plate in full screen.
+//EXP         .toolbarVisibility(.hidden, for: .windowToolbar)
+        .background(TrafficLightsKeeper())
     }
 }
 
@@ -171,14 +166,14 @@ struct InspectorHost: View {
 
 struct EditorArea: View {
     let host: PluginHost
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+    @Binding var showsInspector: Bool
 
     var body: some View {
         let workspace = host.workspace
         VStack(spacing: 0) {
-            if !workspace.tabs.isEmpty {
-                TabBar(workspace: workspace)
-                Divider()
-            }
+            WindowTopBar(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector)
+            Divider()
             Group {
                 if let tab = workspace.activeTab {
                     if let provider = host.ui.provider(for: tab) {
@@ -202,10 +197,12 @@ struct EditorArea: View {
                 StatusBar(items: statusItems)
             }
         }
+        // Up into the hidden title bar, so the tab row lines up with the traffic lights.
+        .ignoresSafeArea(.container, edges: .top)
         // Switching tabs swaps the editor view; its min size must not reach the
         // split view (constraint-loop crash, same as InspectorHost).
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-        .background(.background)
+        .nativeSurface(.background)
     }
 }
 
@@ -234,7 +231,7 @@ struct BottomPanelHost: View {
             }
         }
         .frame(height: height)
-        .background(.background)
+        .nativeSurface(.background)
         // Same rule as the split-view columns: no min sizes leaking upwards.
         .frame(minWidth: 0, minHeight: 0)
     }
@@ -250,8 +247,211 @@ struct BottomPanelHost: View {
     }
 }
 
+/// The window's top row in place of a toolbar: editor tabs, command palette
+/// and agents. Empty space in it drags the window.
+struct WindowTopBar: View {
+    let host: PluginHost
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+    @Binding var showsInspector: Bool
+    @State private var isFullScreen = false
+
+    // Centered on the traffic lights and the floating sidebar toggle (~26–28 pt down).
+    private static let height: CGFloat = 52
+    /// With the sidebar hidden, the traffic lights sit over the start of this
+    /// row (not in full screen).
+    private static let windowedInset: CGFloat = 76
+    private static let fullScreenInset: CGFloat = 6
+
+    var body: some View {
+        let sidebarHidden = columnVisibility == .detailOnly
+        HStack(spacing: 4) {
+            TopBarButton("sidebar.left", help: sidebarHidden ? "Show Sidebar" : "Hide Sidebar") {
+                withAnimation { columnVisibility = sidebarHidden ? .all : .detailOnly }
+            }
+            if host.workspace.tabs.isEmpty {
+                Spacer(minLength: 0)
+            } else {
+                TabBar(workspace: host.workspace)
+            }
+            TopBarButton("command", help: "Command Palette (⇧⌘P)") {
+                CommandPalette.toggle(in: host)
+            }
+            TopBarButton("sidebar.right", help: "Toggle Agents") {
+                showsInspector.toggle()
+            }
+        }
+        .padding(.leading, sidebarHidden ? (isFullScreen ? Self.fullScreenInset : Self.windowedInset) : 6)
+        .padding(.trailing, 8)
+        .frame(height: Self.height)
+        .background {
+            Color.clear
+                .contentShape(.rect)
+                .gesture(WindowDragGesture())
+        }
+        .background(FullScreenObserver(isFullScreen: $isFullScreen))
+    }
+}
+
+/// Hiding the window toolbar also hides the title bar container, and the
+/// traffic lights with it. The container is transparent anyway (hidden title
+/// bar), so it is shown again, and again whenever AppKit hides it.
+/// Not in full screen: there the container moves into a separate toolbar
+/// window with an opaque background (a grey plate over the tab row), and
+/// there are no traffic lights to keep anyway.
+private struct TrafficLightsKeeper: NSViewRepresentable {
+    func makeNSView(context: Context) -> KeeperView { KeeperView() }
+    func updateNSView(_ view: KeeperView, context: Context) {}
+
+    final class KeeperView: NSView {
+        private var observations: [NSKeyValueObservation] = []
+        private var observers: [NSObjectProtocol] = []
+        private weak var container: NSView?
+        private weak var titlebar: NSView?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observations = []
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            let names: [Notification.Name] = [
+                NSWindow.willEnterFullScreenNotification, NSWindow.didEnterFullScreenNotification,
+                NSWindow.didExitFullScreenNotification,
+            ]
+            observers = names.map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.enforce() }
+                }
+            }
+            // After SwiftUI has configured the window.
+            DispatchQueue.main.async { [weak self] in self?.attach() }
+        }
+
+        private var isFullScreen: Bool {
+            window?.styleMask.contains(.fullScreen) ?? false
+        }
+
+        private func attach() {
+            guard let titlebar = window?.standardWindowButton(.closeButton)?.superview,
+                  let container = titlebar.superview else { return }
+            self.titlebar = titlebar
+            self.container = container
+            observations = [
+                container.observe(\.isHidden, options: [.initial, .new]) { [weak self] _, _ in
+                    DispatchQueue.main.async { self?.enforce() }
+                },
+                titlebar.observe(\.alphaValue, options: [.initial, .new]) { [weak self] _, _ in
+                    DispatchQueue.main.async { self?.enforce() }
+                },
+            ]
+        }
+
+        /// Only writes on a real change: window chrome touched mid-layout
+        /// sends AppKit into a constraint loop.
+        private func enforce() {
+            guard let container, let titlebar else { return }
+            if isFullScreen {
+                if container.isHidden { container.isHidden = false }
+                if let toolbarWindow = container.window, toolbarWindow !== window, toolbarWindow.isOpaque {
+                    toolbarWindow.isOpaque = false
+                    toolbarWindow.backgroundColor = .clear
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.debugDump() }
+            } else {
+                if container.isHidden { container.isHidden = false }
+                if titlebar.alphaValue < 1 { titlebar.alphaValue = 1 }
+            }
+        }
+
+        func debugDump() {
+            func dump(_ v: NSView, _ d: Int) {
+                print(String(repeating: "  ", count: d) + "\(type(of: v)) \(v.frame) hidden=\(v.isHidden) a=\(v.alphaValue) bg=\(String(describing: v.layer?.backgroundColor))")
+                for c in v.subviews { dump(c, d + 1) }
+            }
+            for win in NSApp.windows where win !== window {
+                print("WINDOW \(type(of: win)) \(win.frame) opaque=\(win.isOpaque) bg=\(win.backgroundColor)")
+                if let root = win.contentView?.superview { dump(root, 0) }
+            }
+            fflush(stdout)
+        }
+
+        isolated deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+        }
+    }
+}
+
+/// Whether the hosting window is full screen (no traffic lights then).
+private struct FullScreenObserver: NSViewRepresentable {
+    @Binding var isFullScreen: Bool
+
+    func makeNSView(context: Context) -> ObserverView {
+        let view = ObserverView()
+        view.onChange = { isFullScreen = $0 }
+        return view
+    }
+
+    func updateNSView(_ view: ObserverView, context: Context) {}
+
+    final class ObserverView: NSView {
+        var onChange: ((Bool) -> Void)?
+        private var observers: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            let names: [Notification.Name] = [
+                NSWindow.willEnterFullScreenNotification, NSWindow.didEnterFullScreenNotification,
+                NSWindow.willExitFullScreenNotification, NSWindow.didExitFullScreenNotification,
+            ]
+            observers = names.map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
+                    let entering = note.name == NSWindow.willEnterFullScreenNotification
+                        || note.name == NSWindow.didEnterFullScreenNotification
+                    MainActor.assumeIsolated { self?.report(entering) }
+                }
+            }
+            // Outside the current SwiftUI update.
+            let isFull = window.styleMask.contains(.fullScreen)
+            DispatchQueue.main.async { [weak self] in self?.report(isFull) }
+        }
+
+        private func report(_ isFull: Bool) { onChange?(isFull) }
+
+        isolated deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+        }
+    }
+}
+
+private struct TopBarButton: View {
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+
+    init(_ systemImage: String, help: String, action: @escaping () -> Void) {
+        self.systemImage = systemImage
+        self.help = help
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 28, height: 28)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+    }
+}
+
 struct TabBar: View {
     let workspace: Workspace
+    @State private var width: CGFloat = 0
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -263,8 +463,15 @@ struct TabBar: View {
                     }
                 }
                 .padding(.horizontal, 8)
+                // The free space after the tabs is title bar: it drags the window.
+                .frame(minWidth: width, maxHeight: .infinity, alignment: .leading)
+                .background {
+                    Color.clear
+                        .contentShape(.rect)
+                        .gesture(WindowDragGesture())
+                }
             }
-            .frame(height: 34)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .mask {
                 HStack(spacing: 0) {
                     LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: 10)
@@ -292,9 +499,15 @@ struct TabItem: View {
         let isDirty = tab.url.flatMap { workspace.documents.existingDocument(for: $0) }?.isDirty == true
             && tab.kind == EditorTab.fileKind
         HStack(spacing: 6) {
-            Image(systemName: tab.systemImage)
-                .font(.system(size: 10.5))
-                .foregroundStyle(tab.kind == EditorTab.fileKind ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+            Group {
+                if tab.kind == EditorTab.fileKind, let url = tab.url {
+                    FileIconView(url: url, size: 13)
+                } else {
+                    Image(systemName: tab.systemImage)
+                }
+            }
+            .font(.system(size: 10.5))
+            .foregroundStyle(tab.kind == EditorTab.fileKind ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
             Text(tab.title)
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
                 .foregroundStyle(isActive ? .primary : .secondary)
@@ -349,7 +562,7 @@ struct StatusBar: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 24)
-        .background(.bar)
+        .nativeSurface(.bar)
         .overlay(alignment: .top) { Divider() }
     }
 }

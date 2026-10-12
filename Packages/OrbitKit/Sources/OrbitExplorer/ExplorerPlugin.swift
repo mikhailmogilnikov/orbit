@@ -172,11 +172,11 @@ struct FileChildren: View {
                 )) {
                     FileChildren(node: child, workspace: workspace, decorations: decorations)
                 } label: {
-                    FileLabel(name: child.name, systemImage: "folder", kind: decorations?.folderStatus(of: child.url), isFolder: true)
+                    FileLabel(url: child.url, kind: decorations?.folderStatus(of: child.url), isFolder: true, isExpanded: child.isExpanded)
                         .contextMenu { FileContextMenu(url: child.url) }
                 }
             } else {
-                FileLabel(name: child.name, systemImage: FileIcon.systemImage(for: child.url), kind: decorations?.status(of: child.url), isFolder: false)
+                FileLabel(url: child.url, kind: decorations?.status(of: child.url), isFolder: false)
                     .tag(child.url)
                     .contextMenu { FileContextMenu(url: child.url) }
             }
@@ -186,19 +186,19 @@ struct FileChildren: View {
 
 /// A tree row tinted by its git status: files get a letter, folders a dot.
 struct FileLabel: View {
-    let name: String
-    let systemImage: String
+    let url: URL
     let kind: FileChangeKind?
     let isFolder: Bool
+    var isExpanded = false
 
     var body: some View {
         HStack(spacing: 4) {
             Label {
-                Text(name)
+                Text(url.lastPathComponent)
                     .foregroundStyle(kind.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.primary))
                     .lineLimit(1)
             } icon: {
-                Image(systemName: systemImage)
+                FileIconView(url: url, isFolder: isFolder, isExpanded: isExpanded)
             }
             Spacer(minLength: 2)
             if let kind {

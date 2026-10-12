@@ -146,7 +146,8 @@ enum QuickOpen {
             id: path,
             title: FuzzyMatch.highlighted(url.lastPathComponent, positions: positions),
             subtitle: folder.isEmpty ? nil : folder,
-            systemImage: FileIcon.systemImage(for: url)
+            systemImage: FileIcon.systemImage(for: url),
+            fileURL: url
         ) {
             workspace.openFile(url)
         }

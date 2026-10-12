@@ -17,7 +17,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "OrbitACP"),
-        .target(name: "OrbitAPI"),
+        .target(name: "OrbitAPI", resources: [.copy("Resources/Extensions")]),
         .target(name: "OrbitUI", dependencies: ["OrbitAPI"], resources: [.copy("Resources/OrbitMark.svg")]),
         .target(name: "OrbitExplorer", dependencies: ["OrbitAPI", "OrbitUI"]),
         .target(
