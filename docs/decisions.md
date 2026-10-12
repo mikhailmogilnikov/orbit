@@ -487,8 +487,11 @@ window that kept an opaque grey plate for the (hidden) title over the tab
 row, and showing it only on hover covered the sidebar instead.
 Hiding the toolbar also hides AppKit's title bar container with the traffic
 lights (what D17 ran into); `TrafficLightsKeeper` shows it again and keeps it
-shown (KVO). It is transparent and 52 pt tall, so the lights sit centered on
-the tab row.
+shown (KVO). It is transparent and 52 pt tall; the tab row is 42 pt
+(`Theme.topBarHeight`).
+The keeper also moves the lights down a few points
+(`trafficLightsDrop`) after every titlebar layout AppKit does: they read as
+too high against the tab row.
 In full screen the keeper does the opposite and keeps the container hidden:
 there it lives in AppKit's separate toolbar window, whose opaque background
 showed as a grey plate over the start of the tab row. The system sidebar

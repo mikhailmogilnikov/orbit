@@ -2,7 +2,7 @@ import SwiftUI
 
 extension Theme {
     /// The window's top row (editor tabs, agent tabs), centered on the traffic lights.
-    public static let topBarHeight: CGFloat = 52
+    public static let topBarHeight: CGFloat = 42
 }
 
 /// One tab of a tab row: the editor's and the agents' look the same.

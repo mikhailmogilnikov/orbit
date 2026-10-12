@@ -76,19 +76,23 @@
   composer button with a popover for effort / mode / model, models grouped by
   agent with search, another agent's model switches an empty chat to it
 - Explorer dims git-ignored files and folders (from `git ls-files --ignored --directory`); only `.git` and `.DS_Store` are hidden
+- Sidebar width enforcement via AppKit split view item (prevents constraint crashes on column resize)
+- Settings redesign: theme and icon theme settings moved to General, toolbar removed
 
 ## Next (rough priority)
-1. Minimal LSP as a built-in plugin (diagnostics, go to definition, hover);
+1. Agent changes tracking improvements: separate changed files view from the composer,
+   better visual integration with inline diffs
+2. Minimal LSP as a built-in plugin (diagnostics, go to definition, hover);
    language extensions declare and download their language servers
-2. Public extension registry (GitHub repo with `index.json`, PR to publish) and
+3. Public extension registry (GitHub repo with `index.json`, PR to publish) and
    an Extensions section in Settings: search, install, update, uninstall
-3. Code plugins in TypeScript via JavaScriptCore, same package format
-4. Release build, notarization, Sparkle updates
+4. Code plugins in TypeScript via JavaScriptCore, same package format
+5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
-- Themes and icon themes: not yet checked by hand in the app. Open diff views
-  (git diff tabs, tool cards) keep their syntax colors until reopened after a
-  theme switch; agent inline-diff overlays stay system green/red.
+- Themes and icon themes: open diff views (git diff tabs, tool cards) keep
+  their syntax colors until reopened after a theme switch; agent inline-diff
+  overlays stay system green/red.
 - Manual typing inside a highlighted diff block is implemented but not yet
   verified by hand.
 - Disk conflicts: merging an agent's edit into unsaved edits makes those edits

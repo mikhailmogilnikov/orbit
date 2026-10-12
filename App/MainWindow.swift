@@ -259,7 +259,6 @@ struct WindowTopBar: View {
     @Binding var showsInspector: Bool
     @State private var isFullScreen = false
 
-    // Centered on the traffic lights and the floating sidebar toggle (~26–28 pt down).
     /// With the sidebar hidden, the traffic lights sit over the start of this
     /// row (not in full screen).
     private static let windowedInset: CGFloat = 76
@@ -364,10 +363,17 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
     func updateNSView(_ view: KeeperView, context: Context) {}
 
     final class KeeperView: NSView {
+        /// How far the traffic lights sit below where AppKit puts them, to
+        /// line up with the tab row.
+        static let trafficLightsDrop: CGFloat = 5
+
         private var observations: [NSKeyValueObservation] = []
         private var observers: [NSObjectProtocol] = []
+        private var buttonObservers: [NSObjectProtocol] = []
         private weak var container: NSView?
         private weak var titlebar: NSView?
+        /// The y we last moved each button to; anything else is AppKit's own layout.
+        private var shiftedY: [ObjectIdentifier: CGFloat] = [:]
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -405,6 +411,36 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
                     DispatchQueue.main.async { self?.enforce() }
                 },
             ]
+            // AppKit puts the buttons back on every titlebar layout (resize,
+            // focus, full screen): move them again after each one.
+            buttonObservers.forEach(NotificationCenter.default.removeObserver)
+            buttonObservers = buttons.map { button in
+                button.postsFrameChangedNotifications = true
+                return NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: button, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        DispatchQueue.main.async { self?.shiftButtons() }
+                    }
+                }
+            }
+            shiftButtons()
+        }
+
+        private var buttons: [NSButton] {
+            [.closeButton, .miniaturizeButton, .zoomButton].compactMap { window?.standardWindowButton($0) }
+        }
+
+        /// Only moves a button AppKit has just laid out, so our own move
+        /// (which posts a frame change too) doesn't feed back.
+        private func shiftButtons() {
+            guard !isFullScreen else { return }
+            for button in buttons {
+                let id = ObjectIdentifier(button)
+                let y = button.frame.origin.y
+                guard shiftedY[id] != y else { continue }
+                let target = (button.superview?.isFlipped ?? false) ? y + Self.trafficLightsDrop : y - Self.trafficLightsDrop
+                shiftedY[id] = target
+                button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: target))
+            }
         }
 
         /// Only writes on a real change: window chrome touched mid-layout
@@ -421,6 +457,7 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
             } else {
                 if container.isHidden { container.isHidden = false }
                 if titlebar.alphaValue < 1 { titlebar.alphaValue = 1 }
+                shiftButtons()
             }
         }
 
@@ -438,6 +475,7 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
 
         isolated deinit {
             observers.forEach(NotificationCenter.default.removeObserver)
+            buttonObservers.forEach(NotificationCenter.default.removeObserver)
         }
     }
 }
