@@ -30,7 +30,8 @@ struct MainWindow: View {
         .onAppear {
             AppDelegate.reopenMainWindow = { openWindow(id: "main") }
         }
-        .onChange(of: Preferences.shared.appearance, initial: true) { _, appearance in
+        // A theme being tried on brings its own mode (it only draws in that one).
+        .onChange(of: appearance, initial: true) { _, appearance in
             NSApp.appearance = switch appearance {
             case .system: nil
             case .light: NSAppearance(named: .aqua)
@@ -51,6 +52,11 @@ struct MainWindow: View {
             sidebarPanelID = id
             ui.requestedSidebarPanel = nil
         }
+    }
+
+    private var appearance: Preferences.Appearance {
+        if let theme = Extensions.shared.preview?.colorTheme { return theme.isDark ? .dark : .light }
+        return Preferences.shared.appearance
     }
 
     private var subtitle: String {
@@ -191,6 +197,7 @@ struct EditorArea: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) { TryOnBar(host: host) }
             // SwiftUI scroll views draw into the safe area under the floating glass
             // sidebar and inspector, which then pick up their colors (green diff rows).
             .clipped()

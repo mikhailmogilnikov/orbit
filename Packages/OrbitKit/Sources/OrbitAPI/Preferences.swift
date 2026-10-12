@@ -19,6 +19,15 @@ public final class Preferences {
         didSet { UserDefaults.standard.set(appearance.rawValue, forKey: Keys.appearance) }
     }
 
+    /// Whether windows are drawn dark right now ("System" follows macOS).
+    public var isDark: Bool {
+        switch appearance {
+        case .light: false
+        case .dark: true
+        case .system: UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+        }
+    }
+
     public var codeFontSize: Double {
         didSet { UserDefaults.standard.set(codeFontSize, forKey: Keys.codeFontSize) }
     }

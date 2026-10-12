@@ -18,7 +18,7 @@ struct SettingsScreen: View {
             SettingsPane(id: "general", title: "General", systemImage: "gearshape", order: 0, keywords: ["appearance", "theme", "dark", "light", "colors", "icons", "version"]) {
                 GeneralSettings(host: host)
             },
-            SettingsPane(id: "extensions", title: "Extensions", systemImage: "shippingbox", order: 85, keywords: ["themes", "icons", "install"]) {
+            SettingsPane(id: "extensions", title: "Extensions", systemImage: "shippingbox", order: 85, keywords: ["themes", "icons", "install", "catalog", "zed"]) {
                 ExtensionsSettings()
             },
             SettingsPane(id: "shortcuts", title: "Keyboard Shortcuts", systemImage: "keyboard", order: 80, keywords: ["keys", "hotkeys", "commands"]) {
@@ -137,7 +137,14 @@ struct GeneralSettings: View {
             } header: {
                 Text("Appearance")
             } footer: {
-                Text("More themes and icons come from extensions.")
+                HStack {
+                    Text("More themes and icons come from extensions.")
+                    Spacer()
+                    Button("Browse Themes…") {
+                        UserDefaults.standard.set(ExtensionsSettings.Tab.catalog.rawValue, forKey: ExtensionsSettings.tabKey)
+                        host.ui.showSettings("extensions")
+                    }
+                }
             }
             if let root = host.workspace.root {
                 Section("Project") {
@@ -169,7 +176,7 @@ struct ThemePicker: View {
     var body: some View {
         let themes = Extensions.shared.colorThemes.filter { $0.isDark == dark }
         let selection = dark ? $preferences.darkThemeID : $preferences.lightThemeID
-        let current = Extensions.shared.colorTheme(dark: dark).id
+        let current = Extensions.shared.pickedColorTheme(dark: dark).id
         Picker(title, selection: Binding(get: { current }, set: { selection.wrappedValue = $0 })) {
             ForEach(themes) { theme in
                 Text(theme.name).tag(theme.id)
@@ -200,73 +207,6 @@ struct IconThemePicker: View {
                 ForEach(others) { Text($0.name).tag(Optional($0.id)) }
             }
         }
-    }
-}
-
-struct ExtensionsSettings: View {
-    private var extensions: Extensions { .shared }
-
-    var body: some View {
-        Form {
-            Section {
-                ForEach(extensions.installed) { item in
-                    LabeledContent {
-                        Text(item.isBuiltin ? "Built-in" : item.manifest.version)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.manifest.name)
-                                Text(Self.summary(of: item))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: item.iconThemeCount > 0 && item.themeCount == 0 ? "doc.richtext" : "paintpalette")
-                        }
-                    }
-                    .contextMenu {
-                        if !item.isBuiltin {
-                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.directory]) }
-                        }
-                    }
-                }
-            } header: {
-                Text("Installed")
-            } footer: {
-                HStack {
-                    Text("Drop an extension folder into ~/.orbit/extensions — it loads right away. Zed theme and icon extensions work as they are.")
-                    Spacer()
-                    Button("Open Folder") { NSWorkspace.shared.open(Extensions.userDirectory) }
-                }
-            }
-            if !extensions.problems.isEmpty {
-                Section("Problems") {
-                    ForEach(extensions.problems) { problem in
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(problem.location.lastPathComponent)
-                                Text(problem.message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    private static func summary(of item: InstalledExtension) -> String {
-        var parts: [String] = []
-        if let description = item.manifest.description, !description.isEmpty { parts.append(description) }
-        if item.themeCount > 0 { parts.append(item.themeCount == 1 ? "1 theme" : "\(item.themeCount) themes") }
-        if item.iconThemeCount > 0 { parts.append(item.iconThemeCount == 1 ? "1 icon theme" : "\(item.iconThemeCount) icon themes") }
-        return parts.joined(separator: " · ")
     }
 }
 

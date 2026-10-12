@@ -133,5 +133,7 @@ try it.
 
 ## Publishing
 
-A public catalog (a GitHub repository you send a pull request to) and an
-in-app browser are coming next; see `docs/roadmap.md`.
+Settings → Extensions → Catalog lists Zed's extension catalog, so a theme or
+icon theme published for Zed (see Zed's docs on publishing extensions) shows
+up in Orbit too, ready to try on and install. Orbit keeps only the themes,
+icon themes and icons from it.

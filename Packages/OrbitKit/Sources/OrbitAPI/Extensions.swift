@@ -54,6 +54,29 @@ public struct InstalledExtension: Identifiable, Sendable, Hashable {
     public var iconThemeCount = 0
 }
 
+/// See `Extensions.preview`. Starts with the theme matching the current mode
+/// when the extension ships one.
+public struct ExtensionPreview: Sendable, Hashable {
+    public var manifest: ExtensionManifest
+    public var directory: URL
+    public var colorThemes: [ColorTheme]
+    public var iconThemes: [IconTheme]
+    public var colorThemeID: String?
+    public var iconThemeID: String?
+
+    public init(manifest: ExtensionManifest, directory: URL, colorThemes: [ColorTheme], iconThemes: [IconTheme]) {
+        self.manifest = manifest
+        self.directory = directory
+        self.colorThemes = colorThemes
+        self.iconThemes = iconThemes
+        colorThemeID = colorThemes.first?.id
+        iconThemeID = iconThemes.first?.id
+    }
+
+    public var colorTheme: ColorTheme? { colorThemes.first { $0.id == colorThemeID } }
+    public var iconTheme: IconTheme? { iconThemes.first { $0.id == iconThemeID } }
+}
+
 public struct ExtensionProblem: Identifiable, Sendable, Hashable {
     public var id: String { "\(location.path)|\(message)" }
     public var location: URL
@@ -101,8 +124,25 @@ public final class Extensions {
         watcher = DirectoryWatcher(url: Self.userDirectory) { [weak self] in self?.reload() }
     }
 
-    /// The theme to draw with in light or dark mode: the picked one, else the default.
+    /// An extension being tried on: loaded from a cache folder, not installed,
+    /// drawn instead of the picked themes until it is installed or dismissed.
+    public var preview: ExtensionPreview? {
+        didSet {
+            guard preview != oldValue else { return }
+            revision += 1
+            NotificationCenter.default.post(name: Self.themeDidChange, object: nil)
+        }
+    }
+
+    /// The theme to draw with in light or dark mode: the one being tried on
+    /// (for its own mode), the picked one, else the default.
     public func colorTheme(dark: Bool) -> ColorTheme {
+        if let theme = preview?.colorTheme, theme.isDark == dark { return theme }
+        return pickedColorTheme(dark: dark)
+    }
+
+    /// The theme picked in Settings, ignoring a preview.
+    public func pickedColorTheme(dark: Bool) -> ColorTheme {
         let preferences = Preferences.shared
         let picked = dark ? preferences.darkThemeID : preferences.lightThemeID
         let fallback = dark ? Self.defaultDarkThemeID : Self.defaultLightThemeID
@@ -111,9 +151,24 @@ public final class Extensions {
 
     /// The icons to draw with in light or dark mode; nil means the built-in SF Symbols.
     public func iconTheme(dark: Bool) -> IconTheme? {
+        if let theme = preview?.iconTheme { return theme }
         let preferences = Preferences.shared
         guard let id = dark ? preferences.darkIconThemeID : preferences.lightIconThemeID else { return nil }
         return iconThemes.first { $0.id == id }
+    }
+
+    /// Reads an unpacked extension for trying on; throws when it has nothing to show.
+    public func makePreview(of folder: URL) throws -> ExtensionPreview {
+        guard let loaded = try Self.load(folder, isBuiltin: false) else {
+            throw ExtensionError.invalid("the download has no extension manifest")
+        }
+        if let problem = loaded.problems.first, loaded.colorThemes.isEmpty, loaded.iconThemes.isEmpty {
+            throw ExtensionError.invalid(problem.message)
+        }
+        guard !loaded.colorThemes.isEmpty || !loaded.iconThemes.isEmpty else {
+            throw ExtensionError.invalid("it has no themes or icon themes")
+        }
+        return ExtensionPreview(manifest: loaded.entry.manifest, directory: folder, colorThemes: loaded.colorThemes, iconThemes: loaded.iconThemes)
     }
 
     public func reload() {
@@ -131,30 +186,14 @@ public final class Extensions {
             for folder in folders.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
             where (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                 do {
-                    guard let manifest = try Self.manifest(in: folder) else { continue }
-                    if installed.contains(where: { $0.id == manifest.id }) {
-                        throw ExtensionError.invalid("another extension already uses the id “\(manifest.id)”")
+                    guard let loaded = try Self.load(folder, isBuiltin: isBuiltin) else { continue }
+                    if installed.contains(where: { $0.id == loaded.entry.id }) {
+                        throw ExtensionError.invalid("another extension already uses the id “\(loaded.entry.id)”")
                     }
-                    var entry = InstalledExtension(manifest: manifest, directory: folder, isBuiltin: isBuiltin)
-                    for file in Self.files(manifest.themes, default: "themes", in: folder) {
-                        do {
-                            let themes = try ThemeFile.colorThemes(from: Data(contentsOf: file), extensionID: manifest.id, extensionName: manifest.name)
-                            colorThemes += themes
-                            entry.themeCount += themes.count
-                        } catch {
-                            problems.append(ExtensionProblem(location: file, message: error.localizedDescription))
-                        }
-                    }
-                    for file in Self.files(manifest.iconThemes, default: "icon_themes", in: folder) {
-                        do {
-                            let themes = try ThemeFile.iconThemes(from: Data(contentsOf: file), root: folder, extensionID: manifest.id, extensionName: manifest.name)
-                            iconThemes += themes
-                            entry.iconThemeCount += themes.count
-                        } catch {
-                            problems.append(ExtensionProblem(location: file, message: error.localizedDescription))
-                        }
-                    }
-                    installed.append(entry)
+                    installed.append(loaded.entry)
+                    colorThemes += loaded.colorThemes
+                    iconThemes += loaded.iconThemes
+                    problems += loaded.problems
                 } catch {
                     problems.append(ExtensionProblem(location: folder, message: error.localizedDescription))
                 }
@@ -168,6 +207,39 @@ public final class Extensions {
         // Files can change without changing what parses out of them (an edited icon SVG).
         revision += 1
         NotificationCenter.default.post(name: Self.themeDidChange, object: nil)
+    }
+
+    struct LoadedExtension {
+        var entry: InstalledExtension
+        var colorThemes: [ColorTheme] = []
+        var iconThemes: [IconTheme] = []
+        var problems: [ExtensionProblem] = []
+    }
+
+    /// One extension folder; nil when it has no manifest. A theme file that
+    /// fails to parse is a problem, not a failure of the whole extension.
+    static func load(_ folder: URL, isBuiltin: Bool) throws -> LoadedExtension? {
+        guard let manifest = try manifest(in: folder) else { return nil }
+        var loaded = LoadedExtension(entry: InstalledExtension(manifest: manifest, directory: folder, isBuiltin: isBuiltin))
+        for file in files(manifest.themes, default: "themes", in: folder) {
+            do {
+                let themes = try ThemeFile.colorThemes(from: Data(contentsOf: file), extensionID: manifest.id, extensionName: manifest.name)
+                loaded.colorThemes += themes
+                loaded.entry.themeCount += themes.count
+            } catch {
+                loaded.problems.append(ExtensionProblem(location: file, message: error.localizedDescription))
+            }
+        }
+        for file in files(manifest.iconThemes, default: "icon_themes", in: folder) {
+            do {
+                let themes = try ThemeFile.iconThemes(from: Data(contentsOf: file), root: folder, extensionID: manifest.id, extensionName: manifest.name)
+                loaded.iconThemes += themes
+                loaded.entry.iconThemeCount += themes.count
+            } catch {
+                loaded.problems.append(ExtensionProblem(location: file, message: error.localizedDescription))
+            }
+        }
+        return loaded
     }
 
     private static func manifest(in folder: URL) throws -> ExtensionManifest? {

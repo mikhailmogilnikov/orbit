@@ -567,3 +567,26 @@ has no toolbar (D42). `FullScreenCompositingGuard` (App/MainWindow.swift)
 keeps a 1-pt, 1%-opaque, click-through child window over the main window
 while it's full screen, so the window is always composited. A fully clear
 window doesn't count. Revisit if a future macOS fixes direct flip pacing.
+
+### D48. Themes and icons come from Zed's catalog, with try-on
+Amends D37's registry for themes and icon themes. Since D38 reads Zed's
+formats as is, Orbit browses Zed's own extension catalog instead of starting
+an empty one: Settings → Extensions has an Installed / Catalog switch; the
+catalog lists Zed extensions that provide themes or icon themes (search,
+sorted by downloads) with Try On, Install, Update and Uninstall. It uses the
+API Zed itself uses (`api.zed.dev/extensions?provides=…`, archives from
+`/extensions/<id>/<version>/download`, a .tar.gz of the built extension). That
+API is Zed's, not a promise to us, so it sits behind one type
+(`ExtensionCatalog`) and can move to the `zed-industries/extensions` repo or
+our own `index.json` without touching the UI. From an archive Orbit keeps
+only manifest, themes, icon themes and icons; WASM, grammars and language
+files are deleted, so nothing installed can run code and there is no trust
+prompt. Uninstall moves the folder to the Trash.
+
+Try-on unpacks into the caches folder and sets `Extensions.preview`: its
+theme draws instead of the picked one (in its own mode, which the app is
+switched to while trying it on) and its icons in both modes, nothing is
+saved. Settings cover the editor, so the catalog shows a sample (code, file
+icons, terminal colors) in the theme; back in the project a glass bar over
+the editor offers Install, the catalog, or stop. Install while trying on
+reuses the download and picks the tried theme and icons.

@@ -149,4 +149,37 @@ import Testing
             #expect(FileManager.default.fileExists(atPath: url.path), "missing \(url.lastPathComponent)")
         }
     }
+
+    @Test func decodesZedCatalogEntries() throws {
+        let json = """
+        {"data": [{
+          "id": "catppuccin", "name": "Catppuccin", "version": "0.2.1",
+          "description": "Soothing pastel theme", "authors": ["Someone <a@b.c>"],
+          "repository": "https://github.com/catppuccin/zed", "schema_version": 1,
+          "wasm_api_version": null, "provides": ["themes", "icon-themes"],
+          "published_at": "2025-01-01T00:00:00Z", "download_count": 123456
+        }, {"id": "bare"}]}
+        """
+        struct Response: Decodable { var data: [CatalogEntry] }
+        let entries = try JSONDecoder().decode(Response.self, from: Data(json.utf8)).data
+        #expect(entries[0].downloadCount == 123456)
+        #expect(entries[0].provides == ["themes", "icon-themes"])
+        #expect(entries[1].name == "bare")
+        #expect(entries[1].version == "0.0.0")
+    }
+
+    @MainActor @Test func loadsAFolderForTryingOn() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "orbit-preview-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder.appending(path: "themes"), withIntermediateDirectories: true)
+        try Data("id = \"try\"\nname = \"Try\"\nversion = \"1.2.3\"\n".utf8).write(to: folder.appending(path: "extension.toml"))
+        let family = #"{"themes": [{"name": "Try Light", "appearance": "light", "style": {}}, {"name": "Try Dark", "appearance": "dark", "style": {}}]}"#
+        try Data(family.utf8).write(to: folder.appending(path: "themes/try.json"))
+        let loaded = try #require(try Extensions.load(folder, isBuiltin: false))
+        #expect(loaded.entry.manifest.version == "1.2.3")
+        #expect(loaded.colorThemes.map(\.id) == ["try/Try Light", "try/Try Dark"])
+        let preview = ExtensionPreview(manifest: loaded.entry.manifest, directory: folder, colorThemes: loaded.colorThemes, iconThemes: [])
+        #expect(preview.colorTheme?.name == "Try Light")
+        #expect(preview.iconTheme == nil)
+    }
 }

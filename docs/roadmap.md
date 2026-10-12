@@ -79,18 +79,23 @@
 - Sidebar width enforcement via AppKit split view item (prevents constraint crashes on column resize)
 - Settings redesign: theme and icon theme settings moved to General, toolbar removed
 - Composer usage ring (D46): context fill; popover with plan limits (Claude), cost and tokens
+- Extensions catalog (D48): Zed's themes and icon themes in Settings → Extensions →
+  Catalog (search, try on, install, update, uninstall); try-on bar over the editor
 
 ## Next (rough priority)
 1. Agent changes tracking improvements: separate changed files view from the composer,
    better visual integration with inline diffs
 2. Minimal LSP as a built-in plugin (diagnostics, go to definition, hover);
    language extensions declare and download their language servers
-3. Public extension registry (GitHub repo with `index.json`, PR to publish) and
-   an Extensions section in Settings: search, install, update, uninstall
+3. Own extension registry (GitHub repo with `index.json`, PR to publish) for
+   extensions Zed's catalog can't carry (languages, agents, code plugins)
 4. Code plugins in TypeScript via JavaScriptCore, same package format
 5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
+- Extensions catalog: written against Zed's API without a live check (the
+  cloud container can't reach api.zed.dev); verify listing, download/unpack,
+  try-on and the bar over the editor on a Mac.
 - Usage ring: Codex also reports its subagents' context through `usage_update`
   without saying so, so the ring can briefly show a subagent's context.
 - Themes and icon themes: open diff views (git diff tabs, tool cards) keep
