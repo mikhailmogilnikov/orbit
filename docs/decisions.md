@@ -613,3 +613,13 @@ trying it on, also picks its partner for the other mode from the same
 extension (the theme whose name shares the longest prefix: Catppuccin
 Mocha → Latte, One Dark → One Light), and a fixed Light/Dark appearance
 switches to the theme's mode. The Settings pickers still set one mode only.
+
+### D50. Catalog is a selectable List with a pinned try-on panel
+Replaces the paged grouped Form of D48: a Form draws every row up front, so
+hundreds of themes lagged. The catalog is a `List` (table-backed, only the
+visible rows are drawn) and selecting a row tries it on after a 250 ms
+pause, so clicking or arrowing through the list previews like the theme
+selector (D49); the Try On / Stop row buttons are gone. The try-on panel
+(sample, variant pickers, Install / Stop) sits between the search field and
+the list, outside the scroll view, so it never scrolls away. Quick pick rows
+are lazy too, which lets the theme selector list the whole catalog.

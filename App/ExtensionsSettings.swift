@@ -122,72 +122,86 @@ struct InstalledExtensionsView: View {
 struct ExtensionCatalogView: View {
     @AppStorage("orbit.catalogKind") private var kind = ExtensionCatalog.Kind.themes
     @State private var query = ""
-    /// A grouped Form isn't lazy and Zed lists hundreds of themes: draw the
-    /// most downloaded first, the rest on request (search reaches them all).
-    @State private var limit = Self.pageSize
-    private static let pageSize = 40
+    /// The selected row is tried on, so arrowing through the list previews
+    /// each extension like the theme selector does.
+    @State private var selection: String?
     private var catalog: ExtensionCatalog { .shared }
 
     var body: some View {
-        Form {
-            if Extensions.shared.preview != nil {
-                TryOnSection()
-            }
-            Section {
-                HStack(spacing: 10) {
-                    TextField("Search", text: $query, prompt: Text("Search Zed extensions"))
-                        .labelsHidden()
-                    Picker("", selection: $kind) {
-                        Text("Themes").tag(ExtensionCatalog.Kind.themes)
-                        Text("Icons").tag(ExtensionCatalog.Kind.iconThemes)
-                    }
-                    .pickerStyle(.segmented)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                TextField("Search", text: $query, prompt: Text("Search Zed extensions"))
+                    .textFieldStyle(.roundedBorder)
                     .labelsHidden()
-                    .fixedSize()
+                Picker("", selection: $kind) {
+                    Text("Themes").tag(ExtensionCatalog.Kind.themes)
+                    Text("Icons").tag(ExtensionCatalog.Kind.iconThemes)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 10)
+            // Pinned above the list: what's tried on stays in view while scrolling.
+            if Extensions.shared.preview != nil {
+                TryOnPanel()
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+            }
+            Divider()
+            // A List is backed by a table view and only draws the visible rows;
+            // Zed has hundreds of themes.
+            List(selection: $selection) {
+                ForEach(catalog.entries) { entry in
+                    CatalogRow(entry: entry)
+                        .tag(entry.id)
                 }
             }
-            Section {
+            .listStyle(.inset)
+            .scrollContentBackground(.hidden)
+            .overlay {
                 if catalog.entries.isEmpty {
-                    HStack {
-                        Spacer()
-                        if catalog.isLoading {
-                            ProgressView().controlSize(.small)
-                        } else if let error = catalog.loadError {
-                            VStack(spacing: 6) {
-                                Text("Couldn't load the catalog").font(.headline)
-                                Text(error).font(.caption).foregroundStyle(.secondary)
-                                Button("Try Again") { catalog.search(query, kind: kind) }
-                            }
-                        } else {
-                            Text("Nothing found").foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 12)
-                } else {
-                    ForEach(catalog.entries.prefix(limit)) { entry in
-                        CatalogRow(entry: entry)
-                    }
-                    if catalog.entries.count > limit {
-                        HStack {
-                            Spacer()
-                            Button("Show More (\(catalog.entries.count - limit))") { limit += Self.pageSize }
+                    if catalog.isLoading {
+                        ProgressView().controlSize(.small)
+                    } else if let error = catalog.loadError {
+                        VStack(spacing: 6) {
+                            Text("Couldn't load the catalog").font(.headline)
+                            Text(error).font(.caption).foregroundStyle(.secondary)
+                            Button("Try Again") { catalog.search(query, kind: kind) }
                                 .buttonStyle(.glass)
-                            Spacer()
                         }
+                    } else {
+                        Text("Nothing found").foregroundStyle(.secondary)
                     }
                 }
-            } footer: {
-                Text("From Zed's extension catalog. Orbit installs only the themes and icons from an extension.")
             }
+            Divider()
+            Text("From Zed's extension catalog. Click a row or use the arrow keys to try it on; Orbit installs only the themes and icons.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
         }
-        .formStyle(.grouped)
+        .onAppear { selection = catalog.previewEntry?.id }
         // Debounced: typing restarts the task.
         .task(id: "\(kind.rawValue)|\(query)") {
             if !query.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
-            limit = Self.pageSize
             catalog.search(query, kind: kind)
+        }
+        // Debounced too, so arrowing past rows doesn't download each one.
+        .task(id: selection) {
+            guard let selection, selection != catalog.previewEntry?.id,
+                  let entry = catalog.entries.first(where: { $0.id == selection }) else { return }
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            await catalog.tryOn(entry)
+        }
+        .onChange(of: catalog.previewEntry?.id) { _, id in
+            // Stopped or installed from the panel or the bar: the selection follows.
+            if id == nil { selection = nil }
         }
     }
 }
@@ -198,7 +212,6 @@ struct CatalogRow: View {
 
     var body: some View {
         let installed = catalog.installed(entry)
-        let isTrying = Extensions.shared.preview?.manifest.id == entry.id
         HStack(alignment: .center, spacing: 12) {
             if entry.provides.contains("themes") {
                 ThemeThumbnail(themes: catalog.samples[entry.id])
@@ -229,13 +242,6 @@ struct CatalogRow: View {
                 ProgressView().controlSize(.small)
             } else {
                 HStack(spacing: 6) {
-                    if isTrying {
-                        Button("Stop") { catalog.endPreview() }
-                            .buttonStyle(.glass)
-                    } else if installed == nil || catalog.hasUpdate(entry) {
-                        Button("Try On") { Task { await catalog.tryOn(entry) } }
-                            .buttonStyle(.glass)
-                    }
                     if let installed, !catalog.hasUpdate(entry) {
                         Menu("Installed") {
                             Button("Uninstall", role: .destructive) { catalog.uninstall(installed) }
@@ -249,7 +255,7 @@ struct CatalogRow: View {
                 .controlSize(.small)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
     private var byline: String {
@@ -311,33 +317,40 @@ struct ThemeThumbnail: View {
     }
 }
 
-/// The extension being tried on: which of its themes, a sample, Install / Stop.
-struct TryOnSection: View {
+/// The extension being tried on, pinned over the catalog: a sample in its
+/// theme, which of its themes, Install / Stop.
+struct TryOnPanel: View {
     private var extensions: Extensions { .shared }
     private var catalog: ExtensionCatalog { .shared }
 
     var body: some View {
         if let preview = extensions.preview {
-            Section {
+            HStack(alignment: .top, spacing: 16) {
                 ThemeSampleView(theme: preview.colorTheme ?? extensions.pickedColorTheme(dark: Preferences.shared.isDark))
-                PreviewThemePickers(preview: preview)
-                HStack {
-                    Spacer()
-                    Button("Stop") { catalog.endPreview() }
-                        .buttonStyle(.glass)
-                    if let entry = catalog.previewEntry {
-                        Button(catalog.installed(entry) == nil ? "Install" : "Update") {
-                            Task { await catalog.install(entry) }
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Trying On").font(.caption).foregroundStyle(.secondary)
+                        Text(preview.manifest.name).font(.headline).lineLimit(2)
+                    }
+                    PreviewThemePickers(preview: preview)
+                        .labelsHidden()
+                    Spacer(minLength: 0)
+                    HStack {
+                        Button("Stop") { catalog.endPreview() }
+                            .buttonStyle(.glass)
+                        if let entry = catalog.previewEntry {
+                            Button(catalog.installed(entry) == nil ? "Install" : "Update") {
+                                Task { await catalog.install(entry) }
+                            }
+                            .buttonStyle(.glassProminent)
+                            .disabled(catalog.busy.contains(entry.id))
                         }
-                        .buttonStyle(.glassProminent)
-                        .disabled(catalog.busy.contains(entry.id))
                     }
                 }
-            } header: {
-                Text("Trying On \(preview.manifest.name)")
-            } footer: {
-                Text("The whole window uses it until you install it or stop. Go back to the project to see it on your own code.")
+                .frame(width: 180, alignment: .leading)
+                .padding(.vertical, 4)
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

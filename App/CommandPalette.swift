@@ -44,7 +44,8 @@ enum CommandPalette {
 @MainActor
 @Observable
 final class QuickPickState {
-    private static let maxRows = 80
+    /// Rows are lazy, so a long list (the theme selector with the catalog) only costs what is visible.
+    private static let maxRows = 400
 
     let pick: QuickPick
     var query = "" {
@@ -131,7 +132,7 @@ struct QuickPickOverlay: View {
                     Divider()
                     ScrollViewReader { proxy in
                         ScrollView {
-                            VStack(spacing: 2) {
+                            LazyVStack(spacing: 2) {
                                 ForEach(Array(state.results.enumerated()), id: \.element.id) { index, item in
                                     QuickPickRow(item: item, isSelected: index == state.selectedIndex)
                                         .id(index)
