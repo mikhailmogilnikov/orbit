@@ -122,6 +122,10 @@ struct InstalledExtensionsView: View {
 struct ExtensionCatalogView: View {
     @AppStorage("orbit.catalogKind") private var kind = ExtensionCatalog.Kind.themes
     @State private var query = ""
+    /// A grouped Form isn't lazy and Zed lists hundreds of themes: draw the
+    /// most downloaded first, the rest on request (search reaches them all).
+    @State private var limit = Self.pageSize
+    private static let pageSize = 40
     private var catalog: ExtensionCatalog { .shared }
 
     var body: some View {
@@ -161,8 +165,16 @@ struct ExtensionCatalogView: View {
                     }
                     .padding(.vertical, 12)
                 } else {
-                    ForEach(catalog.entries) { entry in
+                    ForEach(catalog.entries.prefix(limit)) { entry in
                         CatalogRow(entry: entry)
+                    }
+                    if catalog.entries.count > limit {
+                        HStack {
+                            Spacer()
+                            Button("Show More (\(catalog.entries.count - limit))") { limit += Self.pageSize }
+                                .buttonStyle(.glass)
+                            Spacer()
+                        }
                     }
                 }
             } footer: {
@@ -174,6 +186,7 @@ struct ExtensionCatalogView: View {
         .task(id: "\(kind.rawValue)|\(query)") {
             if !query.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
             guard !Task.isCancelled else { return }
+            limit = Self.pageSize
             catalog.search(query, kind: kind)
         }
     }
