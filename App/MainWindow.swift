@@ -79,6 +79,7 @@ struct MainWindow: View {
         // empty, the toolbar kept an opaque grey title plate in full screen.
 //EXP         .toolbarVisibility(.hidden, for: .windowToolbar)
         .background(TrafficLightsKeeper())
+        .background(FullScreenCompositingGuard())
     }
 }
 
@@ -294,12 +295,6 @@ struct WindowTopBar: View {
     }
 }
 
-/// Hiding the window toolbar also hides the title bar container, and the
-/// traffic lights with it. The container is transparent anyway (hidden title
-/// bar), so it is shown again, and again whenever AppKit hides it.
-/// Not in full screen: there the container moves into a separate toolbar
-/// window with an opaque background (a grey plate over the tab row), and
-/// there are no traffic lights to keep anyway.
 /// The sidebar's width limits, enforced on the AppKit split view item.
 /// SwiftUI ignores `navigationSplitViewColumnWidth` here and resets the item to
 /// its own defaults (no max) when a drag starts. Without a max the sidebar could
@@ -358,6 +353,12 @@ private struct SidebarWidthLimit: NSViewRepresentable {
     }
 }
 
+/// Hiding the window toolbar also hides the title bar container, and the
+/// traffic lights with it. The container is transparent anyway (hidden title
+/// bar), so it is shown again, and again whenever AppKit hides it.
+/// Not in full screen: there the container moves into a separate toolbar
+/// window with an opaque background (a grey plate over the tab row), and
+/// there are no traffic lights to keep anyway.
 private struct TrafficLightsKeeper: NSViewRepresentable {
     func makeNSView(context: Context) -> KeeperView { KeeperView() }
     func updateNSView(_ view: KeeperView, context: Context) {}
@@ -453,7 +454,6 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
                     toolbarWindow.isOpaque = false
                     toolbarWindow.backgroundColor = .clear
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.debugDump() }
             } else {
                 if container.isHidden { container.isHidden = false }
                 if titlebar.alphaValue < 1 { titlebar.alphaValue = 1 }
@@ -461,21 +461,77 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
             }
         }
 
-        func debugDump() {
-            func dump(_ v: NSView, _ d: Int) {
-                print(String(repeating: "  ", count: d) + "\(type(of: v)) \(v.frame) hidden=\(v.isHidden) a=\(v.alphaValue) bg=\(String(describing: v.layer?.backgroundColor))")
-                for c in v.subviews { dump(c, d + 1) }
+        isolated deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+            buttonObservers.forEach(NotificationCenter.default.removeObserver)
+        }
+    }
+}
+
+/// Alone in full screen on the built-in ProMotion display (its title bar
+/// hidden), the window is flipped straight to the display and scrolling
+/// drops to ~60 fps; with anything over it (the revealed title bar, Xcode's
+/// always-visible toolbar) it's composited and smooth. A 1-pt, all but
+/// transparent child window keeps it composited.
+private struct FullScreenCompositingGuard: NSViewRepresentable {
+    func makeNSView(context: Context) -> GuardView { GuardView() }
+    func updateNSView(_ view: GuardView, context: Context) {}
+
+    final class GuardView: NSView {
+        private var observers: [NSObjectProtocol] = []
+        private var overlay: NSWindow?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            remove()
+            guard let window else { return }
+            let names: [Notification.Name] = [
+                NSWindow.didEnterFullScreenNotification, NSWindow.willExitFullScreenNotification,
+                NSWindow.didChangeScreenNotification, NSWindow.didResizeNotification,
+            ]
+            observers = names.map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
+                    let exiting = note.name == NSWindow.willExitFullScreenNotification
+                    MainActor.assumeIsolated { self?.update(exiting: exiting) }
+                }
             }
-            for win in NSApp.windows where win !== window {
-                print("WINDOW \(type(of: win)) \(win.frame) opaque=\(win.isOpaque) bg=\(win.backgroundColor)")
-                if let root = win.contentView?.superview { dump(root, 0) }
+            DispatchQueue.main.async { [weak self] in self?.update(exiting: false) }
+        }
+
+        private func update(exiting: Bool) {
+            guard let window, !exiting, window.styleMask.contains(.fullScreen) else {
+                remove()
+                return
             }
-            fflush(stdout)
+            let frame = NSRect(x: window.frame.minX, y: window.frame.minY, width: 1, height: 1)
+            if let overlay {
+                if overlay.frame != frame { overlay.setFrame(frame, display: false) }
+                return
+            }
+            let overlay = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+            overlay.isReleasedWhenClosed = false
+            overlay.isOpaque = false
+            overlay.hasShadow = false
+            overlay.ignoresMouseEvents = true
+            // Fully clear windows are skipped by the compositor; this one must count.
+            overlay.backgroundColor = NSColor.black.withAlphaComponent(0.01)
+            overlay.collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
+            window.addChildWindow(overlay, ordered: .above)
+            self.overlay = overlay
+        }
+
+        private func remove() {
+            guard let overlay else { return }
+            overlay.parent?.removeChildWindow(overlay)
+            overlay.orderOut(nil)
+            self.overlay = nil
         }
 
         isolated deinit {
             observers.forEach(NotificationCenter.default.removeObserver)
-            buttonObservers.forEach(NotificationCenter.default.removeObserver)
+            overlay?.orderOut(nil)
         }
     }
 }
@@ -549,12 +605,7 @@ struct TabBar: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .modifier(TabRowFade())
-            .onChange(of: workspace.activeTabID) { _, id in
-                // A just-opened tab isn't laid out yet; scroll on the next runloop pass.
-                DispatchQueue.main.async {
-                    withAnimation(.snappy) { proxy.scrollTo(id) }
-                }
-            }
+            .scrollsToActiveTab(workspace.activeTabID, in: proxy)
         }
     }
 }

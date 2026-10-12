@@ -105,3 +105,21 @@ public struct TopBarButton: View {
         .help(help)
     }
 }
+
+extension View {
+    /// Keeps the active tab of a scrolling tab row in view: on appear (a restored
+    /// tab may be far right) and whenever another one becomes active.
+    public func scrollsToActiveTab<ID: Hashable>(_ id: ID?, in proxy: ScrollViewProxy) -> some View {
+        onChange(of: id, initial: true) { old, new in
+            guard let new else { return }
+            // A just-opened tab isn't laid out yet; scroll on the next runloop pass.
+            DispatchQueue.main.async {
+                if old == new {
+                    proxy.scrollTo(new)
+                } else {
+                    withAnimation(.snappy) { proxy.scrollTo(new) }
+                }
+            }
+        }
+    }
+}

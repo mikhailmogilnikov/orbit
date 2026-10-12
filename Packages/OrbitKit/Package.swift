@@ -10,7 +10,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/krzyzanowskim/STTextView", from: "2.4.1"),
         .package(url: "https://github.com/krzyzanowskim/STTextView-Plugin-Neon", revision: "d568bf9"),
-        // Same pins as STTextView-Plugin-Neon; used directly by SyntaxHighlightPlugin.
+        // Same pin as STTextView-Plugin-Neon, which still needs it.
         .package(url: "https://github.com/kylemacomber/Neon", revision: "ce8d252"),
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", from: "0.9.0"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", "1.20.0"..<"1.99.0"),
@@ -26,7 +26,6 @@ let package = Package(
                 "OrbitAPI", "OrbitUI",
                 .product(name: "STTextView", package: "STTextView"),
                 .product(name: "STTextView-Plugin-Neon", package: "STTextView-Plugin-Neon"),
-                .product(name: "Neon", package: "Neon"),
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
             ]
         ),
@@ -42,6 +41,6 @@ let package = Package(
             name: "OrbitKit",
             dependencies: ["OrbitAPI", "OrbitUI", "OrbitExplorer", "OrbitEditor", "OrbitReview", "OrbitSearch", "OrbitGit", "OrbitTerminal", "OrbitAgents"]
         ),
-        .testTarget(name: "OrbitKitTests", dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI"]),
+        .testTarget(name: "OrbitKitTests", dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI", "OrbitEditor"]),
     ]
 )

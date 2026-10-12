@@ -33,30 +33,34 @@ struct SessionTabs: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(store.sessions) { session in
-                        // Closing the only, empty chat would just open another one.
-                        let isClosable = !(store.sessions.count == 1 && session.isEmptyChat)
-                        SessionChip(
-                            session: session,
-                            isSelected: store.selectedID == session.id,
-                            onSelect: { store.selectedID = session.id },
-                            onClose: isClosable ? { store.close(session) } : nil
-                        )
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {
+                        ForEach(store.sessions) { session in
+                            // Closing the only, empty chat would just open another one.
+                            let isClosable = !(store.sessions.count == 1 && session.isEmptyChat)
+                            SessionChip(
+                                session: session,
+                                isSelected: store.selectedID == session.id,
+                                onSelect: { store.selectedID = session.id },
+                                onClose: isClosable ? { store.close(session) } : nil
+                            )
+                            .id(session.id)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    // Free space in the row is title bar: it drags the window.
+                    .frame(minWidth: width, maxHeight: .infinity, alignment: .leading)
+                    .background {
+                        Color.clear
+                            .contentShape(.rect)
+                            .gesture(WindowDragGesture())
                     }
                 }
-                .padding(.horizontal, 8)
-                // Free space in the row is title bar: it drags the window.
-                .frame(minWidth: width, maxHeight: .infinity, alignment: .leading)
-                .background {
-                    Color.clear
-                        .contentShape(.rect)
-                        .gesture(WindowDragGesture())
-                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+                .modifier(TabRowFade())
+                .scrollsToActiveTab(store.selectedID, in: proxy)
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .modifier(TabRowFade())
             Menu {
                 Button("New Chat", systemImage: "plus.bubble") { store.newChat() }
                 Button("New Isolated Chat", systemImage: "square.on.square.dashed") { store.newChat(isolated: true) }
@@ -131,9 +135,11 @@ struct SessionChip: View {
 struct NewChatView: View {
     let session: AgentSession
     let store: AgentStore
+    @State private var showsAll = false
 
     var body: some View {
-        let recent = store.recent.prefix(12)
+        let all = store.recent
+        let recent = showsAll ? all[...] : all.prefix(15)
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if session.hasFailed {
@@ -165,6 +171,14 @@ struct NewChatView: View {
                             RecentSessionRow(saved: saved, provider: store.provider(for: saved)) {
                                 store.resume(saved)
                             }
+                        }
+                        if all.count > recent.count {
+                            Button("Show \(all.count - recent.count) More") { showsAll = true }
+                                .buttonStyle(.plain)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
                         }
                     }
                 }
@@ -226,6 +240,10 @@ struct SessionView: View {
             if session.isEmptyChat && session.entries.isEmpty {
                 NewChatView(session: session, store: store)
                     .frame(maxHeight: .infinity, alignment: .top)
+            } else if session.isLoadingHistory {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
@@ -735,6 +753,9 @@ struct Composer: View {
                 .help("Attach files or images (or drop them here)")
                 SessionOptionsButton(session: session, store: store)
                 Spacer()
+                if !session.usage.isEmpty {
+                    UsageButton(session: session)
+                }
                 if session.status == .working {
                     Button(action: session.stop) {
                         Image(systemName: "stop.fill")

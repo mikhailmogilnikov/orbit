@@ -46,9 +46,13 @@ final class LineNumberRuler: NSRulerView {
         reloadLineStarts()
 
         if let storage = (textView.textContentManager as? NSTextContentStorage)?.textStorage {
+            // Posted synchronously on the main thread, while `editedMask` is still set.
+            // Attribute-only edits (highlight fonts, inline diff gaps) leave lines alone.
             storageObserver = NotificationCenter.default.addObserver(
-                forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: .main
-            ) { [weak self] _ in
+                forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil
+            ) { [weak self] notification in
+                let edited = (notification.object as? NSTextStorage)?.editedMask.contains(.editedCharacters) ?? true
+                guard edited else { return }
                 MainActor.assumeIsolated { self?.reloadLineStarts() }
             }
         }

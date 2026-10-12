@@ -78,6 +78,7 @@
 - Explorer dims git-ignored files and folders (from `git ls-files --ignored --directory`); only `.git` and `.DS_Store` are hidden
 - Sidebar width enforcement via AppKit split view item (prevents constraint crashes on column resize)
 - Settings redesign: theme and icon theme settings moved to General, toolbar removed
+- Composer usage ring (D46): context fill; popover with plan limits (Claude), cost and tokens
 
 ## Next (rough priority)
 1. Agent changes tracking improvements: separate changed files view from the composer,
@@ -90,6 +91,8 @@
 5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
+- Usage ring: Codex also reports its subagents' context through `usage_update`
+  without saying so, so the ring can briefly show a subagent's context.
 - Themes and icon themes: open diff views (git diff tabs, tool cards) keep
   their syntax colors until reopened after a theme switch; agent inline-diff
   overlays stay system green/red.

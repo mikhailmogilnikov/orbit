@@ -136,6 +136,10 @@ examples/extensions/      sample extensions (theme, icon theme)
   themed fill on the status bar each crashed it in an endless constraint pass. Touch `NSWindow` properties
   only async and on a real change (`WindowBackground` in OrbitUI/Theme.swift).
 
+- Full screen on the built-in ProMotion display: the window alone on screen
+  scrolls at ~60 fps; `FullScreenCompositingGuard` (a 1-pt child window)
+  keeps it composited (D47). Don't remove it as dead weight.
+
 - SwiftTerm needs Xcode's Metal Toolchain (`xcodebuild -downloadComponent
   MetalToolchain`, installed here) and its build-tool plugin is trusted via
   `-skipPackagePluginValidation` in the Makefile.

@@ -1,46 +1,34 @@
 import AppKit
 import SwiftUI
-import Neon
 import OrbitAPI
 import OrbitUI
-import STPluginNeon
 import STTextView
 import SwiftTreeSitter
 import Synchronization
-import TreeSitterClient
 import TreeSitterResource
 
-/// Tree-sitter highlighting for STTextView. A copy of `NeonPlugin` from
-/// STTextView-Plugin-Neon with one fix: tree-sitter emits zero-length tokens
-/// (markdown block markers, MISSING nodes for an unclosed `"`), and TextKit 2
-/// throws on `addRenderingAttribute` for an empty range, crashing the app.
+/// Tree-sitter highlighting for STTextView. Parsing and queries run on a
+/// background queue (`HighlightWorker`); the main thread keeps a highlight
+/// cache for the whole document and paints the visible part from it (D48).
 struct SyntaxHighlightPlugin: STPlugin {
     let palette: SyntaxPalette
     let language: TreeSitterLanguage
 
     func setUp(context: any Context) {
         context.events.onWillChangeText { affectedRange, _ in
-            let range = NSRange(affectedRange, in: context.textView.textContentManager)
-            context.coordinator.willChangeContent(in: range)
+            context.coordinator?.willChangeText(in: NSRange(affectedRange, in: context.textView.textContentManager))
         }
 
-        context.events.onDidChangeText { affectedRange, replacementString in
-            guard let replacementString else { return }
-            let manager = context.textView.textContentManager
-            let range = NSRange(affectedRange, in: manager)
-            context.coordinator.didChangeContent(
-                manager, in: range,
-                delta: replacementString.utf16.count - range.length,
-                limit: manager.length
-            )
+        context.events.onDidChangeText { _, replacementString in
+            context.coordinator?.didChangeText(replacementLength: replacementString?.utf16.count ?? 0)
         }
 
-        context.events.onDidLayoutViewport { viewportRange in
-            context.coordinator.updateViewportRange(viewportRange)
+        context.events.onDidLayoutViewport { _ in
+            context.coordinator?.viewportDidChange()
         }
     }
 
-    func makeCoordinator(context: CoordinatorContext) -> SyntaxHighlightCoordinator {
+    func makeCoordinator(context: CoordinatorContext) -> SyntaxHighlightCoordinator? {
         SyntaxHighlightCoordinator(textView: context.textView, palette: palette, language: language)
     }
 }
@@ -53,12 +41,14 @@ final class SyntaxPalette {
         didSet {
             guard theme != oldValue else { return }
             styles.removeAll()
+            onThemeChange?(theme)
             onChange?()
         }
     }
 
     /// Also called after a font size change: styled tokens carry their own fonts.
     var onChange: (() -> Void)?
+    var onThemeChange: ((ColorTheme) -> Void)?
     private var styles: [String: SyntaxStyle?] = [:]
     private var fonts: [String: NSFont] = [:]
 
@@ -106,75 +96,242 @@ final class SyntaxPalette {
 
 @MainActor
 final class SyntaxHighlightCoordinator {
-    private var highlighter: Neon.Highlighter?
-    private let language: TreeSitterLanguage
-    private let tsLanguage: SwiftTreeSitter.Language
-    private let tsClient: TreeSitterClient
-    private var prevViewportRange: NSTextRange?
+    private weak var textView: STTextView?
+    private let palette: SyntaxPalette
+    private let worker: HighlightWorker
+    private var cache = HighlightCache()
+    /// Text whose on-screen colors already match the cache.
+    private var painted = IndexSet()
+    /// Text whose fonts already match the cache; unlike colors, fonts are also
+    /// filled in off screen while the editor is idle (see `scheduleIdleFonts`).
+    private var fontsDone = IndexSet()
+    private var idleFonts: Task<Void, Never>?
+    private var pendingEditRange: NSRange?
+    /// The text as of the last edit, to shrink whole-document replacements.
+    private var snapshot = TextSnapshot(string: "")
+    /// Indexed by capture id; 0 is "no capture".
+    private var styles: [(color: NSColor, font: NSFont?)?] = []
 
-    init(textView: STTextView, palette: SyntaxPalette, language: TreeSitterLanguage) {
-        self.language = language
-        tsLanguage = SwiftTreeSitter.Language(language: language.parser)
+    /// Longer texts aren't highlighted.
+    private static let maxLength = 8_000_000
+    /// How long a keystroke may wait for its own highlights, as in Zed: small
+    /// and medium files parse within it; in bigger ones the typed token gets
+    /// its color a frame later while the shifted old colors stay.
+    private static let editWait = DispatchTimeInterval.milliseconds(1)
+    /// How long opening a file may wait for the first screen to be colored.
+    private static let openWait = DispatchTimeInterval.milliseconds(40)
 
-        tsClient = try! TreeSitterClient(language: tsLanguage) { codePointIndex in
-            guard let location = textView.textContentManager.location(at: codePointIndex),
-                  let position = textView.textContentManager.position(location)
-            else { return .zero }
-            return Point(row: position.row, column: position.column)
-        }
+    /// Lets the worker's callback reach the coordinator, which doesn't exist yet when the worker is made.
+    private final class Link: @unchecked Sendable {
+        weak var coordinator: SyntaxHighlightCoordinator?
+    }
 
-        tsClient.invalidationHandler = { [weak self] indexSet in
-            self?.highlighter?.invalidate(.set(indexSet))
-        }
+    init?(textView: STTextView, palette: SyntaxPalette, language: TreeSitterLanguage) {
+        guard textView.textContentManager.length <= Self.maxLength else { return nil }
+        let link = Link()
+        guard let worker = HighlightWorker(language: language, theme: palette.theme, notify: {
+            DispatchQueue.main.async { MainActor.assumeIsolated { link.coordinator?.drain() } }
+        }) else { return nil }
+        self.textView = textView
+        self.palette = palette
+        self.worker = worker
+        link.coordinator = self
+        resolveStyles()
 
-        // Uncolored tokens get no attribute and show in the editor's text color.
-        let interface = HighlightTextInterface(textView: textView) { [weak textView] token in
-            guard let textView, let style = palette.style(forCapture: token.name), let color = style.color else { return nil }
-            return (color.nsColor, palette.font(for: style, base: textView.font))
-        }
-        highlighter = Neon.Highlighter(textInterface: interface, tokenProvider: tokenProvider(textContentManager: textView.textContentManager))
-        palette.onChange = { [weak self] in self?.highlighter?.invalidate(.all) }
-        // Bigger token requests than Neon's 1 KB default: each applied batch redraws the
-        // viewport, so fewer, larger ones scroll smoother; 4 KB avoids first-paint hitches.
-        highlighter?.requestLengthLimit = 4096
+        palette.onThemeChange = { [weak self] theme in self?.worker.setTheme(theme) }
+        palette.onChange = { [weak self] in self?.restyle() }
 
+        snapshot = currentSnapshot()
+        let waiter = DispatchSemaphore(value: 0)
+        worker.setFocus(NSRange(location: 0, length: 16 * 1024))
+        worker.reset(snapshot, version: cache.version, waiter: waiter)
+        _ = waiter.wait(timeout: .now() + Self.openWait)
+        drain()
+    }
+
+    isolated deinit {
+        worker.cancel()
+        idleFonts?.cancel()
+    }
+
+    private var storage: NSTextStorage? {
+        (textView?.textContentManager as? NSTextContentStorage)?.textStorage
+    }
+
+    private func currentSnapshot() -> TextSnapshot {
+        TextSnapshot(string: (storage?.string ?? "") as NSString)
+    }
+
+    // MARK: Edits
+
+    func willChangeText(in range: NSRange) {
+        pendingEditRange = range
+    }
+
+    func didChangeText(replacementLength: Int) {
+        guard let range = pendingEditRange else { return }
+        pendingEditRange = nil
+        let new = currentSnapshot()
+        var edit = TextEdit(range: range, newLength: replacementLength)
+        // Agent edits and reloads replace the whole text: keep the unchanged
+        // head and tail so their highlights survive.
+        if range.length > 4096 || replacementLength > 4096 { edit = edit.trimmed(old: snapshot.string, new: new.string) }
+        snapshot = new
+
+        let version = cache.apply(edit)
+        let lines = Range(new.string.lineRange(for: NSRange(location: edit.range.location, length: edit.newLength))) ?? 0..<0
+        painted = edit.map(painted)
+        painted.remove(integersIn: lines)
+        fontsDone = edit.map(fontsDone)
+        fontsDone.remove(integersIn: lines)
+
+        let waiter = DispatchSemaphore(value: 0)
+        worker.edit(edit, snapshot: new, version: version, waiter: waiter)
+        _ = waiter.wait(timeout: .now() + Self.editWait)
+        drain()
+        paintVisible()
+    }
+
+    private func drain() {
+        let patches = worker.takePatches()
+        guard !patches.isEmpty else { return }
+        let touched = cache.apply(patches)
+        painted.subtract(touched)
+        fontsDone.subtract(touched)
+        paintVisible()
+        scheduleIdleFonts()
+    }
+
+    // MARK: Painting
+
+    func viewportDidChange() {
+        guard let visible = visibleRange else { return }
+        worker.setFocus(Self.expanded(visible))
+        paintVisible()
+    }
+
+    private var visibleRange: NSRange? {
+        guard let textView, let viewport = textView.textLayoutManager.textViewportLayoutController.viewportRange else { return nil }
+        return NSRange(viewport, in: textView.textContentManager)
+    }
+
+    /// The visible text plus a screen above and below, so scrolling finds it painted.
+    private static func expanded(_ visible: NSRange) -> NSRange {
+        let margin = max(visible.length, 4096)
+        let lower = max(0, visible.location - margin)
+        return NSRange(location: lower, length: NSMaxRange(visible) + margin - lower)
+    }
+
+    /// Colors are TextKit 2 rendering attributes: no relayout, only a redraw.
+    private func paintVisible() {
+        guard let textView, let visible = visibleRange else { return }
         let manager = textView.textContentManager
-        let fullRange = NSRange(manager.documentRange, in: manager)
-        tsClient.willChangeContent(in: fullRange)
-        tsClient.didChangeContent(
-            in: fullRange, delta: manager.length, limit: manager.length,
-            readHandler: Parser.readFunction(for: manager.attributedString(in: nil)?.string ?? ""),
-            completionHandler: {}
-        )
+        let target = NSIntersectionRange(Self.expanded(visible), NSRange(location: 0, length: manager.length))
+        let targetSet = IndexSet(integersIn: Range(target) ?? 0..<0)
+        let fontTodo = targetSet.subtracting(fontsDone)
+        applyFonts(in: fontTodo)
+        fontsDone.formUnion(fontTodo)
+        let todo = targetSet.subtracting(painted)
+        guard !todo.isEmpty else { return }
+
+        let layoutManager = textView.textLayoutManager
+        for run in todo.rangeView {
+            let range = NSRange(run)
+            guard let textRange = NSTextRange(range, in: manager) else { continue }
+            layoutManager.removeRenderingAttribute(.foregroundColor, for: textRange)
+            cache.spans.forEach(in: range) { span in
+                guard let style = styles[Int(span.capture)] else { return }
+                let clipped = NSIntersectionRange(NSRange(location: span.start, length: span.end - span.start), range)
+                guard clipped.length > 0, let spanRange = NSTextRange(clipped, in: manager) else { return }
+                layoutManager.addRenderingAttribute(.foregroundColor, value: style.color, for: spanRange)
+            }
+        }
+        painted.formUnion(todo)
     }
 
-    private func tokenProvider(textContentManager: NSTextContentManager) -> Neon.TokenProvider? {
-        guard let highlightsQuery = HighlightQueries.query(for: language) else { return nil }
-
-        return tsClient.tokenProvider(with: highlightsQuery) { range, _ in
-            guard !range.isEmpty else { return nil }
-            return textContentManager.attributedString(in: NSTextRange(range, provider: textContentManager))?.string
+    /// Fonts for the rest of the document, a chunk per pass once typing pauses,
+    /// so a jump elsewhere finds them set and doesn't relayout twice.
+    private func scheduleIdleFonts() {
+        idleFonts?.cancel()
+        idleFonts = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            while !Task.isCancelled, let self, let length = self.storage?.length {
+                var missing = IndexSet(integersIn: 0..<length)
+                missing.subtract(self.fontsDone)
+                guard let run = missing.rangeView.first else { return }
+                let chunk = IndexSet(integersIn: run.lowerBound..<min(run.upperBound, run.lowerBound + 16 * 1024))
+                self.applyFonts(in: chunk)
+                self.fontsDone.formUnion(chunk)
+                try? await Task.sleep(for: .milliseconds(4))
+            }
         }
     }
 
-    func updateViewportRange(_ range: NSTextRange?) {
-        if range != prevViewportRange {
-            highlighter?.visibleContentDidChange()
+    /// Weights and italics change glyph widths, so they're real text-storage
+    /// attributes and a change relayouts. They're painted near the viewport like
+    /// colors (a `"` that turns the rest of the file into a string must not
+    /// restyle all of it), batched, and only where they differ.
+    private func applyFonts(in set: IndexSet) {
+        guard let textView, let storage, !set.isEmpty else { return }
+        let base = textView.font
+        let length = storage.length
+        var current: [NSRange] = []
+        var wanted: [(range: NSRange, font: NSFont)] = []
+        var differs = false
+        for run in set.rangeView {
+            let range = NSIntersectionRange(NSRange(run), NSRange(location: 0, length: length))
+            guard range.length > 0 else { continue }
+            let firstWanted = wanted.count
+            cache.spans.forEach(in: range) { span in
+                guard let font = styles[Int(span.capture)]?.font else { return }
+                let clipped = NSIntersectionRange(NSRange(location: span.start, length: span.end - span.start), range)
+                guard clipped.length > 0 else { return }
+                // Neighbors with the same font merge, as the storage's attribute runs do.
+                if wanted.count > firstWanted, let last = wanted.last, last.font == font, NSMaxRange(last.range) == clipped.location {
+                    wanted[wanted.count - 1].range.length += clipped.length
+                } else {
+                    wanted.append((clipped, font))
+                }
+            }
+            var index = firstWanted
+            storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
+                guard let font = value as? NSFont, font != base else { return }
+                current.append(subrange)
+                if index < wanted.count, wanted[index].range == subrange, wanted[index].font == font {
+                    index += 1
+                } else {
+                    differs = true
+                }
+            }
+            if index != wanted.count { differs = true }
         }
-        prevViewportRange = range
+        guard differs else { return }
+        textView.textContentManager.performEditingTransaction {
+            // Without begin/end the storage processes every attribute change on its own.
+            storage.beginEditing()
+            for range in current { storage.addAttribute(.font, value: base, range: range) }
+            for (range, font) in wanted { storage.addAttribute(.font, value: font, range: range) }
+            storage.endEditing()
+        }
     }
 
-    func willChangeContent(in range: NSRange) {
-        tsClient.willChangeContent(in: range)
+    private func resolveStyles() {
+        guard let textView else { return }
+        let base = textView.font
+        styles = [nil] + worker.captureNames.map { name in
+            guard let style = palette.style(forCapture: name), let color = style.color else { return nil }
+            let font = palette.font(for: style, base: base)
+            return (color.nsColor, font === base ? nil : font)
+        }
     }
 
-    func didChangeContent(_ textContentManager: NSTextContentManager, in range: NSRange, delta: Int, limit: Int) {
-        guard let string = textContentManager.attributedString(in: nil)?.string else { return }
-        tsClient.didChangeContent(
-            in: range, delta: delta, limit: limit,
-            readHandler: Parser.readFunction(for: string),
-            completionHandler: {}
-        )
+    /// Theme, font size or text color changed: repaint everything from the cache.
+    private func restyle() {
+        resolveStyles()
+        painted.removeAll()
+        fontsDone.removeAll()
+        paintVisible()
+        scheduleIdleFonts()
     }
 }
 
@@ -202,86 +359,6 @@ enum HighlightQueries {
         DispatchQueue.global(qos: .utility).async {
             for language in TreeSitterLanguage.allCases { _ = query(for: language) }
         }
-    }
-}
-
-/// Colors go on as TextKit 2 rendering attributes, which only redraw. Fonts are
-/// real text-storage edits that force relayout, so they're applied only where a
-/// token's font differs from the editor's (e.g. medium keywords), batched into
-/// one editing transaction per run loop pass. Setting a font on every token made
-/// scrolling into unhighlighted text stutter.
-@MainActor
-private final class HighlightTextInterface: TextSystemInterface {
-    typealias StyleProvider = (Neon.Token) -> (color: NSColor, font: NSFont)?
-
-    private let textView: STTextView
-    private let style: StyleProvider
-    private var pendingFonts: [(range: NSRange, font: NSFont)] = []
-    private var isFlushScheduled = false
-
-    init(textView: STTextView, style: @escaping StyleProvider) {
-        self.textView = textView
-        self.style = style
-    }
-
-    private var storage: NSTextStorage? {
-        (textView.textContentManager as? NSTextContentStorage)?.textStorage
-    }
-
-    func clearStyle(in range: NSRange) {
-        guard range.length > 0, NSMaxRange(range) <= length,
-              let textRange = NSTextRange(range, in: textView.textContentManager)
-        else { return }
-        textView.textLayoutManager.removeRenderingAttribute(.foregroundColor, for: textRange)
-
-        pendingFonts.removeAll { NSIntersectionRange($0.range, range).length == $0.range.length }
-        let base = textView.font
-        storage?.enumerateAttribute(.font, in: range) { value, subrange, _ in
-            if let font = value as? NSFont, font != base { queueFont(base, for: subrange) }
-        }
-    }
-
-    func applyStyle(to token: Neon.Token) {
-        // Stale tokens can outlive an edit; empty ones crash TextKit.
-        guard token.range.length > 0, NSMaxRange(token.range) <= length,
-              let (color, font) = style(token),
-              let textRange = NSTextRange(token.range, in: textView.textContentManager)
-        else { return }
-
-        textView.textLayoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
-        if font !== textView.font { queueFont(font, for: token.range) }
-    }
-
-    private func queueFont(_ font: NSFont, for range: NSRange) {
-        pendingFonts.append((range, font))
-        guard !isFlushScheduled else { return }
-        isFlushScheduled = true
-        DispatchQueue.main.async { [weak self] in self?.flushFonts() }
-    }
-
-    private func flushFonts() {
-        isFlushScheduled = false
-        let edits = pendingFonts
-        pendingFonts.removeAll()
-        guard let storage, !edits.isEmpty else { return }
-        let length = storage.length
-        textView.textContentManager.performEditingTransaction {
-            for edit in edits where NSMaxRange(edit.range) <= length {
-                storage.addAttribute(.font, value: edit.font, range: edit.range)
-            }
-        }
-        textView.needsLayout = true
-    }
-
-    var length: Int {
-        textView.textContentManager.length
-    }
-
-    var visibleRange: NSRange {
-        guard let viewportRange = textView.textLayoutManager.textViewportLayoutController.viewportRange else {
-            return .zero
-        }
-        return NSRange(viewportRange, provider: textView.textContentManager)
     }
 }
 

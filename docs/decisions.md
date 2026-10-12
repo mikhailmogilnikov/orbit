@@ -544,3 +544,26 @@ moved along and now opens the list. Review itself stays inline in the editor
 the next changed file instead of wrapping inside one. The list is shared by
 all sessions; attributing edits to the session that made them is left for
 later.
+
+### D46. Usage ring in the composer
+A small ring next to the send button shows how full the agent's context is
+(ACP `usage_update`: `used` / `size`); it stays neutral and turns orange at
+75% and red at 90%. Clicking it opens a popover with the context, plan limits
+and this session's cost and tokens. Limits come from Claude Code's adapter
+(`_meta["_claude/rateLimit"]`, one window per event: 5-hour, weekly, per-model);
+Codex's adapter only shows its limits through `/status`, so they're absent for
+it. Token counts are summed from each prompt response's `usage` (agents report
+the turn, not the conversation), so they cover what was sent since the chat
+was opened in Orbit. The ring is hidden until the agent reports anything.
+
+### D47. A compositing guard window in full screen
+In full screen on the built-in ProMotion display, with the title bar hidden,
+scrolling lists dropped to ~50–70 fps (smooth on an external display, and as
+soon as the title bar was revealed). Profiling showed Orbit's own frames were
+cheap (render 2–3 ms, GPU 1–2 ms, main thread mostly idle): alone on screen,
+the window is flipped straight to the display, and that path paces it badly.
+Xcode never hits it because its toolbar stays visible in full screen; Orbit
+has no toolbar (D42). `FullScreenCompositingGuard` (App/MainWindow.swift)
+keeps a 1-pt, 1%-opaque, click-through child window over the main window
+while it's full screen, so the window is always composited. A fully clear
+window doesn't count. Revisit if a future macOS fixes direct flip pacing.

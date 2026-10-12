@@ -114,16 +114,7 @@ final class InlineDiffController {
     }
 
     static func lineStarts(of text: NSString) -> [Int] {
-        var starts = [0]
-        let length = text.length
-        var index = 0
-        while index < length {
-            let range = text.range(of: "\n", options: .literal, range: NSRange(location: index, length: length - index))
-            guard range.location != NSNotFound else { break }
-            starts.append(range.location + 1)
-            index = range.location + 1
-        }
-        return starts
+        LineStarts.of(text)
     }
 
     // MARK: Overlays

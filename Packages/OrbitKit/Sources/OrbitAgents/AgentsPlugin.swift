@@ -385,7 +385,17 @@ final class AgentStore {
         do {
             let info = try await client.initialize()
             guard info["agentCapabilities"]?["sessionCapabilities"]?["list"] != nil else { return [] }
-            return SessionHistory.parseList(try await client.listSessions(cwd: folder), providerID: provider.id, folder: folder)
+            // Codex pages through every project's threads and filters by folder
+            // afterwards, so a page can hold few (or none) of this folder's.
+            var sessions: [SavedSession] = []
+            var cursor: String?
+            for _ in 0..<20 {
+                guard let page = try? await client.listSessions(cwd: folder, cursor: cursor) else { break }
+                sessions += SessionHistory.parseList(page, providerID: provider.id, folder: folder)
+                cursor = page["nextCursor"]?.string
+                if cursor == nil || sessions.count >= 200 { break }
+            }
+            return sessions
         } catch {
             return []
         }

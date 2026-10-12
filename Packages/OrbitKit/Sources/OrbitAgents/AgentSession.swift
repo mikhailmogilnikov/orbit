@@ -45,6 +45,7 @@ final class AgentSession: Identifiable {
     private(set) var entries: [TranscriptEntry] = []
     private(set) var configOptions: [ConfigOption] = []
     private(set) var slashCommands: [String] = []
+    private(set) var usage = SessionUsage()
     var draft = ""
     private(set) var attachments: [PromptAttachment] = []
     private var promptCapabilities = PromptCapabilities()
@@ -58,6 +59,9 @@ final class AgentSession: Identifiable {
     private var updatedAt = Date()
     /// While the agent replays a loaded conversation: nothing in it is new.
     private var isReplaying = false
+    /// A reopened conversation until the agent has replayed it: the transcript
+    /// waits for all of it so it opens at the end instead of scrolling there.
+    private(set) var isLoadingHistory: Bool
     private var eventTask: Task<Void, Never>?
     private var toolEntries: [String: TranscriptEntry] = [:]
     private var planEntry: TranscriptEntry?
@@ -100,6 +104,7 @@ final class AgentSession: Identifiable {
         restoredID = saved?.sessionID
         title = saved?.title ?? "New Chat"
         isTitled = saved != nil
+        isLoadingHistory = saved != nil
         if let saved {
             sessionID = saved.sessionID
             updatedAt = saved.updatedAt
@@ -182,6 +187,7 @@ final class AgentSession: Identifiable {
             applyInitialValues()
             await refreshUnappliedChanges()
         } catch {
+            isLoadingHistory = false
             status = .failed(describe(error))
         }
     }
@@ -266,6 +272,7 @@ final class AgentSession: Identifiable {
             await projectTracker?.beginAgentTurn()
             do {
                 let result = try await client.prompt(sessionID: sessionID, content: content)
+                usage.apply(turn: result["usage"])
                 switch result["stopReason"]?.string {
                 case "max_tokens": notice("Stopped: output token limit reached.")
                 case "max_turn_requests": notice("Stopped: turn request limit reached.")
@@ -327,10 +334,12 @@ final class AgentSession: Identifiable {
             handleRequest(method, params, reply)
         case .replayFinished:
             isReplaying = false
+            isLoadingHistory = false
         case .exited(let code, let stderr):
             stderrTail = stderr
             for request in pendingPermissions { request.cancel() }
             pendingPermissions.removeAll()
+            isLoadingHistory = false
             if case .failed = status { return }
             let detail = stderr.split(separator: "\n").suffix(3).joined(separator: "\n")
             status = .failed(code == 0 ? "Agent exited." : "Agent exited with code \(code).\n\(detail)")
@@ -357,6 +366,8 @@ final class AgentSession: Identifiable {
                let index = configOptions.firstIndex(where: { $0.category == "mode" || $0.id == "mode" }) {
                 configOptions[index].currentValue = mode
             }
+        case "usage_update":
+            usage.apply(update: update)
         case "config_option_update":
             applyConfigOptions(update["configOptions"])
         case "session_info_update":

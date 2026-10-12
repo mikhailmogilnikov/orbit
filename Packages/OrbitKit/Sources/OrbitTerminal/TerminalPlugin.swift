@@ -227,16 +227,20 @@ private struct TerminalTabs: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(store.sessions) { session in
-                        TerminalTab(session: session, isSelected: session.id == store.selectedID) {
-                            store.select(session)
-                        } close: {
-                            store.close(session)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {
+                        ForEach(store.sessions) { session in
+                            TerminalTab(session: session, isSelected: session.id == store.selectedID) {
+                                store.select(session)
+                            } close: {
+                                store.close(session)
+                            }
+                            .id(session.id)
                         }
                     }
                 }
+                .scrollsToActiveTab(store.selectedID, in: proxy)
             }
             IconButton("plus", help: "New Terminal (⌃⇧`)") { store.newSession() }
         }
