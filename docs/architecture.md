@@ -23,7 +23,7 @@ OrbitUI        Shared UI: Theme tokens, DiffView, MarkdownText, small components
 OrbitACP       JSON-RPC transport, ACP client, login-shell environment (nonisolated)
 OrbitExplorer  Plugin: file tree, Open Folder
 OrbitEditor    Plugin: STTextView editor, inline diff rendering, editor commands
-OrbitReview    Plugin: ChangeTracker (baselines, keep/revert), checkpoints, Changes panel
+OrbitReview    Plugin: ChangeTracker (baselines, keep/revert), checkpoints (its list UI lives in the agent chat)
 OrbitSearch    Plugin: project file index, Open Quickly (⌘P), Find in Project panel
 OrbitTerminal  Plugin: SwiftTerm terminals in the bottom panel
 OrbitGit       Plugin: Source Control panel (status, stage, commit, branches, pull/push)

@@ -355,7 +355,7 @@ at the copy, maps prompt attachments into it and skips project turn tracking.
 ### D36. Settings as a page in the main window
 The small macOS Settings window held two tabs and couldn't grow. Settings now
 take over the main window as their own native split view (sidebar with search,
-the section's form as detail, like System Settings), opened by ⌘, (Orbit menu) and closed by Done or Esc. A toolbar gear was
+the section's form as detail, like System Settings), opened by ⌘, (Orbit menu) and closed by "Back to Project" or Esc. A toolbar gear was
 tried and dropped: macOS pins its own sidebar toggle first, so the gear
 couldn't sit where it belongs. A hand-made
 overlay on top of the workspace clashed with the glass sidebar and the title
@@ -479,7 +479,8 @@ starts after the traffic lights (not in full screen); empty space in it drags th
 (`WindowDragGesture`). Unlike D17 the tabs are ordinary content, not toolbar
 items, so they stretch and need no width math. The window title (project
 name) remains for the Window menu and Mission Control; the file path is in
-the tab. Settings show their own title and Done in the same row.
+the tab. Settings show their own title in the same row; "Back to Project" sits at
+the bottom of the settings sidebar (a Done button in the top row ended up hidden).
 The window toolbar is hidden outright (`toolbarVisibility(.hidden,
 for: .windowToolbar)`): even empty, in full screen it lives in a separate
 window that kept an opaque grey plate for the (hidden) title over the tab
@@ -515,3 +516,28 @@ Built-in agents show their brand marks (Claude, OpenAI for Codex) instead of
 SF Symbols: SVG paths from Simple Icons (CC0) in `AgentIcon.swift`, rendered
 by NSImage's own SVG support as template images; Claude's is in its orange.
 Custom agents keep their `systemImage`.
+
+### D44. Cursor, Grok Build and OpenCode built in
+Their own CLIs speak ACP over stdio, no adapter needed: `cursor-agent acp`,
+`grok agent stdio`, `opencode acp` (all report models through
+`configOptions`). Unlike the npx-launched Claude/Codex adapters they must be
+installed by the user, so agents whose executable isn't on the login-shell
+PATH are hidden from the picker, menus and the default-agent setting
+(Settings lists them as "Not installed") and their `session/list` isn't asked.
+Logos of Cursor, Grok and OpenCode come from lobe-icons (MIT), drawn even-odd.
+A model option with a single choice is kept (Grok Build offers one model), so
+the composer button still names the model.
+
+### D45. Changed files live in the agent chat, not the navigator
+The Changes panel in the left navigator is gone. Agent edits are made from
+the chat on the right, so their list sits there too: a row above the composer
+("3 files changed +42 −7", Undo All / Keep All, review next) that expands
+into the files, like Cursor. The row is hidden when nothing is pending and
+replaced by the isolation bar in isolated sessions (their edits aren't in the
+project yet). The Agents plugin draws it from the `ChangeTracking` service, so
+OrbitReview keeps only tracking and commands; the status bar's "N to review"
+moved along and now opens the list. Review itself stays inline in the editor
+(D7). Next/previous change (⌥⌘↓/↑, the banner chevrons) now continue into
+the next changed file instead of wrapping inside one. The list is shared by
+all sessions; attributing edits to the session that made them is left for
+later.

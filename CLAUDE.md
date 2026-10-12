@@ -46,7 +46,7 @@ Packages/OrbitKit/
   Sources/OrbitACP        JSON-RPC + ACP client + ShellEnvironment
   Sources/OrbitExplorer   plugin: file tree
   Sources/OrbitEditor     plugin: STTextView editor + InlineDiff.swift
-  Sources/OrbitReview     plugin: ChangeTracker + Checkpoints (shadow git) + Changes panel
+  Sources/OrbitReview     plugin: ChangeTracker + Checkpoints (shadow git)
   Sources/OrbitSearch     plugin: file index, Open Quickly ⌘P, Find in Project
   Sources/OrbitTerminal   plugin: SwiftTerm terminals in the bottom panel
   Sources/OrbitGit        plugin: Source Control panel (GitRepository runs /usr/bin/git)

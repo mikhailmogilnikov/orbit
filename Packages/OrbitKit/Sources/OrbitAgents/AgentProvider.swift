@@ -31,12 +31,47 @@ struct AgentProvider: Identifiable, Hashable, Codable, Sendable {
         loginHint: "Run `codex login` in Terminal, then start a new session."
     )
 
+    static let cursor = AgentProvider(
+        id: "cursor",
+        name: "Cursor",
+        systemImage: "cube",
+        command: AgentCommand(executable: "cursor-agent", arguments: ["acp"]),
+        loginHint: "Run `cursor-agent login` in Terminal, then start a new session."
+    )
+
+    static let grok = AgentProvider(
+        id: "grok",
+        name: "Grok Build",
+        systemImage: "bolt",
+        command: AgentCommand(executable: "grok", arguments: ["agent", "stdio"]),
+        loginHint: "Run `grok login` in Terminal, then start a new session."
+    )
+
+    static let opencode = AgentProvider(
+        id: "opencode",
+        name: "OpenCode",
+        systemImage: "chevron.left.forwardslash.chevron.right",
+        command: AgentCommand(executable: "opencode", arguments: ["acp"]),
+        loginHint: "Run `opencode auth login` in Terminal, then start a new session."
+    )
+
+    /// Whether the command can run with this environment's PATH (the CLIs
+    /// other than the npx-launched adapters are installed separately).
+    func isInstalled(in environment: [String: String]) -> Bool {
+        let executable = command.executable
+        if executable.contains("/") { return FileManager.default.isExecutableFile(atPath: executable) }
+        let path = environment["PATH"] ?? "/usr/bin:/bin"
+        return path.split(separator: ":").contains { directory in
+            FileManager.default.isExecutableFile(atPath: "\(directory)/\(executable)")
+        }
+    }
+
     static var configDirectory: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".orbit/agents", isDirectory: true)
     }
 
     static func loadAll() -> [AgentProvider] {
-        var providers = [claude, codex]
+        var providers = [claude, codex, cursor, grok, opencode]
         let files = (try? FileManager.default.contentsOfDirectory(at: configDirectory, includingPropertiesForKeys: nil)) ?? []
         for file in files where file.pathExtension == "json" {
             guard let data = try? Data(contentsOf: file),

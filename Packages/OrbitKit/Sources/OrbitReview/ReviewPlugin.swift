@@ -17,16 +17,8 @@ public final class ReviewPlugin: OrbitPlugin {
         context.services.register(ChangeTracking.self, tracker)
         context.services.register(AgentIsolation.self, IsolatedCopies(workspace: context.workspace, tracker: tracker))
 
-        context.ui.addSidebarPanel(PanelContribution(id: "changes", title: "Changes", systemImage: "plusminus", order: 10) {
-            ChangesListView(tracker: tracker)
-        })
-
-        context.ui.addStatusItem(StatusItem(
-            id: "review.pending", placement: .leading, order: 10,
-            isVisible: { !tracker.changedFiles.isEmpty }
-        ) {
-            PendingChangesStatus(tracker: tracker)
-        })
+        // The changed-files list lives above the agent chat's composer (Agents
+        // plugin, through ChangeTracking): edits are reviewed where they're made.
 
         #if DEBUG
         let workspace = context.workspace

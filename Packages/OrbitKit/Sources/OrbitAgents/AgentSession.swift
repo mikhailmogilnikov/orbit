@@ -468,7 +468,8 @@ final class AgentSession: Identifiable {
     private func applyConfigOptions(_ json: JSONValue?) {
         guard let array = json?.array else { return }
         configOptions = array.compactMap(ConfigOption.init)
-            .filter { $0.category != nil && $0.choices.count > 1 && $0.id != "agent" }
+            // A single model is still worth showing (Grok Build has one).
+            .filter { $0.category != nil && ($0.choices.count > 1 || $0.category == "model") && $0.id != "agent" }
         onConfigOptions(configOptions)
     }
 

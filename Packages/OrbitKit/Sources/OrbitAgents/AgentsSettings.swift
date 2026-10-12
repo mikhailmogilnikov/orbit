@@ -12,7 +12,7 @@ struct AgentsSettingsPane: View {
                     get: { store.preferredProvider.id },
                     set: { store.preferredProviderID = $0 }
                 )) {
-                    ForEach(store.providers) { provider in
+                    ForEach(store.availableProviders) { provider in
                         AgentLabel(title: provider.name, provider: provider).tag(provider.id)
                     }
                 }
@@ -28,7 +28,7 @@ struct AgentsSettingsPane: View {
 
             Section("Installed agents") {
                 ForEach(store.providers) { provider in
-                    AgentRow(provider: provider)
+                    AgentRow(provider: provider, isInstalled: !store.missing.contains(provider.id))
                 }
             }
 
@@ -67,6 +67,7 @@ struct AgentsSettingsPane: View {
 
 private struct AgentRow: View {
     let provider: AgentProvider
+    let isInstalled: Bool
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -75,7 +76,14 @@ private struct AgentRow: View {
                 .frame(width: 18)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             VStack(alignment: .leading, spacing: 3) {
-                Text(provider.name)
+                HStack(spacing: 6) {
+                    Text(provider.name)
+                    if !isInstalled {
+                        Text("Not installed")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Text(([provider.command.executable] + provider.command.arguments).joined(separator: " "))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)

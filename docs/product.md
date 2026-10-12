@@ -56,7 +56,7 @@ agents and review their work.
 
 ## Key UX decisions
 
-- **Layout:** left navigator (Explorer, Changes), center tabs + editor + status
+- **Layout:** left navigator (Explorer, Search, Source Control), center tabs + editor + status
   bar, right inspector with agent sessions. Tabs sit in the title bar next to the traffic lights; the inspector toggle is at the end of that row.
 - **Agent chat:** multiple sessions as chips; transcript shows streamed text
   (Markdown), collapsible "Thinking", tool-call cards (with diffs/command
@@ -66,8 +66,11 @@ agents and review their work.
 - **Inline diff review:** banner above the file ("N agent changes +a −r",
   prev/next, Undo All / Keep All); per block Undo ⌥⌘⌫ / Keep ⌥⌘↩, navigate
   ⌥⌘↑/↓; accept/reject everything ⇧⌘↩ / ⇧⌘⌫.
-- **Changes panel:** list of changed files with +/− counts; clicking opens the
-  file scrolled to its first change.
+- **Changed files** sit above the agent composer: "N files changed +a −r"
+  with Undo All / Keep All and "review next"; it expands into the files
+  (click opens the file at its first change, hover shows per-file Undo/Keep).
+  "N to review" in the status bar opens it. ⌥⌘↑/↓ walks every change,
+  moving on to the next file past the last one.
 - **Command palette** (⇧⌘P) lists every registered command, fuzzy search.
 - **Open Quickly** (⌘P): fuzzy file finder, file-name matches first, matched
   letters highlighted; empty query lists open tabs.

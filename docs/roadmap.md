@@ -10,12 +10,13 @@
   Source Control (gutter markers, blame), Keyboard Shortcuts, Plugins
 - Explorer (lazy file tree)
 - Editor: STTextView, line numbers, tree-sitter highlighting (~20 languages), save
-- Agents over ACP: Claude Code, Codex, custom JSON agents; parallel sessions;
+- Agents over ACP: Claude Code, Codex, Cursor, Grok Build, OpenCode (D44), custom JSON agents; parallel sessions;
   streaming transcript, thinking, tool cards with diffs/output, plans,
   permission prompts, model/mode/effort pickers from `configOptions`
 - Change tracking via shadow-git checkpoints
 - Inline Cursor-style diffs in the editor with per-block Keep/Undo + navigation
-- Changes panel, status bar counters
+- Changed files above the agent composer (Undo All / Keep All, per-file keep/undo),
+  clickable status bar counter, ⌥⌘↑/↓ walks changes across files (D45)
 - Open Quickly ⌘P (fuzzy, git-aware file index) and Find in Project ⇧⌘F
   (in-process parallel search: case / whole word / regex, unsaved buffers included);
   replace in files with a live preview (per file or all, `$1` groups in regex

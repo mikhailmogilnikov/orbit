@@ -157,6 +157,9 @@ struct InspectorHost: View {
                 EmptyStateView("No Panels", systemImage: "puzzlepiece.extension")
             }
         }
+        // Up into the hidden title bar like the editor area: a panel's own tab
+        // row lines up with the editor tabs.
+        .ignoresSafeArea(.container, edges: .top)
         // Plugin content must never push size constraints back into the split
         // view: fluctuating min sizes there send AppKit into a layout loop.
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
@@ -257,7 +260,6 @@ struct WindowTopBar: View {
     @State private var isFullScreen = false
 
     // Centered on the traffic lights and the floating sidebar toggle (~26–28 pt down).
-    private static let height: CGFloat = 52
     /// With the sidebar hidden, the traffic lights sit over the start of this
     /// row (not in full screen).
     private static let windowedInset: CGFloat = 76
@@ -283,7 +285,7 @@ struct WindowTopBar: View {
         }
         .padding(.leading, sidebarHidden ? (isFullScreen ? Self.fullScreenInset : Self.windowedInset) : 6)
         .padding(.trailing, 8)
-        .frame(height: Self.height)
+        .frame(height: Theme.topBarHeight)
         .background {
             Color.clear
                 .contentShape(.rect)
@@ -485,29 +487,6 @@ private struct FullScreenObserver: NSViewRepresentable {
     }
 }
 
-private struct TopBarButton: View {
-    let systemImage: String
-    let help: String
-    let action: () -> Void
-
-    init(_ systemImage: String, help: String, action: @escaping () -> Void) {
-        self.systemImage = systemImage
-        self.help = help
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 28, height: 28)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.borderless)
-        .help(help)
-    }
-}
-
 struct TabBar: View {
     let workspace: Workspace
     @State private var width: CGFloat = 0
@@ -531,13 +510,7 @@ struct TabBar: View {
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .mask {
-                HStack(spacing: 0) {
-                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: 10)
-                    Color.black
-                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 10)
-                }
-            }
+            .modifier(TabRowFade())
             .onChange(of: workspace.activeTabID) { _, id in
                 // A just-opened tab isn't laid out yet; scroll on the next runloop pass.
                 DispatchQueue.main.async {
@@ -551,13 +524,15 @@ struct TabBar: View {
 struct TabItem: View {
     let tab: EditorTab
     let workspace: Workspace
-    @State private var isHovering = false
 
     var body: some View {
-        let isActive = workspace.activeTabID == tab.id
         let isDirty = tab.url.flatMap { workspace.documents.existingDocument(for: $0) }?.isDirty == true
             && tab.kind == EditorTab.fileKind
-        HStack(spacing: 6) {
+        TabChip(tab.title, isActive: workspace.activeTabID == tab.id, isDirty: isDirty) {
+            workspace.activeTabID = tab.id
+        } onClose: {
+            workspace.requestClose(tab.id)
+        } icon: {
             Group {
                 if tab.kind == EditorTab.fileKind, let url = tab.url {
                     FileIconView(url: url, size: 13)
@@ -565,38 +540,9 @@ struct TabItem: View {
                     Image(systemName: tab.systemImage)
                 }
             }
-            .font(.system(size: 10.5))
             .foregroundStyle(tab.kind == EditorTab.fileKind ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
-            Text(tab.title)
-                .font(.system(size: 12, weight: isActive ? .medium : .regular))
-                .foregroundStyle(isActive ? .primary : .secondary)
-                .lineLimit(1)
-            ZStack {
-                if isHovering || (isActive && !isDirty) {
-                    Button {
-                        workspace.requestClose(tab.id)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 14, height: 14)
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                } else if isDirty {
-                    Circle().fill(.secondary).frame(width: 6, height: 6)
-                }
-            }
-            .frame(width: 14)
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 6)
-        .frame(height: 26)
-        .background(isActive ? AnyShapeStyle(Theme.subtleFill.opacity(2)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 7))
-        .contentShape(.rect)
         .help(tab.url.map(workspace.relativePath) ?? tab.title)
-        .onTapGesture { workspace.activeTabID = tab.id }
-        .onHover { isHovering = $0 }
         .contextMenu {
             Button("Close") { workspace.requestClose(tab.id) }
             Button("Close Others") {

@@ -43,6 +43,16 @@ public final class AgentsPlugin: OrbitPlugin {
             AgentActivityStatus(store: store)
         })
 
+        ui.addStatusItem(StatusItem(
+            id: "agents.pendingChanges", placement: .leading, order: 10,
+            isVisible: { store.changes?.changedFiles.isEmpty == false }
+        ) {
+            PendingChangesStatus(store: store) {
+                store.isChangesExpanded = true
+                ui.revealInspectorPanel("agents")
+            }
+        })
+
         // Like Cursor: ⌘L brings up the chat with the editor's selection attached.
         context.commands.register(OrbitCommand(
             id: "agents.focus",
@@ -88,7 +98,7 @@ public final class AgentsPlugin: OrbitPlugin {
                 title: "New \(provider.name) Session",
                 category: "Agents",
                 systemImage: provider.icon,
-                isEnabled: { context.workspace.root != nil }
+                isEnabled: { context.workspace.root != nil && !store.missing.contains(provider.id) }
             ) {
                 ui.revealInspectorPanel("agents")
                 store.newChat(provider)
@@ -133,12 +143,16 @@ final class AgentStore {
     private(set) var focusRequest = 0
 
     let workspace: Workspace
+    let commands: CommandRegistry
     private let services: ServiceRegistry
+    /// The changed-files list above the composer is expanded.
+    var isChangesExpanded = false
     private let settings: PluginSettings
     private let environmentTask: Task<[String: String], Never>
 
     init(context: PluginContext) {
         workspace = context.workspace
+        commands = context.commands
         services = context.services
         settings = context.settings
         providers = AgentProvider.loadAll()
@@ -150,12 +164,18 @@ final class AgentStore {
         // Resolve the login-shell environment up front; spawning agents needs it.
         environmentTask = Task.detached { await ShellEnvironment.resolve() }
         folder = workspace.root
+        Task { [weak self, providers, environmentTask] in
+            let environment = await environmentTask.value
+            let missing = Set(providers.filter { !$0.isInstalled(in: environment) }.map(\.id))
+            self?.missing = missing
+        }
         restoreTabs()
         observeFolder()
         services.resolve(AgentIsolation.self)?.discardCopies(except: history.copiesInUse)
     }
 
     var fileIndex: ProjectFileIndex? { services.resolve(ProjectFileIndex.self) }
+    var changes: ChangeTracking? { services.resolve(ChangeTracking.self) }
     var highlighter: SyntaxHighlighting? { services.resolve(SyntaxHighlighting.self) }
 
     /// Into the selected session, starting one if there's none.
@@ -200,8 +220,13 @@ final class AgentStore {
     }
 
     var preferredProvider: AgentProvider {
-        providers.first { $0.id == preferredProviderID } ?? providers[0]
+        availableProviders.first { $0.id == preferredProviderID } ?? availableProviders.first ?? providers[0]
     }
+
+    /// Agents whose CLI isn't on the PATH; known once the shell environment is.
+    private(set) var missing: Set<String> = []
+
+    var availableProviders: [AgentProvider] { providers.filter { !missing.contains($0.id) } }
 
     /// ⇧⌘N and the start screen make isolated sessions unless asked otherwise.
     var isolatedByDefault: Bool {
@@ -339,7 +364,9 @@ final class AgentStore {
             history.setListed([], for: provider.id, in: root)
             let task = environmentTask
             Task {
-                let sessions = await Self.listSessions(provider, in: root, environment: await task.value)
+                let environment = await task.value
+                guard provider.isInstalled(in: environment) else { return }
+                let sessions = await Self.listSessions(provider, in: root, environment: environment)
                 history.setListed(sessions, for: provider.id, in: root)
             }
         }

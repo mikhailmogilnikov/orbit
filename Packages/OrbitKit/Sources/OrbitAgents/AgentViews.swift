@@ -26,23 +26,37 @@ struct AgentsPanel: View {
     }
 }
 
+/// Agent tabs in the window's top row, the same height and look as the editor's.
 struct SessionTabs: View {
     let store: AgentStore
+    @State private var width: CGFloat = 0
 
     var body: some View {
         HStack(spacing: 4) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
+                HStack(spacing: 2) {
                     ForEach(store.sessions) { session in
-                        SessionChip(session: session, isSelected: store.selectedID == session.id) {
-                            store.selectedID = session.id
-                        } onClose: {
-                            store.close(session)
-                        }
+                        // Closing the only, empty chat would just open another one.
+                        let isClosable = !(store.sessions.count == 1 && session.isEmptyChat)
+                        SessionChip(
+                            session: session,
+                            isSelected: store.selectedID == session.id,
+                            onSelect: { store.selectedID = session.id },
+                            onClose: isClosable ? { store.close(session) } : nil
+                        )
                     }
                 }
                 .padding(.horizontal, 8)
+                // Free space in the row is title bar: it drags the window.
+                .frame(minWidth: width, maxHeight: .infinity, alignment: .leading)
+                .background {
+                    Color.clear
+                        .contentShape(.rect)
+                        .gesture(WindowDragGesture())
+                }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .modifier(TabRowFade())
             Menu {
                 Button("New Chat", systemImage: "plus.bubble") { store.newChat() }
                 Button("New Isolated Chat", systemImage: "square.on.square.dashed") { store.newChat(isolated: true) }
@@ -60,7 +74,9 @@ struct SessionTabs: View {
                 }
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 28, height: 28)
+                    .contentShape(.rect)
             } primaryAction: {
                 store.newChat()
             }
@@ -68,9 +84,9 @@ struct SessionTabs: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("New chat (⇧⌘N); hold for more")
-            .padding(.trailing, 10)
         }
-        .frame(height: 36)
+        .padding(.trailing, 8)
+        .frame(height: Theme.topBarHeight)
     }
 }
 
@@ -78,55 +94,35 @@ struct SessionChip: View {
     let session: AgentSession
     let isSelected: Bool
     let onSelect: () -> Void
-    let onClose: () -> Void
-    @State private var isHovering = false
+    let onClose: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 5) {
-            statusDot
-            if session.isIsolated {
-                Image(systemName: "square.on.square.dashed")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .help("Works in an isolated copy of the project")
-            }
-            Text(session.title)
-                .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(session.isEmptyChat ? .secondary : .primary)
-                .lineLimit(1)
-                .frame(maxWidth: 140)
-            if isHovering || isSelected {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
+        TabChip(session.title, isActive: isSelected, onSelect: onSelect, onClose: onClose) {
+            HStack(spacing: 4) {
+                statusIcon
+                if session.isIsolated {
+                    Image(systemName: "square.on.square.dashed")
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
+                        .help("Works in an isolated copy of the project")
                 }
-                .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(isSelected ? AnyShapeStyle(.tint.opacity(0.14)) : AnyShapeStyle(isHovering ? Theme.subtleFill : .clear), in: .capsule)
-        .contentShape(.capsule)
-        .onTapGesture(perform: onSelect)
-        .onHover { isHovering = $0 }
+        .help(session.title)
     }
 
-    @ViewBuilder private var statusDot: some View {
-        switch session.status {
-        case .working:
+    @ViewBuilder private var statusIcon: some View {
+        if session.status == .working {
             ProgressView().controlSize(.mini)
-        case .failed:
-            Circle().fill(.red).frame(width: 6, height: 6)
-        case .ready, .dormant, .starting:
-            if session.hasPendingPermission {
-                Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.orange)
-            } else {
-                AgentIcon(provider: session.provider, size: 11)
-                    .foregroundStyle(.secondary)
-            }
+        } else if session.hasFailed {
+            Circle().fill(.red).frame(width: 6, height: 6).frame(width: 13)
+        } else if session.hasPendingPermission {
+            Image(systemName: "hand.raised.fill")
+                .foregroundStyle(.orange)
+                .frame(width: 13)
+        } else {
+            AgentIcon(provider: session.provider, size: 13)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -245,6 +241,8 @@ struct SessionView: View {
             }
             if session.isIsolated {
                 IsolationBar(session: session)
+            } else if let changes = store.changes, !changes.changedFiles.isEmpty {
+                AgentChangesBar(changes: changes, store: store)
             }
             Composer(session: session, store: store)
         }

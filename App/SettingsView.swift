@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Settings take over the window, laid out like System Settings: sections in
 /// the sidebar (plugins add their own) with search, the section's form as the
-/// detail. Done, or Esc, goes back to the workspace.
+/// detail. "Back to Project" (bottom of the sidebar), or Esc, goes back to the
+/// workspace.
 struct SettingsScreen: View {
     let host: PluginHost
     @State private var query = ""
@@ -49,17 +50,28 @@ struct SettingsScreen: View {
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 300)
+            // At the bottom of the sidebar, not in the top row: the hidden
+            // title bar's area over the detail column hid the Done button there.
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    ui.isSettingsVisible = false
+                } label: {
+                    Label("Back to Project", systemImage: "chevron.left")
+                        .frame(maxWidth: .infinity)
+                }
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.glass)
+                .controlSize(.large)
+                .help("Back to the project (Esc)")
+                .padding(12)
+            }
         } detail: {
             VStack(spacing: 0) {
-                // The window has no toolbar (D42): title and Done live here.
+                // The window has no toolbar (D42): the title lives here.
                 HStack {
                     Text(current?.title ?? "Settings")
                         .font(.system(size: 15, weight: .semibold))
                     Spacer()
-                    Button("Done") { ui.isSettingsVisible = false }
-                        .keyboardShortcut(.cancelAction)
-                        .buttonStyle(.glass)
-                        .help("Back to the project (Esc)")
                 }
                 .padding(.horizontal, 20)
                 .frame(height: 52)

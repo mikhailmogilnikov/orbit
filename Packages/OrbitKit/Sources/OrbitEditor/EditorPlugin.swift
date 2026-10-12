@@ -89,7 +89,9 @@ public final class EditorPlugin: OrbitPlugin {
 
     private func registerChangeCommands(_ context: PluginContext) {
         let services = context.services
+        let workspace = context.workspace
         func hasHunks() -> Bool { ActiveEditor.shared.coordinator?.inlineDiff.hunks.isEmpty == false }
+        func hasPendingChanges() -> Bool { services.resolve(ChangeTracking.self)?.changedFiles.isEmpty == false }
         func currentHunk() -> (DiffHunk, URL, ChangeTracking)? {
             guard let coordinator = ActiveEditor.shared.coordinator,
                   let tracker = services.resolve(ChangeTracking.self),
@@ -125,10 +127,9 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Review",
             systemImage: "chevron.down",
             shortcut: KeyboardShortcut(.downArrow, modifiers: [.command, .option]),
-            isEnabled: hasHunks
+            isEnabled: hasPendingChanges
         ) {
-            guard let coordinator = ActiveEditor.shared.coordinator else { return }
-            coordinator.revealHunk(after: coordinator.cursorLine, forward: true)
+            Self.revealChange(forward: true, workspace: workspace, changes: services.resolve(ChangeTracking.self))
         })
         context.commands.register(OrbitCommand(
             id: "editor.previousChange",
@@ -136,11 +137,46 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Review",
             systemImage: "chevron.up",
             shortcut: KeyboardShortcut(.upArrow, modifiers: [.command, .option]),
-            isEnabled: hasHunks
+            isEnabled: hasPendingChanges
         ) {
-            guard let coordinator = ActiveEditor.shared.coordinator else { return }
-            coordinator.revealHunk(after: coordinator.cursorLine, forward: false)
+            Self.revealChange(forward: false, workspace: workspace, changes: services.resolve(ChangeTracking.self))
         })
+    }
+
+    /// Next/previous agent change across all changed files: past the last
+    /// change of the current file it moves on to the next file (wrapping).
+    static func revealChange(forward: Bool, workspace: Workspace, changes: ChangeTracking?) {
+        let coordinator = ActiveEditor.shared.coordinator
+        let current = workspace.activeTab?.url?.standardizedFileURL
+        if let coordinator, coordinator.document.url.standardizedFileURL == current {
+            let line = coordinator.cursorLine
+            let hunks = coordinator.inlineDiff.hunks
+            let inFile = forward
+                ? hunks.first { $0.newRange.lowerBound > line }
+                : hunks.last { $0.newRange.lowerBound < line }
+            if inFile != nil {
+                coordinator.revealHunk(after: line, forward: forward)
+                return
+            }
+        }
+        guard let changes else { return }
+        let files = changes.changedFiles.map(\.standardizedFileURL).filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !files.isEmpty else { return }
+        let index = current.flatMap { files.firstIndex(of: $0) }
+        let target: URL
+        if let index {
+            target = files[(index + (forward ? 1 : files.count - 1)) % files.count]
+        } else {
+            target = forward ? files[0] : files[files.count - 1]
+        }
+        if target == current, let coordinator {
+            // The only changed file: wrap around inside it.
+            coordinator.revealHunk(after: coordinator.cursorLine, forward: forward)
+            return
+        }
+        let hunks = changes.hunks(for: target)
+        let hunk = forward ? hunks.first : hunks.last
+        workspace.openFile(target, line: hunk?.newRange.lowerBound ?? 0)
     }
 
     public func deactivate() {
@@ -191,7 +227,7 @@ struct FileEditorView: View {
                 DiskConflictBanner(document: document, isComparing: $isComparing)
             }
             if let changes, !hunks.isEmpty {
-                AgentChangesBanner(url: url, hunks: hunks, changes: changes)
+                AgentChangesBanner(url: url, hunks: hunks, changes: changes, workspace: workspace)
             }
             if let error = document.loadError {
                 EmptyStateView("Can't Open File", systemImage: "doc.questionmark", message: error)
@@ -226,6 +262,7 @@ struct AgentChangesBanner: View {
     let url: URL
     let hunks: [DiffHunk]
     let changes: ChangeTracking
+    let workspace: Workspace
 
     var body: some View {
         let added = hunks.reduce(0) { $0 + $1.added }
@@ -238,12 +275,10 @@ struct AgentChangesBanner: View {
             DiffStatBadge(added: added, removed: removed)
             HStack(spacing: 0) {
                 IconButton("chevron.up", help: "Previous change (⌥⌘↑)") {
-                    guard let coordinator = ActiveEditor.shared.coordinator else { return }
-                    coordinator.revealHunk(after: coordinator.cursorLine, forward: false)
+                    EditorPlugin.revealChange(forward: false, workspace: workspace, changes: changes)
                 }
-                IconButton("chevron.down", help: "Next change (⌥⌘↓)") {
-                    guard let coordinator = ActiveEditor.shared.coordinator else { return }
-                    coordinator.revealHunk(after: coordinator.cursorLine, forward: true)
+                IconButton("chevron.down", help: "Next change, then the next file (⌥⌘↓)") {
+                    EditorPlugin.revealChange(forward: true, workspace: workspace, changes: changes)
                 }
             }
             Spacer()

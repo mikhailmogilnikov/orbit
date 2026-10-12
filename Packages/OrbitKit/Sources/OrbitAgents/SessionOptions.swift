@@ -249,7 +249,7 @@ private struct ModelsPage: View {
 
     /// The chat's own agent first, live; the others as they last reported.
     private var groups: [Group] {
-        let ordered = [session.provider] + store.providers.filter { $0.id != session.provider.id }
+        let ordered = [session.provider] + store.availableProviders.filter { $0.id != session.provider.id }
         let terms = query.lowercased().split(separator: " ")
         func matches(_ text: String) -> Bool {
             let text = text.lowercased()
