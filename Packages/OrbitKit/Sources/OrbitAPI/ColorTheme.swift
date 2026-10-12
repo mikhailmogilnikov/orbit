@@ -25,6 +25,12 @@ public struct ThemeColor: Sendable, Hashable {
     public func opacity(_ factor: Double) -> ThemeColor {
         ThemeColor(red: red, green: green, blue: blue, alpha: alpha * factor)
     }
+
+    /// This color painted over an opaque `base`: the opaque color it shows as.
+    public func composited(over base: ThemeColor) -> ThemeColor {
+        func mix(_ top: Double, _ bottom: Double) -> Double { top * alpha + bottom * (1 - alpha) }
+        return ThemeColor(red: mix(red, base.red), green: mix(green, base.green), blue: mix(blue, base.blue))
+    }
 }
 
 public struct SyntaxStyle: Sendable, Hashable {
@@ -190,7 +196,13 @@ enum ThemeFile {
                 }
                 return nil
             }
-            theme.editorBackground = color("editor.background")
+            // "Blurred" Zed themes leave backgrounds translucent for Zed to blur the
+            // desktop through; Orbit lays this color under the whole window (D41),
+            // where translucency showed the desktop unblurred. Flatten it onto the
+            // theme's own background, as it would look over a dark or light desktop.
+            let backdrop = theme.isDark ? ThemeColor(red: 0, green: 0, blue: 0) : ThemeColor(red: 1, green: 1, blue: 1)
+            let surface = color("background")?.composited(over: backdrop) ?? backdrop
+            theme.editorBackground = color("editor.background")?.composited(over: surface)
             theme.editorForeground = color("editor.foreground", "text")
             theme.activeLineBackground = color("editor.active_line.background")
             theme.lineNumber = color("editor.line_number")
@@ -205,7 +217,7 @@ enum ThemeFile {
             theme.renamed = color("version_control.renamed", "renamed")
             theme.conflict = color("version_control.conflict", "conflict")
 
-            theme.terminalBackground = color("terminal.background")
+            theme.terminalBackground = color("terminal.background")?.composited(over: theme.editorBackground ?? surface)
             theme.terminalForeground = color("terminal.foreground")
             let ansi = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
             theme.terminalANSI = ansi.map { color("terminal.ansi.\($0)") } + ansi.map { color("terminal.ansi.bright_\($0)") }

@@ -623,3 +623,13 @@ selector (D49); the Try On / Stop row buttons are gone. The try-on panel
 (sample, variant pickers, Install / Stop) sits between the search field and
 the list, outside the scroll view, so it never scrolls away. Quick pick rows
 are lazy too, which lets the theme selector list the whole catalog.
+
+### D51. Translucent ("blurred") theme backgrounds are flattened
+Zed themes marked "(blur)" use translucent `background` / `editor.background`
+so Zed can blur the desktop through the window. Orbit lays the editor
+background under the whole window (D41), so the desktop showed through
+unblurred. `editor.background` is composited over the theme's `background`,
+itself over black (dark) or white (light), and `terminal.background` over the
+result: the color the theme reads as. Real translucency (a blurred window)
+could come later as an option; it touches the window setup that crashed
+before (D42), so it isn't worth it for a handful of themes now.

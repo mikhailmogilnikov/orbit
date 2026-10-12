@@ -182,4 +182,20 @@ import Testing
         #expect(preview.colorTheme?.name == "Try Light")
         #expect(preview.iconTheme == nil)
     }
+
+    @Test func flattensTranslucentBackgrounds() throws {
+        let json = """
+        {"themes": [{"name": "Blur", "appearance": "dark", "style": {
+          "background": "#2b333980",
+          "editor.background": "#00000000",
+          "terminal.background": "#ffffff00"
+        }}]}
+        """
+        let theme = try #require(try ThemeFile.colorThemes(from: Data(json.utf8), extensionID: "b", extensionName: "B").first)
+        let background = try #require(theme.editorBackground)
+        #expect(background.alpha == 1)
+        // Half of #2b3339 over black.
+        #expect(abs(background.red - Double(0x2b) / 255 * Double(0x80) / 255) < 0.001)
+        #expect(theme.terminalBackground == background)
+    }
 }
