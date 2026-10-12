@@ -54,7 +54,8 @@ final class FileNode: Identifiable {
         self.isDirectory = isDirectory
     }
 
-    static let ignored: Set<String> = [".git", ".DS_Store", "node_modules", ".build", "DerivedData", ".swiftpm", "dist", ".next", ".turbo", "Pods"]
+    // Build output and dependencies stay visible, dimmed as git-ignored.
+    static let ignored: Set<String> = [".git", ".DS_Store"]
 
     func loadChildren(force: Bool = false) {
         guard isDirectory, children == nil || force else { return }
@@ -85,6 +86,9 @@ final class FileTreeModel {
     private(set) var root: FileNode?
     private var loadedRoot: URL?
     private var loadedGeneration = -1
+    /// A folder the list just selected on click; held for one turn so the
+    /// selection visibly changes back and the next click on it registers again.
+    var clickedFolder: URL?
 
     init(workspace: Workspace) {
         self.workspace = workspace
@@ -106,6 +110,18 @@ final class FileTreeModel {
             root?.loadChildren(force: true)
         }
         loadedGeneration = workspace.fileSystemGeneration
+    }
+
+    /// A loaded node by URL, walking down only the matching branch.
+    func node(for url: URL) -> FileNode? {
+        let path = url.standardizedFileURL.path
+        var node = root
+        while let current = node {
+            let currentPath = current.url.standardizedFileURL.path
+            if currentPath == path { return current }
+            node = current.children?.first { path.hasPrefix($0.url.standardizedFileURL.path + "/") || $0.url.standardizedFileURL.path == path }
+        }
+        return nil
     }
 }
 
@@ -142,9 +158,22 @@ struct ExplorerView: View {
 
     private var selectionBinding: Binding<URL?> {
         Binding(
-            get: { workspace.activeTab?.url },
+            get: { model.clickedFolder ?? workspace.activeTab?.url },
             set: { url in
-                guard let url, !url.hasDirectoryPath, !isDirectory(url) else { return }
+                guard let url else { return }
+                if let folder = model.node(for: url), folder.isDirectory {
+                    // The list selects the row on click, so a tap gesture on the label
+                    // loses clicks to it; toggle here instead. Keyboard moves don't toggle.
+                    guard let event = NSApp.currentEvent, event.type == .leftMouseDown || event.type == .leftMouseUp else { return }
+                    withAnimation(.snappy(duration: 0.2)) {
+                        folder.isExpanded.toggle()
+                        if folder.isExpanded { folder.loadChildren() }
+                    }
+                    model.clickedFolder = url
+                    Task { @MainActor in model.clickedFolder = nil }
+                    return
+                }
+                guard !url.hasDirectoryPath, !isDirectory(url) else { return }
                 workspace.openFile(url)
             }
         )
@@ -172,11 +201,11 @@ struct FileChildren: View {
                 )) {
                     FileChildren(node: child, workspace: workspace, decorations: decorations)
                 } label: {
-                    FileLabel(url: child.url, kind: decorations?.folderStatus(of: child.url), isFolder: true, isExpanded: child.isExpanded)
+                    FileLabel(url: child.url, kind: decorations?.folderStatus(of: child.url), isFolder: true, isExpanded: child.isExpanded, isIgnored: decorations?.isIgnored(child.url) ?? false)
                         .contextMenu { FileContextMenu(url: child.url) }
                 }
             } else {
-                FileLabel(url: child.url, kind: decorations?.status(of: child.url), isFolder: false)
+                FileLabel(url: child.url, kind: decorations?.status(of: child.url), isFolder: false, isIgnored: decorations?.isIgnored(child.url) ?? false)
                     .tag(child.url)
                     .contextMenu { FileContextMenu(url: child.url) }
             }
@@ -184,21 +213,27 @@ struct FileChildren: View {
     }
 }
 
-/// A tree row tinted by its git status: files get a letter, folders a dot.
+/// A tree row tinted by its git status: files get a letter, folders a dot;
+/// git-ignored rows are dimmed like in VS Code.
 struct FileLabel: View {
     let url: URL
     let kind: FileChangeKind?
     let isFolder: Bool
     var isExpanded = false
+    var isIgnored = false
 
     var body: some View {
         HStack(spacing: 4) {
             Label {
                 Text(url.lastPathComponent)
-                    .foregroundStyle(kind.map { AnyShapeStyle($0.color) } ?? AnyShapeStyle(.primary))
+                    .foregroundStyle(kind.map { AnyShapeStyle($0.color) } ?? (isIgnored ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary)))
                     .lineLimit(1)
+                    // Tighter icon–title gap than the sidebar's; the system label
+                    // style is kept so the icon keeps its place after the chevron.
+                    .padding(.leading, -3)
             } icon: {
                 FileIconView(url: url, isFolder: isFolder, isExpanded: isExpanded)
+                    .opacity(isIgnored ? 0.5 : 1)
             }
             Spacer(minLength: 2)
             if let kind {

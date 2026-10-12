@@ -81,6 +81,8 @@ public protocol FileStatusProviding: AnyObject {
     func status(of url: URL) -> FileChangeKind?
     /// The most important status among the files inside `url`.
     func folderStatus(of url: URL) -> FileChangeKind?
+    /// Matched by `.gitignore` (itself or an enclosing folder); shown dimmed.
+    func isIgnored(_ url: URL) -> Bool
 }
 
 /// Project files for pickers such as @-mentions. Implemented by the Search plugin.

@@ -70,6 +70,7 @@
   native glass tinted by the theme background (D41); authoring guide
   in `docs/extensions.md`, samples in `examples/extensions/`
 - App icon (Icon Composer) and brand mark in the UI; welcome screen with clickable actions
+- Explorer dims git-ignored files and folders (from `git ls-files --ignored --directory`); only `.git` and `.DS_Store` are hidden
 
 ## Next (rough priority)
 1. Minimal LSP as a built-in plugin (diagnostics, go to definition, hover);

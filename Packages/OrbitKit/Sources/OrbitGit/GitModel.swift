@@ -26,6 +26,8 @@ final class GitModel {
     /// Absolute paths → decoration, derived from `status`.
     private(set) var fileKinds: [String: FileChangeKind] = [:]
     private(set) var folderKinds: [String: FileChangeKind] = [:]
+    /// Absolute paths (no trailing slash) matched by `.gitignore`.
+    private(set) var ignoredPaths: Set<String> = []
     private(set) var branches: [String] = []
     private(set) var stashes: [GitStash] = []
     /// Recent commits of HEAD, newest first.
@@ -124,18 +126,22 @@ final class GitModel {
             stashes = []
             history = []
             commitFiles = [:]
+            ignoredPaths = []
             blameCache = nil
             state = root == nil ? .noFolder : .loading
         }
         guard let repository else { return }
         refreshTask?.cancel()
         refreshTask = Task {
-            let result = await Task.detached(priority: .utility) { () -> (GitStatus, [String], [GitStash], [GitCommit])? in
+            let result = await Task.detached(priority: .utility) { () -> (GitStatus, [String], [GitStash], [GitCommit], [String])? in
                 guard repository.isRepository(), let status = try? repository.status() else { return nil }
-                return (status, (try? repository.branches()) ?? [], repository.stashes(), status.hasCommits ? repository.log() : [])
+                return (status, (try? repository.branches()) ?? [], repository.stashes(), status.hasCommits ? repository.log() : [], repository.ignoredPaths())
             }.value
             guard !Task.isCancelled, repository.root == root else { return }
-            if let (status, branches, stashes, history) = result {
+            if let (status, branches, stashes, history, ignored) = result {
+                let rootPath = repository.root.standardizedFileURL.path
+                let ignoredPaths = Set(ignored.map { rootPath + "/" + ($0.hasSuffix("/") ? String($0.dropLast()) : $0) })
+                if self.ignoredPaths != ignoredPaths { self.ignoredPaths = ignoredPaths }
                 if self.status != status { self.status = status }
                 if self.branches != branches { self.branches = branches }
                 if self.stashes != stashes { self.stashes = stashes }
@@ -143,6 +149,7 @@ final class GitModel {
                 state = .ready
             } else {
                 status = GitStatus()
+                ignoredPaths = []
                 state = .notRepository
             }
         }
@@ -474,6 +481,17 @@ extension GitModel: VersionControlBaseline {
 extension GitModel: FileStatusProviding {
     func status(of url: URL) -> FileChangeKind? { fileKinds[url.standardizedFileURL.path] }
     func folderStatus(of url: URL) -> FileChangeKind? { folderKinds[url.standardizedFileURL.path] }
+
+    func isIgnored(_ url: URL) -> Bool {
+        guard !ignoredPaths.isEmpty, let rootPath = root?.standardizedFileURL.path else { return false }
+        // Files inside an ignored folder aren't listed one by one.
+        var path = url.standardizedFileURL.path
+        while path.count > rootPath.count {
+            if ignoredPaths.contains(path) { return true }
+            path = (path as NSString).deletingLastPathComponent
+        }
+        return false
+    }
 }
 
 extension GitFileStatus {

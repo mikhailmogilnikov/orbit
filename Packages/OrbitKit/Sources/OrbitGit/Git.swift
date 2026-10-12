@@ -140,6 +140,12 @@ struct GitRepository: Sendable {
         GitStatus.parse(try run(["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"]))
     }
 
+    /// Ignored paths relative to the root; a wholly ignored folder is one entry ending in "/".
+    func ignoredPaths() -> [String] {
+        let data = (try? run(["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"])) ?? Data()
+        return data.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+    }
+
     func stage(_ paths: [String]) throws(GitError) {
         try run(["add", "--all", "--"] + paths)
     }
