@@ -18,7 +18,8 @@ struct ExtensionsSettings: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
-            .padding(.bottom, 4)
+            .padding(.top, 2)
+            .padding(.bottom, 14)
             switch tab {
             case .installed: InstalledExtensionsView()
             case .catalog: ExtensionCatalogView()
@@ -142,13 +143,17 @@ struct ExtensionCatalogView: View {
                 .fixedSize()
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 10)
+            .padding(.bottom, 12)
             // Pinned above the list: what's tried on stays in view while scrolling.
-            if Extensions.shared.preview != nil {
-                TryOnPanel()
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 10)
+            Group {
+                if Extensions.shared.preview != nil {
+                    TryOnPanel()
+                } else {
+                    TryOnHint()
+                }
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
             Divider()
             // A List is backed by a table view and only draws the visible rows;
             // Zed has hundreds of themes.
@@ -177,7 +182,7 @@ struct ExtensionCatalogView: View {
                 }
             }
             Divider()
-            Text("From Zed's extension catalog. Click a row or use the arrow keys to try it on; Orbit installs only the themes and icons.")
+            Text("From Zed's extension catalog. Orbit installs only the themes and icons.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,6 +261,8 @@ struct CatalogRow: View {
             }
         }
         .padding(.vertical, 4)
+        .contentShape(.rect)
+        .help("Click to try it on")
     }
 
     private var byline: String {
@@ -352,6 +359,29 @@ struct TryOnPanel: View {
             }
             .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// Where the try-on panel appears, until something is tried on: says that a
+/// click previews, which a plain list doesn't suggest.
+struct TryOnHint: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "eye")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Click an extension to try it on")
+                    .font(.callout.weight(.medium))
+                Text("The whole window previews it, nothing is installed. Use ↑ ↓ to go through the list.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.corner))
     }
 }
 
