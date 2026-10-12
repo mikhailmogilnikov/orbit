@@ -27,7 +27,7 @@ public final class AgentsPlugin: OrbitPlugin {
 
         ui.addSettingsPane(SettingsPane(
             id: "agents", title: "Agents", systemImage: "sparkles", order: 20,
-            keywords: ["claude", "codex", "default", "isolated", "copy", "custom", "acp", "login"]
+            keywords: ["claude", "codex", "gemini", "install", "registry", "default", "isolated", "copy", "custom", "acp", "login"]
         ) {
             AgentsSettingsPane(store: store)
         })
@@ -92,18 +92,7 @@ public final class AgentsPlugin: OrbitPlugin {
             store.newChat(isolated: true)
         })
 
-        for provider in store.providers {
-            context.commands.register(OrbitCommand(
-                id: "agents.new.\(provider.id)",
-                title: "New \(provider.name) Session",
-                category: "Agents",
-                systemImage: provider.icon,
-                isEnabled: { context.workspace.root != nil && !store.missing.contains(provider.id) }
-            ) {
-                ui.revealInspectorPanel("agents")
-                store.newChat(provider)
-            })
-        }
+        store.registerProviderCommands()
 
         context.commands.register(OrbitCommand(
             id: "agents.stop",
@@ -126,7 +115,9 @@ public final class AgentsPlugin: OrbitPlugin {
 @MainActor
 @Observable
 final class AgentStore {
-    let providers: [AgentProvider]
+    /// What's installed in `~/.orbit/agents`; reloaded after installing or removing one.
+    private(set) var providers: [AgentProvider]
+    let registry = AgentRegistry()
     private(set) var sessions: [AgentSession] = []
     /// Showing a restored tab starts its agent.
     var selectedID: AgentSession.ID? {
@@ -144,7 +135,9 @@ final class AgentStore {
 
     let workspace: Workspace
     let commands: CommandRegistry
+    let ui: UIRegistry
     private let services: ServiceRegistry
+    private var providerCommandIDs: [String] = []
     /// The changed-files list above the composer is expanded.
     var isChangesExpanded = false
     private let settings: PluginSettings
@@ -153,22 +146,21 @@ final class AgentStore {
     init(context: PluginContext) {
         workspace = context.workspace
         commands = context.commands
+        ui = context.ui
         services = context.services
         settings = context.settings
         providers = AgentProvider.loadAll()
         history = SessionHistory(settings: context.settings)
-        preferredProviderID = context.settings.string("lastProvider")
+        // Agents Orbit used to ship moved to the registry's ids (D52).
+        preferredProviderID = context.settings.string("lastProvider").map(AgentProvider.migratedID)
         isolatedByDefault = context.settings.bool("isolatedByDefault")
-        lastValues = context.settings.data("lastOptions").flatMap { try? JSONDecoder().decode([String: [String: String]].self, from: $0) } ?? [:]
-        models = context.settings.data("models").flatMap { try? JSONDecoder().decode([String: ConfigOption].self, from: $0) } ?? [:]
+        lastValues = Self.migratingKeys(context.settings.data("lastOptions").flatMap { try? JSONDecoder().decode([String: [String: String]].self, from: $0) } ?? [:])
+        models = Self.migratingKeys(context.settings.data("models").flatMap { try? JSONDecoder().decode([String: ConfigOption].self, from: $0) } ?? [:])
         // Resolve the login-shell environment up front; spawning agents needs it.
         environmentTask = Task.detached { await ShellEnvironment.resolve() }
         folder = workspace.root
-        Task { [weak self, providers, environmentTask] in
-            let environment = await environmentTask.value
-            let missing = Set(providers.filter { !$0.isInstalled(in: environment) }.map(\.id))
-            self?.missing = missing
-        }
+        refreshMissing()
+        migrateBuiltinAgents()
         restoreTabs()
         observeFolder()
         services.resolve(AgentIsolation.self)?.discardCopies(except: history.copiesInUse)
@@ -219,8 +211,9 @@ final class AgentStore {
         didSet { settings.set(preferredProviderID, for: "lastProvider") }
     }
 
-    var preferredProvider: AgentProvider {
-        availableProviders.first { $0.id == preferredProviderID } ?? availableProviders.first ?? providers[0]
+    /// Nil only when no agent is installed.
+    var preferredProvider: AgentProvider? {
+        availableProviders.first { $0.id == preferredProviderID } ?? availableProviders.first ?? providers.first
     }
 
     /// Agents whose CLI isn't on the PATH; known once the shell environment is.
@@ -248,7 +241,7 @@ final class AgentStore {
 
     /// A new conversation with the last used agent; an empty one already open is reused.
     func newChat(_ provider: AgentProvider? = nil, isolated: Bool? = nil) {
-        let provider = provider ?? preferredProvider
+        guard let provider = provider ?? preferredProvider else { return }
         let isolated = isolated ?? isolatedByDefault
         if let empty = sessions.first(where: {
             $0.isEmptyChat && !$0.hasFailed && $0.provider.id == provider.id && $0.isIsolated == isolated && $0.project.path == workspace.root?.path
@@ -444,6 +437,104 @@ final class AgentStore {
     }
 
     func focusComposer() { focusRequest += 1 }
+
+    // MARK: Installed agents
+
+    private func refreshMissing() {
+        let providers = providers
+        let task = environmentTask
+        Task { [weak self] in
+            let environment = await task.value
+            self?.missing = Set(providers.filter { !$0.isInstalled(in: environment) }.map(\.id))
+        }
+    }
+
+    /// Picks up agents installed, updated or removed since launch.
+    func reloadProviders() {
+        let previous = providers
+        providers = AgentProvider.loadAll()
+        guard providers != previous else { return }
+        refreshMissing()
+        registerProviderCommands()
+        // A freshly installed agent is listed too.
+        if let root = workspace.root {
+            for provider in providers where !previous.contains(where: { $0.id == provider.id }) {
+                history.forgetListed(provider.id, in: root)
+            }
+        }
+        loadAgentHistory()
+        if sessions.isEmpty { restoreTabs() }
+    }
+
+    func install(_ agent: RegistryAgent) async {
+        guard await registry.install(agent) else { return }
+        reloadProviders()
+        // Running sessions keep the old command until they restart; new ones get the update.
+    }
+
+    func uninstall(_ provider: AgentProvider) {
+        registry.uninstall(provider)
+        reloadProviders()
+    }
+
+    /// "New <Agent> Session" for each installed agent, in the palette and the Agents menu.
+    func registerProviderCommands() {
+        for id in providerCommandIDs { commands.unregister(id) }
+        providerCommandIDs = providers.map { "agents.new.\($0.id)" }
+        let workspace = workspace
+        let ui = ui
+        for provider in providers {
+            commands.register(OrbitCommand(
+                id: "agents.new.\(provider.id)",
+                title: "New \(provider.name) Session",
+                category: "Agents",
+                systemImage: provider.icon,
+                isEnabled: { [weak self] in workspace.root != nil && self?.missing.contains(provider.id) == false }
+            ) { [weak self] in
+                ui.revealInspectorPanel("agents")
+                self?.newChat(provider)
+            })
+        }
+    }
+
+    /// Orbit used to ship Claude Code and Codex (and launch Cursor, Grok and
+    /// OpenCode from the PATH). Once, for people who used them: Claude Code and
+    /// Codex are installed from the registry, and the PATH ones that are there
+    /// keep working as custom agents.
+    private func migrateBuiltinAgents() {
+        guard !settings.bool("registryMigrated") else { return }
+        guard settings.string("lastProvider") != nil || settings.data("history") != nil else {
+            settings.set(true, for: "registryMigrated")
+            return
+        }
+        let task = environmentTask
+        Task { [weak self] in
+            let environment = await task.value
+            let legacy: [(id: String, name: String, executable: String, arguments: [String])] = [
+                ("cursor", "Cursor", "cursor-agent", ["acp"]),
+                ("grok", "Grok Build", "grok", ["agent", "stdio"]),
+                ("opencode", "OpenCode", "opencode", ["acp"]),
+            ]
+            for agent in legacy where !FileManager.default.fileExists(atPath: AgentProvider.manifestFile(for: agent.id).path) {
+                let provider = AgentProvider(id: agent.id, name: agent.name, command: AgentCommand(executable: agent.executable, arguments: agent.arguments))
+                guard provider.isInstalled(in: environment), let data = try? JSONEncoder().encode(provider) else { continue }
+                try? FileManager.default.createDirectory(at: AgentProvider.configDirectory, withIntermediateDirectories: true)
+                try? data.write(to: AgentProvider.manifestFile(for: agent.id))
+            }
+            guard let self else { return }
+            await registry.refresh()
+            guard registry.loadError == nil else { reloadProviders(); return }
+            for id in AgentProvider.legacyIDs.values where !providers.contains(where: { $0.id == id }) {
+                if let agent = registry.agents.first(where: { $0.id == id }) { _ = await registry.install(agent) }
+            }
+            settings.set(true, for: "registryMigrated")
+            reloadProviders()
+        }
+    }
+
+    private static func migratingKeys<Value>(_ values: [String: Value]) -> [String: Value] {
+        Dictionary(values.map { (AgentProvider.migratedID($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
+    }
 
     func shutdown() {
         for session in sessions { session.shutdown() }

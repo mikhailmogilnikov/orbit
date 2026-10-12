@@ -39,6 +39,20 @@ final class SessionHistory {
     init(settings: PluginSettings) {
         self.settings = settings
         stored = settings.data("history").flatMap { try? JSONDecoder().decode(Stored.self, from: $0) } ?? Stored()
+        migrateProviderIDs()
+    }
+
+    /// Conversations with agents Orbit used to ship belong to their registry ids now (D52).
+    private func migrateProviderIDs() {
+        func migrated(_ sessions: [SavedSession]) -> [SavedSession] {
+            sessions.map { var session = $0; session.providerID = AgentProvider.migratedID(session.providerID); return session }
+        }
+        stored.open = stored.open.mapValues(migrated)
+        stored.recent = stored.recent.mapValues(migrated)
+        stored.hidden = stored.hidden.map { id in
+            guard let colon = id.firstIndex(of: ":") else { return id }
+            return AgentProvider.migratedID(String(id[..<colon])) + id[colon...]
+        }
     }
 
     func openTabs(in folder: URL) -> (sessions: [SavedSession], selected: String?) {
@@ -72,6 +86,10 @@ final class SessionHistory {
 
     func hasListed(_ providerID: String, in folder: URL) -> Bool {
         listed[folder.path]?[providerID] != nil
+    }
+
+    func forgetListed(_ providerID: String, in folder: URL) {
+        listed[folder.path]?[providerID] = nil
     }
 
     func setListed(_ sessions: [SavedSession], for providerID: String, in folder: URL) {

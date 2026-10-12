@@ -81,6 +81,9 @@
 - Composer usage ring (D46): context fill; popover with plan limits (Claude), cost and tokens
 - Extensions catalog (D48): Zed's themes and icon themes in Settings → Extensions →
   Catalog (search, try on, install, update, uninstall); try-on bar over the editor
+- Agents from the ACP registry (D52): install / update / uninstall in Settings →
+  Agents, downloads checked by sha256, no built-in presets; old Claude Code /
+  Codex chats migrate to the registry ids
 - Theme selector ⌃⌘T with live preview over installed and catalog themes;
   catalog thumbnails; light/dark partner picked together (D49)
 
@@ -95,6 +98,10 @@
 5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
+- Agent registry (D52): unverified on a Mac (the cloud container can't reach
+  the registry CDN): install of npx and binary agents, the first-launch
+  migration of Claude Code / Codex, icons. Agents installed while Orbit runs
+  find Node.js / uv only on the PATH resolved at launch.
 - Extensions catalog: written against Zed's API without a live check (the
   cloud container can't reach api.zed.dev); verify listing, download/unpack,
   try-on and the bar over the editor on a Mac. Theme selector (D49) and

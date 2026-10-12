@@ -223,6 +223,10 @@ public final class CommandRegistry {
         all.append(command)
     }
 
+    public func unregister(_ id: String) {
+        all.removeAll { $0.id == id }
+    }
+
     public func run(_ id: String) {
         guard let command = all.first(where: { $0.id == id }), command.isEnabled() else { return }
         command.run()

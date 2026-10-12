@@ -25,14 +25,14 @@ final class AgentCompletionService: AgentCompletion {
         self.store = store
     }
 
-    var agentName: String { store.preferredProvider.name }
+    var agentName: String { store.preferredProvider?.name ?? "Agent" }
 
     func prewarm() {
         Task { _ = try? await agent() }
     }
 
     func complete(_ prompt: String, in directory: URL) async throws -> String {
-        let provider = store.preferredProvider
+        guard let provider = store.preferredProvider else { throw Self.noAgent }
         let warm = try await agent()
         let client = warm.client
         idleTimer?.cancel()
@@ -60,8 +60,10 @@ final class AgentCompletionService: AgentCompletion {
     }
 
     /// The running agent for the preferred provider, starting it if needed.
+    private static let noAgent = JSONRPCError(code: -32603, message: "No agent is installed. Install one in Settings → Agents.")
+
     private func agent() async throws -> WarmAgent {
-        let provider = store.preferredProvider
+        guard let provider = store.preferredProvider else { throw Self.noAgent }
         if let warm, warm.providerID == provider.id { return warm }
         if let starting { return try await starting.value }
         warm?.client.terminate()

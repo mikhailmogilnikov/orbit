@@ -633,3 +633,28 @@ itself over black (dark) or white (light), and `terminal.background` over the
 result: the color the theme reads as. Real translucency (a blurred window)
 could come later as an option; it touches the window setup that crashed
 before (D42), so it isn't worth it for a handful of themes now.
+
+### D52. Agents come from the ACP registry; no built-in presets
+Supersedes D11 and the presets of D3. Orbit no longer ships agents: Settings
+→ Agents lists what's installed and what the ACP registry offers
+(`cdn.agentclientprotocol.com/registry/v1/latest/registry.json`, the list Zed
+and JetBrains IDEs use, which CI checks for working sign-in), with Install,
+Update and Uninstall. Installing writes the same `~/.orbit/agents/<id>.json`
+manifest a hand-written custom agent uses, so there is one kind of agent.
+
+The registry offers an agent as a per-platform archive, an npm package or a
+PyPI package. A download wins on macOS (it needs nothing else installed): the
+archive is checked against its sha256, unpacked with bsdtar into
+`~/.orbit/agents/<id>/bin` and run from there. Otherwise `npx -y <pkg@version>`
+or `uvx <pkg@version>`; an agent whose launcher isn't on the PATH says it needs
+Node.js or uv. Versions are pinned to what was installed (unlike D11's
+unpinned npx), and the registry's newer version shows as Update. The
+registry's monochrome SVG icon is saved next to the manifest and drawn as a
+template; Claude and Codex keep their brand marks.
+
+Migration: Orbit's preset ids `claude-code` and `codex` map to the registry's
+`claude-acp` and `codex-acp` in saved tabs, recent chats, options and the
+default agent. Once, for people who used the presets, Orbit installs those
+two from the registry and writes custom manifests for Cursor, Grok and
+OpenCode if their CLIs are on the PATH, so nothing that worked disappears.
+With no agent installed, the Agents panel offers "Browse Agents".

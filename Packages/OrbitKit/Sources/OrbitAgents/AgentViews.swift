@@ -9,6 +9,18 @@ struct AgentsPanel: View {
         VStack(spacing: 0) {
             if store.workspace.root == nil {
                 EmptyStateView("No Folder Open", systemImage: "folder", message: "Agents work inside a project folder.")
+            } else if store.providers.isEmpty {
+                VStack(spacing: 14) {
+                    EmptyStateView(
+                        "No Agents Installed",
+                        systemImage: "sparkles",
+                        message: "Install Claude Code, Codex, Gemini CLI or another ACP agent to start a chat."
+                    )
+                    Button("Browse Agents") { store.ui.showSettings("agents") }
+                        .buttonStyle(.glassProminent)
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 SessionTabs(store: store)
                 Divider()
