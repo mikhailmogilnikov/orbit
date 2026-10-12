@@ -157,6 +157,28 @@ public final class Extensions {
         return iconThemes.first { $0.id == id }
     }
 
+    /// Picks `theme` for its mode and, when its extension ships themes for the
+    /// other mode too, the closest-named one of those ("Catppuccin Mocha" →
+    /// "Catppuccin Latte", "One Dark" → "One Light"). A fixed Light/Dark
+    /// appearance follows the theme, so the choice shows right away.
+    public func choose(_ theme: ColorTheme, from family: [ColorTheme]? = nil) {
+        let preferences = Preferences.shared
+        let family = family ?? colorThemes.filter { $0.extensionID == theme.extensionID }
+        if theme.isDark { preferences.darkThemeID = theme.id } else { preferences.lightThemeID = theme.id }
+        let partner = family.filter { $0.isDark != theme.isDark }
+            .max { Self.sharedPrefix($0.name, theme.name) < Self.sharedPrefix($1.name, theme.name) }
+        if let partner {
+            if partner.isDark { preferences.darkThemeID = partner.id } else { preferences.lightThemeID = partner.id }
+        }
+        if preferences.appearance != .system, preferences.isDark != theme.isDark {
+            preferences.appearance = theme.isDark ? .dark : .light
+        }
+    }
+
+    private static func sharedPrefix(_ a: String, _ b: String) -> Int {
+        zip(a.lowercased(), b.lowercased()).prefix { $0 == $1 }.count
+    }
+
     /// Reads an unpacked extension for trying on; throws when it has nothing to show.
     public func makePreview(of folder: URL) throws -> ExtensionPreview {
         guard let loaded = try Self.load(folder, isBuiltin: false) else {

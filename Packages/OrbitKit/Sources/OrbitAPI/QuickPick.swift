@@ -38,10 +38,26 @@ public struct QuickPick {
     public let id: String
     public let placeholder: String
     public let items: @MainActor (_ query: String) -> [QuickPickItem]
+    /// The row to start on (until the user types), e.g. the current theme.
+    public var initialSelection: String?
+    /// Called with the row the selection moves to, for live previews.
+    public var onHighlight: (@MainActor (QuickPickItem) -> Void)?
+    /// Called when the pick closes without running a row (Esc, click outside).
+    public var onCancel: (@MainActor () -> Void)?
 
-    public init(id: String, placeholder: String, items: @escaping @MainActor (_ query: String) -> [QuickPickItem]) {
+    public init(
+        id: String,
+        placeholder: String,
+        initialSelection: String? = nil,
+        onHighlight: (@MainActor (QuickPickItem) -> Void)? = nil,
+        onCancel: (@MainActor () -> Void)? = nil,
+        items: @escaping @MainActor (_ query: String) -> [QuickPickItem]
+    ) {
         self.id = id
         self.placeholder = placeholder
+        self.initialSelection = initialSelection
+        self.onHighlight = onHighlight
+        self.onCancel = onCancel
         self.items = items
     }
 }

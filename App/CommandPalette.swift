@@ -54,8 +54,14 @@ final class QuickPickState {
             recompute()
         }
     }
-    var selectedIndex = 0
+    var selectedIndex = 0 {
+        didSet { reportHighlight() }
+    }
     private(set) var results: [QuickPickItem] = []
+    /// Set once a row runs, so closing doesn't count as a cancel.
+    var didRun = false
+    @ObservationIgnored private var highlightedID: String?
+    @ObservationIgnored private var appliedInitialSelection = false
 
     init(pick: QuickPick) {
         self.pick = pick
@@ -67,7 +73,20 @@ final class QuickPickState {
         } onChange: { [weak self] in
             Task { @MainActor in self?.recompute() }
         }
+        if !appliedInitialSelection {
+            appliedInitialSelection = true
+            if let initial = pick.initialSelection, let index = results.firstIndex(where: { $0.id == initial }) {
+                selectedIndex = index
+            }
+        }
         selectedIndex = min(selectedIndex, max(0, results.count - 1))
+        reportHighlight()
+    }
+
+    private func reportHighlight() {
+        guard let onHighlight = pick.onHighlight, let selected, selected.id != highlightedID else { return }
+        highlightedID = selected.id
+        onHighlight(selected)
     }
 
     func move(_ delta: Int) {
@@ -150,11 +169,15 @@ struct QuickPickOverlay: View {
             dismiss()
             return .handled
         }
+        .onDisappear {
+            if !state.didRun { state.pick.onCancel?() }
+        }
         .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
     }
 
     private func run() {
         guard let item = state.selected else { return }
+        state.didRun = true
         dismiss()
         // Let the overlay dismiss before actions that present panels or move focus.
         DispatchQueue.main.async { item.run() }

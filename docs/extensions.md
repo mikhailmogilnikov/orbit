@@ -135,5 +135,7 @@ try it.
 
 Settings → Extensions → Catalog lists Zed's extension catalog, so a theme or
 icon theme published for Zed (see Zed's docs on publishing extensions) shows
-up in Orbit too, ready to try on and install. Orbit keeps only the themes,
+up in Orbit too, ready to try on and install, and in the theme selector
+(⌃⌘T). Name a family's light and dark themes alike ("Name Dark" / "Name
+Light"): picking one also picks its partner for the other mode. Orbit keeps only the themes,
 icon themes and icons from it.

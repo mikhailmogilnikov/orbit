@@ -106,7 +106,85 @@ public final class ExtensionCatalog {
         return entries.sorted { $0.downloadCount > $1.downloadCount }
     }
 
+    /// Every theme extension, most downloaded first, for the theme selector;
+    /// loaded once per launch.
+    public private(set) var themeCatalog: [CatalogEntry] = []
+    @ObservationIgnored private var themeCatalogTask: Task<Void, Never>?
+
+    public func loadThemeCatalog() {
+        guard themeCatalog.isEmpty, themeCatalogTask == nil else { return }
+        themeCatalogTask = Task {
+            themeCatalog = (try? await Self.fetch(query: "", kind: .themes)) ?? []
+            if themeCatalog.isEmpty { themeCatalogTask = nil }
+        }
+    }
+
+    // MARK: Samples
+
+    /// Themes of catalog entries, for the color thumbnails in the list.
+    public private(set) var samples: [String: [ColorTheme]] = [:]
+    @ObservationIgnored private var sampleQueue: [CatalogEntry] = []
+    @ObservationIgnored private var sampleRequested: Set<String> = []
+    @ObservationIgnored private var sampleLoads = 0
+
+    /// Loads `entry`'s themes for a thumbnail: from the try-on cache, else
+    /// downloaded (a few at a time, once per version). Extensions that also
+    /// carry language support are skipped: their archives are large.
+    public func requestSample(_ entry: CatalogEntry) {
+        let light: Set<String> = ["themes", "icon-themes", "snippets"]
+        guard entry.provides.contains("themes"), entry.provides.allSatisfy(light.contains),
+              sampleRequested.insert(entry.id).inserted else { return }
+        if let cached = cachedPreview(entry) {
+            samples[entry.id] = cached.colorThemes
+            return
+        }
+        sampleQueue.append(entry)
+        pumpSamples()
+    }
+
+    private func pumpSamples() {
+        while sampleLoads < 4, !sampleQueue.isEmpty {
+            let entry = sampleQueue.removeFirst()
+            sampleLoads += 1
+            Task {
+                if let preview = try? await prepare(entry) { samples[entry.id] = preview.colorThemes }
+                sampleLoads -= 1
+                pumpSamples()
+            }
+        }
+    }
+
     // MARK: Try on, install, uninstall
+
+    @ObservationIgnored private var preparing: [String: Task<ExtensionPreview, Error>] = [:]
+
+    private func cachedPreview(_ entry: CatalogEntry) -> ExtensionPreview? {
+        let folder = Self.previewDirectory.appending(path: entry.id, directoryHint: .isDirectory)
+        guard let preview = try? extensions.makePreview(of: folder), preview.manifest.version == entry.version else { return nil }
+        return preview
+    }
+
+    /// `entry` unpacked in the cache and read, ready to show; one download at
+    /// a time per extension (a thumbnail and a try-on can ask together).
+    public func prepare(_ entry: CatalogEntry) async throws -> ExtensionPreview {
+        if let cached = cachedPreview(entry) { return cached }
+        if let running = preparing[entry.id] { return try await running.value }
+        let task = Task {
+            defer { preparing[entry.id] = nil }
+            let folder = Self.previewDirectory.appending(path: entry.id, directoryHint: .isDirectory)
+            try await Self.unpack(entry, into: folder)
+            return try extensions.makePreview(of: folder)
+        }
+        preparing[entry.id] = task
+        return try await task.value
+    }
+
+    /// Draws with `preview` until `install` or `endPreview`; `entry` is what
+    /// Install installs (nil for an installed theme shown by the theme selector).
+    public func show(_ preview: ExtensionPreview?, for entry: CatalogEntry?) {
+        previewEntry = preview == nil ? nil : entry
+        extensions.preview = preview
+    }
 
     /// Downloads the extension into the cache and draws with it until
     /// `install` or `endPreview`.
@@ -116,62 +194,62 @@ public final class ExtensionCatalog {
         failures[entry.id] = nil
         defer { busy.remove(entry.id) }
         do {
-            let folder = Self.previewDirectory.appending(path: entry.id, directoryHint: .isDirectory)
-            if (try? extensions.makePreview(of: folder))?.manifest.version != entry.version {
-                try await Self.unpack(entry, into: folder)
-            }
-            var preview = try extensions.makePreview(of: folder)
-            // Start with the variant for the mode the user is in, if there is one.
-            let dark = Preferences.shared.isDark
-            preview.colorThemeID = (preview.colorThemes.first { $0.isDark == dark } ?? preview.colorThemes.first)?.id
-            preview.iconThemeID = (preview.iconThemes.first { $0.isDark == dark } ?? preview.iconThemes.first)?.id
-            previewEntry = entry
-            extensions.preview = preview
+            show(Self.startingVariant(of: try await prepare(entry)), for: entry)
         } catch {
             failures[entry.id] = Self.describe(error)
         }
     }
 
-    public func endPreview() {
-        extensions.preview = nil
-        previewEntry = nil
+    /// Starts on the variant for the mode the user is in, if there is one.
+    public static func startingVariant(of preview: ExtensionPreview) -> ExtensionPreview {
+        var preview = preview
+        let dark = Preferences.shared.isDark
+        preview.colorThemeID = (preview.colorThemes.first { $0.isDark == dark } ?? preview.colorThemes.first)?.id
+        preview.iconThemeID = (preview.iconThemes.first { $0.isDark == dark } ?? preview.iconThemes.first)?.id
+        return preview
     }
 
-    /// Installs (or updates) `entry`; reuses the try-on download of the same version.
-    public func install(_ entry: CatalogEntry) async {
+    public func endPreview() {
+        show(nil, for: nil)
+    }
+
+    /// Installs (or updates) `entry`, reusing a cached download of the same
+    /// version. While it is tried on — or with `pick` — its themes are picked.
+    public func install(_ entry: CatalogEntry, pick: Bool = false) async {
         guard !busy.contains(entry.id) else { return }
         busy.insert(entry.id)
         failures[entry.id] = nil
         defer { busy.remove(entry.id) }
         do {
-            let staging = Self.previewDirectory.appending(path: entry.id, directoryHint: .isDirectory)
-            if (try? extensions.makePreview(of: staging))?.manifest.version != entry.version {
-                try await Self.unpack(entry, into: staging)
-            }
+            let staging = try await prepare(entry).directory
             let destination = Extensions.userDirectory.appending(path: entry.id, directoryHint: .isDirectory)
             let manager = FileManager.default
             try manager.createDirectory(at: Extensions.userDirectory, withIntermediateDirectories: true)
             if manager.fileExists(atPath: destination.path) { try manager.removeItem(at: destination) }
             try manager.copyItem(at: staging, to: destination)
             extensions.reload()
-            if extensions.preview?.manifest.id == entry.id { adoptPreview() }
+            if pick || extensions.preview?.manifest.id == entry.id { adopt(entry) }
         } catch {
             failures[entry.id] = Self.describe(error)
         }
     }
 
-    /// Picks the themes being tried on for good, then ends the preview.
-    private func adoptPreview() {
-        guard let preview = extensions.preview else { return }
-        let preferences = Preferences.shared
-        if let theme = preview.colorTheme {
-            if theme.isDark { preferences.darkThemeID = theme.id } else { preferences.lightThemeID = theme.id }
+    /// Picks the installed extension's themes (the ones tried on, else the
+    /// current mode's, with their light/dark partner), then ends a preview of it.
+    private func adopt(_ entry: CatalogEntry) {
+        let preview = extensions.preview?.manifest.id == entry.id ? extensions.preview : nil
+        let family = extensions.colorThemes.filter { $0.extensionID == entry.id }
+        let dark = Preferences.shared.isDark
+        let tried = preview?.colorTheme.flatMap { tried in family.first { $0.id == tried.id } }
+        if let theme = tried ?? family.first(where: { $0.isDark == dark }) ?? family.first {
+            extensions.choose(theme, from: family)
         }
-        if let icons = preview.iconTheme {
+        if let icons = preview?.iconTheme {
+            let preferences = Preferences.shared
             preferences.lightIconThemeID = icons.id
             preferences.darkIconThemeID = icons.id
         }
-        endPreview()
+        if preview != nil { endPreview() }
     }
 
     /// Moves a user extension to the Trash; picked themes from it fall back to the defaults.

@@ -10,6 +10,12 @@ struct OrbitApp: App {
         let host = PluginHost(plugins: BuiltinPlugins.all)
         _host = State(initialValue: host)
         AppDelegate.host = host
+        host.commands.register(OrbitCommand(
+            id: "shell.selectTheme", title: "Select Theme…", category: "Appearance",
+            systemImage: "paintpalette", shortcut: KeyboardShortcut("t", modifiers: [.command, .control])
+        ) {
+            ThemeSelector.show(in: host)
+        })
     }
 
     var body: some Scene {
@@ -49,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// real menu items and shortcuts for free.
 struct OrbitMenus: Commands {
     let host: PluginHost
-    private static let builtInCategories: Set<String> = ["File", "Agents", "Review", "Git", "Terminal"]
+    private static let builtInCategories: Set<String> = ["File", "Agents", "Review", "Git", "Terminal", "Appearance"]
 
     var body: some Commands {
         // Settings open inside the main window (see SettingsScreen), not as a separate one.
@@ -69,6 +75,7 @@ struct OrbitMenus: Commands {
         CommandGroup(after: .sidebar) {
             Button("Command Palette…") { CommandPalette.toggle(in: host) }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+            items(ids: ["shell.selectTheme"])
             Divider()
         }
         CommandMenu("Agents") { items(in: "Agents") }

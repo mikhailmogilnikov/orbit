@@ -590,3 +590,26 @@ saved. Settings cover the editor, so the catalog shows a sample (code, file
 icons, terminal colors) in the theme; back in the project a glass bar over
 the editor offers Install, the catalog, or stop. Install while trying on
 reuses the download and picks the tried theme and icons.
+
+### D49. Theme selector, catalog thumbnails, light/dark pairs
+Builds on D48. **Select Theme…** (⌃⌘T, View menu and palette) is a quick
+pick like Zed's theme selector: the highlighted row is drawn on the real
+window through `Extensions.preview` (its mode included), Enter keeps it, Esc
+restores what was there, including a try-on started in Settings. Installed
+themes come first (the current mode's, then the other's), then catalog
+themes that aren't installed; reaching one downloads it after a 250 ms pause
+(so arrowing past doesn't download every row) and Enter installs it.
+`QuickPick` gained `initialSelection`, `onHighlight` and `onCancel` for this.
+
+Catalog rows show a thumbnail of the theme (background and a few code lines
+in its syntax colors). The theme files come from the extension's archive,
+cached with try-on downloads, four at a time; extensions that also carry
+language support are skipped, their archives are large. Downloading for
+thumbnails counts as a download in Zed's stats; each version is fetched once
+per machine.
+
+Picking a theme in the selector, or installing one from the catalog while
+trying it on, also picks its partner for the other mode from the same
+extension (the theme whose name shares the longest prefix: Catppuccin
+Mocha → Latte, One Dark → One Light), and a fixed Light/Dark appearance
+switches to the theme's mode. The Settings pickers still set one mode only.

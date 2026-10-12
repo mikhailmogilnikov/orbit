@@ -200,6 +200,10 @@ struct CatalogRow: View {
         let installed = catalog.installed(entry)
         let isTrying = Extensions.shared.preview?.manifest.id == entry.id
         HStack(alignment: .center, spacing: 12) {
+            if entry.provides.contains("themes") {
+                ThemeThumbnail(themes: catalog.samples[entry.id])
+                    .task { catalog.requestSample(entry) }
+            }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(entry.name).fontWeight(.medium)
@@ -255,8 +259,55 @@ struct CatalogRow: View {
         }
         var parts: [String] = []
         if !names.isEmpty { parts.append(names.joined(separator: ", ")) }
+        if let count = catalog.samples[entry.id]?.count, count > 1 { parts.append("\(count) themes") }
         parts.append("\(entry.downloadCount.formatted(.number.notation(.compactName))) downloads")
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A theme drawn as a tiny editor: its background with a few lines of code
+/// in its syntax colors, the current mode's variant. A blank tile while loading.
+struct ThemeThumbnail: View {
+    let themes: [ColorTheme]?
+
+    var body: some View {
+        let theme = themes.flatMap { themes in
+            themes.first { $0.isDark == Preferences.shared.isDark } ?? themes.first
+        }
+        ZStack(alignment: .topLeading) {
+            if let theme {
+                Rectangle().fill(color(theme.editorBackground, .textBackgroundColor))
+                VStack(alignment: .leading, spacing: 4) {
+                    bars(theme, [("keyword", 9), ("function", 17), (nil, 6)])
+                    bars(theme, [(nil, 4), ("type", 12), ("string", 18)])
+                    bars(theme, [(nil, 4), ("property", 10), ("number", 6)])
+                    bars(theme, [("comment", 26)])
+                }
+                .padding(7)
+            } else {
+                Rectangle().fill(Theme.subtleFill)
+            }
+        }
+        .frame(width: 58, height: 40)
+        .clipShape(.rect(cornerRadius: Theme.smallCorner))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.smallCorner)
+                .strokeBorder(Theme.hairline)
+        }
+    }
+
+    private func bars(_ theme: ColorTheme, _ tokens: [(capture: String?, width: CGFloat)]) -> some View {
+        HStack(spacing: 2) {
+            ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
+                Capsule()
+                    .fill(token.capture.map { color(theme.style(forCapture: $0)?.color ?? theme.editorForeground, .textColor) } ?? .clear)
+                    .frame(width: token.width, height: 3)
+            }
+        }
+    }
+
+    private func color(_ value: ThemeColor?, _ fallback: NSColor) -> Color {
+        Color(nsColor: value?.nsColor ?? fallback)
     }
 }
 
@@ -468,7 +519,8 @@ struct TryOnBar: View {
     private var catalog: ExtensionCatalog { .shared }
 
     var body: some View {
-        if let preview = Extensions.shared.preview {
+        // The theme selector shows themes the same way while it's open.
+        if let preview = Extensions.shared.preview, host.ui.quickPick?.id != ThemeSelector.pickID {
             HStack(spacing: 10) {
                 Image(systemName: "paintpalette")
                     .foregroundStyle(.secondary)

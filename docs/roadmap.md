@@ -81,6 +81,8 @@
 - Composer usage ring (D46): context fill; popover with plan limits (Claude), cost and tokens
 - Extensions catalog (D48): Zed's themes and icon themes in Settings → Extensions →
   Catalog (search, try on, install, update, uninstall); try-on bar over the editor
+- Theme selector ⌃⌘T with live preview over installed and catalog themes;
+  catalog thumbnails; light/dark partner picked together (D49)
 
 ## Next (rough priority)
 1. Agent changes tracking improvements: separate changed files view from the composer,
@@ -95,7 +97,8 @@
 ## Known gaps / to verify
 - Extensions catalog: written against Zed's API without a live check (the
   cloud container can't reach api.zed.dev); verify listing, download/unpack,
-  try-on and the bar over the editor on a Mac.
+  try-on and the bar over the editor on a Mac. Theme selector (D49) and
+  thumbnails are unverified too.
 - Usage ring: Codex also reports its subagents' context through `usage_update`
   without saying so, so the ring can briefly show a subagent's context.
 - Themes and icon themes: open diff views (git diff tabs, tool cards) keep

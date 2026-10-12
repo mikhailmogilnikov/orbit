@@ -78,6 +78,9 @@ public struct ColorTheme: Sendable, Identifiable, Hashable {
         self.extensionName = extensionName
     }
 
+    /// The extension it comes from (the part of `id` before the first slash).
+    public var extensionID: String { String(id.prefix { $0 != "/" }) }
+
     /// The system look, used when no theme file loads.
     public static func system(dark: Bool) -> ColorTheme {
         ColorTheme(id: dark ? "system/dark" : "system/light", name: dark ? "System Dark" : "System Light", isDark: dark, extensionName: "Orbit")
