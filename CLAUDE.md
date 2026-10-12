@@ -107,6 +107,10 @@ examples/extensions/      sample extensions (theme, icon theme)
 - Split-view columns (sidebar, editor area, inspector) must not propagate min
   sizes into the split view (constraint-loop crash on tab switch); keep
   `minWidth/minHeight: 0` on `SidebarHost`, `EditorArea`, `InspectorHost`.
+- SwiftUI ignores `navigationSplitViewColumnWidth` for the sidebar and resets
+  the split view item to no max on each drag; `SidebarWidthLimit` re-applies
+  the limits. Without a max the detail column (it runs under the sidebar, so
+  its min width grows with it) outgrew the screen and AppKit crashed.
 - Syntax highlighting is our `SyntaxHighlightPlugin`, not upstream `NeonPlugin`:
   TextKit 2 throws on rendering attributes for empty ranges (see D14).
 - Since macOS 14 NSViews don't clip to bounds by default: a custom `draw(_:)`

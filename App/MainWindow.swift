@@ -61,6 +61,7 @@ struct MainWindow: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarHost(panels: ui.sidebarPanels, selection: $sidebarPanelID)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 420)
+                .background(SidebarWidthLimit(min: 200, max: 420))
                 // Our own toggle is in the tab row; the system one floated over the sidebar.
                 .toolbar(removing: .sidebarToggle)
         } detail: {
@@ -298,6 +299,64 @@ struct WindowTopBar: View {
 /// Not in full screen: there the container moves into a separate toolbar
 /// window with an opaque background (a grey plate over the tab row), and
 /// there are no traffic lights to keep anyway.
+/// The sidebar's width limits, enforced on the AppKit split view item.
+/// SwiftUI ignores `navigationSplitViewColumnWidth` here and resets the item to
+/// its own defaults (no max) when a drag starts. Without a max the sidebar could
+/// be dragged until the detail column (which runs under the sidebar, so its min
+/// width grows with it) no longer fit the screen: the window bounced between
+/// two widths and AppKit crashed in an update-constraints loop.
+private struct SidebarWidthLimit: NSViewRepresentable {
+    let min: CGFloat
+    let max: CGFloat
+
+    func makeNSView(context: Context) -> LimitView { LimitView() }
+
+    func updateNSView(_ view: LimitView, context: Context) {
+        view.limits = (min, max)
+        DispatchQueue.main.async { [weak view] in view?.apply() }
+    }
+
+    final class LimitView: NSView {
+        var limits: (min: CGFloat, max: CGFloat) = (0, .greatestFiniteMagnitude)
+        private var observer: NSObjectProtocol?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observer.map(NotificationCenter.default.removeObserver)
+            observer = nil
+            guard let window else { return }
+            // Re-applied on every split view resize: SwiftUI's reset comes with a drag.
+            observer = NotificationCenter.default.addObserver(forName: NSSplitView.willResizeSubviewsNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.window === window else { return }
+                    self.apply()
+                }
+            }
+            // After SwiftUI has built the split view around us.
+            DispatchQueue.main.async { [weak self] in self?.apply() }
+        }
+
+        func apply() {
+            var view = superview
+            while let current = view {
+                if let split = current as? NSSplitView,
+                   let controller = split.delegate as? NSSplitViewController,
+                   let item = controller.splitViewItems.first(where: { isDescendant(of: $0.viewController.view) }) {
+                    // Only on a real change: each write re-lays out the split view.
+                    if item.minimumThickness != limits.min { item.minimumThickness = limits.min }
+                    if item.maximumThickness != limits.max { item.maximumThickness = limits.max }
+                    return
+                }
+                view = current.superview
+            }
+        }
+
+        isolated deinit {
+            observer.map(NotificationCenter.default.removeObserver)
+        }
+    }
+}
+
 private struct TrafficLightsKeeper: NSViewRepresentable {
     func makeNSView(context: Context) -> KeeperView { KeeperView() }
     func updateNSView(_ view: KeeperView, context: Context) {}
