@@ -123,6 +123,11 @@ public struct InstalledGrammar: Codable, Sendable, Hashable {
     public var layout: Int?
 
     public var symbol: String { "tree_sitter_\(name)" }
+
+    /// Built from the source's commit, with every file today's installs have.
+    public func isCurrent(_ source: GrammarSource) -> Bool {
+        commit == source.commit && (layout ?? 1) >= GrammarSource.layout
+    }
 }
 
 /// `~/.orbit/grammars/<name>/`: the library, its queries and `grammar.json`.

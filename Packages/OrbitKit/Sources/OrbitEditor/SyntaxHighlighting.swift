@@ -8,8 +8,9 @@ import Synchronization
 import TreeSitterResource
 
 /// Tree-sitter highlighting for STTextView. Parsing and queries run on a
-/// background queue (`HighlightWorker`); the main thread keeps a highlight
-/// cache for the whole document and paints the visible part from it (D48).
+/// background queue (`HighlightWorker`), embedded languages included (D69);
+/// the main thread keeps a highlight cache for the whole document and paints
+/// the visible part from it (D48).
 struct SyntaxHighlightPlugin: STPlugin {
     let palette: SyntaxPalette
     let grammar: Grammar
@@ -109,8 +110,10 @@ final class SyntaxHighlightCoordinator {
     private var pendingEditRange: NSRange?
     /// The text as of the last edit, to shrink whole-document replacements.
     private var snapshot = TextSnapshot(string: "")
-    /// Indexed by capture id; 0 is "no capture".
+    /// Indexed by `CaptureTable` id; 0 is "no capture".
     private var styles: [(color: NSColor, font: NSFont?)?] = []
+    /// An embedded language's grammar got installed: its layers get parsed.
+    private var grammarObserver: (any NSObjectProtocol)?
 
     /// Longer texts aren't highlighted.
     private static let maxLength = 8_000_000
@@ -136,9 +139,11 @@ final class SyntaxHighlightCoordinator {
         self.palette = palette
         self.worker = worker
         link.coordinator = self
-        resolveStyles()
 
         palette.onThemeChange = { [weak self] theme in self?.worker.setTheme(theme) }
+        grammarObserver = NotificationCenter.default.addObserver(forName: GrammarStore.didChange, object: nil, queue: .main) { [weak worker] _ in
+            worker?.reloadLayers()
+        }
         palette.onChange = { [weak self] in self?.restyle() }
 
         snapshot = currentSnapshot()
@@ -151,6 +156,7 @@ final class SyntaxHighlightCoordinator {
 
     isolated deinit {
         worker.cancel()
+        if let grammarObserver { NotificationCenter.default.removeObserver(grammarObserver) }
         idleFonts?.cancel()
     }
 
@@ -193,6 +199,7 @@ final class SyntaxHighlightCoordinator {
     }
 
     private func drain() {
+        for name in worker.takeMissingGrammars() { GrammarRegistry.shared.ensureInstalled(named: name) }
         let patches = worker.takePatches()
         guard !patches.isEmpty else { return }
         let touched = cache.apply(patches)
@@ -240,7 +247,7 @@ final class SyntaxHighlightCoordinator {
             guard let textRange = NSTextRange(range, in: manager) else { continue }
             layoutManager.removeRenderingAttribute(.foregroundColor, for: textRange)
             cache.spans.forEach(in: range) { span in
-                guard let style = styles[Int(span.capture)] else { return }
+                guard let style = self.style(span.capture) else { return }
                 let clipped = NSIntersectionRange(NSRange(location: span.start, length: span.end - span.start), range)
                 guard clipped.length > 0, let spanRange = NSTextRange(clipped, in: manager) else { return }
                 layoutManager.addRenderingAttribute(.foregroundColor, value: style.color, for: spanRange)
@@ -308,7 +315,7 @@ final class SyntaxHighlightCoordinator {
             guard range.length > 0 else { continue }
             let firstWanted = wanted.count
             cache.spans.forEach(in: range) { span in
-                guard let font = styles[Int(span.capture)]?.font else { return }
+                guard let font = self.style(span.capture)?.font else { return }
                 let clipped = NSIntersectionRange(NSRange(location: span.start, length: span.end - span.start), range)
                 guard clipped.length > 0 else { return }
                 // Neighbors with the same font merge, as the storage's attribute runs do.
@@ -340,19 +347,25 @@ final class SyntaxHighlightCoordinator {
         }
     }
 
-    private func resolveStyles() {
-        guard let textView else { return }
-        let base = textView.font
-        styles = [nil] + worker.captureNames.map { name in
-            guard let style = palette.style(forCapture: name), let color = style.color else { return nil }
-            let font = palette.font(for: style, base: base)
-            return (color.nsColor, font === base ? nil : font)
+    /// Ids grow on the worker as embedded languages bring new capture names,
+    /// so styles are resolved for them as they show up.
+    private func style(_ id: UInt16) -> (color: NSColor, font: NSFont?)? {
+        let index = Int(id)
+        if index >= styles.count, let textView {
+            let base = textView.font
+            if styles.isEmpty { styles.append(nil) }
+            styles += CaptureTable.names(from: styles.count).map { name in
+                guard let style = palette.style(forCapture: name), let color = style.color else { return nil }
+                let font = palette.font(for: style, base: base)
+                return (color.nsColor, font === base ? nil : font)
+            }
         }
+        return index < styles.count ? styles[index] : nil
     }
 
     /// Theme, font size or text color changed: repaint everything from the cache.
     private func restyle() {
-        resolveStyles()
+        styles.removeAll()
         painted.removeAll()
         fontsDone.removeAll()
         paintVisible()
@@ -360,30 +373,46 @@ final class SyntaxHighlightCoordinator {
     }
 }
 
-/// Compiled highlight queries, shared by all editors. Compiling one is slow
-/// (~230 ms for Swift), and doing it per editor delayed every file open.
+/// Compiled highlight and injection queries, shared by all editors. Compiling
+/// one is slow (~230 ms for Swift), and doing it per editor delayed every file open.
 enum HighlightQueries {
-    private static let cache = Mutex<[String: Query]>([:])
+    private static let cache = Mutex<[String: LanguageQueries?]>([:])
 
-    static func query(for grammar: Grammar) -> Query? {
+    static func queries(for grammar: Grammar) -> LanguageQueries? {
         // Compiling under the lock lets a file open wait for an in-flight prewarm
         // of the same language instead of compiling it twice.
-        return cache.withLock { cache in
-            if let query = cache[grammar.key] { return query }
-            guard let language = grammar.language else { return nil }
-            // The combined query names JavaScript nodes; should a grammar version not
-            // have one, TypeScript's own patterns still beat no colors at all.
-            guard let query = grammar.querySources().lazy.compactMap({ try? Query(language: language, data: Data($0.utf8)) }).first
-            else { return nil }
-            cache[grammar.key] = query
-            return query
+        cache.withLock { cache in
+            if let queries = cache[grammar.key] { return queries }
+            let queries = compile(grammar)
+            cache[grammar.key] = queries
+            return queries
         }
+    }
+
+    private static func compile(_ grammar: Grammar) -> LanguageQueries? {
+        guard let language = grammar.language else { return nil }
+        // The combined query names JavaScript nodes; should a grammar version not
+        // have one, TypeScript's own patterns still beat no colors at all.
+        guard let highlights = grammar.querySources().lazy.compactMap({ try? Query(language: language, data: Data($0.utf8)) }).first
+        else { return nil }
+        return LanguageQueries(grammar: grammar, language: language, highlights: highlights, injections: injections(for: grammar, language: language))
+    }
+
+    /// Patterns naming nodes this grammar version lacks are left out rather
+    /// than losing all of them.
+    private static func injections(for grammar: Grammar, language: SwiftTreeSitter.Language) -> Query? {
+        let patterns = grammar.injectionPatterns()
+        guard !patterns.isEmpty else { return nil }
+        func compile(_ source: String) -> Query? { try? Query(language: language, data: Data(source.utf8)) }
+        if let query = compile(patterns.joined(separator: "\n")) { return query }
+        let fitting = patterns.filter { compile($0) != nil }
+        return fitting.isEmpty ? nil : compile(fitting.joined(separator: "\n"))
     }
 
     /// Compiles every built-in language off the main thread so the first open is instant too.
     static func prewarm() {
         DispatchQueue.global(qos: .utility).async {
-            for language in TreeSitterLanguage.allCases { _ = query(for: .builtin(language)) }
+            for language in TreeSitterLanguage.allCases { _ = queries(for: .builtin(language)) }
         }
     }
 }
@@ -416,10 +445,10 @@ final class StaticHighlighter: SyntaxHighlighting {
 
     /// Capture names and ranges, less specific first (later ones win).
     nonisolated private static func captures(in text: String, url: URL) -> [(String, NSRange)] {
-        guard let grammar = Grammar.matching(url), let query = HighlightQueries.query(for: grammar), let language = grammar.language else { return [] }
+        guard let grammar = Grammar.matching(url), let queries = HighlightQueries.queries(for: grammar) else { return [] }
         let parser = Parser()
-        guard (try? parser.setLanguage(language)) != nil,
+        guard (try? parser.setLanguage(queries.language)) != nil,
               let tree = parser.parse(text) else { return [] }
-        return query.execute(in: tree).resolve(with: .init(string: text)).highlights().map { ($0.name, $0.range) }
+        return queries.highlights.execute(in: tree).resolve(with: .init(string: text)).highlights().map { ($0.name, $0.range) }
     }
 }

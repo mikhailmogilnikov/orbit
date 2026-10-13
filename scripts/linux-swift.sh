@@ -12,7 +12,12 @@ token=$(curl -fsS "https://auth.docker.io/token?service=registry.docker.io&scope
     python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 get() { curl -fsSL -H "Authorization: Bearer $token" -H "Accept: $1" "$2"; }
 
-index=$(get "application/vnd.oci.image.index.v1+json" "$registry/manifests/$VERSION")
+# Docker Hub rate-limits anonymous pulls (429); Google's mirror of it doesn't need a token.
+if ! index=$(get "application/vnd.oci.image.index.v1+json" "$registry/manifests/$VERSION"); then
+    registry=https://mirror.gcr.io/v2/library/swift
+    token=
+    index=$(get "application/vnd.oci.image.index.v1+json" "$registry/manifests/$VERSION")
+fi
 manifest=$(echo "$index" | python3 -c 'import json,sys
 print(next(m["digest"] for m in json.load(sys.stdin)["manifests"] if m["platform"] == {"architecture": "amd64", "os": "linux"}))')
 # The largest layer is the toolchain; the others are Ubuntu and apt packages.

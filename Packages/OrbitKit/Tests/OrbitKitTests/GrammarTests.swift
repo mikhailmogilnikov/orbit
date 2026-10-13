@@ -19,15 +19,22 @@ struct GrammarInstallTests {
         "svelte": ("<script>\n  let count = 0;\n</script>\n<!-- hi -->\n<button on:click={() => count++}>{count}</button>\n", ["comment", "tag"]),
         "scss": ("// hi\n$color: red;\n.a { .b { color: $color; } }\n", ["comment", "property"]),
         "tsx": ("// hi\nconst App = () => <div className=\"a\">{1}</div>;\n", ["comment", "keyword", "tag", "string"]),
+        "vue": ("<template>\n  <!-- hi -->\n  <div class=\"a\">{{ count }}</div>\n</template>\n", ["comment", "tag", "attribute"]),
+        "markdown_inline": ("Some *emphasis*, `code` and [a link](https://example.com).", ["emphasis", "text", "link_text", "link_uri"]),
     ]
 
     @Test(arguments: GrammarSource.all.map(\.name))
     func installsAndHighlights(_ name: String) throws {
         let source = try #require(GrammarSource.all.first { $0.name == name })
-        let grammar = try Self.store.installed(name).flatMap { $0.commit == source.commit ? $0 : nil } ?? Self.store.install(source)
+        let grammar = try Self.store.installed(name).flatMap { $0.isCurrent(source) ? $0 : nil } ?? Self.store.install(source)
         let pointer = try #require(GrammarLibraries.language(grammar), "\(name): no tree_sitter_\(name) in \(grammar.library)")
         let language = Language(language: pointer)
         let query = try Query(language: language, data: Data(contentsOf: URL(fileURLWithPath: grammar.highlights)))
+        // Where it embeds other languages (D69): the query has to fit the grammar too.
+        if let injections = grammar.injections {
+            _ = try Query(language: language, data: Data(contentsOf: URL(fileURLWithPath: injections)))
+        }
+        if name == "vue" { #expect(grammar.injections != nil) }
         let sample = try #require(Self.samples[name])
         let parser = Parser()
         try parser.setLanguage(language)

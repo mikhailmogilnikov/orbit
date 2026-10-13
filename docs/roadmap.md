@@ -127,13 +127,15 @@
   "Quick Fix…" in it (D66); only applicable code actions are listed
 - Language-server tests against real servers (D55): Swift, TypeScript 7 / 5 /
   without a project install; `make test-languages`, also on Linux (`scripts/linux-swift.sh`)
+- Inlay hints from the language server (D70); embedded languages colored by
+  their own grammar: HTML/Vue script and style, Markdown code blocks and
+  inline text, CSS in tagged templates (D69)
 
 ## Next (rough priority)
-1. LSP, next steps (D54): inlay hints; injections for embedded languages
-2. Own extension registry (GitHub repo with `index.json`, PR to publish) for
+1. Own extension registry (GitHub repo with `index.json`, PR to publish) for
    extensions Zed's catalog can't carry (languages, agents, code plugins)
-3. Code plugins in TypeScript via JavaScriptCore, same package format
-4. Release build, notarization, Sparkle updates
+2. Code plugins in TypeScript via JavaScriptCore, same package format
+3. Release build, notarization, Sparkle updates
 
 ## Not implemented yet
 Everything below is known to be missing; nothing here is in progress.
@@ -141,7 +143,8 @@ Everything below is known to be missing; nothing here is in progress.
 **Language features (LSP)**
 - An outline panel (symbols are only in the ⇧⌘O picker); a peek view for
   references (they go to the References panel)
-- Inlay hints, code lens, semantic tokens, folding and selection ranges
+- Code lens, semantic tokens, folding and selection ranges; inlay hints
+  can't be clicked, double-clicked to insert or hovered for their tooltip
 - Call / type hierarchy, linked editing (renaming an HTML tag's pair)
 - Other companions (Stylelint, Biome's server, Prettier's lint); companions
   and project roots are picked per file when it opens (a dependency or
@@ -174,7 +177,9 @@ Everything below is known to be missing; nothing here is in progress.
   editor or agent options yet)
 
 **Editor**
-- Tree-sitter injections (CSS / JS inside HTML, Svelte, Vue, Markdown code blocks)
+- Combined injections (PHP's HTML as one document, `injection.combined`):
+  each piece is parsed on its own; embedded languages in read-only views
+  (diffs, agent transcripts) aren't colored
 - Completion placeholders drawn as tokens (they're only selected)
 - Squiggles that follow edits before the server republishes
 
@@ -184,6 +189,9 @@ Everything below is known to be missing; nothing here is in progress.
 - Find in terminal, a terminal font size of its own
 
 ## Known gaps / to verify
+- Inlay hints and embedded languages (D69, D70): unverified on a Mac (label
+  placement and caret around them, colors in Markdown, Vue and HTML files;
+  the first Markdown file installs the inline grammar).
 - Companions (D64): ESLint and Tailwind run for real in the install tests;
   in the app (status bar names, merged completion with Tailwind's long
   class lists, the install banner) unverified on a Mac. Vue and Astro files
@@ -211,8 +219,7 @@ Everything below is known to be missing; nothing here is in progress.
 - The Swift cross-file rename in `make test-languages` fails now and then
   (sourcekit-lsp's index not ready yet); passes on a rerun.
 - Grammars (D58): compiling needs Xcode's command line tools and network on
-  first open; a failed build isn't retried until restart. No injections
-  (CSS/JS inside Svelte/HTML stay plain). Release builds with hardened
+  first open; a failed build isn't retried until restart. Release builds with hardened
   runtime will need `com.apple.security.cs.disable-library-validation`.
 - Language installs (D57): every server installs and reports a problem in
   the Linux tests; the Settings page and status-bar button are unverified on a

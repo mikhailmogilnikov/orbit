@@ -52,8 +52,7 @@ struct TextEdit: Sendable, Equatable {
     }
 }
 
-/// A run of text colored by one highlight capture (`capture` is the query's
-/// capture index + 1).
+/// A run of text colored by one highlight capture (its id in `CaptureTable`).
 struct HighlightSpan: Sendable, Equatable {
     var start: Int
     var end: Int
@@ -240,6 +239,9 @@ final class HighlightWorker: @unchecked Sendable {
         let queries: LanguageQueries
         /// Where its text is in the document.
         var range: NSRange
+        /// The whole injection match (a fence with its language line): an edit
+        /// there may end the layer without touching its text.
+        var anchor: NSRange
         /// 1 for what the file embeds, 2 for what that embeds…
         let depth: Int
         var tree: MutableTree?
@@ -250,6 +252,18 @@ final class HighlightWorker: @unchecked Sendable {
         var isEdited = false
 
         var key: String { "\(queries.grammar.key)@\(range.location)" }
+        /// What an edit must touch to look for it again.
+        var extent: Range<Int> {
+            let whole = NSUnionRange(range, anchor)
+            return whole.location..<max(whole.location + 1, NSMaxRange(whole))
+        }
+    }
+
+    /// Where a tree embeds a language, in document offsets.
+    private struct Injection {
+        var name: String
+        var range: NSRange
+        var anchor: NSRange
     }
 
     private let inbox = Mutex(Inbox())
@@ -281,6 +295,8 @@ final class HighlightWorker: @unchecked Sendable {
     /// Embedded in embedded in embedded, at most (HTML in Markdown's text in a doc comment…).
     private static let maxDepth = 3
     private static let maxLayers = 5000
+    /// Layers up to this long are parsed from scratch after an edit.
+    private static let freshParseLength = 16 * 1024
 
     /// `notify` is called on any thread whenever patches are ready.
     init?(grammar: Grammar, theme: ColorTheme, notify: @escaping @Sendable () -> Void) {
@@ -446,6 +462,8 @@ final class HighlightWorker: @unchecked Sendable {
 
     /// Layers after the edit move; one it lands inside takes it into its tree.
     private func apply(_ edit: TextEdit, to layer: inout Layer, snapshot: TextSnapshot) {
+        let anchorLower = edit.map(layer.anchor.location)
+        layer.anchor = NSRange(location: anchorLower, length: max(0, edit.map(NSMaxRange(layer.anchor)) - anchorLower))
         let lower = layer.range.location, upper = NSMaxRange(layer.range)
         let editEnd = NSMaxRange(edit.range)
         if editEnd < lower {
@@ -482,7 +500,9 @@ final class HighlightWorker: @unchecked Sendable {
         let newTree = Self.parse(text.string, with: parser, old: tree)
         if let oldTree = tree, let newTree {
             let length = text.length
-            for changed in newTree.changedRanges(from: oldTree) {
+            // SwiftTreeSitter passes the receiver as tree-sitter's *old* tree;
+            // called on the new one, structural changes (a fence closed) went unseen.
+            for changed in oldTree.changedRanges(from: newTree) {
                 let lower = Int(changed.bytes.lowerBound) / 2, upper = min(Int(changed.bytes.upperBound) / 2, length)
                 if upper > lower {
                     invalid.insert(integersIn: lower..<upper)
@@ -517,14 +537,13 @@ final class HighlightWorker: @unchecked Sendable {
 
         // A layer the change touches is looked for whole, with what it embeds.
         var dirty = injectionsDirty
-        for layer in layers where layer.depth == 1 && (layer.isEdited || dirty.intersects(integersIn: Range(layer.range) ?? 0..<0)) {
-            dirty.insert(integersIn: layer.range.location..<max(layer.range.location + 1, NSMaxRange(layer.range)))
+        for layer in layers where layer.depth == 1 && (layer.isEdited || dirty.intersects(integersIn: layer.extent)) {
+            dirty.insert(integersIn: layer.extent)
         }
         var kept: [Layer] = []
         var reusable: [String: Layer] = [:]
         for layer in layers {
-            let range = layer.range.location..<max(layer.range.location + 1, NSMaxRange(layer.range))
-            if layer.isEdited || dirty.intersects(integersIn: range) {
+            if layer.isEdited || dirty.intersects(integersIn: layer.extent) {
                 reusable[layer.key] = layer
             } else {
                 kept.append(layer)
@@ -532,20 +551,23 @@ final class HighlightWorker: @unchecked Sendable {
         }
 
         var added: [Layer] = []
+        /// Everything looked for again, found with a grammar or not.
+        var refound: [(depth: Int, range: NSRange)] = []
         var found = Self.injections(in: tree, queries: host, text: text.string, base: 0, within: dirty)
         var depth = 1
         while !found.isEmpty, depth <= Self.maxDepth {
-            var deeper: [(String, NSRange)] = []
+            var deeper: [Injection] = []
             var seen = Set<String>()
-            for (name, range) in found where range.length > 0 && kept.count + added.count < Self.maxLayers {
-                guard let grammar = Grammar.named(name) else {
-                    if let source = GrammarSource.source(named: Grammar.injectionKey(name)) {
-                        _ = missing.withLock { $0.insert(source.name) }
-                    }
-                    continue
+            for injection in found where kept.count + added.count < Self.maxLayers {
+                let range = injection.range
+                refound.append((depth, range))
+                if let source = Grammar.sourceToInstall(named: injection.name) {
+                    _ = missing.withLock { $0.insert(source.name) }
                 }
-                guard let queries = HighlightQueries.queries(for: grammar), seen.insert("\(grammar.key)@\(range.location)").inserted,
-                      var layer = layer(for: queries, range: range, depth: depth, reusing: reusable.removeValue(forKey: "\(grammar.key)@\(range.location)"))
+                guard let grammar = Grammar.named(injection.name) else { continue }
+                let key = "\(grammar.key)@\(range.location)"
+                guard let queries = HighlightQueries.queries(for: grammar), seen.insert(key).inserted,
+                      var layer = layer(for: queries, injection: injection, depth: depth, reusing: reusable.removeValue(forKey: key))
                 else { continue }
                 layer.isEdited = false
                 added.append(layer)
@@ -556,15 +578,24 @@ final class HighlightWorker: @unchecked Sendable {
             found = deeper
             depth += 1
         }
+        // An injection found again replaces what was there: changed ranges miss
+        // some merges (two paragraphs becoming one), and a fence's language
+        // can change while its code doesn't.
+        kept.removeAll { old in
+            let covered = refound.contains { $0.depth <= old.depth && NSIntersectionRange($0.range, old.range).length > 0 }
+            if covered { reusable[old.key + "#covered"] = old }
+            return covered
+        }
         for layer in reusable.values { invalid.insert(integersIn: Range(layer.range) ?? 0..<0) }
         layers = (kept + added).sorted { ($0.depth, $0.range.location) < ($1.depth, $1.range.location) }
     }
 
     /// A parsed layer, from the old one when it's the same language at the same place.
-    private func layer(for queries: LanguageQueries, range: NSRange, depth: Int, reusing old: Layer?) -> Layer? {
+    private func layer(for queries: LanguageQueries, injection: Injection, depth: Int, reusing old: Layer?) -> Layer? {
+        let range = injection.range
         guard NSMaxRange(range) <= text.length else { return nil }
         if var old, old.range == range, !old.isEdited, old.tree != nil {
-            old.isEdited = false
+            old.anchor = injection.anchor
             return old
         }
         let parser = parsers[queries.grammar.key] ?? {
@@ -574,29 +605,32 @@ final class HighlightWorker: @unchecked Sendable {
             return parser
         }()
         let string = text.string.substring(with: range) as NSString
-        let oldTree = old?.range.length == range.length ? old?.tree : nil
+        // Small layers are parsed afresh: Markdown's inline grammar, parsed
+        // incrementally, ends up with a different tree than a fresh parse in
+        // about half of random edit runs, and a paragraph takes no time to parse.
+        let oldTree = old?.range.length == range.length && range.length > Self.freshParseLength ? old?.tree : nil
         guard let tree = Self.parse(string, with: parser, old: oldTree) else { return nil }
         if let oldTree {
-            for changed in tree.changedRanges(from: oldTree) {
+            for changed in oldTree.changedRanges(from: tree) {
                 let lower = Int(changed.bytes.lowerBound) / 2, upper = min(Int(changed.bytes.upperBound) / 2, range.length)
                 if upper > lower { invalid.insert(integersIn: (range.location + lower)..<(range.location + upper)) }
             }
         } else {
             invalid.insert(integersIn: Range(range) ?? 0..<0)
         }
-        return Layer(queries: queries, range: range, depth: depth, tree: tree, text: string, lineStarts: LineStarts.of(string))
+        return Layer(queries: queries, range: range, anchor: injection.anchor, depth: depth, tree: tree, text: string, lineStarts: LineStarts.of(string))
     }
 
-    /// What a tree embeds, as (language name, document range). Zed's queries
+    /// What a tree embeds. Zed's queries
     /// (`@content`, `@language`, `#set! language`) and nvim's (`@injection.*`)
     /// both work; `#offset!` trims the content (a template's backticks).
-    private static func injections(in tree: MutableTree, queries: LanguageQueries, text: NSString, base: Int, within: IndexSet?) -> [(String, NSRange)] {
+    private static func injections(in tree: MutableTree, queries: LanguageQueries, text: NSString, base: Int, within: IndexSet?) -> [Injection] {
         guard let query = queries.injections, let root = tree.rootNode else { return [] }
-        let provider: Predicate.TextProvider = { range, _ in
+        let provider: SwiftTreeSitter.Predicate.TextProvider = { range, _ in
             NSMaxRange(range) <= text.length ? text.substring(with: range) : nil
         }
-        let runs = within.map { $0.rangeView.map { NSRange(location: $0.lowerBound - base, length: $0.count) } } ?? [nil]
-        var result: [(String, NSRange)] = []
+        let runs: [NSRange?] = within.map { $0.rangeView.map { NSRange(location: $0.lowerBound - base, length: $0.count) } } ?? [nil]
+        var result: [Injection] = []
         var seen = Set<NSRange>()
         for run in runs {
             let cursor = query.execute(node: root, in: tree)
@@ -616,7 +650,12 @@ final class HighlightWorker: @unchecked Sendable {
                     range = NSRange(location: range.location + start, length: max(0, range.length - start + end))
                 }
                 guard range.length > 0, seen.insert(range).inserted else { continue }
-                result.append((name, NSRange(location: range.location + base, length: range.length)))
+                let anchor = match.range.map { NSUnionRange($0, range) } ?? range
+                result.append(Injection(
+                    name: name,
+                    range: NSRange(location: range.location + base, length: range.length),
+                    anchor: NSRange(location: anchor.location + base, length: anchor.length)
+                ))
             }
         }
         return result

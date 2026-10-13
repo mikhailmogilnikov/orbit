@@ -78,6 +78,8 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D66. Fixes in the hover card; ⌥Esc opens completion
 - D67. Features are found in a right-click menu, and their shortcuts are taught
 - D68. The hover card sits over the line, as in VS Code
+- D69. Embedded languages are layers parsed by the highlight worker
+- D70. Inlay hints are room in the text plus labels over it
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -1275,4 +1277,60 @@ bar of fixes and "Quick Fix… ⇧⌘A" on a faint fill, the server's symbol inf
 then the keys. Taller than 420 pt it scrolls. It closes when the caret moves,
 on typing or scrolling, and when the pointer leaves it for anywhere but the
 word; clicked into, it takes keys so its text can be copied.
+
+### D69. Embedded languages are layers parsed by the highlight worker
+
+CSS and JS inside HTML and Vue, code blocks and inline text in Markdown,
+CSS in `css`/`styled.x` tagged templates are colored by their own grammar,
+the way Zed's syntax map does it. The highlight worker (D48) keeps, beside
+the file's tree, a list of layers: an embedded language's piece of the text
+with its own tree, up to three levels deep (HTML in a Markdown paragraph in
+a doc comment). Each layer's captures paint over the file's; `@none`
+(Markdown's code block contents) clears the file's color under it. Capture
+names of every language share one numbering (`CaptureTable`), so the
+main-thread highlight cache and painting didn't change.
+
+- Where to look: the grammar's `injections.scm` (installed grammars fetch it
+  next to `highlights.scm`; the install layout went to 2, so older installs
+  are redone once); the built-in grammars get a few patterns of ours
+  (`BuiltinInjections`) since the bundled files aren't reachable and nvim's
+  need predicates we don't run. Both Zed's (`@content`, `@language`) and
+  nvim's (`@injection.*`) names work; `#offset!` trims template backticks.
+- A language is found by the name the file gives it: a fence's info string
+  (`js`, `TypeScript`, `{.python}`), `#set!`'s value, Vue's `lang`. Aliases
+  map to a file extension; an installable grammar that's missing is
+  installed in the background (Markdown's inline grammar on the first
+  Markdown file), then the layers are looked for again.
+- After an edit only the changed text is searched again: the edit's lines
+  and tree-sitter's changed ranges, widened to whole top-level layers and to
+  each layer's whole match (a fence with its language line). Layers
+  elsewhere keep their trees; one found again replaces what overlapped it.
+- Small layers (≤ 16 KB) are parsed afresh after an edit: Markdown's inline
+  grammar parsed incrementally ends up with a different tree than a fresh
+  parse in about half of random edit runs. Bigger ones (a long `<script>`)
+  are parsed incrementally.
+- SwiftTreeSitter's `changedRanges(from:)` takes the receiver as the *old*
+  tree; calling it on the new one (as the file's own reparse did since D48)
+  missed structural changes such as a fence closing.
+- Checked against a fresh highlight after thousands of random edits on
+  Linux (HTML, JS, CSS and Markdown grammars from upstream standing in for
+  the bundled ones, plus Vue and Markdown inline); unverified on a Mac.
+
+### D70. Inlay hints are room in the text plus labels over it
+
+Types and parameter names from the server (`textDocument/inlayHint`) are
+shown between characters, on by default (Settings → Editor, and a command).
+The text isn't touched: the room for a label is a `.kern` on the character
+before it, a text-storage attribute like the inline diff's gaps (D24), so
+it's not in the text, undo or the file; the label is a small view in that
+room, on a capsule in the theme's hint colors, made only for the viewport.
+
+- Hints are fetched for the viewport and a screen around it, again after
+  typing pauses and on the server's `workspace/inlayHint/refresh`. Until
+  fresh ones arrive, edits move the old ones with the text.
+- TextKit 2 splits a kern in half around the caret position but draws the
+  next glyph after all of it; the label is placed from the glyph, not the
+  caret rect.
+- The server side runs in `make test-languages` (Swift, TypeScript); the
+  drawing is unverified on a Mac.
 

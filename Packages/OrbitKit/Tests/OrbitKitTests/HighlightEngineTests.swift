@@ -89,6 +89,55 @@ import Testing
         #expect(Self.merged(cache.spans.spans) == Self.merged(freshCache.spans.spans))
     }
 
+    /// Embedded languages (D69): a fence's code is colored by its language, and
+    /// edits that open, close or retag fences end where a fresh highlight does.
+    @MainActor
+    @Test func embeddedLanguagesFollowEdits() throws {
+        let theme = Extensions.shared.colorTheme(dark: false)
+        func make() throws -> HighlightWorker {
+            try #require(HighlightWorker(grammar: .builtin(.markdown), theme: theme, notify: {}))
+        }
+        func fresh(_ text: String) throws -> HighlightCache {
+            let worker = try make()
+            var cache = HighlightCache()
+            worker.reset(TextSnapshot(string: text as NSString), version: 0)
+            worker.waitUntilIdle()
+            _ = cache.apply(worker.takePatches())
+            return cache
+        }
+
+        var text = "# Title\n\nSome *text*.\n\n```js\nconst answer = 42\n```\n\n<style>\na { color: red; }\n</style>\n"
+        let names = { CaptureTable.names(from: 0) }
+        let first = try fresh(text)
+        let constant = (text as NSString).range(of: "const")
+        let captures = first.spans.spans.filter { $0.start <= constant.location && $0.end > constant.location }.map { names()[Int($0.capture)] }
+        #expect(captures.contains { $0.hasPrefix("keyword") }, "\(captures)")
+
+        let worker = try make()
+        var cache = HighlightCache()
+        worker.reset(TextSnapshot(string: text as NSString), version: cache.version)
+        worker.waitUntilIdle()
+        _ = cache.apply(worker.takePatches())
+        var generator = SeededGenerator(seed: 11)
+        let pieces = ["```", "js\n", "```css\n", "*", "`", "\n", "<style>", "a { color: red }", "</style>", "const x = 1", "", "\n\n", "# "]
+        for step in 0..<300 {
+            let string = text as NSString
+            let location = Int.random(in: 0...string.length, using: &generator)
+            let length = Int.random(in: 0...min(8, string.length - location), using: &generator)
+            let insert = pieces.randomElement(using: &generator)! as NSString
+            text = string.replacingCharacters(in: NSRange(location: location, length: length), with: insert as String)
+            let version = cache.apply(TextEdit(range: NSRange(location: location, length: length), newLength: insert.length))
+            worker.setFocus(NSRange(location: max(0, location - 300), length: 600))
+            worker.edit(TextEdit(range: NSRange(location: location, length: length), newLength: insert.length),
+                        snapshot: TextSnapshot(string: text as NSString), version: version)
+            if step % 4 == 0 { worker.waitUntilIdle() }
+            _ = cache.apply(worker.takePatches())
+        }
+        worker.waitUntilIdle()
+        _ = cache.apply(worker.takePatches())
+        #expect(Self.merged(cache.spans.spans) == Self.merged(try fresh(text).spans.spans))
+    }
+
     /// Neighbors with the same capture look the same; edits and patch edges may leave them split.
     static func merged(_ spans: [HighlightSpan]) -> [HighlightSpan] {
         var result: [HighlightSpan] = []
