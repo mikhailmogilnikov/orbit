@@ -247,6 +247,31 @@ final class SyntaxHighlightCoordinator {
             }
         }
         painted.formUnion(todo)
+        redraw(todo)
+    }
+
+    /// STTextView redraws a line only when its layout changes, so new colors for
+    /// lines already drawn (the first parse landing after the first frame) stay
+    /// invisible until a scroll or a keystroke. Mark those lines dirty.
+    private func redraw(_ set: IndexSet) {
+        guard let textView, let first = set.first, let last = set.last else { return }
+        let manager = textView.textContentManager
+        guard let start = NSTextRange(NSRange(location: first, length: 0), in: manager)?.location else { return }
+        var dirty = NSRect.null
+        textView.textLayoutManager.enumerateTextLayoutFragments(from: start, options: []) { fragment in
+            guard NSRange(fragment.rangeInElement, in: manager).location <= last else { return false }
+            dirty = dirty.union(fragment.layoutFragmentFrame)
+            return true
+        }
+        guard !dirty.isNull else { return }
+        // Line views live a couple of levels down, in internal STTextView containers.
+        func mark(_ view: NSView, depth: Int) {
+            for subview in view.subviews where subview.convert(subview.bounds, to: textView).intersects(dirty) {
+                subview.needsDisplay = true
+                if depth < 3 { mark(subview, depth: depth + 1) }
+            }
+        }
+        mark(textView, depth: 0)
     }
 
     /// Fonts for the rest of the document, a chunk per pass once typing pauses,

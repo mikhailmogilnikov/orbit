@@ -68,6 +68,12 @@ TextKit 2 throws on `addRenderingAttribute` for an empty range — opening any
 `.md` file or typing a `"` crashed the app. Our copy skips empty/stale ranges
 and keeps the editor's font size (the upstream plugin reset it to 13pt).
 
+Colors are TextKit 2 rendering attributes set on the layout manager, and
+STTextView redraws a line view only when its layout changes. So after each
+paint the coordinator marks the painted lines' views dirty: otherwise a first
+parse landing after the first frame (a busy open: a language server starting,
+a grammar loading) left the file uncolored until a scroll or a keystroke.
+
 ### D15. One brand mark, shared by the icon and the UI
 The glyph lives in `App/AppIcon.icon/Assets/orbit-mark.svg`; a copy with the
 viewBox cropped to the glyph is `OrbitUI/Resources/OrbitMark.svg`, exposed as
