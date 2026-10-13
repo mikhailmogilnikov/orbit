@@ -21,5 +21,7 @@ test:
 release:
 	$(MAKE) build CONFIG=Release
 
+# Also the package's own build: it can keep a stale file list after new
+# source files arrive (types in new files "not found" by swift test).
 clean:
-	rm -rf $(DERIVED) Orbit.xcodeproj
+	rm -rf $(DERIVED) Orbit.xcodeproj Packages/OrbitKit/.build/out
