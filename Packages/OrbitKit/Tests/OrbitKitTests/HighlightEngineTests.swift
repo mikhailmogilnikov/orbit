@@ -95,7 +95,9 @@ import Testing
     @Test func embeddedLanguagesFollowEdits() throws {
         let theme = Extensions.shared.colorTheme(dark: false)
         func make() throws -> HighlightWorker {
-            try #require(HighlightWorker(grammar: .builtin(.markdown), theme: theme, notify: {}))
+            // Outside #require: its expansion can't take the non-Sendable closure literal.
+            let worker = HighlightWorker(grammar: .builtin(.markdown), theme: theme, notify: {})
+            return try #require(worker)
         }
         func fresh(_ text: String) throws -> HighlightCache {
             let worker = try make()
