@@ -117,11 +117,59 @@
 4. Code plugins in TypeScript via JavaScriptCore, same package format
 5. Release build, notarization, Sparkle updates
 
+## Not implemented yet
+Everything below is known to be missing; nothing here is in progress.
+
+**Language features (LSP)**
+- Find references, document symbols (outline, ⌘⇧O), workspace symbols
+- Inlay hints, code lens, semantic tokens, document highlights (other uses
+  of the symbol under the caret), folding and selection ranges
+- Call / type hierarchy, linked editing (renaming an HTML tag's pair)
+- Several servers per file (ESLint, Tailwind CSS alongside TypeScript)
+- Server settings: `workspace/configuration` is answered with `{}`; no way
+  to pass a server options, globally or per project
+- Diagnostics for files that aren't open (workspace / pull diagnostics for
+  the whole project); the Problems panel lists open files only
+- File operations in workspace edits (create / rename / delete files from a
+  rename or a code action); rename has no preview of the files it touches
+- Code actions on save (organize imports, ESLint fixes after Prettier formats)
+- Servers for Kotlin, Java, C#, Elixir, Dart and others not in the table;
+  RubyGems / NuGet / opam packages can't be installed (D57)
+
+**Formatting**
+- Format selection / range and format on type
+- Running more than one tool in a row (Prettier, then ESLint fixes); ESLint
+  is only used when nothing else formats the file
+- Presets for languages Orbit has no server for (ktfmt / ktlint,
+  google-java-format, `mix format`, `dart format`, CSharpier, nixfmt,
+  sqlfluff); they work only as custom commands in `.orbit/settings.json`
+- Global formatter installs for Node tools (only the repo's `node_modules`
+  copy is used, on purpose); Pint and PHP CS Fixer don't use their cache
+- Rules can't be edited in Settings, only in the JSON file; the Formatting
+  section refreshes when Settings opens, not when the files change
+- `.orbit/settings.json` holds only `formatters` so far
+
+**Editor**
+- Tree-sitter injections (CSS / JS inside HTML, Svelte, Vue, Markdown code blocks)
+- Completion placeholders drawn as tokens (they're only selected)
+- Squiggles that follow edits before the server republishes
+
+**Git and terminal**
+- Side-by-side diffs, branch graph and history search, other branches'
+  history, per-line blame annotations
+- Find in terminal, a terminal font size of its own
+
 ## Known gaps / to verify
 - Code actions / rename / formatting (D59): editor side unverified on a Mac
-- Formatting section in Settings → Languages and the format alerts (D61): unverified on a Mac
   (menu placement, rename field, undo). File operations in edits (create,
   rename files) are skipped.
+- Formatting (D60, D61): the Formatting section in Settings → Languages, the
+  corner note after ⌃⇧I and the failure alerts are unverified on a Mac; every
+  formatter itself runs for real in the Linux install tests.
+- Highlighting appearing only after a scroll or a keystroke on open: fixed by
+  redrawing painted lines (D14 addendum), unverified on a Mac.
+- The Swift cross-file rename in `make test-languages` fails now and then
+  (sourcekit-lsp's index not ready yet); passes on a rerun.
 - Grammars (D58): compiling needs Xcode's command line tools and network on
   first open; a failed build isn't retried until restart. No injections
   (CSS/JS inside Svelte/HTML stay plain). Release builds with hardened
