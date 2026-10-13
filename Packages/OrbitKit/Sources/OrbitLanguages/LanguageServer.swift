@@ -19,6 +19,8 @@ final class LanguageServer {
     /// What the server has of each open file: its version and text.
     @ObservationIgnored private var documents: [URL: (version: Int, text: String)] = [:]
     @ObservationIgnored private var incremental = true
+    /// The server answers `textDocument/diagnostic` instead of pushing (TypeScript 7).
+    @ObservationIgnored private var pullsDiagnostics = false
     @ObservationIgnored private var isShuttingDown = false
 
     init(config: LanguageServerConfig, root: URL) {
@@ -54,7 +56,13 @@ final class LanguageServer {
             onNotification: { [weak self] method, params in
                 Task { @MainActor in self?.handleNotification(method, params) }
             },
-            onRequest: { method, params in try Self.answer(method, params, root: root) },
+            onRequest: { [weak self] method, params in
+                if method == "workspace/diagnostic/refresh" {
+                    Task { @MainActor in self?.pullAllDiagnostics() }
+                    return .null
+                }
+                return try Self.answer(method, params, root: root)
+            },
             onExit: { [weak self] status, stderr in
                 Task { @MainActor in self?.didExit(status: status, stderr: stderr) }
             }
@@ -66,6 +74,7 @@ final class LanguageServer {
             // `change`: 1 full text, 2 incremental (an object or a bare number).
             let sync = result["capabilities"]?["textDocumentSync"]
             incremental = (sync?["change"]?.int ?? sync?.int ?? 2) == 2
+            pullsDiagnostics = result["capabilities"]?["diagnosticProvider"].map { !$0.isNull } ?? false
             connection.notify("initialized")
             state = .running
             return true
@@ -91,6 +100,7 @@ final class LanguageServer {
                 "textDocument": [
                     "synchronization": ["dynamicRegistration": false],
                     "publishDiagnostics": ["relatedInformation": false],
+                    "diagnostic": ["dynamicRegistration": false, "relatedDocumentSupport": false],
                     "hover": ["contentFormat": ["markdown", "plaintext"]],
                     "definition": ["linkSupport": true],
                 ],
@@ -168,6 +178,7 @@ final class LanguageServer {
             connection.notify("textDocument/didOpen", ["textDocument": [
                 "uri": identifier, "languageId": .string(config.languageID(for: url)), "version": 1, "text": .string(text),
             ]])
+            pullDiagnostics(for: url)
             return
         }
         guard current.text != text else { return }
@@ -183,6 +194,25 @@ final class LanguageServer {
             "textDocument": ["uri": identifier, "version": .number(Double(version))],
             "contentChanges": [change],
         ])
+        pullDiagnostics(for: url)
+    }
+
+    /// Asks for a file's problems; an answer for an older version is dropped.
+    private func pullDiagnostics(for url: URL) {
+        guard pullsDiagnostics, let connection, let version = documents[url]?.version else { return }
+        Task { [weak self] in
+            guard let result = try? await connection.request("textDocument/diagnostic", ["textDocument": ["uri": .string(url.absoluteString)]]),
+                  let self, documents[url]?.version == version else { return }
+            // "unchanged" keeps what we have.
+            guard result["kind"]?.string == "full" else { return }
+            let parsed = (result["items"]?.array ?? []).compactMap(Self.diagnostic)
+            if diagnostics[url] != parsed { diagnostics[url] = parsed }
+        }
+    }
+
+    /// The server's view changed (a config or another file): ask again for every open file.
+    private func pullAllDiagnostics() {
+        for url in documents.keys { pullDiagnostics(for: url) }
     }
 
     func close(_ url: URL) {

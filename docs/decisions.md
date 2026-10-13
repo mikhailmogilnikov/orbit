@@ -695,3 +695,13 @@ theme's `error` / `warning` / `info`; hover is an `NSPopover` with the
 problems and the server's markdown; ⌘-click and ⌃⌘J (Xcode's Jump to
 Definition) open the definition; ⌘' (Xcode's Next Issue) walks problems. The
 status bar shows the active file's server and its error/warning counts.
+
+Amendment (TypeScript 7): TypeScript 7 is the native compiler and has no
+`tsserver.js`, so typescript-language-server can't run on it; its own `tsc
+--lsp --stdio` is the server. The project's TypeScript decides: 7+ runs its
+`node_modules/.bin/tsc --lsp --stdio`, older ones go through
+typescript-language-server (project, global, then npx), and a project without
+TypeScript gets `npx -p typescript tsc --lsp --stdio`. TypeScript 7 doesn't
+push diagnostics; it answers LSP 3.17's `textDocument/diagnostic`. The client
+pulls after every open/change when a server advertises `diagnosticProvider`
+(dropping answers for older versions) and again on `workspace/diagnostic/refresh`.

@@ -39,29 +39,39 @@ struct LanguageServerConfig: Sendable {
         missing: "Install Xcode or a Swift toolchain."
     )
 
-    /// typescript-language-server over tsserver: the project's own copy first,
-    /// then a global one, else npx fetches both packages (needs Node.js).
+    /// TypeScript 7 (the native compiler) is its own language server; older
+    /// versions go through typescript-language-server over their tsserver.
+    /// The project's TypeScript decides, so errors match its `tsc`.
     static let typescript = LanguageServerConfig(
-        id: "typescript-language-server",
+        id: "typescript",
         name: "TypeScript",
         languages: [
             "ts": "typescript", "mts": "typescript", "cts": "typescript", "tsx": "typescriptreact",
             "js": "javascript", "mjs": "javascript", "cjs": "javascript", "jsx": "javascriptreact",
         ],
         resolve: { root, environment in
-            let local = root.appendingPathComponent("node_modules/.bin/typescript-language-server").path
-            if FileManager.default.isExecutableFile(atPath: local) {
-                return AgentCommand(executable: local, arguments: ["--stdio"])
+            let manager = FileManager.default
+            let modules = root.appendingPathComponent("node_modules")
+            let projectTypeScript = modules.appendingPathComponent("typescript")
+            let hasTSServer = manager.fileExists(atPath: projectTypeScript.appendingPathComponent("lib/tsserver.js").path)
+            let localTSC = modules.appendingPathComponent(".bin/tsc").path
+            if manager.fileExists(atPath: projectTypeScript.path), !hasTSServer, manager.isExecutableFile(atPath: localTSC) {
+                return AgentCommand(executable: localTSC, arguments: ["--lsp", "--stdio"])
             }
-            if let global = Shell.which("typescript-language-server", in: environment) {
+            let localServer = modules.appendingPathComponent(".bin/typescript-language-server").path
+            if hasTSServer, manager.isExecutableFile(atPath: localServer) {
+                return AgentCommand(executable: localServer, arguments: ["--stdio"])
+            }
+            if hasTSServer, let global = Shell.which("typescript-language-server", in: environment) {
                 return AgentCommand(executable: global, arguments: ["--stdio"])
             }
-            if let npx = Shell.which("npx", in: environment) {
-                return AgentCommand(executable: npx, arguments: [
-                    "-y", "-p", "typescript-language-server", "-p", "typescript", "typescript-language-server", "--stdio",
-                ])
+            guard let npx = Shell.which("npx", in: environment) else { return nil }
+            if hasTSServer {
+                // Picks the project's TypeScript (5/6) up from the workspace.
+                return AgentCommand(executable: npx, arguments: ["-y", "typescript-language-server", "--stdio"])
             }
-            return nil
+            // No TypeScript in the project: the current one, native and fast.
+            return AgentCommand(executable: npx, arguments: ["-y", "-p", "typescript", "tsc", "--lsp", "--stdio"])
         },
         missing: "Install Node.js, or typescript-language-server in the project."
     )
