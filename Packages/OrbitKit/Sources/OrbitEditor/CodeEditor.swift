@@ -356,7 +356,7 @@ struct CodeEditor: NSViewRepresentable {
             let content = textView.contentFrame
             let local = CGPoint(x: point.x - content.minX, y: point.y - content.minY)
             guard let fragment = manager.textLayoutFragment(for: local),
-                  let location = manager.location(interactingAt: local, inContainerAt: fragment.rangeInElement.location) else { return nil }
+                  let location = manager.caretLocation(interactingAt: local, inContainerAt: fragment.rangeInElement.location) else { return nil }
             let offset = textView.textContentManager.offset(from: manager.documentRange.location, to: location)
             // The location snaps to the nearest caret spot: take the character actually under the point.
             for candidate in [offset, offset - 1] where candidate >= 0 && candidate < diagnosticsController.length {

@@ -71,7 +71,7 @@ final class AgentCompletionService: AgentCompletion {
 
         let replies = replies
         let directory = store.workspace.root ?? URL(fileURLWithPath: NSHomeDirectory())
-        let task = Task { [store] () throws -> WarmAgent in
+        let task = Task { [store, weak self] () throws -> WarmAgent in
             let environment = await store.environment()
             let client = try ACPClient(
                 command: provider.command,
@@ -96,7 +96,7 @@ final class AgentCompletionService: AgentCompletion {
                         throw JSONRPCError(code: -32601, message: "Not available in a read-only session: \(method)")
                     }
                 },
-                onExit: { [weak self] _, _ in
+                onExit: { _, _ in
                     Task { @MainActor in
                         if self?.warm?.providerID == provider.id { self?.warm = nil }
                     }

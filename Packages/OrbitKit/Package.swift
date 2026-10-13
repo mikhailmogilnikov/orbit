@@ -32,8 +32,6 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/krzyzanowskim/STTextView", from: "2.4.1"),
         .package(url: "https://github.com/krzyzanowskim/STTextView-Plugin-Neon", revision: "d568bf9"),
-        // Same pin as STTextView-Plugin-Neon, which still needs it.
-        .package(url: "https://github.com/kylemacomber/Neon", revision: "ce8d252"),
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", from: "0.9.0"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", "1.20.0"..<"1.99.0"),
     ],

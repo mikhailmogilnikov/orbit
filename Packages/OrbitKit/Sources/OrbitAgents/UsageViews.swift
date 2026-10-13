@@ -75,7 +75,7 @@ private struct UsagePopover: View {
                                 Text(limit.name).font(.system(size: 12))
                             }
                             if let resetsAt = limit.resetsAt {
-                                (Text("Resets ") + Text(resetsAt, format: .relative(presentation: .named)))
+                                Text("Resets \(Text(resetsAt, format: .relative(presentation: .named)))")
                                     .font(.system(size: 11))
                                     .foregroundStyle(limit.isExhausted ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
                             }
