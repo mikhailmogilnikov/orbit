@@ -56,6 +56,28 @@ struct LanguageServerIntegrationTests {
         #expect(server.state == .unavailable("Install the absent server."))
     }
 
+    /// macOS's SourceKit-LSP resolves the folder's own symlink but keeps
+    /// /var (not /private/var): any spelling of a file maps back under the folder.
+    @Test func serverPathsMapBackUnderTheFolderAsOpened() throws {
+        let manager = FileManager.default
+        let base = manager.temporaryDirectory.appendingPathComponent("orbit-lsp-\(UUID().uuidString)")
+        defer { try? manager.removeItem(at: base) }
+        let real = base.appendingPathComponent("disk/real")
+        try manager.createDirectory(at: real.appendingPathComponent("src"), withIntermediateDirectories: true)
+        try Data().write(to: real.appendingPathComponent("src/a.swift"))
+        try manager.createSymbolicLink(at: base.appendingPathComponent("var"), withDestinationURL: base.appendingPathComponent("disk"))
+        try manager.createSymbolicLink(at: real.deletingLastPathComponent().appendingPathComponent("project"), withDestinationURL: real)
+        let root = base.appendingPathComponent("var/project")
+        let server = LanguageServer(config: .swift, root: root)
+        let expected = root.appendingPathComponent("src/a.swift").standardizedFileURL
+
+        #expect(server.local(base.appendingPathComponent("var/real/src/a.swift")) == expected)
+        #expect(server.local(real.appendingPathComponent("src/a.swift")) == expected)
+        #expect(server.local(expected) == expected)
+        let outside = URL(fileURLWithPath: "/usr/include/stdio.h")
+        #expect(server.local(outside) == outside)
+    }
+
     // MARK: The scenario
 
     private func exercise(_ language: LanguageCase) async throws {

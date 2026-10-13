@@ -24,16 +24,13 @@ final class LanguageServer {
     @ObservationIgnored private var isShuttingDown = false
 
     /// The folder's real path when it was opened through a symlink (macOS's
-    /// /tmp, /var): some servers (SourceKit-LSP) answer with that one.
+    /// /tmp, /var): servers answer with that one, or half-resolved ones.
     @ObservationIgnored private let realRoot: String?
 
     init(config: LanguageServerConfig, root: URL) {
         self.config = config
         self.root = root
-        let real = realpath(root.path, nil).map { pointer in
-            defer { free(pointer) }
-            return String(cString: pointer)
-        }
+        let real = Self.realPath(root.path)
         realRoot = real == root.standardizedFileURL.path ? nil : real
     }
 
@@ -151,8 +148,14 @@ final class LanguageServer {
 
     /// A server's path as the editor knows the file: under the folder as opened.
     func local(_ url: URL) -> URL {
-        guard let realRoot, url.path.hasPrefix(realRoot + "/") else { return url }
-        return URL(fileURLWithPath: root.standardizedFileURL.path + url.path.dropFirst(realRoot.count)).standardizedFileURL
+        guard let realRoot, let real = Self.realPath(url.path), real.hasPrefix(realRoot + "/") else { return url }
+        return URL(fileURLWithPath: root.standardizedFileURL.path + real.dropFirst(realRoot.count)).standardizedFileURL
+    }
+
+    nonisolated static func realPath(_ path: String) -> String? {
+        guard let pointer = realpath(path, nil) else { return nil }
+        defer { free(pointer) }
+        return String(cString: pointer)
     }
 
     nonisolated static func diagnostic(_ value: JSONValue) -> Diagnostic? {
