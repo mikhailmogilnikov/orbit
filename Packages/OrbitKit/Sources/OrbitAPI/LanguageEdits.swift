@@ -30,6 +30,68 @@ extension SourceEdit {
     }
 }
 
+/// One text turned into another as a few line-block replacements: what a
+/// view applies instead of a server's hundreds of one-space formatting edits.
+public struct LinePatch: Sendable {
+    public struct Replacement: Sendable, Hashable {
+        /// In the text as it is when this replacement applies (earlier ones done).
+        public var range: NSRange
+        public var text: String
+    }
+
+    public let replacements: [Replacement]
+    private let oldStarts: [Int]
+    private let newStarts: [Int]
+    private let newLineLengths: [Int]
+    private let blocks: [(old: Range<Int>, new: Range<Int>)]
+
+    public init(from old: String, to new: String) {
+        let oldLines = LineDiff.lines(old), newLines = LineDiff.lines(new)
+        blocks = LineDiff.changeBlocks(oldLines: oldLines, newLines: newLines)
+        oldStarts = Self.offsets(oldLines)
+        newStarts = Self.offsets(newLines)
+        newLineLengths = newLines.map(\.utf16.count)
+        let newText = new as NSString
+        var delta = 0
+        var replacements: [Replacement] = []
+        for block in blocks {
+            let start = oldStarts[block.old.lowerBound], end = oldStarts[block.old.upperBound]
+            let text = newText.substring(with: NSRange(location: newStarts[block.new.lowerBound], length: newStarts[block.new.upperBound] - newStarts[block.new.lowerBound]))
+            replacements.append(Replacement(range: NSRange(location: start + delta, length: end - start), text: text))
+            delta += text.utf16.count - (end - start)
+        }
+        self.replacements = replacements
+    }
+
+    /// Where an offset in the old text lands: same line (moved by blocks above) and column.
+    public func map(_ offset: Int) -> Int {
+        let line = min(oldStarts.lastIndex { $0 <= offset } ?? 0, oldStarts.count - 2)
+        let column = offset - oldStarts[line]
+        var newLine = line
+        for block in blocks {
+            if line >= block.old.upperBound {
+                newLine += block.new.count - block.old.count
+            } else {
+                if block.old.contains(line) {
+                    newLine = block.new.lowerBound + min(line - block.old.lowerBound, max(0, block.new.count - 1))
+                }
+                break
+            }
+        }
+        newLine = min(max(0, newLine), newLineLengths.count - 1)
+        return newStarts[newLine] + min(column, newLineLengths[newLine])
+    }
+
+    /// Where each line starts (UTF-16), then the end; lines split on `\n`.
+    private static func offsets(_ lines: [String]) -> [Int] {
+        var offsets = [0]
+        offsets.reserveCapacity(lines.count + 1)
+        for line in lines { offsets.append(offsets[offsets.count - 1] + line.utf16.count + 1) }
+        offsets[offsets.count - 1] -= 1
+        return offsets
+    }
+}
+
 /// A fix or refactoring offered at a spot (⌘.).
 public struct CodeAction: Sendable, Hashable, Identifiable {
     /// Identifies the server's original action, for resolving and running it.

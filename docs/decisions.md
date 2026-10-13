@@ -837,6 +837,12 @@ keyword, string… captures.
 - Edits from any of these go through `SourceEditing`: files open in an
   editor change in the text view as one undo step with the caret kept;
   other files are edited and saved on disk.
+  Server edits are first applied to a copy of the text and replayed as a
+  few changed line blocks (`LinePatch`): TypeScript formats with hundreds of
+  one-space edits, and replacing them one by one in the view (each one
+  syncing the document, highlighting and squiggles) took seconds. Undo
+  restores the caret and scroll position from before the edit (an extra
+  undo action registered first in the group, so it runs last).
 - **Problems** (⇧⌘M): a bottom panel with every open file's errors and
   warnings, worst files first; a click opens the spot.
 

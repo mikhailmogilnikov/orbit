@@ -12,7 +12,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "OrbitACP"),
-        .target(name: "OrbitAPI", sources: ["LanguageIntelligence.swift", "Completion.swift", "Grammars.swift", "LanguageEdits.swift"]),
+        .target(name: "OrbitAPI", sources: ["LanguageIntelligence.swift", "Completion.swift", "Grammars.swift", "LanguageEdits.swift", "LineDiff.swift"]),
         .target(
             name: "OrbitLanguages",
             dependencies: ["OrbitAPI", "OrbitACP"],

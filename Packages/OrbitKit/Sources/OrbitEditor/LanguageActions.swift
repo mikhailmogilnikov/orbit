@@ -34,31 +34,41 @@ final class OpenEditors: SourceEditing {
 }
 
 extension CodeEditor.Coordinator {
-    /// Server edits (positions in the current text), last first, as one undo step.
+    /// Server edits (positions in the current text) as one undo step. Formatting
+    /// sends hundreds of one-space edits: they're turned into a few changed line
+    /// blocks first, so the view (highlighting, sync, squiggles) handles a
+    /// handful of replacements. Undo puts the caret back where it was.
     func applyEdits(_ edits: [SourceEdit]) {
-        guard let textView, let text = diagnosticsController.string, !edits.isEmpty else { return }
-        let starts = SourcePosition.lineStarts(of: text)
-        let length = text.length
-        let ranges = edits.map { ($0.range.nsRange(in: starts, length: length), $0.newText) }
-            .sorted { $0.0.location > $1.0.location }
-        var selection = textView.textSelection
-        textView.undoManager?.beginUndoGrouping()
+        guard let textView, let current = diagnosticsController.string, !edits.isEmpty else { return }
+        let old = current as String
+        let new = SourceEdit.apply(edits, to: old)
+        guard new != old else { return }
+        let patch = LinePatch(from: old, to: new)
+        let before = textView.textSelection
+        let caret = patch.map(before.location)
+        let undo = textView.undoManager
+        undo?.beginUndoGrouping()
+        // Registered first, so it runs last when undoing: after the text is back.
+        undo?.registerUndo(withTarget: self) { coordinator in
+            MainActor.assumeIsolated { coordinator.restoreCaret(before) }
+        }
         textView.breakUndoCoalescing()
         completion.whileApplying {
-            for (range, newText) in ranges {
-                textView.insertText(newText, replacementRange: range)
-                let delta = newText.utf16.count - range.length
-                if NSMaxRange(range) <= selection.location {
-                    selection.location += delta
-                } else if range.location < selection.location {
-                    // The caret was inside replaced text: put it after the replacement.
-                    selection = NSRange(location: range.location + newText.utf16.count, length: 0)
-                }
+            // In document order: each range is shifted by what came before.
+            for replacement in patch.replacements {
+                textView.insertText(replacement.text, replacementRange: replacement.range)
             }
         }
         textView.breakUndoCoalescing()
-        textView.undoManager?.endUndoGrouping()
-        textView.textSelection = NSRange(location: min(selection.location, diagnosticsController.length), length: 0)
+        undo?.endUndoGrouping()
+        textView.textSelection = NSRange(location: min(caret, diagnosticsController.length), length: 0)
+    }
+
+    private func restoreCaret(_ selection: NSRange) {
+        guard let textView else { return }
+        let clamped = NSRange(location: min(selection.location, diagnosticsController.length), length: 0)
+        textView.textSelection = clamped
+        textView.scrollRangeToVisible(clamped)
     }
 
     // MARK: Code actions (⇧⌘A)

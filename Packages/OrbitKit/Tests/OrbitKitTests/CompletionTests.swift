@@ -44,4 +44,28 @@ import Testing
         #expect(Snippet("price: \\$5 ${TM_SELECTED_TEXT}$1").text == "price: $5 ")
         #expect(Snippet("emoji 👋 ${1:x}").tabStops[0].range == NSRange(location: 9, length: 1))
     }
+
+    @Test func linePatchesReplayServerEdits() {
+        let old = "func  a( ) {\nreturn 1\n}\n\nlet keep = 2\nlet  x=1\n"
+        let new = "func a() {\n    return 1\n}\n\nlet keep = 2\nlet x = 1\n"
+        let patch = LinePatch(from: old, to: new)
+        #expect(patch.replacements.count == 2)
+        let result = NSMutableString(string: old)
+        for replacement in patch.replacements { result.replaceCharacters(in: replacement.range, with: replacement.text) }
+        #expect(result as String == new)
+        // A caret on an untouched line stays put; one in a changed block keeps its line and column.
+        let keep = (old as NSString).range(of: "keep").location
+        #expect(patch.map(keep) == (new as NSString).range(of: "keep").location)
+        let x = (old as NSString).range(of: "x=1").location
+        #expect(patch.map(x) == (new as NSString).range(of: "let x").location + 5)
+        #expect(patch.map((old as NSString).length) == (new as NSString).length)
+    }
+
+    @Test func linePatchesHandleInsertionsAndDeletions() {
+        for (old, new) in [("a\nb\n", "a\nx\ny\nb\n"), ("a\nx\ny\nb", "a\nb"), ("", "z\n"), ("same", "same")] {
+            let result = NSMutableString(string: old)
+            for replacement in LinePatch(from: old, to: new).replacements { result.replaceCharacters(in: replacement.range, with: replacement.text) }
+            #expect(result as String == new, "\(old.debugDescription) → \(new.debugDescription)")
+        }
+    }
 }
