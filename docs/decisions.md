@@ -916,3 +916,19 @@ server" (and "Formatting…" if it takes over 250 ms); a failure is an alert
 naming the formatter. `format` returns a `FormatOutcome` for it. External
 formatters run with their pipes read on dispatch threads (not blocking
 Swift's cooperative pool) and are killed after 15 s.
+
+Addendum: more presets. oxfmt and Deno (`deno.json`) for the web; ESLint
+(`--fix-dry-run --format json`, the fixed text is `output` in its report, a
+fatal message is a parse error); shfmt for shell; Standard Ruby and RuboCop
+(binstub, then `bundle exec` when `Gemfile.lock` has the gem, then `PATH`;
+exit 1 with offenses left is still a result, `Lint/Syntax` in their errors
+isn't); Pint and PHP CS Fixer from `vendor/bin`, run on a temporary copy
+with the file's name since neither reliably reads stdin (stdin is
+`/dev/null`, so a question gets no answer instead of hanging). Presets got
+a mode (stdin, ESLint report, temporary file), success exit codes and a
+trigger: ESLint is a fallback, picked only when no formatter is configured
+anywhere above the file (a repo with Prettier and ESLint formats with
+Prettier); shfmt has nothing to configure but `.editorconfig`, so being
+installed is enough, also only as a fallback. Prettier is also picked by
+being among `package.json`'s dependencies: its defaults are then the
+repo's style. Each one runs for real in the install tests.

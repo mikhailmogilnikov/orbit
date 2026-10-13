@@ -97,7 +97,7 @@
   Rust, Go, C/C++/ObjC, JSON, CSS, HTML, YAML, Shell, Markdown, TOML, Lua,
   Dockerfile, PHP, Zig, Svelte, Terraform, Ruby + Swift, TypeScript)
 - Code actions ⇧⌘A, rename ⌃⌘E, format ⌃⇧I / on save, Problems panel ⇧⌘M (D59)
-- Formatting uses the repo's formatter (Prettier, Biome, dprint, Ruff, Black, StyLua, or any command in `.orbit/settings.json`), else the server with `.editorconfig` indentation (D60, D61); Settings → Languages → Formatting shows which
+- Formatting uses the repo's formatter (Prettier, Biome, oxfmt, dprint, Deno, ESLint, Ruff, Black, StyLua, RuboCop, Standard, Pint, PHP CS Fixer, shfmt, or any command in `.orbit/settings.json`), else the server with `.editorconfig` indentation (D60, D61); Settings → Languages → Formatting shows which
 - Lazy syntax highlighting (D58): grammars for Lua, Zig, Terraform/HCL,
   Dockerfile, Kotlin, Svelte, SCSS and TSX/JSX compiled on first open from
   pinned commits, colored by Zed's queries

@@ -200,6 +200,112 @@ struct LanguageInstallFormatterTests {
         }
     }
 
+    /// A project folder with `files`, removed afterwards by the caller.
+    static func project(_ name: String, _ files: [String: String]) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-\(name)-\(UUID().uuidString)")
+        for (path, contents) in files {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    /// Picks the formatter for `file` as Orbit would and runs it.
+    static func format(_ text: String, _ file: String, in root: URL, environment: [String: String], expecting name: String) async throws -> String {
+        let url = root.appendingPathComponent(file)
+        guard case .tool(let formatter) = try ProjectFormatter.choice(for: url, root: root, environment: environment, home: root) else {
+            Issue.record("no formatter for \(file)")
+            return ""
+        }
+        #expect(formatter.name == name)
+        return try await formatter.format(text, file: url, environment: environment)
+    }
+
+    @Test(arguments: ["eslint@9", "oxfmt", "deno"])
+    func formatsWithNodeTools(_ package: String) async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let npm = Shell.which("npm", in: environment) else { return }
+        let config: [String: String] = switch package {
+        case "oxfmt": [".oxfmtrc.json": #"{"semi": false, "tabWidth": 4}"#]
+        case "deno": ["deno.json": #"{"fmt": {"semiColons": false}}"#]
+        default: ["eslint.config.mjs": #"export default [{ rules: { semi: ["error", "never"], "prefer-const": "error" } }];"#]
+        }
+        let root = try Self.project("node-formatter", config.merging(["package.json": #"{"name": "smoke", "private": true}"#]) { a, _ in a })
+        defer { try? FileManager.default.removeItem(at: root) }
+        try LanguageInstaller.run(npm, ["install", "--prefix", root.path, "--no-audit", "--no-fund", "--silent", package], environment: environment)
+
+        switch package {
+        case "oxfmt":
+            let formatted = try await Self.format("function f(){return 1}\n", "src/a.ts", in: root, environment: environment, expecting: "oxfmt")
+            #expect(formatted == "function f() {\n    return 1\n}\n")
+        case "deno":
+            let formatted = try await Self.format("const a = {b:1};\n", "src/a.ts", in: root, environment: environment, expecting: "Deno")
+            #expect(formatted == "const a = { b: 1 }\n")
+            let markdown = try await Self.format("# Title\n\n* one\n* two\n", "README.md", in: root, environment: environment, expecting: "Deno")
+            #expect(markdown == "# Title\n\n- one\n- two\n")
+        default:
+            let formatted = try await Self.format("let a = 1;\nconsole.log(a);\n", "src/a.js", in: root, environment: environment, expecting: "ESLint")
+            #expect(formatted == "const a = 1\nconsole.log(a)\n")
+            await #expect(throws: (any Error).self) {
+                try await Self.format("let a = ;\n", "src/a.js", in: root, environment: environment, expecting: "ESLint")
+            }
+        }
+    }
+
+    @Test func formatsShellWithShfmt() async throws {
+        var environment = ProcessInfo.processInfo.environment
+        guard let go = Shell.which("go", in: environment) else { return }
+        let root = try Self.project("shfmt", [".editorconfig": "[*.sh]\nindent_style = space\nindent_size = 2\n"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bin = root.appendingPathComponent(".tools")
+        var install = environment
+        install["GOBIN"] = bin.path
+        try LanguageInstaller.run(go, ["install", "mvdan.cc/sh/v3/cmd/shfmt@latest"], environment: install)
+        environment["PATH"] = bin.path + ":" + (environment["PATH"] ?? "")
+        let formatted = try await Self.format("if true;then\necho hi\nfi\n", "run.sh", in: root, environment: environment, expecting: "shfmt")
+        #expect(formatted == "if true; then\n  echo hi\nfi\n")
+    }
+
+    @Test(arguments: ["rubocop", "standard"])
+    func formatsRuby(_ gem: String) async throws {
+        var environment = ProcessInfo.processInfo.environment
+        guard let gemTool = Shell.which("gem", in: environment) else { return }
+        let config = gem == "standard" ? [".standard.yml": "parallel: false\n"] : [".rubocop.yml": "AllCops:\n  NewCops: enable\n  SuggestExtensions: false\n"]
+        let root = try Self.project("ruby", config)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent(".gems")
+        environment["GEM_HOME"] = home.path
+        environment["GEM_PATH"] = home.path
+        try LanguageInstaller.run(gemTool, ["install", "--no-document", "--install-dir", home.path, gem], environment: environment)
+        environment["PATH"] = home.appendingPathComponent("bin").path + ":" + (environment["PATH"] ?? "")
+
+        let name = gem == "standard" ? "Standard Ruby" : "RuboCop"
+        let formatted = try await Self.format("x = {:a=>1}\nputs   x\n", "lib/a.rb", in: root, environment: environment, expecting: name)
+        #expect(formatted == (gem == "standard" ? "x = {a: 1}\nputs x\n" : "x = { a: 1 }\nputs x\n"))
+        await #expect(throws: (any Error).self) {
+            try await Self.format("x = (\n", "lib/a.rb", in: root, environment: environment, expecting: name)
+        }
+    }
+
+    @Test(arguments: ["laravel/pint", "friendsofphp/php-cs-fixer"])
+    func formatsPHP(_ package: String) async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let composer = Shell.which("composer", in: environment) else { return }
+        var files = ["composer.json": #"{"name": "smoke/smoke"}"#]
+        if package.hasSuffix("php-cs-fixer") {
+            files[".php-cs-fixer.dist.php"] = "<?php\nreturn (new PhpCsFixer\\Config())->setRules(['@PSR12' => true]);\n"
+        }
+        let root = try Self.project("php", files)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try LanguageInstaller.run(composer, ["require", "--dev", "--quiet", "--no-interaction", "--working-dir", root.path, package], environment: environment)
+
+        let name = package == "laravel/pint" ? "Pint" : "PHP CS Fixer"
+        let formatted = try await Self.format("<?php\nif($a){echo 1;}\n", "src/a.php", in: root, environment: environment, expecting: name)
+        #expect(formatted == "<?php\n\nif ($a) {\n    echo 1;\n}\n")
+    }
+
     @Test func formatsWithTheReposRuff() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let python = Shell.which("python3", in: environment) else {

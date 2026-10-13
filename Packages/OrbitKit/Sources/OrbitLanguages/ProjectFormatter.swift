@@ -4,30 +4,62 @@ import Foundation
 /// Language servers format by their built-in rules; these are the tools repos
 /// use instead of them. Plain data: adding one is a new entry.
 struct FormatterPreset: Sendable {
-    enum Location: Sendable {
+    enum Location: Sendable, Equatable {
         /// `node_modules/.bin` above the file.
         case nodeModules
         /// `.venv/bin` or `venv/bin` above the file.
         case virtualEnvironment
+        /// Composer's `vendor/bin` above the file.
+        case composer
+        /// A Ruby binstub in `bin/` above the file.
+        case binstub
+        /// `bundle exec <binary>`, when the `Gemfile.lock` above the file has the gem.
+        case bundler
         case path
+    }
+
+    /// How the text goes in and the result comes out.
+    enum Mode: Sendable, Equatable {
+        /// Text on stdin, the result on stdout.
+        case stdin
+        /// ESLint's `--fix-dry-run --format json`: the result is `output` in its report.
+        case eslintReport
+        /// For tools that only fix files in place: a temporary copy with the same name.
+        case temporaryFile
+    }
+
+    /// Whether it needs a config of its own to be picked.
+    enum Trigger: Sendable, Equatable {
+        case configured
+        /// Picked only when nothing else formats the file, like ESLint, whose
+        /// fixes come after Prettier's formatting when a repo has both.
+        case configuredFallback
+        /// A formatter with nothing to configure but `.editorconfig` (shfmt): installed is enough.
+        case installedFallback
     }
 
     var id: String
     var name: String
     var fileTypes: Set<String>
-    var configFiles: [String]
-    /// A `[tool.<name>]` table in `pyproject.toml` that configures it.
-    var pyprojectTool: String?
-    /// A key in `package.json` that configures it.
-    var packageKey: String?
+    var configFiles: [String] = []
+    /// Other files that turn it on when they contain the text: a `[tool.ruff`
+    /// table in `pyproject.toml`, the gem in `Gemfile.lock`.
+    var mentions: [(file: String, text: String)] = []
     var binary: String
     /// Where its executable may be, in order. Node tools only from the repo:
     /// a global one may be another major version, which formats differently.
     var locations: [Location]
-    /// `{file}` is the file's path; the text comes on stdin, the result on stdout.
+    /// `{file}` is the file's path (the copy's, in `.temporaryFile` mode), `{ext}` its extension.
     var arguments: [String]
+    var mode: Mode = .stdin
+    var trigger: Trigger = .configured
+    /// Exit codes that still mean formatted: linters exit 1 when problems remain.
+    var successCodes: Set<Int32> = [0]
+    /// Text in its errors that means the file didn't parse, though it exited "successfully".
+    var syntaxError: String?
 
-    private static let web: Set<String> = ["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "json", "jsonc", "css"]
+    private static let scripts: Set<String> = ["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"]
+    private static let web = scripts.union(["json", "jsonc", "css"])
 
     /// Nearer configs win; in one folder, the first match.
     static let all: [FormatterPreset] = [
@@ -36,9 +68,20 @@ struct FormatterPreset: Sendable {
             binary: "biome", locations: [.nodeModules], arguments: ["format", "--stdin-file-path={file}"]
         ),
         FormatterPreset(
+            id: "oxfmt", name: "oxfmt",
+            fileTypes: web.union(["json5", "scss", "less", "html", "vue", "yaml", "yml", "md", "graphql"]),
+            configFiles: [".oxfmtrc.json", ".oxfmtrc.jsonc", "oxfmt.config.ts", "oxfmt.config.mts"],
+            binary: "oxfmt", locations: [.nodeModules], arguments: ["--stdin-filepath={file}"]
+        ),
+        FormatterPreset(
             id: "dprint", name: "dprint", fileTypes: web.union(["json5", "md", "toml", "yaml", "yml", "scss", "less", "html", "graphql"]),
             configFiles: ["dprint.json", ".dprint.json", "dprint.jsonc", ".dprint.jsonc"],
             binary: "dprint", locations: [.nodeModules, .path], arguments: ["fmt", "--stdin", "{file}"]
+        ),
+        FormatterPreset(
+            id: "deno", name: "Deno", fileTypes: web.union(["md", "markdown", "scss", "less", "html", "yaml", "yml"]),
+            configFiles: ["deno.json", "deno.jsonc"],
+            binary: "deno", locations: [.nodeModules, .path], arguments: ["fmt", "--ext={ext}", "-"]
         ),
         FormatterPreset(
             id: "prettier", name: "Prettier",
@@ -48,19 +91,56 @@ struct FormatterPreset: Sendable {
                 ".prettierrc.js", ".prettierrc.cjs", ".prettierrc.mjs", ".prettierrc.ts",
                 "prettier.config.js", "prettier.config.cjs", "prettier.config.mjs", "prettier.config.ts",
             ],
-            packageKey: "prettier", binary: "prettier", locations: [.nodeModules], arguments: ["--stdin-filepath", "{file}"]
+            // A `prettier` key, or Prettier among the dependencies: its defaults are the repo's style.
+            mentions: [("package.json", "\"prettier\"")],
+            binary: "prettier", locations: [.nodeModules], arguments: ["--stdin-filepath", "{file}"]
         ),
         FormatterPreset(
-            id: "ruff", name: "Ruff", fileTypes: ["py", "pyi"], configFiles: ["ruff.toml", ".ruff.toml"], pyprojectTool: "ruff",
+            id: "ruff", name: "Ruff", fileTypes: ["py", "pyi"], configFiles: ["ruff.toml", ".ruff.toml"], mentions: [("pyproject.toml", "[tool.ruff")],
             binary: "ruff", locations: [.virtualEnvironment, .path], arguments: ["format", "--stdin-filename", "{file}", "-"]
         ),
         FormatterPreset(
-            id: "black", name: "Black", fileTypes: ["py", "pyi"], configFiles: [], pyprojectTool: "black",
+            id: "black", name: "Black", fileTypes: ["py", "pyi"], mentions: [("pyproject.toml", "[tool.black]")],
             binary: "black", locations: [.virtualEnvironment, .path], arguments: ["--quiet", "--stdin-filename", "{file}", "-"]
         ),
         FormatterPreset(
             id: "stylua", name: "StyLua", fileTypes: ["lua"], configFiles: ["stylua.toml", ".stylua.toml"],
             binary: "stylua", locations: [.path], arguments: ["--stdin-filepath", "{file}", "-"]
+        ),
+        FormatterPreset(
+            id: "standard", name: "Standard Ruby", fileTypes: ["rb", "rake", "gemspec", "ru"],
+            configFiles: [".standard.yml"], mentions: [("Gemfile.lock", " standard (")],
+            binary: "standardrb", locations: [.binstub, .bundler, .path],
+            arguments: ["--stdin", "{file}", "--fix", "--stderr", "--format", "quiet"], successCodes: [0, 1], syntaxError: "Lint/Syntax"
+        ),
+        FormatterPreset(
+            id: "rubocop", name: "RuboCop", fileTypes: ["rb", "rake", "gemspec", "ru"], configFiles: [".rubocop.yml"],
+            binary: "rubocop", locations: [.binstub, .bundler, .path],
+            arguments: ["--stdin", "{file}", "--autocorrect", "--stderr", "--format", "quiet"], successCodes: [0, 1], syntaxError: "Lint/Syntax"
+        ),
+        FormatterPreset(
+            id: "pint", name: "Pint", fileTypes: ["php"], configFiles: ["pint.json"], mentions: [("composer.json", "\"laravel/pint\"")],
+            binary: "pint", locations: [.composer], arguments: ["--quiet", "{file}"], mode: .temporaryFile
+        ),
+        FormatterPreset(
+            id: "php-cs-fixer", name: "PHP CS Fixer", fileTypes: ["php"], configFiles: [".php-cs-fixer.php", ".php-cs-fixer.dist.php"],
+            binary: "php-cs-fixer", locations: [.composer, .path],
+            arguments: ["fix", "--quiet", "--no-interaction", "--using-cache=no", "{file}"], mode: .temporaryFile
+        ),
+        FormatterPreset(
+            id: "eslint", name: "ESLint", fileTypes: scripts,
+            configFiles: [
+                "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs", "eslint.config.ts", "eslint.config.mts", "eslint.config.cts",
+                ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yaml", ".eslintrc.yml",
+            ],
+            mentions: [("package.json", "\"eslintConfig\"")],
+            binary: "eslint", locations: [.nodeModules],
+            arguments: ["--stdin", "--stdin-filename", "{file}", "--fix-dry-run", "--format", "json"],
+            mode: .eslintReport, trigger: .configuredFallback, successCodes: [0, 1]
+        ),
+        FormatterPreset(
+            id: "shfmt", name: "shfmt", fileTypes: ["sh", "bash"],
+            binary: "shfmt", locations: [.path], arguments: ["--filename", "{file}"], trigger: .installedFallback
         ),
     ]
 
@@ -70,21 +150,21 @@ struct FormatterPreset: Sendable {
     func config(in directory: URL) -> String? {
         let manager = FileManager.default
         if let file = configFiles.first(where: { manager.fileExists(atPath: directory.appendingPathComponent($0).path) }) { return file }
-        if let tool = pyprojectTool,
-           let text = try? String(contentsOf: directory.appendingPathComponent("pyproject.toml"), encoding: .utf8),
-           text.split(whereSeparator: \.isNewline).contains(where: { $0.hasPrefix("[tool.\(tool)]") || $0.hasPrefix("[tool.\(tool).") }) {
-            return "pyproject.toml"
-        }
-        if let key = packageKey,
-           let data = try? Data(contentsOf: directory.appendingPathComponent("package.json")),
-           let package = try? JSONSerialization.jsonObject(with: data) as? [String: Any], package[key] != nil {
-            return "package.json"
+        for (file, text) in mentions {
+            if let contents = try? String(contentsOf: directory.appendingPathComponent(file), encoding: .utf8), contents.contains(text) { return file }
         }
         return nil
     }
 
-    func executable(from directory: URL, root: URL?, environment: [String: String]) -> String? {
-        ProjectFormatter.executable(binary, locations: locations, from: directory, root: root, environment: environment)
+    func command(from directory: URL, root: URL?, environment: [String: String]) -> (executable: String, prefix: [String])? {
+        ProjectFormatter.command(binary, locations: locations, from: directory, root: root, environment: environment)
+    }
+
+    func formatter(_ command: (executable: String, prefix: [String]), directory: URL, source: String) -> ProjectFormatter {
+        ProjectFormatter(
+            name: name, executable: command.executable, arguments: command.prefix + arguments, directory: directory, source: source,
+            mode: mode, successCodes: successCodes, syntaxError: syntaxError
+        )
     }
 }
 
@@ -97,23 +177,28 @@ enum FormatterChoice: Sendable, Equatable {
     case off(source: String)
 }
 
-/// A command a file's text is piped through.
+/// A command a file's text is run through.
 struct ProjectFormatter: Sendable, Equatable {
     var name: String
     var executable: String
-    /// With `{file}` still in them.
+    /// With `{file}` and `{ext}` still in them.
     var arguments: [String]
     /// It runs here: the folder with its config, or the project root.
     var directory: URL
     /// What turned it on, shown in Settings: `apps/web/.prettierrc`, `.orbit/settings.json`.
     var source: String
+    var mode: FormatterPreset.Mode = .stdin
+    var successCodes: Set<Int32> = [0]
+    var syntaxError: String?
 
     /// Settings first (the project's, then the user's), then a config found
     /// above the file, else the language server.
     static func choice(for file: URL, root: URL?, environment: [String: String], home: URL = FormatterSettings.home) throws -> FormatterChoice {
         let type = file.pathExtension.lowercased()
+        let folder = file.deletingLastPathComponent()
         for settings in try FormatterSettings.layers(root: root, home: home) {
             guard let rule = settings.rule(for: type) else { continue }
+            let directory = root ?? folder
             switch rule {
             case .server: return .server
             case .off: return .off(source: settings.displayPath)
@@ -121,17 +206,15 @@ struct ProjectFormatter: Sendable, Equatable {
                 guard let preset = FormatterPreset.preset(id: id) else {
                     throw FormatterSettings.Failure.invalid("\(settings.displayPath): no formatter called “\(id)”. Known: \(FormatterPreset.all.map(\.id).joined(separator: ", ")), server, off.")
                 }
-                let directory = root ?? file.deletingLastPathComponent()
-                guard let executable = preset.executable(from: file.deletingLastPathComponent(), root: root, environment: environment) else {
+                guard let command = preset.command(from: folder, root: root, environment: environment) else {
                     throw FormatterSettings.Failure.invalid("\(settings.displayPath) asks for \(preset.name), but “\(preset.binary)” isn't installed here.")
                 }
-                return .tool(ProjectFormatter(name: preset.name, executable: executable, arguments: preset.arguments, directory: directory, source: settings.displayPath))
+                return .tool(preset.formatter(command, directory: directory, source: settings.displayPath))
             case .command(let command, let arguments):
-                let directory = root ?? file.deletingLastPathComponent()
                 let expanded = (command as NSString).expandingTildeInPath
                 let executable: String? = expanded.hasPrefix("/") ? expanded
                     : command.contains("/") ? directory.appendingPathComponent(command).standardizedFileURL.path
-                    : Self.executable(command, locations: [.nodeModules, .virtualEnvironment, .path], from: file.deletingLastPathComponent(), root: root, environment: environment)
+                    : Self.command(command, locations: [.nodeModules, .virtualEnvironment, .composer, .binstub, .path], from: folder, root: root, environment: environment)?.executable
                 guard let executable, FileManager.default.isExecutableFile(atPath: executable) else {
                     throw FormatterSettings.Failure.invalid("\(settings.displayPath): “\(command)” isn't installed here.")
                 }
@@ -141,18 +224,25 @@ struct ProjectFormatter: Sendable, Equatable {
         return detected(for: file, root: root, environment: environment).map(FormatterChoice.tool) ?? .server
     }
 
-    /// The nearest configured preset above `file`, not looking past `root`.
+    /// The nearest configured preset above `file`, not looking past `root`;
+    /// fallbacks only when no other one is configured.
     static func detected(for file: URL, root: URL?, environment: [String: String]) -> ProjectFormatter? {
         let type = file.pathExtension.lowercased()
         let presets = FormatterPreset.all.filter { $0.fileTypes.contains(type) }
         guard !presets.isEmpty else { return nil }
-        for directory in ancestors(of: file.deletingLastPathComponent(), root: root) {
-            for preset in presets {
-                guard let config = preset.config(in: directory),
-                      let executable = preset.executable(from: directory, root: root, environment: environment) else { continue }
-                let source = relative(directory.appendingPathComponent(config), to: root)
-                return ProjectFormatter(name: preset.name, executable: executable, arguments: preset.arguments, directory: directory, source: source)
+        let directories = ancestors(of: file.deletingLastPathComponent(), root: root)
+        for triggers in [[FormatterPreset.Trigger.configured], [.configuredFallback]] {
+            for directory in directories {
+                for preset in presets where triggers.contains(preset.trigger) {
+                    guard let config = preset.config(in: directory),
+                          let command = preset.command(from: directory, root: root, environment: environment) else { continue }
+                    return preset.formatter(command, directory: directory, source: relative(directory.appendingPathComponent(config), to: root))
+                }
             }
+        }
+        for preset in presets where preset.trigger == .installedFallback {
+            guard let command = preset.command(from: file.deletingLastPathComponent(), root: root, environment: environment) else { continue }
+            return preset.formatter(command, directory: root ?? file.deletingLastPathComponent(), source: "installed: \(command.executable)")
         }
         return nil
     }
@@ -160,22 +250,72 @@ struct ProjectFormatter: Sendable, Equatable {
     /// Longer than any formatter takes on a source file; past it, it's stuck.
     static let timeout: DispatchTimeInterval = .seconds(15)
 
-    /// The file's whole new text. The pipes are read on threads of their own:
-    /// blocking reads on Swift's few cooperative threads can starve the app.
+    /// The file's whole new text.
     func format(_ text: String, file: URL, environment: [String: String]) async throws -> String {
+        var target = file
+        var scratch: URL?
+        if mode == .temporaryFile {
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-format-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            target = folder.appendingPathComponent(file.lastPathComponent)
+            try Data(text.utf8).write(to: target)
+            scratch = folder
+        }
+        defer { if let scratch { try? FileManager.default.removeItem(at: scratch) } }
+
+        let arguments = arguments.map {
+            $0.replacingOccurrences(of: "{file}", with: target.path).replacingOccurrences(of: "{ext}", with: file.pathExtension.lowercased())
+        }
+        let result = try await run(arguments, input: mode == .temporaryFile ? nil : Data(text.utf8), environment: environment)
+        let errors = String(decoding: result.errors, as: UTF8.self)
+        let tail = errors.split(whereSeparator: \.isNewline).filter { !$0.allSatisfy(\.isWhitespace) }.suffix(8).joined(separator: "\n")
+        guard successCodes.contains(result.status) else {
+            throw LanguageInstaller.Failure.failed("\(name) failed (exit \(result.status))" + (tail.isEmpty ? "." : ":\n\(tail)"))
+        }
+        if let syntaxError, errors.contains(syntaxError) {
+            let lines = errors.split(whereSeparator: \.isNewline).filter { $0.contains(syntaxError) }.prefix(3).joined(separator: "\n")
+            throw LanguageInstaller.Failure.failed("The file doesn't parse:\n\(lines)")
+        }
+        switch mode {
+        case .stdin:
+            return String(decoding: result.output, as: UTF8.self)
+        case .temporaryFile:
+            return try String(contentsOf: target, encoding: .utf8)
+        case .eslintReport:
+            return try Self.eslintOutput(result.output, original: text)
+        }
+    }
+
+    /// The fixed text from ESLint's JSON report; a fatal message is a parse error.
+    static func eslintOutput(_ data: Data, original: String) throws -> String {
+        guard let reports = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]], let report = reports.first else {
+            throw LanguageInstaller.Failure.failed("ESLint didn't report on the file.")
+        }
+        let messages = report["messages"] as? [[String: Any]] ?? []
+        if let fatal = messages.first(where: { $0["fatal"] as? Bool == true }) {
+            let line = (fatal["line"] as? Int).map { "Line \($0): " } ?? ""
+            throw LanguageInstaller.Failure.failed(line + (fatal["message"] as? String ?? "The file doesn't parse."))
+        }
+        return report["output"] as? String ?? original
+    }
+
+    /// Runs the formatter with its pipes read on threads of their own: blocking
+    /// reads on Swift's few cooperative threads can starve the app.
+    private func run(_ arguments: [String], input: Data?, environment: [String: String]) async throws -> (status: Int32, output: Data, errors: Data) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments.map { $0.replacingOccurrences(of: "{file}", with: file.path) }
+        process.arguments = arguments
         process.currentDirectoryURL = directory
         process.environment = environment
-        let input = Pipe(), output = Pipe(), errors = Pipe()
-        process.standardInput = input
+        let inputPipe = Pipe(), output = Pipe(), errors = Pipe()
+        // No stdin for in-place fixers: one that asks a question gets an empty answer, not a hang.
+        process.standardInput = input == nil ? FileHandle.nullDevice : inputPipe
         process.standardOutput = output
         process.standardError = errors
         let run = Run(process)
         let name = name
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(status: Int32, output: Data, errors: Data), Error>) in
                 DispatchQueue.global(qos: .userInitiated).async {
                     do {
                         try process.run()
@@ -184,10 +324,12 @@ struct ProjectFormatter: Sendable, Equatable {
                         return
                     }
                     DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Self.timeout) { run.terminate(timedOut: true) }
-                    let stdin = input.fileHandleForWriting
-                    DispatchQueue.global(qos: .userInitiated).async {
-                        stdin.write(Data(text.utf8))
-                        try? stdin.close()
+                    if let input {
+                        let stdin = inputPipe.fileHandleForWriting
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            stdin.write(input)
+                            try? stdin.close()
+                        }
                     }
                     let group = DispatchGroup()
                     group.enter()
@@ -197,15 +339,11 @@ struct ProjectFormatter: Sendable, Equatable {
                     }
                     let data = output.fileHandleForReading.readDataToEndOfFile()
                     group.wait()
-                    let failure = run.errors
                     process.waitUntilExit()
                     if run.timedOut {
                         continuation.resume(throwing: LanguageInstaller.Failure.failed("\(name) didn't finish in 15 seconds."))
-                    } else if process.terminationStatus != 0 {
-                        let tail = String(decoding: failure, as: UTF8.self).split(whereSeparator: \.isNewline).prefix(8).joined(separator: "\n")
-                        continuation.resume(throwing: LanguageInstaller.Failure.failed("\(name) failed (\(process.terminationStatus))" + (tail.isEmpty ? "." : ":\n\(tail)")))
                     } else {
-                        continuation.resume(returning: String(decoding: data, as: UTF8.self))
+                        continuation.resume(returning: (process.terminationStatus, data, run.errors))
                     }
                 }
             }
@@ -237,24 +375,37 @@ struct ProjectFormatter: Sendable, Equatable {
         }
     }
 
-    static func executable(_ name: String, locations: [FormatterPreset.Location], from directory: URL, root: URL?, environment: [String: String]) -> String? {
+    /// Where `name` is installed, and what goes before the formatter's own arguments (`exec rubocop` for Bundler).
+    static func command(_ name: String, locations: [FormatterPreset.Location], from directory: URL, root: URL?, environment: [String: String]) -> (executable: String, prefix: [String])? {
         let manager = FileManager.default
+        func first(_ relativePaths: [String]) -> String? {
+            for directory in ancestors(of: directory, root: root) {
+                for relative in relativePaths {
+                    let path = directory.appendingPathComponent(relative).path
+                    if manager.isExecutableFile(atPath: path) { return path }
+                }
+            }
+            return nil
+        }
         for location in locations {
             switch location {
             case .nodeModules:
-                for directory in ancestors(of: directory, root: root) {
-                    let path = directory.appendingPathComponent("node_modules/.bin/\(name)").path
-                    if manager.isExecutableFile(atPath: path) { return path }
-                }
+                if let path = first(["node_modules/.bin/\(name)"]) { return (path, []) }
             case .virtualEnvironment:
+                if let path = first([".venv/bin/\(name)", "venv/bin/\(name)"]) { return (path, []) }
+            case .composer:
+                if let path = first(["vendor/bin/\(name)"]) { return (path, []) }
+            case .binstub:
+                if let path = first(["bin/\(name)"]) { return (path, []) }
+            case .bundler:
+                let gem = name == "standardrb" ? "standard" : name
                 for directory in ancestors(of: directory, root: root) {
-                    for folder in [".venv", "venv"] {
-                        let path = directory.appendingPathComponent("\(folder)/bin/\(name)").path
-                        if manager.isExecutableFile(atPath: path) { return path }
-                    }
+                    guard let lock = try? String(contentsOf: directory.appendingPathComponent("Gemfile.lock"), encoding: .utf8) else { continue }
+                    if lock.contains("    \(gem) ("), let bundle = Shell.which("bundle", in: environment) { return (bundle, ["exec", name]) }
+                    break
                 }
             case .path:
-                if let path = Shell.which(name, in: environment) { return path }
+                if let path = Shell.which(name, in: environment) { return (path, []) }
             }
         }
         return nil
@@ -418,7 +569,7 @@ struct FormattingOverview: Sendable, Equatable {
                         name = preset?.name ?? id
                         if preset == nil {
                             warning = "No formatter called “\(id)”."
-                        } else if let preset, let root, preset.executable(from: root, root: root, environment: environment) == nil {
+                        } else if let preset, let root, preset.command(from: root, root: root, environment: environment) == nil {
                             warning = "“\(preset.binary)” isn't installed."
                         }
                     case .command(let command, let arguments): name = ([command] + arguments).joined(separator: " ")
@@ -431,16 +582,33 @@ struct FormattingOverview: Sendable, Equatable {
         }
         guard let root else { return }
         for directory in Self.projectFolders(root) {
-            for preset in FormatterPreset.all {
+            for preset in FormatterPreset.all where preset.trigger != .installedFallback {
                 guard let config = preset.config(in: directory) else { continue }
-                let installed = preset.executable(from: directory, root: root, environment: environment) != nil
-                let hint = preset.locations.first == .nodeModules ? " Run your package manager's install." : ""
+                let installed = preset.command(from: directory, root: root, environment: environment) != nil
+                let name = preset.trigger == .configuredFallback ? "\(preset.name) (when nothing else formats)" : preset.name
                 rows.append(Row(
-                    fileTypes: Self.list(preset.fileTypes.sorted()), formatter: preset.name,
+                    fileTypes: Self.list(preset.fileTypes.sorted()), formatter: name,
                     source: ProjectFormatter.relative(directory.appendingPathComponent(config), to: root),
-                    warning: installed ? nil : "Configured, but “\(preset.binary)” isn't installed.\(hint)"
+                    warning: installed ? nil : "Configured, but “\(preset.binary)” isn't installed.\(Self.installHint(preset))"
                 ))
             }
+        }
+        for preset in FormatterPreset.all where preset.trigger == .installedFallback {
+            guard let command = preset.command(from: root, root: root, environment: environment) else { continue }
+            rows.append(Row(
+                fileTypes: Self.list(preset.fileTypes.sorted()), formatter: "\(preset.name) (when nothing else formats)",
+                source: command.executable
+            ))
+        }
+    }
+
+    private static func installHint(_ preset: FormatterPreset) -> String {
+        switch preset.locations.first {
+        case .nodeModules?: " Run your package manager's install."
+        case .composer?: " Run composer install."
+        case .binstub?, .bundler?: " Run bundle install."
+        case .virtualEnvironment?: " Install it into the project's .venv."
+        default: ""
         }
     }
 

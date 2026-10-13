@@ -185,6 +185,80 @@ import Testing
         #expect(throws: FormatterSettings.Failure.self) { try ProjectFormatter.choice(for: ts, root: root, environment: none, home: home) }
     }
 
+    @Test func fallbacksOnlyWithoutAFormatter() throws {
+        let root = try Self.scratch("fallback")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.tool(root.appendingPathComponent("node_modules/.bin/eslint"))
+        try Self.tool(root.appendingPathComponent("node_modules/.bin/prettier"))
+        let app = root.appendingPathComponent("apps/web")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        try "export default []\n".write(to: app.appendingPathComponent("eslint.config.js"), atomically: true, encoding: .utf8)
+        let file = app.appendingPathComponent("index.ts")
+        let none: [String: String] = ["PATH": "/nonexistent"]
+        #expect(ProjectFormatter.detected(for: file, root: root, environment: none)?.name == "ESLint")
+        // Prettier further up still wins over the nearer ESLint config.
+        try "{}".write(to: root.appendingPathComponent(".prettierrc"), atomically: true, encoding: .utf8)
+        #expect(ProjectFormatter.detected(for: file, root: root, environment: none)?.name == "Prettier")
+
+        // shfmt needs no config, only to be installed.
+        let bin = root.appendingPathComponent("tools")
+        try Self.tool(bin.appendingPathComponent("shfmt"))
+        let shell = ProjectFormatter.detected(for: root.appendingPathComponent("run.sh"), root: root, environment: ["PATH": bin.path])
+        #expect(shell?.name == "shfmt")
+        #expect(ProjectFormatter.detected(for: root.appendingPathComponent("run.sh"), root: root, environment: none) == nil)
+    }
+
+    @Test func findsRubyAndPHPTools() throws {
+        let root = try Self.scratch("ruby")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bin = root.appendingPathComponent("tools")
+        try Self.tool(bin.appendingPathComponent("bundle"))
+        let environment = ["PATH": bin.path]
+        let file = root.appendingPathComponent("app/models/user.rb")
+        try "AllCops:\n  NewCops: enable\n".write(to: root.appendingPathComponent(".rubocop.yml"), atomically: true, encoding: .utf8)
+        try "GEM\n  specs:\n    rubocop (1.80.0)\n".write(to: root.appendingPathComponent("Gemfile.lock"), atomically: true, encoding: .utf8)
+        let rubocop = try #require(ProjectFormatter.detected(for: file, root: root, environment: environment))
+        #expect(rubocop.name == "RuboCop")
+        #expect(rubocop.executable == bin.appendingPathComponent("bundle").path)
+        #expect(Array(rubocop.arguments.prefix(3)) == ["exec", "rubocop", "--stdin"])
+        // A binstub beats Bundler.
+        try Self.tool(root.appendingPathComponent("bin/rubocop"))
+        #expect(ProjectFormatter.detected(for: file, root: root, environment: environment)?.executable.hasSuffix("bin/rubocop") == true)
+        // Standard's own config picks Standard.
+        try Self.tool(root.appendingPathComponent("bin/standardrb"))
+        try "".write(to: root.appendingPathComponent(".standard.yml"), atomically: true, encoding: .utf8)
+        #expect(ProjectFormatter.detected(for: file, root: root, environment: environment)?.name == "Standard Ruby")
+
+        try Self.tool(root.appendingPathComponent("vendor/bin/pint"))
+        try #"{"require-dev": {"laravel/pint": "^1.0"}}"#.write(to: root.appendingPathComponent("composer.json"), atomically: true, encoding: .utf8)
+        let pint = try #require(ProjectFormatter.detected(for: root.appendingPathComponent("src/A.php"), root: root, environment: environment))
+        #expect(pint.name == "Pint")
+        #expect(pint.mode == .temporaryFile)
+    }
+
+    @Test func readsESLintReports() throws {
+        let fixed = #"[{"messages":[],"output":"const a = 1\n"}]"#
+        #expect(try ProjectFormatter.eslintOutput(Data(fixed.utf8), original: "let a = 1;\n") == "const a = 1\n")
+        let clean = #"[{"messages":[{"fatal":false,"message":"unused"}]}]"#
+        #expect(try ProjectFormatter.eslintOutput(Data(clean.utf8), original: "a\n") == "a\n")
+        let broken = #"[{"messages":[{"fatal":true,"line":3,"message":"Parsing error: Unexpected token ;"}]}]"#
+        #expect(throws: (any Error).self) { try ProjectFormatter.eslintOutput(Data(broken.utf8), original: "") }
+    }
+
+    @Test func fixesACopyForInPlaceTools() async throws {
+        let root = try Self.scratch("inplace")
+        defer { try? FileManager.default.removeItem(at: root) }
+        // An in-place "fixer": uppercases the file it's given.
+        let fixer = root.appendingPathComponent("fix")
+        try "#!/bin/sh\ntr a-z A-Z < \"$1\" > \"$1.tmp\" && mv \"$1.tmp\" \"$1\"\n".write(to: fixer, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fixer.path)
+        let file = root.appendingPathComponent("a.php")
+        try "untouched".write(to: file, atomically: true, encoding: .utf8)
+        let formatter = ProjectFormatter(name: "fix", executable: fixer.path, arguments: ["{file}"], directory: root, source: "", mode: .temporaryFile)
+        #expect(try await formatter.format("<?php echo 1;\n", file: file, environment: [:]) == "<?PHP ECHO 1;\n")
+        #expect(try String(contentsOf: file, encoding: .utf8) == "untouched")
+    }
+
     static func scratch(_ name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-\(name)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
