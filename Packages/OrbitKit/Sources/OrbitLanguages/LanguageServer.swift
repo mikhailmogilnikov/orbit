@@ -388,9 +388,9 @@ final class LanguageServer {
         )
     }
 
-    nonisolated static func textEdit(_ value: JSONValue) -> TextEdit? {
+    nonisolated static func textEdit(_ value: JSONValue) -> SourceEdit? {
         guard let range = range(value["range"]), let text = value["newText"]?.string else { return nil }
-        return TextEdit(range: range, newText: text)
+        return SourceEdit(range: range, newText: text)
     }
 
     func resolve(_ item: CompletionItem) async -> CompletionItem {

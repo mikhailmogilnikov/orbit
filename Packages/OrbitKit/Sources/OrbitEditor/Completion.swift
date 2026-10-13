@@ -391,7 +391,7 @@ final class CompletionController: NSObject {
         }
     }
 
-    private func apply(_ edits: [TextEdit], before mainStart: Int) {
+    private func apply(_ edits: [SourceEdit], before mainStart: Int) {
         guard !edits.isEmpty, let textView, let text else { return }
         let starts = SourcePosition.lineStarts(of: text)
         let ranges = edits.compactMap { edit -> (NSRange, String)? in

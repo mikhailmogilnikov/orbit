@@ -1,7 +1,7 @@
 import Foundation
 
 /// A replacement in a file, as a language server sends it.
-public struct TextEdit: Sendable, Hashable {
+public struct SourceEdit: Sendable, Hashable {
     public var range: SourceRange
     public var newText: String
 
@@ -36,7 +36,7 @@ public struct CompletionItem: Sendable, Hashable {
     /// Replaces this range instead of the word before the caret (as of the request).
     public var range: SourceRange?
     /// Auto-imports and the like, elsewhere in the file.
-    public var additionalEdits: [TextEdit]
+    public var additionalEdits: [SourceEdit]
     public var isPreselected: Bool
     public var isDeprecated: Bool
     /// Whether `resolve` may add details or edits.
@@ -45,7 +45,7 @@ public struct CompletionItem: Sendable, Hashable {
     public init(
         token: Int, label: String, kind: Kind? = nil, detail: String? = nil, documentation: String? = nil,
         sortText: String? = nil, filterText: String? = nil, insertText: String? = nil, isSnippet: Bool = false,
-        range: SourceRange? = nil, additionalEdits: [TextEdit] = [], isPreselected: Bool = false,
+        range: SourceRange? = nil, additionalEdits: [SourceEdit] = [], isPreselected: Bool = false,
         isDeprecated: Bool = false, needsResolve: Bool = false
     ) {
         self.token = token
