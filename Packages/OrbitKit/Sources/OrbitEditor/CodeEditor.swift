@@ -165,6 +165,10 @@ struct CodeEditor: NSViewRepresentable {
             textView.selectedLineHighlightColor = theme.activeLineBackground?.nsColor
                 ?? NSColor.selectedTextBackgroundColor.withAlphaComponent(0.25)
 
+            inlineDiff.colors = InlineDiffController.Colors(
+                added: theme.added?.nsColor ?? .systemGreen,
+                deleted: theme.deleted?.nsColor ?? .systemRed
+            )
             ruler?.colors = LineNumberRuler.Colors(
                 background: background ?? .textBackgroundColor,
                 number: theme.lineNumber?.nsColor ?? .tertiaryLabelColor,

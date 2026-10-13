@@ -213,7 +213,7 @@ public struct CompactDiffView: View {
                     .padding(6)
             }
         }
-        .task(id: [old, new]) {
+        .task(id: [old, new, Extensions.shared.themeKey]) {
             guard let url else { return }
             highlighting = await DiffHighlighting.make(old: old, new: new, url: url, hunks: hunks, with: highlighter)
         }

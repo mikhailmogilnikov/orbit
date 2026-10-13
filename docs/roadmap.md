@@ -84,6 +84,8 @@
 - Agents from the ACP registry (D52): install / update / uninstall in Settings →
   Agents, downloads checked by sha256, no built-in presets; old Claude Code /
   Codex chats migrate to the registry ids
+- Open diffs (git tabs, commit diffs, tool cards) recolor on a theme switch;
+  agent inline-diff overlays use the theme's version-control colors
 - Theme selector ⌃⌘T with live preview over installed and catalog themes;
   catalog thumbnails; light/dark partner picked together (D49)
 
@@ -108,9 +110,6 @@
   thumbnails are unverified too.
 - Usage ring: Codex also reports its subagents' context through `usage_update`
   without saying so, so the ring can briefly show a subagent's context.
-- Themes and icon themes: open diff views (git diff tabs, tool cards) keep
-  their syntax colors until reopened after a theme switch; agent inline-diff
-  overlays stay system green/red.
 - Manual typing inside a highlighted diff block is implemented but not yet
   verified by hand.
 - Disk conflicts: merging an agent's edit into unsaved edits makes those edits

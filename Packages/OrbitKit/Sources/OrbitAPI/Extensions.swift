@@ -141,6 +141,13 @@ public final class Extensions {
         return pickedColorTheme(dark: dark)
     }
 
+    /// Changes whenever the colors to draw with may have: another theme picked or
+    /// tried on, or themes reloaded. For `.task(id:)` of views that bake colors in
+    /// (syntax-colored diffs); light/dark switches don't need it, those colors are dynamic.
+    public var themeKey: String {
+        "\(colorTheme(dark: false).id)|\(colorTheme(dark: true).id)|\(revision)"
+    }
+
     /// The theme picked in Settings, ignoring a preview.
     public func pickedColorTheme(dark: Bool) -> ColorTheme {
         let preferences = Preferences.shared

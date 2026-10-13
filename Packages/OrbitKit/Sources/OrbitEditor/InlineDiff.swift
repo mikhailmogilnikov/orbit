@@ -22,6 +22,23 @@ final class InlineDiffController {
     private var overlays: [NSView] = []
     private var isApplying = false
 
+    /// The color theme's version-control colors (system green/red without one).
+    struct Colors: Equatable {
+        var added: NSColor = .systemGreen
+        var deleted: NSColor = .systemRed
+    }
+
+    /// Set by the editor on every theme or light/dark switch; repaints what's shown.
+    var colors = Colors() {
+        didSet {
+            guard colors != oldValue else { return }
+            for view in overlays {
+                (view as? ChangeBackgroundView)?.color = colors.added
+                (view as? RemovedLinesView)?.color = colors.deleted
+            }
+        }
+    }
+
     // MARK: Updating
 
     /// Applies the current hunks. Cheap when nothing changed.
@@ -144,7 +161,7 @@ final class InlineDiffController {
                 let rect = CGRect(x: content.minX, y: first.minY, width: width, height: last.maxY - first.minY)
                 textX = first.minX
                 if rect.intersects(visible) {
-                    add(ChangeBackgroundView(frame: rect, kind: .added), below: true)
+                    add(ChangeBackgroundView(frame: rect, color: colors.added), below: true)
                 }
                 top = min(top, rect.minY)
                 bottom = max(bottom, rect.maxY)
@@ -167,6 +184,7 @@ final class InlineDiffController {
                     let rect = CGRect(x: content.minX, y: gapTop, width: width, height: gap)
                     if rect.intersects(visible) {
                         let ghost = RemovedLinesView(frame: rect)
+                        ghost.color = colors.deleted
                         ghost.lines = removedLinesByHunk[hunk.id] ?? []
                         ghost.font = textView.font
                         ghost.lineHeight = lineHeight
@@ -257,17 +275,26 @@ struct InlineDiffPlugin: STPlugin {
 // MARK: - Views
 
 final class ChangeBackgroundView: NSView {
-    enum Kind { case added }
+    private let bar = NSView()
 
-    init(frame: CGRect, kind: Kind) {
+    var color: NSColor {
+        didSet { applyColor() }
+    }
+
+    init(frame: CGRect, color: NSColor) {
+        self.color = color
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.13).cgColor
-        let bar = NSView(frame: CGRect(x: 0, y: 0, width: 3, height: frame.height))
+        bar.frame = CGRect(x: 0, y: 0, width: 3, height: frame.height)
         bar.wantsLayer = true
-        bar.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.7).cgColor
         bar.autoresizingMask = [.height]
         addSubview(bar)
+        applyColor()
+    }
+
+    private func applyColor() {
+        layer?.backgroundColor = color.withAlphaComponent(0.13).cgColor
+        bar.layer?.backgroundColor = color.withAlphaComponent(0.7).cgColor
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -281,13 +308,16 @@ final class RemovedLinesView: NSView {
     var font: NSFont = .monospacedSystemFont(ofSize: 12, weight: .regular)
     var lineHeight: CGFloat = 16
     var textInset: CGFloat = 5
+    var color: NSColor = .systemRed {
+        didSet { needsDisplay = true }
+    }
 
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.systemRed.withAlphaComponent(0.12).setFill()
+        color.withAlphaComponent(0.12).setFill()
         bounds.fill()
-        NSColor.systemRed.withAlphaComponent(0.7).setFill()
+        color.withAlphaComponent(0.7).setFill()
         CGRect(x: 0, y: 0, width: 3, height: bounds.height).fill()
 
         let attributes: [NSAttributedString.Key: Any] = [

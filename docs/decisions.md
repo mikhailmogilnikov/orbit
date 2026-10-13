@@ -658,3 +658,12 @@ default agent. Once, for people who used the presets, Orbit installs those
 two from the registry and writes custom manifests for Cursor, Grok and
 OpenCode if their CLIs are on the PATH, so nothing that worked disappears.
 With no agent installed, the Agents panel offers "Browse Agents".
+
+### D53. Everything colored by the theme follows a switch live
+Syntax-colored diffs bake colors into `AttributedString`s, so they kept the
+old theme until reopened. `Extensions.themeKey` (both modes' theme ids plus
+the reload revision; observable) is part of their `.task(id:)`, so a pick, a
+try-on or a reload rehighlights them; light/dark needs nothing, the colors
+are dynamic. The editor's agent-change overlays (added background, removed
+lines) take `version_control.added` / `deleted` from the theme like the
+gutter does, set from the same `applyTheme` that runs on every switch.

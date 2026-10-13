@@ -39,7 +39,8 @@ struct GitCommitDiffView: View {
             }
         }
         .nativeSurface(.background)
-        .task { await load() }
+        // Again for another theme: syntax colors are baked into the highlighting.
+        .task(id: Extensions.shared.themeKey) { await load() }
     }
 
     private var header: some View {
