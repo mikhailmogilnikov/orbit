@@ -159,6 +159,111 @@ public protocol LanguageIntelligence: AnyObject {
     func format(_ url: URL) async -> FormatOutcome
     /// Problems in every open file, worst first.
     var problems: [FileProblems] { get }
+
+    // Navigation (D62).
+    /// Every use of the symbol at a spot, its declaration included.
+    func references(at position: SourcePosition, in url: URL) async -> [SourceLocation]
+    /// Other uses of the symbol under the caret in the same file.
+    func highlights(at position: SourcePosition, in url: URL) async -> [SymbolHighlight]
+    /// The file's outline, parents before their children; nil when its server can't tell.
+    func symbols(in url: URL) async -> [LanguageSymbol]?
+    /// Symbols matching a query across the project, from every running server.
+    func projectSymbols(matching query: String) async -> [LanguageSymbol]
+
+    /// Inlay hints for part of the file; empty when its server has none.
+    func inlayHints(in range: SourceRange, url: URL) async -> [InlayHint]
+    /// Bumped when the file's server says its hints went stale (a dependency changed).
+    func inlayHintsRevision(for url: URL) -> Int
+}
+
+/// A label a language server puts into the text without it being there: a
+/// type after a name, a parameter's name before an argument.
+public struct InlayHint: Sendable, Hashable {
+    public enum Kind: Int, Sendable, Hashable {
+        case type = 1, parameter
+    }
+
+    /// The label sits before the character at this position.
+    public var position: SourcePosition
+    public var label: String
+    public var kind: Kind?
+    public var tooltip: String?
+    /// A space's worth of room on that side.
+    public var paddingLeft: Bool
+    public var paddingRight: Bool
+
+    public init(position: SourcePosition, label: String, kind: Kind? = nil, tooltip: String? = nil, paddingLeft: Bool = false, paddingRight: Bool = false) {
+        self.position = position
+        self.label = label
+        self.kind = kind
+        self.tooltip = tooltip
+        self.paddingLeft = paddingLeft
+        self.paddingRight = paddingRight
+    }
+}
+
+/// A declaration in a file's outline or the project's symbol search.
+public struct LanguageSymbol: Sendable, Hashable {
+    public var name: String
+    /// A signature or type, when the server gives one.
+    public var detail: String?
+    public var kind: SymbolKind
+    /// The name's own range (where to put the caret).
+    public var location: SourceLocation
+    /// The enclosing type or namespace, e.g. "Greeter".
+    public var container: String?
+    /// Nesting in the file's outline: 0 for top level.
+    public var depth: Int
+
+    public init(name: String, detail: String? = nil, kind: SymbolKind, location: SourceLocation, container: String? = nil, depth: Int = 0) {
+        self.name = name
+        self.detail = detail
+        self.kind = kind
+        self.location = location
+        self.container = container
+        self.depth = depth
+    }
+}
+
+/// LSP's `SymbolKind` numbering.
+public enum SymbolKind: Int, Sendable, Hashable {
+    case file = 1, module, namespace, package, `class`, method, property, field, constructor, `enum`,
+         interface, function, variable, constant, string, number, boolean, array, object, key, null,
+         enumMember, `struct`, event, `operator`, typeParameter
+
+    /// An SF Symbol for pickers.
+    public var systemImage: String {
+        switch self {
+        case .file: "doc"
+        case .module, .package, .namespace: "shippingbox"
+        case .class: "c.square"
+        case .struct: "s.square"
+        case .enum: "e.square"
+        case .interface: "p.square"
+        case .method, .function, .constructor, .operator: "f.square"
+        case .property, .field, .key: "square.dashed.inset.filled"
+        case .variable, .constant, .string, .number, .boolean, .array, .object, .null: "v.square"
+        case .enumMember: "list.bullet.rectangle"
+        case .event: "bolt.square"
+        case .typeParameter: "t.square"
+        }
+    }
+
+    /// Types and namespaces: what other symbols sit inside.
+    public var isContainer: Bool {
+        [.module, .namespace, .package, .class, .enum, .interface, .struct, .object].contains(self)
+    }
+}
+
+/// A use of the symbol under the caret; writes are drawn a little stronger.
+public struct SymbolHighlight: Sendable, Hashable {
+    public var range: SourceRange
+    public var isWrite: Bool
+
+    public init(range: SourceRange, isWrite: Bool) {
+        self.range = range
+        self.isWrite = isWrite
+    }
 }
 
 public struct RenameFailure: Error, Sendable, Hashable {
@@ -173,12 +278,15 @@ public struct LanguageInstallOffer: Sendable, Hashable {
     public var needs: String?
     public var isInstalling: Bool
     public var failure: String?
+    /// What it brings, when it isn't the file's language server (ESLint in a project that uses it).
+    public var purpose: String?
 
-    public init(name: String, needs: String?, isInstalling: Bool, failure: String?) {
+    public init(name: String, needs: String?, isInstalling: Bool, failure: String?, purpose: String? = nil) {
         self.name = name
         self.needs = needs
         self.isInstalling = isInstalling
         self.failure = failure
+        self.purpose = purpose
     }
 }
 

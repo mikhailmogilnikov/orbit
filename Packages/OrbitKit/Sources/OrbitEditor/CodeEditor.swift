@@ -13,8 +13,8 @@ struct CodeEditor: NSViewRepresentable {
     var hunks: [DiffHunk] = []
     var onKeep: (DiffHunk) -> Void = { _ in }
     var onRevert: (DiffHunk) -> Void = { _ in }
-    /// 0-based line to scroll to once; `onRevealHandled` clears the request.
-    var revealLine: Int?
+    /// 0-based line (and UTF-16 column) to scroll to once; `onRevealHandled` clears the request.
+    var reveal: (line: Int, column: Int?)?
     var onRevealHandled: () -> Void = {}
     /// Git's copy of the file; the gutter marks lines that differ from it.
     var gitBaseline: String?
@@ -24,6 +24,9 @@ struct CodeEditor: NSViewRepresentable {
     /// From the language server (D54); hover, ⌘-click and the squiggles use them.
     var diagnostics: [Diagnostic] = []
     var languages: LanguageIntelligence?
+    var showsInlayHints = true
+    /// Bumped when the server's hints went stale.
+    var inlayHintsRevision = 0
     var onOpenLocation: (SourceLocation) -> Void = { _ in }
     /// `GrammarRegistry.revision`: a grammar was installed, re-pick this file's.
     var grammarRevision = 0
@@ -49,12 +52,22 @@ struct CodeEditor: NSViewRepresentable {
         textView.addPlugin(InlineDiffPlugin(controller: coordinator.inlineDiff))
         coordinator.diagnosticsController.textView = textView
         textView.addPlugin(DiagnosticsPlugin(controller: coordinator.diagnosticsController))
+        coordinator.symbolHighlights.textView = textView
+        coordinator.symbolHighlights.url = document.url
+        coordinator.definitionLink.textView = textView
+        coordinator.definitionLink.url = document.url
+        coordinator.definitionLink.characterOffset = { [weak coordinator] point in coordinator?.characterOffset(at: point) }
+        textView.addPlugin(SymbolHighlightPlugin(controller: coordinator.symbolHighlights))
+        coordinator.inlayHints.textView = textView
+        coordinator.inlayHints.url = document.url
+        textView.addPlugin(InlayHintPlugin(controller: coordinator.inlayHints))
         if let orbitView = textView as? OrbitTextView {
             orbitView.onMouseMoved = { [weak coordinator] point in coordinator?.mouseMoved(to: point) }
             orbitView.onMouseExited = { [weak coordinator] in coordinator?.mouseExited() }
             orbitView.onCommandClick = { [weak coordinator] point in coordinator?.commandClick(at: point) ?? false }
             orbitView.onCommand = { [weak coordinator] selector in coordinator?.completion.handle(selector) ?? false }
             orbitView.onResignFocus = { [weak coordinator] in coordinator?.closePopups() }
+            orbitView.onModifiersChanged = { [weak coordinator] flags in coordinator?.definitionLink.update(modifiers: flags) }
         }
         coordinator.observeScrolling(of: scrollView)
 
@@ -92,6 +105,8 @@ struct CodeEditor: NSViewRepresentable {
                 textView.textSelection = NSRange(location: location, length: 0)
                 coordinator.inlineDiff.invalidate()
                 coordinator.diagnosticsController.textDidChange()
+                coordinator.symbolHighlights.textDidChange()
+                coordinator.inlayHints.textWasReplaced()
             }
         }
 
@@ -99,6 +114,7 @@ struct CodeEditor: NSViewRepresentable {
             textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
             coordinator.inlineDiff.invalidate()
             coordinator.palette.onChange?()
+            coordinator.inlayHints.fontDidChange()
         }
         if textView.isHorizontallyResizable == wrapsLines { textView.isHorizontallyResizable = !wrapsLines }
         if textView.highlightSelectedLine != highlightsCurrentLine { textView.highlightSelectedLine = highlightsCurrentLine }
@@ -108,12 +124,22 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.inlineDiff.onRevert = onRevert
         coordinator.inlineDiff.update(hunks: hunks, revision: document.revision)
         coordinator.languages = languages
+        coordinator.symbolHighlights.languages = languages
+        coordinator.definitionLink.languages = languages
         coordinator.onOpenLocation = onOpenLocation
+        let shownDiagnostics = coordinator.diagnosticsController.diagnostics
         coordinator.diagnosticsController.update(diagnostics)
+        coordinator.inlayHints.languages = languages
+        coordinator.inlayHints.isEnabled = showsInlayHints
+        // New problems mean the server has caught up with the text: its hints may have changed too.
+        if coordinator.inlayHintsRevision != inlayHintsRevision || coordinator.diagnosticsController.diagnostics != shownDiagnostics {
+            coordinator.inlayHintsRevision = inlayHintsRevision
+            coordinator.inlayHints.refresh(after: .milliseconds(150))
+        }
 
-        if let revealLine {
+        if let reveal {
             DispatchQueue.main.async {
-                coordinator.reveal(line: revealLine)
+                coordinator.reveal(line: reveal.line, column: reveal.column)
                 onRevealHandled()
             }
         }
@@ -143,10 +169,14 @@ struct CodeEditor: NSViewRepresentable {
         let document: TextDocument
         let inlineDiff = InlineDiffController()
         let diagnosticsController = DiagnosticsController()
+        lazy var symbolHighlights = SymbolHighlightController(geometry: diagnosticsController)
+        lazy var definitionLink = DefinitionLinkController(geometry: diagnosticsController)
+        lazy var inlayHints = InlayHintController(geometry: diagnosticsController)
+        var inlayHintsRevision: Int?
         var languages: LanguageIntelligence?
         var onOpenLocation: (SourceLocation) -> Void = { _ in }
         private var hoverTask: Task<Void, Never>?
-        private var popover: NSPopover?
+        private var hoverPanel: HoverPanel?
         private var hoverRect: CGRect?
         private var scrollObserver: NSObjectProtocol?
         let palette = SyntaxPalette(theme: .system(dark: false))
@@ -174,7 +204,7 @@ struct CodeEditor: NSViewRepresentable {
         isolated deinit {
             if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
             if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
-            popover?.close()
+            hoverPanel?.hide()
         }
 
         /// Colors for the view's current appearance; called again on every theme
@@ -207,6 +237,15 @@ struct CodeEditor: NSViewRepresentable {
                 added: theme.added?.nsColor ?? .systemGreen,
                 deleted: theme.deleted?.nsColor ?? .systemRed
             )
+            let ink: NSColor = isDark ? .white : .black
+            symbolHighlights.colors = SymbolHighlightController.Colors(
+                read: theme.symbolHighlight?.nsColor ?? ink.withAlphaComponent(isDark ? 0.1 : 0.07),
+                write: theme.symbolHighlightWrite?.nsColor ?? ink.withAlphaComponent(isDark ? 0.17 : 0.12)
+            )
+            inlayHints.colors = InlayHintController.Colors(
+                text: theme.hint?.nsColor ?? ink.withAlphaComponent(0.5),
+                background: theme.hintBackground?.nsColor ?? ink.withAlphaComponent(isDark ? 0.08 : 0.05)
+            )
             diagnosticsController.colors = DiagnosticsController.Colors(
                 error: theme.error?.nsColor ?? .systemRed,
                 warning: theme.warning?.nsColor ?? .systemYellow,
@@ -230,9 +269,14 @@ struct CodeEditor: NSViewRepresentable {
         func textViewDidChangeText(_ notification: Notification) {
             scheduleGitMarkers()
             diagnosticsController.textDidChange()
+            symbolHighlights.textDidChange()
+            definitionLink.clear()
             closeHover()
             let edit = pendingEdit
             pendingEdit = nil
+            if let edit, !isApplyingExternalChange {
+                inlayHints.textDidChange(TextEdit(range: NSRange(location: edit.location, length: edit.length), newLength: edit.replacement.utf16.count))
+            }
             guard !isApplyingExternalChange, let textView else {
                 closePopups()
                 return
@@ -304,6 +348,8 @@ struct CodeEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             completion.selectionDidChange()
+            closeHover()
+            if let textView { symbolHighlights.caretMoved(to: textView.textSelection) }
             ActiveEditor.shared.coordinator = self
             ruler?.needsDisplay = true
             EditorSelectionService.shared.cursorMoved(in: self)
@@ -323,11 +369,12 @@ struct CodeEditor: NSViewRepresentable {
             return max(0, line - 1)
         }
 
-        func reveal(line: Int) {
+        func reveal(line: Int, column: Int? = nil) {
             guard let textView else { return }
             let text = (textView.text ?? "") as NSString
             let starts = InlineDiffController.lineStarts(of: text)
-            let offset = starts[min(max(0, line), starts.count - 1)]
+            let offset = column.map { SourcePosition(line: line, character: $0).offset(in: starts, length: text.length) }
+                ?? starts[min(max(0, line), starts.count - 1)]
             textView.textSelection = NSRange(location: offset, length: 0)
             // Scroll a few lines past the target so the removed-lines gap above it is visible too.
             let context = starts[min(starts.count - 1, max(0, line + 6))]
@@ -345,6 +392,7 @@ struct CodeEditor: NSViewRepresentable {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.closeHover()
+                    self?.definitionLink.clear()
                     self?.completion.signatures.close()
                     self?.completion.reposition()
                 }
@@ -353,8 +401,10 @@ struct CodeEditor: NSViewRepresentable {
 
         /// The pointer rested: after a pause, the problems and symbol info under it.
         func mouseMoved(to point: NSPoint) {
-            if popover?.isShown == true, let hoverRect {
-                if hoverRect.insetBy(dx: -6, dy: -6).contains(point) { return }
+            definitionLink.pointer = point
+            definitionLink.update()
+            if hoverPanel?.isVisible == true, let hoverRect {
+                if hoverRect.insetBy(dx: -6, dy: -6).contains(point) || isOnTheWayToPopover(point, from: hoverRect) { return }
                 closeHover()
             }
             hoverTask?.cancel()
@@ -365,21 +415,30 @@ struct CodeEditor: NSViewRepresentable {
             }
         }
 
-        /// Leaving for the popover keeps it, so its text can be selected.
+        /// Leaving for the card keeps it, so its text can be selected.
         func mouseExited() {
+            definitionLink.pointer = nil
+            definitionLink.clear()
             hoverTask?.cancel()
-            guard popover != nil else { return }
+            guard hoverPanel?.isVisible == true else { return }
             Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(300))
-                guard let self, let window = popover?.contentViewController?.view.window else { return }
-                if !window.frame.contains(NSEvent.mouseLocation) { closeHover() }
+                guard let self, let panel = hoverPanel, panel.isVisible else { return }
+                if !panel.frame.contains(NSEvent.mouseLocation) { closeHover() }
             }
+        }
+
+        /// Between the word and its card (the gap above the line), so the card's buttons stay reachable.
+        private func isOnTheWayToPopover(_ point: NSPoint, from rect: CGRect) -> Bool {
+            guard let textView, let window = textView.window,
+                  let card = hoverPanel?.isVisible == true ? hoverPanel?.frame : nil else { return false }
+            let inView = textView.convert(window.convertFromScreen(card), from: nil)
+            return rect.union(inView).insetBy(dx: -6, dy: -6).contains(point)
         }
 
         func closeHover() {
             hoverTask?.cancel()
-            popover?.close()
-            popover = nil
+            hoverPanel?.hide()
             hoverRect = nil
         }
 
@@ -390,6 +449,14 @@ struct CodeEditor: NSViewRepresentable {
             let position = SourcePosition(offset: offset, in: controller.lineStarts)
             let info = await languages?.hover(at: position, in: document.url)
             guard !Task.isCancelled, !problems.isEmpty || info != nil else { return }
+            // Fixes for the problem under the pointer, offered right in the card.
+            var actions: [CodeAction] = []
+            if let problem = problems.first, let languages {
+                actions = await languages.codeActions(for: problem.range, in: document.url)
+                guard !Task.isCancelled else { return }
+            }
+            actions = actions.filter { $0.disabledReason == nil }
+            let fixes = actions.filter { $0.isPreferred || $0.kind?.hasPrefix("quickfix") == true }
 
             let starts = controller.lineStarts, length = controller.length
             let anchor = info?.range.map { $0.nsRange(in: starts, length: length) }
@@ -399,15 +466,35 @@ struct CodeEditor: NSViewRepresentable {
             guard let first = rects.first else { return }
             let rect = rects.dropFirst().reduce(first) { $0.union($1) }
 
-            let host = NSHostingController(rootView: HoverCard(diagnostics: problems, markdown: info?.markdown, colors: controller.colors))
-            host.sizingOptions = [.preferredContentSize]
-            let popover = NSPopover()
-            popover.behavior = .semitransient
-            popover.animates = false
-            popover.contentViewController = host
+            let fixStart = problems.first.map { $0.range.nsRange(in: starts, length: length).location } ?? offset
+            let card = HoverCard(
+                diagnostics: problems, markdown: info?.markdown, colors: controller.colors,
+                fixes: Array(fixes.prefix(3)),
+                hasMoreActions: actions.count > min(fixes.count, 3),
+                showsSymbolKeys: info != nil,
+                onFix: { [weak self] action in
+                    self?.closeHover()
+                    self?.runCodeAction(action)
+                },
+                onMoreActions: { [weak self] in
+                    guard let self else { return }
+                    self.closeHover()
+                    self.presentCodeActions(actions, at: self.screenRect(at: fixStart))
+                }
+            )
+            guard let window = textView.window, let scrollView = textView.enclosingScrollView else { return }
+            let onScreen = window.convertToScreen(textView.convert(rect, to: nil))
+            let visible = window.convertToScreen(scrollView.convert(scrollView.bounds, to: nil))
             closeHover()
-            popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
-            self.popover = popover
+            let panel = hoverPanel ?? HoverPanel()
+            hoverPanel = panel
+            panel.onExit = { [weak self] in
+                guard let self, let textView = self.textView, let window = textView.window, let hoverRect = self.hoverRect else { return }
+                // Back over the word keeps it; anywhere else closes it.
+                let point = textView.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+                if !hoverRect.insetBy(dx: -6, dy: -6).contains(point) { self.closeHover() }
+            }
+            panel.show(card, at: onScreen, within: visible, in: window)
             hoverRect = rect
         }
 
@@ -492,6 +579,7 @@ final class OrbitTextView: STTextView {
     /// Key commands (arrows, Return, Tab, Esc, ⌃Space) the completion list may take; true when handled.
     var onCommand: ((Selector) -> Bool)?
     var onResignFocus: (() -> Void)?
+    var onModifiersChanged: ((NSEvent.ModifierFlags) -> Void)?
     private var hoverArea: NSTrackingArea?
 
     override func updateTrackingAreas() {
@@ -520,6 +608,65 @@ final class OrbitTextView: STTextView {
     override func doCommand(by selector: Selector) {
         if onCommand?(selector) == true { return }
         super.doCommand(by: selector)
+    }
+
+    /// ⌥Esc and ⌃Space land here: our list, not STTextView's.
+    override func complete(_ sender: Any?) {
+        if onCommand?(#selector(NSResponder.complete(_:))) == true { return }
+        super.complete(sender)
+    }
+
+    /// Esc only closes things (handled before this); STTextView would open
+    /// completion here, as Xcode does, which surprised (D66 addendum).
+    override func cancelOperation(_ sender: Any?) {}
+
+    /// ⌃Space isn't a key binding AppKit knows. macOS takes it for switching
+    /// input sources when there are several; Esc works then.
+    /// ⌃⇧I by key position: menus match ⌃ shortcuts (without ⌘) by the
+    /// character, so in a Russian layout the menu item never sees "i".
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if modifiers == .control, event.keyCode == 49 {
+            complete(nil)
+            return
+        }
+        if modifiers == [.control, .shift], event.keyCode == 34 {
+            ActiveEditor.shared.coordinator?.formatDocument()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    /// Commands placed in the editor menu, with their shortcuts shown, above
+    /// STTextView's Cut, Copy, Paste: where features are found, and their keys learned.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        guard let commands = ActiveEditor.shared.commands else { return menu }
+        var index = 0
+        var lastGroup: EditorMenuPlacement.Group?
+        for command in commands.editorMenuCommands() {
+            guard let placement = command.editorMenu else { continue }
+            if let lastGroup, lastGroup != placement.group {
+                menu.insertItem(.separator(), at: index)
+                index += 1
+            }
+            lastGroup = placement.group
+            let item = NSMenuItem(title: placement.title ?? command.title, action: #selector(EditorMenuTarget.run(_:)), keyEquivalent: "")
+            item.target = EditorMenuTarget.shared
+            item.representedObject = command.id
+            item.isEnabled = command.isEnabled()
+            if let symbol = command.systemImage { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+            if let shortcut = command.shortcut { EditorMenuTarget.setKeyEquivalent(of: item, to: shortcut) }
+            menu.insertItem(item, at: index)
+            index += 1
+        }
+        if index > 0, menu.items.count > index { menu.insertItem(.separator(), at: index) }
+        return menu
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        onModifiersChanged?(event.modifierFlags)
     }
 
     override func resignFirstResponder() -> Bool {
@@ -553,6 +700,42 @@ final class OrbitTextView: STTextView {
 final class ActiveEditor {
     static let shared = ActiveEditor()
     weak var coordinator: CodeEditor.Coordinator?
+    /// For the right-click menu, which lists commands placed there (`EditorMenuPlacement`).
+    var commands: CommandRegistry?
+}
+
+/// Runs a right-click menu item; a menu item needs an Objective-C target.
+@MainActor
+final class EditorMenuTarget: NSObject {
+    static let shared = EditorMenuTarget()
+
+    @objc func run(_ item: NSMenuItem) {
+        guard let id = item.representedObject as? String else { return }
+        // After the menu closes: some commands open popovers or move focus.
+        DispatchQueue.main.async { ActiveEditor.shared.commands?.run(id, teaching: true) }
+    }
+
+    /// Only drawn in the menu: the key itself still goes through the main menu.
+    static func setKeyEquivalent(of item: NSMenuItem, to shortcut: KeyboardShortcut) {
+        let key: String = switch shortcut.key {
+        case .return: "\r"
+        case .delete: "\u{8}"
+        case .escape: "\u{1b}"
+        case .tab: "\t"
+        case .upArrow: String(Character(UnicodeScalar(NSUpArrowFunctionKey)!))
+        case .downArrow: String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
+        case .leftArrow: String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!))
+        case .rightArrow: String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
+        default: String(shortcut.key.character)
+        }
+        var mask: NSEvent.ModifierFlags = []
+        if shortcut.modifiers.contains(.command) { mask.insert(.command) }
+        if shortcut.modifiers.contains(.control) { mask.insert(.control) }
+        if shortcut.modifiers.contains(.option) { mask.insert(.option) }
+        if shortcut.modifiers.contains(.shift) { mask.insert(.shift) }
+        item.keyEquivalent = key
+        item.keyEquivalentModifierMask = mask
+    }
 }
 
 @MainActor
@@ -572,6 +755,13 @@ final class EditorSelectionService: EditorSelectionProviding {
             let cursor = EditorCursor(url: coordinator.document.url, line: coordinator.cursorLine)
             if cursor != self.cursor { self.cursor = cursor }
         }
+    }
+
+    var caret: SourceLocation? {
+        guard let coordinator = ActiveEditor.shared.coordinator, let textView = coordinator.textView else { return nil }
+        let controller = coordinator.diagnosticsController
+        let position = SourcePosition(offset: min(textView.textSelection.location, controller.length), in: controller.lineStarts)
+        return SourceLocation(url: coordinator.document.url, range: SourceRange(start: position, end: position))
     }
 
     var selection: EditorSelection? {

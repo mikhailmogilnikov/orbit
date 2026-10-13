@@ -20,7 +20,10 @@ public struct EditorTab: Identifiable, Hashable, Sendable {
     public static let fileKind = "file"
 
     public static func file(_ url: URL) -> EditorTab {
-        EditorTab(id: "file:\(url.path)", kind: fileKind, title: url.lastPathComponent, systemImage: FileIcon.systemImage(for: url), url: url)
+        // One tab per file however the path is spelled: a language server answers
+        // /private/tmp/… for what the file tree opened as /tmp/… .
+        let url = url.standardizedFileURL
+        return EditorTab(id: "file:\(url.path)", kind: fileKind, title: url.lastPathComponent, systemImage: FileIcon.systemImage(for: url), url: url)
     }
 }
 
@@ -90,12 +93,18 @@ public final class Workspace {
 
     public func openFile(_ url: URL) { open(.file(url)) }
 
-    /// A request for the editor to scroll to a 0-based line; the editor clears it.
-    public var pendingReveal: (url: URL, line: Int)?
+    /// A request for the editor to scroll to a 0-based line (and UTF-16 column,
+    /// else the line's start); the editor clears it.
+    public var pendingReveal: (url: URL, line: Int, column: Int?)?
 
-    public func openFile(_ url: URL, line: Int) {
+    public func openFile(_ url: URL, line: Int, column: Int? = nil) {
         openFile(url)
-        pendingReveal = (url.standardizedFileURL, line)
+        pendingReveal = (url.standardizedFileURL, line, column)
+    }
+
+    /// Opens a file with the caret at the start of a range (a definition, a reference).
+    public func open(_ location: SourceLocation) {
+        openFile(location.url, line: location.range.start.line, column: location.range.start.character)
     }
 
     public func close(_ tabID: EditorTab.ID) {

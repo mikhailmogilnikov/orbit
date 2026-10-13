@@ -81,6 +81,7 @@ final class CompletionPanel: FloatingPanel {
     private let scroll = NSScrollView()
     private let separator = NSBox()
     private let details = NSTextField(wrappingLabelWithString: "")
+    private let keys = NSTextField(labelWithString: "")
 
     var pattern = FuzzyPattern("")
     var font: NSFont = .monospacedSystemFont(ofSize: 12, weight: .regular) {
@@ -129,9 +130,16 @@ final class CompletionPanel: FloatingPanel {
         details.lineBreakMode = .byTruncatingTail
         details.isSelectable = false
 
+        keys.font = .systemFont(ofSize: 10)
+        keys.textColor = .tertiaryLabelColor
+        keys.stringValue = "↑↓ choose  ·  ↩ or ⇥ insert  ·  ⎋ close"
+        keys.lineBreakMode = .byTruncatingTail
+        keys.isSelectable = false
+
         contentView?.addSubview(scroll)
         contentView?.addSubview(separator)
         contentView?.addSubview(details)
+        contentView?.addSubview(keys)
     }
 
     func reload(rows: Int, widthHint: (label: Int, detail: Int)) {
@@ -173,13 +181,16 @@ final class CompletionPanel: FloatingPanel {
             let fitting = details.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width - 20, height: 80)).height ?? 14
             detailsHeight = min(ceil(fitting), 64)
         }
-        let height = listHeight + (hasDetails ? detailsHeight + 13 : 0)
+        // The keys, so they get learned (D67).
+        let footer: CGFloat = 18
+        let height = footer + listHeight + (hasDetails ? detailsHeight + 13 : 0)
 
         details.isHidden = !hasDetails
         separator.isHidden = !hasDetails
-        details.frame = NSRect(x: 10, y: 6, width: width - 20, height: detailsHeight)
-        separator.frame = NSRect(x: 0, y: detailsHeight + 12, width: width, height: 1)
-        scroll.frame = NSRect(x: 0, y: hasDetails ? detailsHeight + 13 : 0, width: width, height: listHeight)
+        keys.frame = NSRect(x: 10, y: 3, width: width - 20, height: 13)
+        details.frame = NSRect(x: 10, y: footer + 4, width: width - 20, height: detailsHeight)
+        separator.frame = NSRect(x: 0, y: footer + detailsHeight + 12, width: width, height: 1)
+        scroll.frame = NSRect(x: 0, y: footer + (hasDetails ? detailsHeight + 13 : 0), width: width, height: listHeight)
         list.tableColumns.first?.width = width
 
         // Text in the rows lines up with the word being typed; above the line when there's no room below.

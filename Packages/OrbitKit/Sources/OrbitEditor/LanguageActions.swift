@@ -98,7 +98,7 @@ extension CodeEditor.Coordinator {
         }
     }
 
-    private func presentCodeActions(_ actions: [CodeAction], at anchor: NSRect?) {
+    func presentCodeActions(_ actions: [CodeAction], at anchor: NSRect?) {
         guard let textView, let window = textView.window else { return }
         let menu = NSMenu(title: "Code Actions")
         menu.autoenablesItems = false
@@ -110,6 +110,9 @@ extension CodeEditor.Coordinator {
             if kind.hasPrefix("refactor") { return 3 }
             return 4
         }
+        // Servers also list what doesn't apply here (TypeScript's refactorings,
+        // with a reason); VS Code leaves those out of this menu, and so do we.
+        let actions = actions.filter { $0.disabledReason == nil }
         let sorted = actions.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
         if sorted.isEmpty {
             let item = NSMenuItem(title: "No Code Actions Here", action: nil, keyEquivalent: "")
@@ -124,8 +127,6 @@ extension CodeEditor.Coordinator {
             let item = NSMenuItem(title: action.title, action: #selector(CodeActionTarget.run(_:)), keyEquivalent: "")
             item.target = CodeActionTarget.shared
             item.representedObject = CodeActionTarget.Payload(action: action, coordinator: self)
-            item.isEnabled = action.disabledReason == nil
-            item.toolTip = action.disabledReason
             if group == 1 {
                 item.image = NSImage(systemSymbolName: action.isPreferred ? "wand.and.sparkles" : "wrench.adjustable", accessibilityDescription: nil)
             }
@@ -264,7 +265,7 @@ enum EditorToast {
         let stack = NSStackView(views: views)
         stack.spacing = 6
         stack.edgeInsets = NSEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
-        stack.translatesAutoresizingMaskIntoConstraints = false
+        let size = stack.fittingSize
 
         let toast = NSVisualEffectView()
         toast.material = .popover
@@ -273,17 +274,18 @@ enum EditorToast {
         toast.wantsLayer = true
         toast.layer?.cornerRadius = 8
         toast.layer?.masksToBounds = true
-        toast.translatesAutoresizingMaskIntoConstraints = false
+        stack.frame = NSRect(origin: .zero, size: size)
+        stack.autoresizingMask = [.width, .height]
         toast.addSubview(stack)
-        scrollView.addSubview(toast, positioned: .above, relativeTo: nil)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: toast.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: toast.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: toast.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: toast.bottomAnchor),
-            toast.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 8),
-            toast.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -18),
-        ])
+        // Frames, not constraints: SwiftUI's host of the editor never runs
+        // Auto Layout for views added to it, so a constrained toast stayed 0×0.
+        // A sibling above the scroll view, not inside it, so it stays put while scrolling.
+        let container = scrollView.superview ?? scrollView
+        let area = container === scrollView ? scrollView.bounds : scrollView.frame
+        let y = container.isFlipped ? area.minY + 8 : area.maxY - 8 - size.height
+        toast.frame = NSRect(x: area.maxX - 18 - size.width, y: y, width: size.width, height: size.height)
+        toast.autoresizingMask = container.isFlipped ? [.minXMargin, .maxYMargin] : [.minXMargin, .minYMargin]
+        container.addSubview(toast, positioned: .above, relativeTo: container === scrollView ? nil : scrollView)
         shown = toast
         toast.alphaValue = 0
         NSAnimationContext.runAnimationGroup { context in
@@ -367,3 +369,4 @@ struct RenameField: View {
         .onAppear { focused = true }
     }
 }
+

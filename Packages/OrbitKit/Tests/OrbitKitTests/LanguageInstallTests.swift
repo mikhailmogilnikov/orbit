@@ -121,6 +121,128 @@ struct LanguageInstallIntegrationTests {
             }
             #expect(list?.items.contains { $0.filterText.hasPrefix(label) } == true, "\(smoke.id): \(list?.items.prefix(10).map(\.label) ?? [])")
         }
+
+        // Navigation (D62): the outline, highlights of a symbol's uses, references and symbols across files.
+        if !smoke.outline.isEmpty {
+            let outline = try #require(await server.symbols(in: main), "\(smoke.id): no outline")
+            let names = outline.map(\.name)
+            #expect(smoke.outline.allSatisfy(names.contains), "\(smoke.id): \(names)")
+            if let (child, parent) = smoke.nested {
+                let parentIndex = try #require(outline.firstIndex { $0.name == parent }, "\(smoke.id): \(names)")
+                let childSymbol = outline[(parentIndex + 1)...].first { $0.name == child }
+                #expect(childSymbol?.depth == outline[parentIndex].depth + 1, "\(smoke.id): \(outline.map { "\($0.name)/\($0.depth)" })")
+            }
+        }
+        if let word = smoke.highlight {
+            let at = try #require(Self.position(of: word, in: text, inside: true))
+            let highlights = await server.highlights(at: at, in: main)
+            #expect(highlights.count >= 2, "\(smoke.id): \(highlights)")
+        }
+        if let cross = smoke.crossFile {
+            let other = root.appendingPathComponent(cross.file).standardizedFileURL
+            let otherText = try #require(smoke.files[cross.file])
+            let declaration = try #require(Self.position(of: cross.declaration, in: otherText))
+            let use = try #require(Self.position(of: cross.use, in: text, inside: true))
+            // Servers load the project (Cargo, the Go module) before they can answer.
+            var references: [OrbitAPI.SourceLocation] = []
+            var symbols: [LanguageSymbol] = []
+            let deadline = ContinuousClock.now + .seconds(120)
+            while ContinuousClock.now < deadline {
+                references = await server.references(at: use, in: main)
+                symbols = await server.projectSymbols(matching: cross.symbol)
+                if references.contains(where: { $0.url.path == other.path }), symbols.contains(where: { $0.name == cross.symbol }) { break }
+                try await Task.sleep(for: .milliseconds(500))
+            }
+            #expect(references.contains { $0.url.path == other.path && $0.range.start.line == declaration.line }, "\(smoke.id): \(references)")
+            #expect(references.contains { $0.url.path == main.standardizedFileURL.path && $0.range.start.line == use.line }, "\(smoke.id): \(references)")
+            #expect(symbols.contains { $0.name == cross.symbol && $0.location.url.path == other.path }, "\(smoke.id): \(symbols.map(\.name))")
+        }
+    }
+
+    static func position(of needle: String, in text: String, inside: Bool = false) -> SourcePosition? {
+        let string = text as NSString
+        let range = string.range(of: needle)
+        guard range.location != NSNotFound else { return nil }
+        return SourcePosition(offset: range.location + (inside ? 1 : 0), in: SourcePosition.lineStarts(of: string))
+    }
+}
+
+extension LanguageInstallIntegrationTests {
+    /// ESLint and Tailwind beside TypeScript (D64): found only where the project
+    /// uses them, configured like VS Code, answering with the project's own tools.
+    @Test func companionsRunWithTheProjectsTools() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard Shell.which("npm", in: environment) != nil else { return }
+        let root = try LanguageInstallFormatterTests.project("companions", [
+            "package.json": #"{ "type": "module", "devDependencies": { "eslint": "9", "tailwindcss": "4" } }"#,
+            "eslint.config.js": #"export default [{ rules: { "prefer-const": "error" } }];"#,
+            "src/app.css": "@import \"tailwindcss\";\n",
+            "src/main.js": "let count = 1;\nconsole.log(count);\n",
+            "src/page.html": "<link rel=\"stylesheet\" href=\"app.css\">\n<div class=\"fle\"></div>\n<p class=\"flex\"></p>\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("node_modules"),
+            withDestinationURL: try LanguageCase.installedPackages(["eslint@9", "tailwindcss@4"])
+        )
+        let main = root.appendingPathComponent("src/main.js"), page = root.appendingPathComponent("src/page.html")
+        #expect(LanguageServerConfig.eslint.isUsed(by: main, in: root))
+        #expect(LanguageServerConfig.tailwind.isUsed(by: page, in: root))
+        #expect(!LanguageServerConfig.eslint.isUsed(by: main, in: root.appendingPathComponent("src")))
+
+        for config in [LanguageServerConfig.eslint, .tailwind] {
+            let install = try #require(config.install)
+            if Self.installer.receipt(for: install.package) == nil {
+                let installer = Self.installer
+                try await Task.detached {
+                    let registry = try installer.registry()
+                    try installer.install(try #require(registry[install.package]), environment: environment)
+                }.value
+            }
+        }
+
+        // ESLint: the project's rule, and its fix as a code action.
+        let eslint = LanguageServer(config: .eslint, root: root, installer: Self.installer)
+        try #require(await eslint.start(environment: Task { environment }), "\(eslint.state)")
+        defer { eslint.shutdown() }
+        let script = try String(contentsOf: main, encoding: .utf8)
+        eslint.sync(main, text: script)
+        var problem: Diagnostic?
+        let deadline = ContinuousClock.now + .seconds(60)
+        while problem == nil, ContinuousClock.now < deadline {
+            problem = eslint.diagnostics[main.standardizedFileURL]?.first { $0.message.contains("prefer-const") || $0.message.contains("never reassigned") }
+            if problem == nil { try await Task.sleep(for: .milliseconds(200)) }
+        }
+        let found = try #require(problem, "\(eslint.diagnostics)")
+        #expect(found.source == "eslint")
+        let actions = await eslint.codeActions(for: found.range, in: main)
+        let fix = try #require(actions.first { $0.title.contains("prefer-const") && $0.title.lowercased().contains("fix") }, "\(actions.map(\.title))")
+        var fixed = script
+        // ESLint's fixes are commands that send the edit back (`workspace/applyEdit`).
+        let apply: (WorkspaceEdit) -> Bool = { edit in
+            fixed = SourceEdit.apply(edit.files[main.standardizedFileURL] ?? [], to: fixed)
+            return true
+        }
+        eslint.onApplyEdit = { apply($0) }
+        let applied = await eslint.perform(fix, apply: apply)
+        #expect(applied && fixed.hasPrefix("const count"), "\(fixed)")
+
+        // Tailwind: class completion and the CSS behind a class.
+        let tailwind = LanguageServer(config: .tailwind, root: root, installer: Self.installer)
+        try #require(await tailwind.start(environment: Task { environment }), "\(tailwind.state)")
+        defer { tailwind.shutdown() }
+        let html = try String(contentsOf: page, encoding: .utf8)
+        tailwind.sync(page, text: html)
+        let afterFle = try #require(LanguageServerIntegrationTests.position(of: "fle\"", in: html)).advanced(by: 3)
+        var classes: [String] = []
+        for _ in 0..<60 where !classes.contains("flex") {
+            classes = (await tailwind.completions(at: afterFle, in: page, trigger: .invoked))?.items.map(\.label) ?? []
+            if !classes.contains("flex") { try await Task.sleep(for: .milliseconds(500)) }
+        }
+        #expect(classes.contains("flex"), "\(classes.prefix(20))")
+        let onFlex = try #require(LanguageServerIntegrationTests.position(of: "\"flex", in: html, inside: true))
+        let hover = await tailwind.hover(at: onFlex, in: page)
+        #expect(hover?.markdown.contains("display: flex") == true, "\(hover?.markdown ?? "no hover")")
     }
 }
 
@@ -135,41 +257,85 @@ struct SmokeCase: Sendable, CustomTestStringConvertible {
     var completion: (needle: String, label: String)?
     /// A tool the server can't work without.
     var needsTool: String?
+    /// Names the file's outline must list.
+    var outline: [String] = []
+    /// A symbol listed right under its parent in the outline.
+    var nested: (child: String, parent: String)?
+    /// The word's first occurrence highlights at least one more use.
+    var highlight: String?
+    /// Find References on `use` (in the main file) reaches `declaration` in
+    /// `file`, and the project's symbols list `symbol` from there.
+    var crossFile: (file: String, use: String, declaration: String, symbol: String)?
 
     var testDescription: String { id }
 
     static let all: [SmokeCase] = [
         SmokeCase(
-            id: "basedpyright", files: ["main.py": "def greet(name: str) -> str:\n    return name\n\ncount: int = greet(\"a\")\ngreet(\"a\").up\n"],
-            main: "main.py", problem: "not assignable", completion: ("greet(\"a\").up", "upper"), needsTool: "python3"
+            id: "basedpyright",
+            files: [
+                "main.py": "from greeter import Greeter\n\ndef greet(name: str) -> str:\n    return name\n\ncount: int = greet(\"a\")\nGreeter().hello()\ngreet(\"a\").up\n",
+                "greeter.py": "class Greeter:\n    def hello(self) -> str:\n        return \"hi\"\n",
+            ],
+            main: "main.py", problem: "not assignable", completion: ("greet(\"a\").up", "upper"), needsTool: "python3",
+            outline: ["greet", "count"], nested: ("name", "greet"), highlight: "greet(",
+            crossFile: ("greeter.py", ".hello", "def hello", "Greeter")
         ),
         SmokeCase(
             id: "rust-analyzer",
             files: [
                 "Cargo.toml": "[package]\nname = \"smoke\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-                "src/main.rs": "fn main() {\n    let count: i32 = \"a\";\n    let text = String::new();\n    text.le\n}\n",
+                "src/main.rs": "mod greeter;\n\nfn main() {\n    let count: i32 = \"a\";\n    greeter::Greeter.hello();\n    let text = String::new();\n    text.le\n}\n",
+                "src/greeter.rs": "pub struct Greeter;\n\nimpl Greeter {\n    pub fn hello(&self) -> &str {\n        \"hi\"\n    }\n}\n",
             ],
-            main: "src/main.rs", problem: "mismatched types", completion: ("text.le", "len"), needsTool: "cargo"
+            main: "src/main.rs", problem: "mismatched types", completion: ("text.le", "len"), needsTool: "cargo",
+            outline: ["main"], highlight: "text",
+            crossFile: ("src/greeter.rs", ".hello", "pub fn hello", "Greeter")
         ),
         SmokeCase(
             id: "gopls",
-            files: ["go.mod": "module smoke\n\ngo 1.21\n", "main.go": "package main\n\nimport \"strings\"\n\nfunc main() {\n\tvar count int = \"a\"\n\t_ = count\n\tstrings.Rep\n}\n"],
-            main: "main.go", problem: "cannot use", completion: ("strings.Rep", "Repeat"), needsTool: "go"
+            files: [
+                "go.mod": "module smoke\n\ngo 1.21\n",
+                "main.go": "package main\n\nimport \"strings\"\n\nfunc main() {\n\tvar count int = \"a\"\n\t_ = count\n\tGreeter{}.Hello()\n\tstrings.Rep\n}\n",
+                "greeter.go": "package main\n\ntype Greeter struct{}\n\nfunc (Greeter) Hello() string { return \"hi\" }\n",
+            ],
+            main: "main.go", problem: "cannot use", completion: ("strings.Rep", "Repeat"), needsTool: "go",
+            outline: ["main"], highlight: "count",
+            crossFile: ("greeter.go", ".Hello", "func (Greeter) Hello", "Greeter")
         ),
-        SmokeCase(id: "clangd", files: ["main.c": "int main(void) {\n    int count = undefined_name;\n    return count;\n}\n"], main: "main.c", problem: "undeclared"),
-        SmokeCase(id: "json-lsp", files: ["data.json": "{\n  \"a\": 1\n  \"b\": 2\n}\n"], main: "data.json", problem: "expected", needsTool: "npm"),
-        SmokeCase(id: "css-lsp", files: ["style.css": ".a {\n  color: ;\n}\n.b { dis }\n"], main: "style.css", problem: "expected", completion: (".b { dis", "display"), needsTool: "npm"),
-        SmokeCase(id: "html-lsp", files: ["index.html": "<!DOCTYPE html>\n<html>\n<body>\n<sec\n</body>\n</html>\n"], main: "index.html", completion: ("<sec", "section"), needsTool: "npm"),
-        SmokeCase(id: "yaml-language-server", files: ["config.yaml": "key: [1, 2\nother: value\n"], main: "config.yaml", problem: "Flow sequence", needsTool: "npm"),
-        SmokeCase(id: "bash-language-server", files: ["run.sh": "#!/bin/bash\ngreet() { echo hi; }\ngre\n"], main: "run.sh", completion: ("\ngre", "greet"), needsTool: "npm"),
-        SmokeCase(id: "marksman", files: ["notes.md": "# Title\n\nSee [the docs][nowhere].\n"], main: "notes.md", problem: "non-existent"),
-        SmokeCase(id: "taplo", files: ["config.toml": "[package]\nname = \n"], main: "config.toml", problem: "expected value"),
-        SmokeCase(id: "lua-language-server", files: ["main.lua": "local count = 1\nprint(undefined_thing)\n"], main: "main.lua", problem: "undefined"),
-        SmokeCase(id: "dockerfile-language-server", files: ["Dockerfile": "FROM\nRUN echo hi\n"], main: "Dockerfile", problem: "no arguments", needsTool: "npm"),
-        SmokeCase(id: "intelephense", files: ["index.php": "<?php\n$count = 1;\nundefined_function();\n"], main: "index.php", problem: "undefined", needsTool: "npm"),
-        SmokeCase(id: "zls", files: ["main.zig": "const std = @import(\"std\");\nconst x = ;\n"], main: "main.zig", problem: "expected expression"),
-        SmokeCase(id: "svelte-language-server", files: ["App.svelte": "<script>\n  let count = 0;\n</script>\n\n{#if count}\n"], main: "App.svelte", problem: "left open", needsTool: "npm"),
-        SmokeCase(id: "terraform-ls", files: ["main.tf": "resource \"null_resource\" \"a\" {\n"], main: "main.tf", problem: "Unclosed"),
+        SmokeCase(id: "clangd", files: ["main.c": "int main(void) {\n    int count = undefined_name;\n    return count;\n}\n"], main: "main.c", problem: "undeclared",
+                  outline: ["main"], highlight: "count"),
+        SmokeCase(id: "json-lsp", files: ["data.json": "{\n  \"a\": 1\n  \"b\": 2\n}\n"], main: "data.json", problem: "expected", needsTool: "npm",
+                  outline: ["a", "b"]),
+        SmokeCase(id: "css-lsp", files: ["style.css": ".a {\n  color: ;\n}\n.b { dis }\n"], main: "style.css", problem: "expected", completion: (".b { dis", "display"), needsTool: "npm",
+                  outline: [".a", ".b"]),
+        SmokeCase(id: "html-lsp", files: ["index.html": "<!DOCTYPE html>\n<html>\n<body>\n<sec\n</body>\n</html>\n"], main: "index.html", completion: ("<sec", "section"), needsTool: "npm",
+                  outline: ["html", "body"], nested: ("body", "html")),
+        SmokeCase(id: "yaml-language-server", files: ["config.yaml": "key: [1, 2\nother: value\n"], main: "config.yaml", problem: "Flow sequence", needsTool: "npm",
+                  outline: ["key", "other"]),
+        SmokeCase(id: "bash-language-server", files: ["run.sh": "#!/bin/bash\ngreet() { echo hi; }\ngre\ngreet\n"], main: "run.sh", completion: ("\ngre", "greet"), needsTool: "npm",
+                  outline: ["greet"], highlight: "greet"),
+        SmokeCase(id: "marksman", files: ["notes.md": "# Title\n\nSee [the docs][nowhere].\n"], main: "notes.md", problem: "non-existent",
+                  outline: ["Title"]),
+        SmokeCase(id: "taplo", files: ["config.toml": "[package]\nname = \n"], main: "config.toml", problem: "expected value",
+                  outline: ["package"]),
+        SmokeCase(id: "lua-language-server", files: ["main.lua": "local count = 1\nprint(undefined_thing)\nprint(count)\n"], main: "main.lua", problem: "undefined",
+                  outline: ["count"], highlight: "count"),
+        SmokeCase(id: "dockerfile-language-server", files: ["Dockerfile": "FROM\nRUN echo hi\n"], main: "Dockerfile", problem: "no arguments", needsTool: "npm",
+                  outline: ["FROM", "RUN"]),
+        SmokeCase(id: "intelephense", files: ["index.php": "<?php\n$count = 1;\nundefined_function();\necho $count;\n"], main: "index.php", problem: "undefined", needsTool: "npm",
+                  outline: ["$count"], highlight: "$count"),
+        SmokeCase(id: "zls", files: ["main.zig": "const std = @import(\"std\");\nconst x = ;\n"], main: "main.zig", problem: "expected expression",
+                  outline: ["std"]),
+        SmokeCase(id: "svelte-language-server", files: ["App.svelte": "<script>\n  let count = 0;\n</script>\n\n{#if count}\n"], main: "App.svelte", problem: "left open", needsTool: "npm",
+                  outline: ["count"], nested: ("count", "script")),
+        SmokeCase(id: "terraform-ls", files: ["main.tf": "resource \"null_resource\" \"a\" {\n"], main: "main.tf", problem: "Unclosed",
+                  outline: ["resource \"null_resource\" \"a\""]),
+        // One of the servers imported from nvim-lspconfig (D65).
+        SmokeCase(id: "prismals", files: ["schema.prisma": "model User {\n  id   Int    @id\n  name Strin\n}\n"],
+                  main: "schema.prisma", problem: "Strin", needsTool: "npm"),
+        // A project without TypeScript of its own (D65: no npx): Orbit's typescript-language-server and its bundled TypeScript.
+        SmokeCase(id: "typescript", files: ["main.ts": "function greet(name: string) { return name; }\nconst count: number = greet(\"a\");\nconsole.log(count);\n"],
+                  main: "main.ts", problem: "not assignable", needsTool: "npm", outline: ["greet"]),
     ]
 }
 

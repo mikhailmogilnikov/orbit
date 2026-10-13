@@ -63,6 +63,9 @@ public struct ColorTheme: Sendable, Identifiable, Hashable {
     public var activeLineNumber: ThemeColor?
     public var cursor: ThemeColor?
     public var selection: ThemeColor?
+    /// Other uses of the symbol under the caret: reads, and writes (assignments).
+    public var symbolHighlight: ThemeColor?
+    public var symbolHighlightWrite: ThemeColor?
 
     public var added: ThemeColor?
     public var modified: ThemeColor?
@@ -74,6 +77,9 @@ public struct ColorTheme: Sendable, Identifiable, Hashable {
     public var error: ThemeColor?
     public var warning: ThemeColor?
     public var info: ThemeColor?
+    /// Inlay hints: their text and the capsule behind it.
+    public var hint: ThemeColor?
+    public var hintBackground: ThemeColor?
 
     public var terminalBackground: ThemeColor?
     public var terminalForeground: ThemeColor?
@@ -215,6 +221,8 @@ enum ThemeFile {
             let player = (style["players"] as? [[String: Any]])?.first
             theme.cursor = (player?["cursor"] as? String).flatMap(ThemeColor.init(hex:))
             theme.selection = (player?["selection"] as? String).flatMap(ThemeColor.init(hex:))
+            theme.symbolHighlight = color("editor.document_highlight.read_background")
+            theme.symbolHighlightWrite = color("editor.document_highlight.write_background")
 
             theme.added = color("version_control.added", "created")
             theme.modified = color("version_control.modified", "modified")
@@ -224,6 +232,7 @@ enum ThemeFile {
             theme.error = color("error")
             theme.warning = color("warning")
             theme.info = color("info", "hint")
+            theme.hintBackground = color("hint.background")
 
             theme.terminalBackground = color("terminal.background")?.composited(over: theme.editorBackground ?? surface)
             theme.terminalForeground = color("terminal.foreground")
@@ -237,6 +246,8 @@ enum ThemeFile {
                 syntax.isItalic = ["italic", "oblique"].contains((value["font_style"] as? String)?.lowercased())
                 theme.syntax[capture] = syntax
             }
+            // Zed draws inlay hints in the syntax "hint" style, else the status color.
+            theme.hint = theme.syntax["hint"]?.color ?? color("hint")
             return theme
         }
     }

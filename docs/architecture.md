@@ -37,8 +37,9 @@ Dependency rule: plugins depend on `OrbitAPI` (+ `OrbitUI`), **never on each
 other**. Cross-plugin features go through service protocols declared in
 `OrbitAPI` (e.g. `ChangeTracking`, implemented by Review, used by Editor and
 Agents; `AgentCompletion`, implemented by Agents, used by Git for commit
-messages; `AgentTerminalHosting`, implemented by Terminal, used by Agents to run
-commands).
+messages; `AgentTasks`, implemented by Agents, used by Languages to hand a
+setup task to the chat; `AgentTerminalHosting`, implemented by Terminal, used by
+Agents to run commands).
 
 ## Plugin model
 
@@ -55,7 +56,8 @@ A plugin is a class conforming to `OrbitPlugin` with a static `manifest`. In
   `FuzzyMatch` gives pickers shared scoring and match highlighting
 - `ui.addStatusItem` — status bar items (leading/trailing); `isVisible` says when an item has something to show — the bar is hidden while none do
 - `commands.register` — commands with optional shortcuts; they appear in menus
-  (by category) and the command palette automatically
+  (by category) and the command palette automatically; `editorMenu:` also
+  puts one in the editor's right-click menu (D67)
 - `services.register` — typed services for other plugins
 - `settings` — per-plugin namespaced UserDefaults
 

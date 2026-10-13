@@ -335,7 +335,7 @@ final class CompletionController: NSObject {
             try? await Task.sleep(for: .milliseconds(80))
             guard !Task.isCancelled else { return }
             let resolved = await languages.resolve(item, in: url)
-            guard !Task.isCancelled, let self, candidates.indices.contains(index), candidates[index].item.token == item.token else { return }
+            guard !Task.isCancelled, let self, candidates.indices.contains(index), candidates[index].item.token == item.token, candidates[index].item.server == item.server else { return }
             candidates[index].item = resolved
             if panel.list.selectedRow == row { panel.showDetails(of: resolved) }
         }

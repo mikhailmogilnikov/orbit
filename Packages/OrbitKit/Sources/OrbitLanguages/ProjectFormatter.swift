@@ -252,7 +252,10 @@ struct ProjectFormatter: Sendable, Equatable {
 
     /// The file's whole new text.
     func format(_ text: String, file: URL, environment: [String: String]) async throws -> String {
-        var target = file
+        // The tool runs in the folder's real path (a process's working directory
+        // is resolved); a file named through a symlink (/var → /private/var) is
+        // then "outside of base path" for ESLint, which silently skips it.
+        var target = Self.resolvingSymlinks(file)
         var scratch: URL?
         if mode == .temporaryFile {
             let folder = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-format-\(UUID().uuidString)")
@@ -284,6 +287,20 @@ struct ProjectFormatter: Sendable, Equatable {
         case .eslintReport:
             return try Self.eslintOutput(result.output, original: text)
         }
+    }
+
+    /// The real path of a file that may not exist yet (an unsaved one): its nearest existing folder resolved.
+    static func resolvingSymlinks(_ file: URL) -> URL {
+        var existing = file.deletingLastPathComponent()
+        var rest = [file.lastPathComponent]
+        while existing.path != "/" {
+            if let real = LanguageServer.realPath(existing.path) {
+                return rest.reversed().reduce(URL(fileURLWithPath: real)) { $0.appendingPathComponent($1) }
+            }
+            rest.append(existing.lastPathComponent)
+            existing = existing.deletingLastPathComponent()
+        }
+        return file
     }
 
     /// The fixed text from ESLint's JSON report; a fatal message is a parse error.

@@ -97,6 +97,7 @@ private struct GitHeader: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .help("Fetch, Refresh")
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 6)

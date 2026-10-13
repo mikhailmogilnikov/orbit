@@ -26,9 +26,12 @@ public final class LanguagesPlugin: OrbitPlugin {
 
         context.ui.addStatusItem(StatusItem(
             id: "languages.status", placement: .trailing, order: 10,
-            isVisible: { Self.activeFile(workspace).flatMap(manager.server(for:)) != nil }
+            isVisible: { Self.activeFile(workspace).map { manager.server(for: $0) != nil || manager.turnedOff($0) != nil } ?? false }
         ) {
-            LanguageStatus(manager: manager, workspace: workspace, commands: context.commands, ui: context.ui)
+            LanguageStatus(
+                manager: manager, workspace: workspace, commands: context.commands, ui: context.ui,
+                agent: { [services = context.services] in services.resolve(AgentTasks.self) }
+            )
         })
 
         context.ui.addSettingsPane(SettingsPane(
@@ -39,9 +42,15 @@ public final class LanguagesPlugin: OrbitPlugin {
         })
 
         let ui = context.ui
-        ui.addBottomPanel(PanelContribution(id: "problems", title: "Problems", systemImage: "exclamationmark.triangle", order: 50) {
+        ui.addBottomPanel(PanelContribution(id: "problems", title: "Problems", systemImage: "exclamationmark.triangle", order: 50, badge: {
+            // Errors when there are any, else warnings.
+            let severities = manager.problems.flatMap { $0.diagnostics.map(\.severity) }
+            let errors = severities.count { $0 == .error }, warnings = severities.count { $0 == .warning }
+            if errors > 0 { return PanelBadge(errors, style: .error) }
+            return warnings > 0 ? PanelBadge(warnings, style: .warning) : nil
+        }) {
             ProblemsPanel(manager: manager, workspace: workspace)
-        })
+        }.command("languages.problems"))
         context.commands.register(OrbitCommand(
             id: "languages.problems",
             title: "Show Problems",
@@ -57,6 +66,8 @@ public final class LanguagesPlugin: OrbitPlugin {
             }
         })
 
+        registerNavigation(context, manager: manager)
+
         context.commands.register(OrbitCommand(
             id: "languages.restart",
             title: "Restart Language Servers",
@@ -71,6 +82,66 @@ public final class LanguagesPlugin: OrbitPlugin {
         manager?.shutdown()
     }
 
+    /// Find References, Go to Symbol in File / Project (D62). Always enabled,
+    /// like the other Code commands (D59): without a server they beep.
+    private func registerNavigation(_ context: PluginContext, manager: LanguageManager) {
+        let workspace = context.workspace
+        let services = context.services
+        let ui = context.ui
+        let references = ReferencesModel()
+        func caret() -> SourceLocation? {
+            guard let caret = services.resolve(EditorSelectionProviding.self)?.caret,
+                  caret.url.standardizedFileURL == Self.activeFile(workspace)?.standardizedFileURL else { return nil }
+            return caret
+        }
+
+        ui.addBottomPanel(PanelContribution(id: "references", title: "References", systemImage: "arrow.triangle.branch", order: 55, badge: {
+            references.count > 0 ? PanelBadge(references.count) : nil
+        }) {
+            ReferencesPanel(model: references, workspace: workspace)
+        })
+        // ⇧⌘R, beside ⇧⌘O (symbols) and ⇧⌘A (actions); was Xcode's four-key ⌃⇧⌘F (D67).
+        context.commands.register(OrbitCommand(
+            id: "languages.findReferences",
+            title: "Find References",
+            category: "Code",
+            systemImage: "arrow.triangle.branch",
+            shortcut: KeyboardShortcut("r", modifiers: [.command, .shift]),
+            editorMenu: EditorMenuPlacement(.navigate) {
+                Self.activeFile(workspace).map { manager.server(for: $0) != nil } ?? false
+            }
+        ) {
+            guard let caret = caret() else {
+                NSSound.beep()
+                return
+            }
+            references.find(at: caret, languages: manager, workspace: workspace)
+            ui.revealBottomPanel("references")
+        })
+        context.commands.register(OrbitCommand(
+            id: "languages.fileSymbols",
+            title: "Go to Symbol in File…",
+            category: "Code",
+            systemImage: "list.bullet.indent",
+            shortcut: KeyboardShortcut("o", modifiers: [.command, .shift])
+        ) {
+            guard let caret = caret() else {
+                NSSound.beep()
+                return
+            }
+            SymbolPicks.fileSymbols(caret, languages: manager, workspace: workspace, ui: ui)
+        })
+        context.commands.register(OrbitCommand(
+            id: "languages.projectSymbols",
+            title: "Go to Symbol in Project…",
+            category: "Code",
+            systemImage: "magnifyingglass",
+            shortcut: KeyboardShortcut("t", modifiers: .command)
+        ) {
+            SymbolPicks.projectSymbols(languages: manager, workspace: workspace, ui: ui)
+        })
+    }
+
     static func activeFile(_ workspace: Workspace) -> URL? {
         guard let tab = workspace.activeTab, tab.kind == EditorTab.fileKind else { return nil }
         return tab.url
@@ -83,9 +154,22 @@ struct LanguageStatus: View {
     let workspace: Workspace
     let commands: CommandRegistry
     let ui: UIRegistry
+    let agent: () -> AgentTasks?
 
     var body: some View {
-        if let url = LanguagesPlugin.activeFile(workspace), let server = manager.server(for: url) {
+        if let url = LanguagesPlugin.activeFile(workspace), let language = manager.turnedOff(url) {
+            Button {
+                manager.editServerSettings()
+            } label: {
+                Text("\(language) off")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help("The language server is turned off for these files in .orbit/settings.json")
+            .contextMenu { serverMenu(url) }
+        } else if let url = LanguagesPlugin.activeFile(workspace), let server = manager.server(for: url) {
             let diagnostics = manager.diagnostics(for: url)
             let errors = diagnostics.count { $0.severity == .error }
             let warnings = diagnostics.count { $0.severity == .warning }
@@ -96,7 +180,7 @@ struct LanguageStatus: View {
             Button {
                 if canInstall, let config {
                     if let failure {
-                        explainInstallFailure(server.name, failure, config: config)
+                        explainInstallFailure(server.name, failure, config: config, url: url)
                     } else if !installing {
                         Task { await manager.install(config.id) }
                     }
@@ -104,12 +188,12 @@ struct LanguageStatus: View {
                 }
                 switch server.state {
                 case .failed(let message), .unavailable(let message):
-                    explain(server.name, message)
+                    explain(server.name, message, url: url)
                 default:
-                    commands.run("editor.nextProblem")
+                    commands.run("languages.problems", teaching: true)
                 }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     if canInstall {
                         if installing {
                             ProgressView().controlSize(.mini)
@@ -123,21 +207,64 @@ struct LanguageStatus: View {
                         }
                     } else {
                         stateLabel(server, errors: errors, warnings: warnings)
+                        // ESLint, Tailwind beside it (D64); dimmed while not running.
+                        ForEach(manager.companions(for: url), id: \.name) { companion in
+                            Text("· \(companion.name)")
+                                .opacity(companion.state == .running ? 1 : 0.5)
+                        }
                     }
                 }
-                .labelStyle(.titleAndIcon)
+                .labelStyle(TightLabelStyle())
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .help(canInstall ? "Download its language server from the Mason registry" : help(server.state, errors: errors, warnings: warnings))
+            .help(canInstall ? "Download its language server from the Mason registry" : help(server.state, errors: errors, warnings: warnings) + companionNotes(url))
+            .contextMenu { serverMenu(url) }
         }
+    }
+
+    /// Another server for this file type (D65), saved in ~/.orbit/settings.json.
+    @ViewBuilder
+    private func serverMenu(_ url: URL) -> some View {
+        let current = manager.config(for: url)?.id
+        let chosen = manager.chosenInSettings(url)
+        let type = url.pathExtension.isEmpty ? url.lastPathComponent : ".\(url.pathExtension)"
+        Section("Language Server for \(type) Files") {
+            ForEach(manager.alternatives(for: url), id: \.id) { option in
+                Toggle(option.title, isOn: Binding(get: { current == option.id }, set: { _ in choose(option.id, url) }))
+            }
+            Toggle("None", isOn: Binding(get: { chosen == "off" }, set: { _ in choose("off", url) }))
+        }
+        if chosen != nil {
+            Button("Use Orbit's Choice") { choose(nil, url) }
+        }
+        Divider()
+        Button("Edit Settings File…") { manager.editServerSettings() }
+    }
+
+    private func choose(_ id: String?, _ url: URL) {
+        guard let failure = manager.chooseServer(id, for: url) else { return }
+        let alert = NSAlert()
+        alert.messageText = "Couldn't save the choice"
+        alert.informativeText = failure
+        alert.runModal()
     }
 
     private static func isUnavailable(_ state: LanguageServerState) -> Bool {
         if case .unavailable = state { return true }
         return false
+    }
+
+    /// Matches the bottom-panel buttons beside it (3 pt between icon and count).
+    private struct TightLabelStyle: LabelStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            HStack(spacing: 3) {
+                configuration.icon
+                configuration.title.monospacedDigit()
+            }
+        }
     }
 
     @ViewBuilder
@@ -167,34 +294,55 @@ struct LanguageStatus: View {
         }
     }
 
-    private func explainInstallFailure(_ name: String, _ message: String, config: LanguageServerConfig) {
+    private func explainInstallFailure(_ name: String, _ message: String, config: LanguageServerConfig, url: URL) {
         let alert = NSAlert()
         alert.messageText = "Couldn't install the \(name) language server"
         alert.informativeText = message
         alert.addButton(withTitle: "Try Again")
         alert.addButton(withTitle: "Open Settings")
+        let agent = agent()
+        if agent != nil { alert.addButton(withTitle: "Ask Agent to Set Up") }
         alert.addButton(withTitle: "Cancel")
         switch alert.runModal() {
         case .alertFirstButtonReturn: Task { await manager.install(config.id) }
         case .alertSecondButtonReturn: ui.showSettings("languages")
+        case .alertThirdButtonReturn where agent != nil:
+            _ = agent?.draftTask(manager.setUpPrompt(for: url, problem: "Installing it failed: \(message)"))
         default: break
         }
     }
 
     /// Why the server isn't running, with a way to try again.
-    private func explain(_ name: String, _ message: String) {
+    /// Why the server isn't running, with a way to try again or to have the agent set it up (D65).
+    private func explain(_ name: String, _ message: String, url: URL) {
         let alert = NSAlert()
         alert.messageText = "The \(name) language server isn't running"
         alert.informativeText = message
         alert.addButton(withTitle: "Restart")
+        let agent = agent()
+        if agent != nil { alert.addButton(withTitle: "Ask Agent to Set Up") }
         alert.addButton(withTitle: "OK")
-        if alert.runModal() == .alertFirstButtonReturn { commands.run("languages.restart") }
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: commands.run("languages.restart")
+        case .alertSecondButtonReturn where agent != nil: _ = agent?.draftTask(manager.setUpPrompt(for: url, problem: message))
+        default: break
+        }
+    }
+
+    /// Why ESLint or Tailwind isn't running, when it isn't.
+    private func companionNotes(_ url: URL) -> String {
+        manager.companions(for: url).compactMap { companion in
+            switch companion.state {
+            case .failed(let message), .unavailable(let message): "\n\(companion.name): \(message)"
+            default: nil
+            }
+        }.joined()
     }
 
     private func help(_ state: LanguageServerState, errors: Int, warnings: Int) -> String {
         switch state {
         case .starting: "Starting the language server…"
-        case .running: errors + warnings == 0 ? "No problems in this file" : "Go to the next problem (⌘')"
+        case .running: (errors + warnings == 0 ? "No problems in this file" : "Problems in this file") + ". Click to show the Problems panel (⇧⌘M)"
         case .failed(let message), .unavailable(let message): message
         }
     }

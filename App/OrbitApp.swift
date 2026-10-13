@@ -7,6 +7,8 @@ struct OrbitApp: App {
     @State private var host: PluginHost
 
     init() {
+        // Tooltips name buttons and their shortcuts (D67); macOS's ~1 s wait hid them.
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
         let host = PluginHost(plugins: BuiltinPlugins.all)
         _host = State(initialValue: host)
         AppDelegate.host = host
@@ -15,6 +17,11 @@ struct OrbitApp: App {
             systemImage: "paintpalette", shortcut: KeyboardShortcut("t", modifiers: [.command, .control])
         ) {
             ThemeSelector.show(in: host)
+        })
+        host.commands.register(OrbitCommand(
+            id: "shell.shortcuts", title: "Keyboard Shortcuts", category: "Help", systemImage: "keyboard"
+        ) {
+            CheatSheetState.shared.isShown = true
         })
     }
 
@@ -55,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// real menu items and shortcuts for free.
 struct OrbitMenus: Commands {
     let host: PluginHost
-    private static let builtInCategories: Set<String> = ["File", "Code", "Agents", "Review", "Git", "Terminal", "Appearance"]
+    private static let builtInCategories: Set<String> = ["File", "Code", "Agents", "Review", "Git", "Terminal", "Appearance", "Help", "View"]
 
     var body: some Commands {
         // Settings open inside the main window (see SettingsScreen), not as a separate one.
@@ -75,10 +82,11 @@ struct OrbitMenus: Commands {
         CommandGroup(after: .sidebar) {
             Button("Command Palette…") { CommandPalette.toggle(in: host) }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
-            items(ids: ["shell.selectTheme"])
+            items(ids: ["shell.toggleSidebar", "shell.toggleAgents", "shell.selectTheme"])
             Divider()
         }
         // Language features (D59): navigation, fixes, rename, formatting, problems.
+        CommandGroup(after: .help) { items(in: "Help") }
         CommandMenu("Code") { items(in: "Code") }
         CommandMenu("Agents") { items(in: "Agents") }
         CommandMenu("Review") { items(in: "Review") }
@@ -86,29 +94,34 @@ struct OrbitMenus: Commands {
         CommandMenu("Terminal") { items(in: "Terminal") }
         CommandMenu("Plugins") {
             ForEach(host.commands.all.filter { !Self.builtInCategories.contains($0.category) }) { command in
-                CommandButton(command: command)
+                CommandButton(command: command, commands: host.commands)
             }
         }
     }
 
     private func items(in category: String, excluding: Set<String> = []) -> some View {
         ForEach(host.commands.all.filter { $0.category == category && !excluding.contains($0.id) }) { command in
-            CommandButton(command: command)
+            CommandButton(command: command, commands: host.commands)
         }
     }
 
     private func items(ids: [String]) -> some View {
         ForEach(ids.compactMap { id in host.commands.all.first { $0.id == id } }) { command in
-            CommandButton(command: command)
+            CommandButton(command: command, commands: host.commands)
         }
     }
 }
 
 struct CommandButton: View {
     let command: OrbitCommand
+    let commands: CommandRegistry
 
     var body: some View {
-        let button = Button(command.title, action: command.run)
+        let button = Button(command.title) {
+            // Picked with the mouse, not by its shortcut: show the shortcut (D67).
+            if NSApp.currentEvent?.type != .keyDown { commands.teach(command) }
+            command.run()
+        }
             .disabled(!command.isEnabled())
         if let shortcut = command.shortcut {
             button.keyboardShortcut(shortcut)

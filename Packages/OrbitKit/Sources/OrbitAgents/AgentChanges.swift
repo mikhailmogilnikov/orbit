@@ -32,7 +32,7 @@ struct AgentChangesBar: View {
                 .help(store.isChangesExpanded ? "Hide changed files" : "Show changed files")
                 Spacer(minLength: 4)
                 IconButton("chevron.down.2", help: "Review next change (⌥⌘↓)") {
-                    store.commands.run("editor.nextChange")
+                    store.commands.run("editor.nextChange", teaching: true)
                 }
                 Button("Undo All") { changes.rejectAll() }
                     .buttonStyle(.glass)

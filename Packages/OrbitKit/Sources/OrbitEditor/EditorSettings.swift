@@ -8,6 +8,7 @@ final class EditorOptions {
     var wrapsLines: Bool { didSet { settings.set(wrapsLines, for: "wrapsLines") } }
     var highlightsCurrentLine: Bool { didSet { settings.set(highlightsCurrentLine, for: "highlightsCurrentLine") } }
     var formatsOnSave: Bool { didSet { settings.set(formatsOnSave, for: "formatsOnSave") } }
+    var showsInlayHints: Bool { didSet { settings.set(showsInlayHints, for: "showsInlayHints") } }
 
     @ObservationIgnored private let settings: PluginSettings
 
@@ -16,6 +17,7 @@ final class EditorOptions {
         wrapsLines = settings.bool("wrapsLines")
         highlightsCurrentLine = settings.bool("highlightsCurrentLine", default: true)
         formatsOnSave = settings.bool("formatsOnSave")
+        showsInlayHints = settings.bool("showsInlayHints", default: true)
     }
 }
 
@@ -50,6 +52,10 @@ struct EditorSettingsPane: View {
             Section("Display") {
                 Toggle("Wrap long lines", isOn: $options.wrapsLines)
                 Toggle("Highlight the current line", isOn: $options.highlightsCurrentLine)
+                Toggle(isOn: $options.showsInlayHints) {
+                    Text("Show inlay hints")
+                    Text("Types and parameter names from the language server, drawn in the code.")
+                }
             }
             Section {
                 Toggle(isOn: $options.formatsOnSave) {

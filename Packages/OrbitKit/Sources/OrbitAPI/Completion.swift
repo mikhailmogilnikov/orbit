@@ -41,6 +41,8 @@ public struct CompletionItem: Sendable, Hashable {
     public var isDeprecated: Bool
     /// Whether `resolve` may add details or edits.
     public var needsResolve: Bool
+    /// The server that offered it when a file has several (D64); set by the Languages plugin.
+    public var server: String?
 
     public init(
         token: Int, label: String, kind: Kind? = nil, detail: String? = nil, documentation: String? = nil,

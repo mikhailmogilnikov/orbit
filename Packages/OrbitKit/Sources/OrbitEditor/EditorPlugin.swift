@@ -23,7 +23,7 @@ public final class EditorPlugin: OrbitPlugin {
 
         context.ui.addSettingsPane(SettingsPane(
             id: "editor", title: "Editor", systemImage: "chevron.left.forwardslash.chevron.right", order: 10,
-            keywords: ["font", "size", "wrap", "line", "highlight"]
+            keywords: ["font", "size", "wrap", "line", "highlight", "inlay", "hints", "types", "parameters"]
         ) {
             EditorSettingsPane(options: options)
         })
@@ -88,6 +88,11 @@ public final class EditorPlugin: OrbitPlugin {
 
         registerChangeCommands(context)
 
+        ActiveEditor.shared.commands = context.commands
+        let hasServer: @MainActor () -> Bool = {
+            guard let coordinator = ActiveEditor.shared.coordinator else { return false }
+            return coordinator.languages?.server(for: coordinator.document.url) != nil
+        }
         // Xcode's keys: Jump to Definition ⌃⌘J, Jump to Next Issue ⌘'.
         context.commands.register(OrbitCommand(
             id: "editor.goToDefinition",
@@ -95,12 +100,22 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Code",
             systemImage: "arrow.right.circle",
             shortcut: KeyboardShortcut("j", modifiers: [.command, .control]),
+            editorMenu: EditorMenuPlacement(.navigate, isVisible: hasServer)
         ) {
             guard let coordinator = ActiveEditor.shared.coordinator, let textView = coordinator.textView else {
                 NSSound.beep()
                 return
             }
             coordinator.goToDefinition(at: textView.textSelection.location)
+        })
+
+        context.commands.register(OrbitCommand(
+            id: "editor.toggleInlayHints",
+            title: "Toggle Inlay Hints",
+            category: "Code",
+            systemImage: "text.badge.plus"
+        ) {
+            options.showsInlayHints.toggle()
         })
 
         context.commands.register(OrbitCommand(
@@ -121,6 +136,7 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Code",
             systemImage: "wand.and.sparkles",
             shortcut: KeyboardShortcut("a", modifiers: [.command, .shift]),
+            editorMenu: EditorMenuPlacement(.edit, title: "Fixes and Actions…", isVisible: hasServer)
         ) {
             ActiveEditor.shared.coordinator?.showCodeActions()
         })
@@ -130,6 +146,7 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Code",
             systemImage: "pencil",
             shortcut: KeyboardShortcut("e", modifiers: [.command, .control]),
+            editorMenu: EditorMenuPlacement(.edit, isVisible: hasServer)
         ) {
             ActiveEditor.shared.coordinator?.startRename()
         })
@@ -139,6 +156,10 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Code",
             systemImage: "text.alignleft",
             shortcut: KeyboardShortcut("i", modifiers: [.control, .shift]),
+            editorMenu: EditorMenuPlacement(.edit) {
+                guard let coordinator = ActiveEditor.shared.coordinator else { return false }
+                return coordinator.languages?.canFormat(coordinator.document.url) == true
+            }
         ) {
             ActiveEditor.shared.coordinator?.formatDocument()
         })
@@ -165,7 +186,8 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Review",
             systemImage: "checkmark",
             shortcut: KeyboardShortcut(.return, modifiers: [.command, .option]),
-            isEnabled: hasHunks
+            isEnabled: hasHunks,
+            editorMenu: EditorMenuPlacement(.review) { currentHunk() != nil }
         ) {
             guard let (hunk, url, tracker) = currentHunk() else { return }
             tracker.keep(hunk, in: url)
@@ -176,7 +198,8 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Review",
             systemImage: "arrow.uturn.backward",
             shortcut: KeyboardShortcut(.delete, modifiers: [.command, .option]),
-            isEnabled: hasHunks
+            isEnabled: hasHunks,
+            editorMenu: EditorMenuPlacement(.review) { currentHunk() != nil }
         ) {
             guard let (hunk, url, tracker) = currentHunk() else { return }
             tracker.revert(hunk, in: url)
@@ -322,7 +345,7 @@ struct FileEditorView: View {
                     hunks: hunks,
                     onKeep: { changes?.keep($0, in: url) },
                     onRevert: { changes?.revert($0, in: url) },
-                    revealLine: workspace.pendingReveal?.url == url ? workspace.pendingReveal?.line : nil,
+                    reveal: workspace.pendingReveal.flatMap { $0.url == url ? ($0.line, $0.column) : nil },
                     onRevealHandled: { workspace.pendingReveal = nil },
                     gitBaseline: gitBaseline,
                     fontSize: Preferences.shared.codeFontSize,
@@ -330,9 +353,9 @@ struct FileEditorView: View {
                     highlightsCurrentLine: options.highlightsCurrentLine,
                     diagnostics: languages?.diagnostics(for: url) ?? [],
                     languages: languages,
-                    onOpenLocation: { location in
-                        workspace.openFile(location.url, line: location.range.start.line)
-                    },
+                    showsInlayHints: options.showsInlayHints,
+                    inlayHintsRevision: languages?.inlayHintsRevision(for: url) ?? 0,
+                    onOpenLocation: { workspace.open($0) },
                     grammarRevision: GrammarRegistry.shared.revision
                 )
             }
@@ -402,7 +425,7 @@ struct LanguageInstallBanner: View {
     }
 
     private var details: String {
-        let what = "Errors, completion and go to definition need its language server."
+        let what = offer.purpose ?? "Errors, completion and go to definition need its language server."
         return offer.needs.map { "\(what) Needs \($0)." } ?? what
     }
 }

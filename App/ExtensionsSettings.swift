@@ -48,6 +48,7 @@ struct InstalledExtensionsView: View {
                                 } label: {
                                     Image(systemName: "ellipsis")
                                 }
+                                .help("Show in Finder, Uninstall")
                                 .menuStyle(.borderlessButton)
                                 .menuIndicator(.hidden)
                                 .fixedSize()
@@ -575,6 +576,7 @@ struct TryOnBar: View {
                     } label: {
                         Image(systemName: "chevron.down")
                     }
+                    .help("Other themes in this extension")
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()

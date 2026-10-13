@@ -14,6 +14,7 @@ public final class AgentsPlugin: OrbitPlugin {
 
     private var store: AgentStore?
     private var completion: AgentCompletionService?
+    private var tasks: AgentTaskService?
 
     public init() {}
 
@@ -24,6 +25,9 @@ public final class AgentsPlugin: OrbitPlugin {
         let completion = AgentCompletionService(store: store)
         self.completion = completion
         context.services.register(AgentCompletion.self, completion)
+        let tasks = AgentTaskService(store: store, ui: ui)
+        self.tasks = tasks
+        context.services.register(AgentTasks.self, tasks)
 
         ui.addSettingsPane(SettingsPane(
             id: "agents", title: "Agents", systemImage: "sparkles", order: 20,
@@ -59,7 +63,8 @@ public final class AgentsPlugin: OrbitPlugin {
             title: "Focus Agent Chat",
             category: "Agents",
             systemImage: "text.bubble",
-            shortcut: KeyboardShortcut("l", modifiers: .command)
+            shortcut: KeyboardShortcut("l", modifiers: .command),
+            editorMenu: EditorMenuPlacement(.agent, title: "Ask Agent About This")
         ) {
             ui.revealInspectorPanel("agents")
             if let selection = context.services.resolve(EditorSelectionProviding.self)?.selection {
@@ -109,6 +114,27 @@ public final class AgentsPlugin: OrbitPlugin {
     public func deactivate() {
         store?.shutdown()
         completion?.shutdown()
+    }
+}
+
+/// `AgentTasks`: a task from another plugin lands in a chat's composer.
+@MainActor
+final class AgentTaskService: AgentTasks {
+    private let store: AgentStore
+    private let ui: UIRegistry
+
+    init(store: AgentStore, ui: UIRegistry) {
+        self.store = store
+        self.ui = ui
+    }
+
+    func draftTask(_ prompt: String) -> Bool {
+        ui.revealInspectorPanel("agents")
+        store.newChat()
+        guard let session = store.selected, session.isEmptyChat else { return false }
+        session.draft = prompt
+        store.focusComposer()
+        return true
     }
 }
 

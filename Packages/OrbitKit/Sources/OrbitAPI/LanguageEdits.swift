@@ -102,8 +102,10 @@ public struct CodeAction: Sendable, Hashable, Identifiable {
     public var isPreferred: Bool
     /// Why it's offered but can't apply here.
     public var disabledReason: String?
+    /// The server that offered it when a file has several (D64).
+    public var server: String?
 
-    public var id: Int { token }
+    public var id: String { "\(server ?? ""):\(token)" }
 
     public init(token: Int, title: String, kind: String?, isPreferred: Bool, disabledReason: String?) {
         self.token = token

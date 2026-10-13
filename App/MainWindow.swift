@@ -27,8 +27,14 @@ struct MainWindow: View {
                     .id(pick.id)
             }
         }
+        // A command run by mouse shows its shortcut, so it gets learned (D67).
+        .overlay(alignment: .bottom) {
+            CommandHintOverlay(commands: host.commands)
+                .padding(.bottom, 44)
+        }
         .onAppear {
             AppDelegate.reopenMainWindow = { openWindow(id: "main") }
+            registerLayoutCommands()
         }
         // A theme being tried on brings its own mode (it only draws in that one).
         .onChange(of: appearance, initial: true) { _, appearance in
@@ -52,6 +58,24 @@ struct MainWindow: View {
             sidebarPanelID = id
             ui.requestedSidebarPanel = nil
         }
+    }
+
+    /// The window's own columns: macOS's ⌃⌘S for the sidebar, and ⌥⌘I (an
+    /// inspector, as in Pages and Keynote) for the agents.
+    private func registerLayoutCommands() {
+        let columns = $columnVisibility, inspector = $showsInspector
+        host.commands.register(OrbitCommand(
+            id: "shell.toggleSidebar", title: "Toggle Sidebar", category: "View", systemImage: "sidebar.left",
+            shortcut: KeyboardShortcut("s", modifiers: [.command, .control])
+        ) {
+            withAnimation { columns.wrappedValue = columns.wrappedValue == .detailOnly ? .all : .detailOnly }
+        })
+        host.commands.register(OrbitCommand(
+            id: "shell.toggleAgents", title: "Toggle Agents", category: "View", systemImage: "sidebar.right",
+            shortcut: KeyboardShortcut("i", modifiers: [.command, .option])
+        ) {
+            inspector.wrappedValue.toggle()
+        })
     }
 
     private var appearance: Preferences.Appearance {
@@ -137,8 +161,15 @@ struct PanelTabButton: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .help(panel.title)
+        .help(panelHelp(panel))
     }
+}
+
+/// A panel button's tooltip: its name, and the shortcut of the command showing it.
+@MainActor
+func panelHelp(_ panel: PanelContribution, _ text: String? = nil) -> String {
+    guard let id = panel.commandID, let commands = AppDelegate.host?.commands else { return text ?? panel.title }
+    return commands.help(id, text ?? panel.title)
 }
 
 struct InspectorHost: View {
@@ -205,8 +236,8 @@ struct EditorArea: View {
                 BottomPanelHost(ui: host.ui)
             }
             let statusItems = host.ui.statusItems.filter { $0.isVisible() }
-            if !statusItems.isEmpty {
-                StatusBar(items: statusItems)
+            if !statusItems.isEmpty || !host.ui.bottomPanels.isEmpty {
+                StatusBar(items: statusItems, ui: host.ui)
             }
         }
         // Up into the hidden title bar, so the tab row lines up with the traffic lights.
@@ -238,6 +269,8 @@ struct BottomPanelHost: View {
                 }
                 .zIndex(1)
             if let current {
+                BottomPanelHeader(ui: ui, current: current)
+                Divider()
                 current.makeView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -275,7 +308,7 @@ struct WindowTopBar: View {
     var body: some View {
         let sidebarHidden = columnVisibility == .detailOnly
         HStack(spacing: 4) {
-            TopBarButton("sidebar.left", help: sidebarHidden ? "Show Sidebar" : "Hide Sidebar") {
+            TopBarButton("sidebar.left", help: host.commands.help("shell.toggleSidebar", sidebarHidden ? "Show Sidebar" : "Hide Sidebar")) {
                 withAnimation { columnVisibility = sidebarHidden ? .all : .detailOnly }
             }
             if host.workspace.tabs.isEmpty {
@@ -286,7 +319,7 @@ struct WindowTopBar: View {
             TopBarButton("command", help: "Command Palette (⇧⌘P)") {
                 CommandPalette.toggle(in: host)
             }
-            TopBarButton("sidebar.right", help: "Toggle Agents") {
+            TopBarButton("sidebar.right", help: host.commands.help("shell.toggleAgents", showsInspector ? "Hide Agents" : "Show Agents")) {
                 showsInspector.toggle()
             }
         }
@@ -652,14 +685,134 @@ struct TabItem: View {
     }
 }
 
+/// The bottom area's top row: a tab per panel (with its count), the shown
+/// panel's own controls (terminal tabs), and Hide.
+struct BottomPanelHeader: View {
+    let ui: UIRegistry
+    let current: PanelContribution
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(ui.bottomPanels) { panel in
+                BottomPanelTab(panel: panel, isSelected: panel.id == current.id) {
+                    ui.revealBottomPanel(panel.id)
+                }
+            }
+            if let accessory = current.makeAccessory {
+                Divider()
+                    .frame(height: 14)
+                    .padding(.horizontal, 6)
+                accessory()
+            }
+            Spacer(minLength: 0)
+            IconButton("chevron.down", help: "Hide Panel") {
+                ui.isBottomPanelVisible = false
+            }
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 30)
+    }
+}
+
+private struct BottomPanelTab: View {
+    let panel: PanelContribution
+    let isSelected: Bool
+    let select: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 5) {
+                Image(systemName: panel.systemImage)
+                    .font(.system(size: 10))
+                Text(panel.title)
+                    .font(.system(size: 11.5, weight: isSelected ? .medium : .regular))
+                if let badge = panel.badge?() {
+                    PanelBadgeView(badge: badge)
+                }
+            }
+            .foregroundStyle(isSelected ? .primary : .secondary)
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(isSelected ? Theme.subtleFill : isHovered ? Theme.subtleFill.opacity(0.6) : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(panelHelp(panel))
+    }
+}
+
+struct PanelBadgeView: View {
+    let badge: PanelBadge
+
+    var body: some View {
+        Text(badge.count < 1000 ? "\(badge.count)" : "999+")
+            .font(.system(size: 10, weight: .medium))
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(color == .secondary ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(color.opacity(0.15)), in: .capsule)
+    }
+
+    private var color: Color {
+        switch badge.style {
+        case .plain: .secondary
+        case .error: .red
+        case .warning: .orange
+        }
+    }
+}
+
+/// Status-bar buttons that open or hide each bottom panel, like Xcode's
+/// debug-area toggle; the shown one is tinted.
+private struct BottomPanelToggles: View {
+    let ui: UIRegistry
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(ui.bottomPanels) { panel in
+                let isShown = ui.isBottomPanelVisible && (ui.selectedBottomPanel ?? ui.bottomPanels.first?.id) == panel.id
+                Button {
+                    ui.toggleBottomPanel(panel.id)
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: panel.systemImage)
+                        if let badge = panel.badge?() {
+                            Text("\(badge.count)")
+                                .monospacedDigit()
+                                .foregroundStyle(badge.style == .error ? .red : badge.style == .warning ? .orange : .secondary)
+                        }
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(isShown ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help(panelHelp(panel, isShown ? "Hide \(panel.title)" : "Show \(panel.title)"))
+            }
+        }
+    }
+}
+
 struct StatusBar: View {
     let items: [StatusItem]
+    let ui: UIRegistry
 
     var body: some View {
         HStack(spacing: 14) {
+            if !ui.bottomPanels.isEmpty {
+                BottomPanelToggles(ui: ui)
+                Divider().frame(height: 12)
+            }
             ForEach(items.filter { $0.placement == .leading }) { $0.makeView() }
             Spacer()
             ForEach(items.filter { $0.placement == .trailing }) { $0.makeView() }
+            if let commands = AppDelegate.host?.commands {
+                CheatSheetButton(commands: commands)
+            }
         }
         .padding(.horizontal, 12)
         .frame(height: 24)

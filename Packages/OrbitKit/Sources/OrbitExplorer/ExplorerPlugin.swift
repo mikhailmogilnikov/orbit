@@ -17,6 +17,16 @@ public final class ExplorerPlugin: OrbitPlugin {
         let model = FileTreeModel(workspace: workspace)
         context.ui.addSidebarPanel(PanelContribution(id: "explorer", title: "Explorer", systemImage: "folder", order: 0) {
             ExplorerView(model: model, workspace: workspace, decorations: context.services.resolve(FileStatusProviding.self))
+        }.command("explorer.show"))
+        // VS Code's key, next to ⌃⇧G for Source Control.
+        context.commands.register(OrbitCommand(
+            id: "explorer.show",
+            title: "Show Explorer",
+            category: "File",
+            systemImage: "folder",
+            shortcut: KeyboardShortcut("e", modifiers: [.command, .shift])
+        ) {
+            context.ui.revealSidebarPanel("explorer")
         })
         context.commands.register(OrbitCommand(
             id: "workspace.openFolder",

@@ -1,24 +1,55 @@
 import Foundation
 import OrbitACP
 
-/// A language server Orbit knows how to find and run (D54). Our own table:
-/// which files it serves and how to launch it; servers that aren't on the
-/// machine are installed from the Mason registry (D57).
-struct LanguageServerConfig: Sendable {
+/// A language server as data (D65): which files it serves, where its project
+/// starts, where its command comes from. Orbit installs and launches it; the
+/// server itself works out the project (configs, monorepos, versions).
+struct LanguageServerConfig: Sendable, Hashable, Codable {
     var id: String
     var name: String
+    /// Its name in nvim-lspconfig: an entry of ours replaces the imported one (D65).
+    var lspconfig: String?
     /// File extension → LSP `languageId`.
     var languages: [String: String]
     /// Files known by name (`Dockerfile`) → LSP `languageId`.
     var fileNames: [String: String] = [:]
-    /// The command already on this machine for a project at `root`; nil when
-    /// the server isn't there (`missing` says what to do).
-    var resolve: @Sendable (_ root: URL, _ environment: [String: String]) -> AgentCommand?
-    var missing: String
-    /// How Orbit installs it itself.
+    /// Root markers in groups: the first group found on the way up from a file
+    /// wins, at the nearest folder holding one of it (`*.ext` matches by
+    /// extension). Workspace-wide markers (lockfiles, `go.work`) come first so a
+    /// monorepo gets one server. None found, or none given: the open folder.
+    var roots: [[String]] = []
+    /// Where the command comes from, the first that's there wins.
+    var launch: [Launch]
+    /// How Orbit installs it itself (from Mason, D57).
     var install: Install?
+    /// What to do when nothing launches and Orbit can't install it.
+    var missingHint: String?
+    /// Set for tools that run beside a file's own server (D64): they start when
+    /// a package.json on the way up depends on one of these (or their `@name/` scope).
+    var usedWith: [String]?
+    /// For a companion's install offer: why this project wants it.
+    var purpose: String?
+    /// The answer to `workspace/configuration`, looked up by section. Strings
+    /// `${rootUri}` and `${rootName}` become the server's root. Nil answers `{}`.
+    var settings: JSONValue?
+    /// Sent with `initialize`.
+    var initializationOptions: JSONValue?
 
-    struct Install: Sendable, Hashable {
+    enum Launch: Sendable, Hashable, Codable {
+        /// `node_modules/.bin/<binary>` in the project, nearest to the file; with
+        /// `package`, only where that npm package is (from `minimumMajor` on, when set).
+        case project(package: String? = nil, binary: String, arguments: [String] = [], minimumMajor: Int? = nil)
+        /// Orbit's copy from Mason (`install`).
+        case installed
+        /// Found on the PATH of the user's shell (mise, asdf, rbenv shims included).
+        case path(binary: String, arguments: [String] = [])
+        /// A developer tool from the active Xcode.
+        case xcrun(tool: String, arguments: [String] = [])
+        /// An executable by its full path (one set in `.orbit/settings.json`).
+        case file(path: String, arguments: [String] = [])
+    }
+
+    struct Install: Sendable, Hashable, Codable {
         /// The Mason package.
         var package: String
         var binary: String
@@ -27,195 +58,416 @@ struct LanguageServerConfig: Sendable {
         var needs: String?
     }
 
-    static let all: [LanguageServerConfig] = [
-        swift, typescript, python, rust, go, clang, json, css, html, yaml, bash, markdown, toml, lua, docker, php, zig,
-        svelte, terraform, ruby,
-    ]
+    var isCompanion: Bool { usedWith != nil }
 
-    static func config(for url: URL) -> LanguageServerConfig? {
-        let ext = url.pathExtension.lowercased()
-        let name = url.lastPathComponent
-        return all.first { $0.languages[ext] != nil || $0.fileNames[name] != nil }
-    }
+    var missing: String { missingHint ?? "Install it in Settings → Languages." }
 
-    static func config(id: String) -> LanguageServerConfig? {
-        all.first { $0.id == id }
+    func serves(_ url: URL) -> Bool {
+        languages[url.pathExtension.lowercased()] != nil || fileNames[url.lastPathComponent] != nil
     }
 
     func languageID(for url: URL) -> String {
-        languages[url.pathExtension.lowercased()] ?? fileNames[url.lastPathComponent] ?? id
-    }
-
-    /// What Orbit installed wins over what was already on the machine.
-    func command(root: URL, environment: [String: String], installer: LanguageInstaller) -> AgentCommand? {
-        if let install, let command = installer.command(
-            package: install.package, binary: install.binary, arguments: install.arguments, environment: environment
-        ) {
-            return command
+        if let id = languages[url.pathExtension.lowercased()] ?? fileNames[url.lastPathComponent] { return id }
+        // A file the imported entry of this name claimed (`.c++` for clangd).
+        if let lspconfig, let imported = ImportedServers.shared.byName[lspconfig] {
+            if let id = imported.languages[url.pathExtension.lowercased()] ?? imported.fileNames[url.lastPathComponent] { return id }
         }
-        return resolve(root, environment)
+        return id
     }
 
-    /// A server found on PATH by one of `names`, installable from Mason.
+    // MARK: Lookup
+
+    /// Ours: the main languages (tested, D55) and the companions.
+    static let curated: [LanguageServerConfig] = [
+        swift, typescript, python, rust, go, clang, json, css, html, yaml, bash, markdown, toml, lua, docker, php, zig,
+        svelte, terraform, ruby, java, csharp, eslint, tailwind,
+    ]
+
+    /// Ours, then every server imported from nvim-lspconfig that ours don't replace (D65).
+    static let all: [LanguageServerConfig] = {
+        let replaced = Set(curated.compactMap(\.lspconfig))
+        return curated + ImportedServers.shared.servers.filter { !replaced.contains($0.id) }
+    }()
+
+    private static let byID: [String: LanguageServerConfig] = Dictionary(all.map { ($0.id, $0) }) { first, _ in first }
+    private static let curatedByLSPConfig: [String: LanguageServerConfig] = Dictionary(
+        curated.compactMap { config in config.lspconfig.map { ($0, config) } }
+    ) { first, _ in first }
+
+    private static let curatedIDs = Set(curated.map(\.id))
+
+    var isImported: Bool { !Self.curatedIDs.contains(id) }
+
+    /// Servers that could be the file's language server, best first: ours when
+    /// one serves it, else the imported ones ranked for its extension.
+    static func candidates(for url: URL) -> [LanguageServerConfig] {
+        if let ours = curated.first(where: { !$0.isCompanion && $0.serves(url) }) { return [ours] }
+        let imported = ImportedServers.shared
+        let ids = imported.choices.extensions[url.pathExtension.lowercased()] ?? imported.choices.fileNames[url.lastPathComponent] ?? []
+        var seen = Set<String>()
+        return ids.compactMap { id in curatedByLSPConfig[id] ?? byID[id] }.filter { seen.insert($0.id).inserted }
+    }
+
+    /// Of the servers that could take the file, the first already in the
+    /// project, installed by Orbit or on the machine; else the best one, to offer.
+    static func choose(for file: URL, in root: URL, environment: [String: String], installer: LanguageInstaller) -> LanguageServerConfig? {
+        let candidates = candidates(for: file)
+        guard candidates.count > 1 else { return candidates.first }
+        return candidates.first { $0.command(file: file, root: root, environment: environment, installer: installer) != nil }
+            ?? candidates.first
+    }
+
+    /// Every server that could be the file's: ours, then the imported ones ranked for it.
+    static func alternatives(for url: URL) -> [LanguageServerConfig] {
+        let ours = curated.filter { !$0.isCompanion && $0.serves(url) }
+        let imported = ImportedServers.shared
+        let ids = imported.choices.extensions[url.pathExtension.lowercased()] ?? imported.choices.fileNames[url.lastPathComponent] ?? []
+        var seen = Set<String>()
+        return (ours + ids.compactMap { curatedByLSPConfig[$0] ?? byID[$0] }).filter { seen.insert($0.id).inserted }
+    }
+
+    /// The file's language server, not looking at what's installed.
+    static func config(for url: URL) -> LanguageServerConfig? {
+        candidates(for: url).first
+    }
+
+    /// Tools for this file type that run beside its language server, whether or not the project uses them.
+    static func companions(for url: URL) -> [LanguageServerConfig] {
+        all.filter { $0.isCompanion && $0.serves(url) }
+    }
+
+    static func config(id: String) -> LanguageServerConfig? {
+        byID[id]
+    }
+
+    // MARK: Resolving
+
+    /// The folder this server runs in for `file`, inside the open `folder`.
+    func root(for file: URL, in folder: URL) -> URL {
+        // One spelling for both, as servers are keyed by it.
+        func directory(_ url: URL) -> URL { URL(filePath: url.standardizedFileURL.path, directoryHint: .isDirectory) }
+        for group in roots {
+            if let found = ProjectFiles.nearest(from: file, root: folder, where: { ProjectFiles.contains($0, anyOf: group) }) {
+                return directory(found)
+            }
+        }
+        return directory(folder)
+    }
+
+    /// Whether the project around `file` uses this companion.
+    func isUsed(by file: URL, in folder: URL) -> Bool {
+        guard let packages = usedWith else { return true }
+        return ProjectFiles.nearest(from: file, root: folder) { directory in
+            ProjectFiles.dependsOn(in: directory) { name in
+                packages.contains { name == $0 || name.hasPrefix("@\($0)/") }
+            }
+        } != nil
+    }
+
+    /// The command for a server started by `file`, looking in the project from
+    /// it (or from `root`) up to `root`, the open folder.
+    func command(file: URL?, root: URL, environment: [String: String], installer: LanguageInstaller) -> AgentCommand? {
+        for source in launch {
+            switch source {
+            case .project(let package, let binary, let arguments, let minimumMajor):
+                let start = file ?? root.appendingPathComponent("_")
+                if let path = ProjectFiles.projectBinary(package: package ?? binary, binary: binary, minimumMajor: minimumMajor, from: start, root: root, requirePackage: package != nil) {
+                    return AgentCommand(executable: path, arguments: arguments)
+                }
+            case .installed:
+                if let install, let command = installer.command(
+                    package: install.package, binary: install.binary, arguments: install.arguments, environment: environment
+                ) {
+                    return command
+                }
+            case .path(let binary, let arguments):
+                if let path = Shell.which(binary, in: environment) { return AgentCommand(executable: path, arguments: arguments) }
+            case .xcrun(let tool, let arguments):
+                if let path = Shell.output("/usr/bin/xcrun", ["--find", tool]), FileManager.default.isExecutableFile(atPath: path) {
+                    return AgentCommand(executable: path, arguments: arguments)
+                }
+            case .file(let path, let arguments):
+                if FileManager.default.isExecutableFile(atPath: path) { return AgentCommand(executable: path, arguments: arguments) }
+            }
+        }
+        return nil
+    }
+
+    /// Already on this machine (not the project's, not Orbit's copy): for Settings.
+    func machineCommand(environment: [String: String]) -> AgentCommand? {
+        var machine = self
+        machine.launch = launch.filter {
+            switch $0 {
+            case .path, .xcrun, .file: true
+            case .project, .installed: false
+            }
+        }
+        return machine.command(file: nil, root: URL(fileURLWithPath: "/"), environment: environment, installer: .shared)
+    }
+
+    /// `settings` for a server running in `root`.
+    func settings(for root: URL) -> JSONValue? {
+        settings.map { Self.substitute($0, root: root) }
+    }
+
+    private static func substitute(_ value: JSONValue, root: URL) -> JSONValue {
+        switch value {
+        case .string("${rootUri}"): .string(root.absoluteString)
+        case .string("${rootName}"): .string(root.lastPathComponent)
+        case .array(let items): .array(items.map { substitute($0, root: root) })
+        case .object(let object): .object(object.mapValues { substitute($0, root: root) })
+        default: value
+        }
+    }
+}
+
+// MARK: The table
+
+extension LanguageServerConfig {
+    /// Orbit's copy first, then one already on the machine.
     static func standard(
-        id: String, name: String, languages: [String: String], fileNames: [String: String] = [:],
+        id: String, name: String, lspconfig: String, languages: [String: String], fileNames: [String: String] = [:], roots: [[String]] = [],
         package: String? = nil, binary: String, arguments: [String] = [], alsoFound: [String] = [], needs: String? = nil
     ) -> LanguageServerConfig {
         LanguageServerConfig(
-            id: id, name: name, languages: languages, fileNames: fileNames,
-            resolve: { _, environment in
-                for candidate in [binary] + alsoFound {
-                    if let path = Shell.which(candidate, in: environment) { return AgentCommand(executable: path, arguments: arguments) }
-                }
-                return nil
-            },
-            missing: "Install it in Settings → Languages.",
+            id: id, name: name, lspconfig: lspconfig, languages: languages, fileNames: fileNames, roots: roots,
+            launch: [.installed] + ([binary] + alsoFound).map { .path(binary: $0, arguments: arguments) },
             install: Install(package: package ?? id, binary: binary, arguments: arguments, needs: needs)
         )
     }
 
-    /// SourceKit-LSP ships with Xcode (and Swift toolchains).
+    /// A JS project's lockfile marks its workspace (one server per monorepo), else its manifest.
+    static let javaScriptRoots = [
+        ["pnpm-lock.yaml", "yarn.lock", "package-lock.json", "bun.lock", "bun.lockb"],
+        ["package.json", "tsconfig.json", "jsconfig.json"],
+    ]
+
+    static let javaScriptLanguages = [
+        "ts": "typescript", "mts": "typescript", "cts": "typescript", "tsx": "typescriptreact",
+        "js": "javascript", "mjs": "javascript", "cjs": "javascript", "jsx": "javascriptreact",
+    ]
+
+    /// SourceKit-LSP finds the packages in a folder itself.
     static let swift = LanguageServerConfig(
-        id: "sourcekit-lsp",
-        name: "Swift",
-        languages: ["swift": "swift"],
-        resolve: { _, environment in
-            if let path = Shell.output("/usr/bin/xcrun", ["--find", "sourcekit-lsp"]), FileManager.default.isExecutableFile(atPath: path) {
-                return AgentCommand(executable: path)
-            }
-            return Shell.which("sourcekit-lsp", in: environment).map { AgentCommand(executable: $0) }
-        },
-        missing: "Install Xcode or a Swift toolchain."
+        id: "sourcekit-lsp", name: "Swift", lspconfig: "sourcekit", languages: ["swift": "swift"],
+        launch: [.xcrun(tool: "sourcekit-lsp"), .path(binary: "sourcekit-lsp")],
+        missingHint: "Install Xcode or a Swift toolchain."
     )
 
-    /// TypeScript 7 (the native compiler) is its own language server; older
-    /// versions go through typescript-language-server over their tsserver.
-    /// The project's TypeScript decides, so errors match its `tsc`.
+    /// The project's TypeScript decides, so errors match its `tsc`: 7+ (native)
+    /// is its own server, older ones go through typescript-language-server,
+    /// which picks the project's tsserver up itself.
+    static let typescript = LanguageServerConfig(
+        id: "typescript", name: "TypeScript", lspconfig: "ts_ls", languages: javaScriptLanguages, roots: javaScriptRoots,
+        launch: [
+            .project(package: "typescript", binary: "tsc", arguments: ["--lsp", "--stdio"], minimumMajor: 7),
+            .project(package: "typescript-language-server", binary: "typescript-language-server", arguments: ["--stdio"]),
+            .installed,
+            .path(binary: "typescript-language-server", arguments: ["--stdio"]),
+        ],
+        install: Install(package: "typescript-language-server", binary: "typescript-language-server", arguments: ["--stdio"], needs: "Node.js"),
+        settings: ["typescript": ["inlayHints": typeScriptHints], "javascript": ["inlayHints": typeScriptHints]],
+        // typescript-language-server takes tsserver's preferences here, not from the settings.
+        initializationOptions: ["preferences": [
+            "includeInlayParameterNameHints": "literals",
+            "includeInlayParameterNameHintsWhenArgumentMatchesName": false,
+            "includeInlayFunctionLikeReturnTypeHints": true,
+            "includeInlayEnumMemberValueHints": true,
+            "includeInlayPropertyDeclarationTypeHints": true,
+            "includeInlayVariableTypeHints": false,
+            "includeInlayFunctionParameterTypeHints": false,
+        ]]
+    )
+
+    /// TypeScript has every inlay hint off unless asked: names for literal
+    /// arguments and inferred return types, not every variable's type (noisy in TS).
+    static let typeScriptHints: JSONValue = [
+        "parameterNames": ["enabled": "literals", "suppressWhenArgumentMatchesName": true],
+        "parameterTypes": ["enabled": false],
+        "variableTypes": ["enabled": false, "suppressWhenTypeMatchesName": true],
+        "propertyDeclarationTypes": ["enabled": true],
+        "functionLikeReturnTypes": ["enabled": true],
+        "enumMemberValues": ["enabled": true],
+    ]
+
+    /// Sees the project's interpreter through its `.venv` (the project environment, D65).
     static let python = standard(
-        id: "basedpyright", name: "Python", languages: ["py": "python", "pyi": "python"],
+        id: "basedpyright", name: "Python", lspconfig: "basedpyright", languages: ["py": "python", "pyi": "python"],
+        roots: [
+            ["uv.lock", "poetry.lock", "pyrightconfig.json"],
+            ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"],
+        ],
         binary: "basedpyright-langserver", arguments: ["--stdio"], alsoFound: ["pyright-langserver"], needs: "Python 3"
     )
 
-    static let rust = standard(id: "rust-analyzer", name: "Rust", languages: ["rs": "rust"], binary: "rust-analyzer")
+    static let rust = standard(
+        id: "rust-analyzer", name: "Rust", lspconfig: "rust_analyzer", languages: ["rs": "rust"], roots: [["Cargo.lock"], ["Cargo.toml"]], binary: "rust-analyzer"
+    )
 
-    static let go = standard(id: "gopls", name: "Go", languages: ["go": "go"], binary: "gopls", needs: "Go")
-
-    /// Xcode's clangd knows the SDKs; Mason's is the fallback.
-    static let clang: LanguageServerConfig = {
-        var config = standard(
-            id: "clangd", name: "C/C++/Objective-C",
-            languages: [
-                "c": "c", "h": "c", "cpp": "cpp", "cc": "cpp", "cxx": "cpp", "hpp": "cpp", "hh": "cpp",
-                "m": "objective-c", "mm": "objective-cpp",
-            ],
-            binary: "clangd"
-        )
-        let onPath = config.resolve
-        config.resolve = { root, environment in
-            if let path = Shell.output("/usr/bin/xcrun", ["--find", "clangd"]), FileManager.default.isExecutableFile(atPath: path) {
-                return AgentCommand(executable: path)
-            }
-            return onPath(root, environment)
-        }
-        return config
+    /// gopls has every inlay hint off unless asked.
+    static let go = {
+        var go = standard(id: "gopls", name: "Go", lspconfig: "gopls", languages: ["go": "go"], roots: [["go.work"], ["go.mod"]], binary: "gopls", needs: "Go")
+        go.settings = ["gopls": ["hints": ["parameterNames": true, "constantValues": true, "functionTypeParameters": true]]]
+        return go
     }()
 
+    /// Xcode's clangd knows the SDKs; Mason's is the fallback.
+    static let clang = LanguageServerConfig(
+        id: "clangd", name: "C/C++/Objective-C", lspconfig: "clangd",
+        languages: [
+            "c": "c", "h": "c", "cpp": "cpp", "cc": "cpp", "cxx": "cpp", "hpp": "cpp", "hh": "cpp",
+            "m": "objective-c", "mm": "objective-cpp",
+        ],
+        launch: [.xcrun(tool: "clangd"), .installed, .path(binary: "clangd")],
+        install: Install(package: "clangd", binary: "clangd", arguments: [])
+    )
+
     static let json = standard(
-        id: "json-lsp", name: "JSON", languages: ["json": "json", "jsonc": "jsonc"],
+        id: "json-lsp", name: "JSON", lspconfig: "jsonls", languages: ["json": "json", "jsonc": "jsonc"],
         binary: "vscode-json-language-server", arguments: ["--stdio"], needs: "Node.js"
     )
 
     static let css = standard(
-        id: "css-lsp", name: "CSS", languages: ["css": "css", "scss": "scss", "less": "less"],
+        id: "css-lsp", name: "CSS", lspconfig: "cssls", languages: ["css": "css", "scss": "scss", "less": "less"],
         binary: "vscode-css-language-server", arguments: ["--stdio"], needs: "Node.js"
     )
 
     static let html = standard(
-        id: "html-lsp", name: "HTML", languages: ["html": "html", "htm": "html"],
+        id: "html-lsp", name: "HTML", lspconfig: "html", languages: ["html": "html", "htm": "html"],
         binary: "vscode-html-language-server", arguments: ["--stdio"], needs: "Node.js"
     )
 
     static let yaml = standard(
-        id: "yaml-language-server", name: "YAML", languages: ["yml": "yaml", "yaml": "yaml"],
+        id: "yaml-language-server", name: "YAML", lspconfig: "yamlls", languages: ["yml": "yaml", "yaml": "yaml"],
         binary: "yaml-language-server", arguments: ["--stdio"], needs: "Node.js"
     )
 
     static let bash = standard(
-        id: "bash-language-server", name: "Shell", languages: ["sh": "shellscript", "bash": "shellscript", "zsh": "shellscript"],
+        id: "bash-language-server", name: "Shell", lspconfig: "bashls", languages: ["sh": "shellscript", "bash": "shellscript", "zsh": "shellscript"],
         binary: "bash-language-server", arguments: ["start"], needs: "Node.js"
     )
 
     static let markdown = standard(
-        id: "marksman", name: "Markdown", languages: ["md": "markdown", "markdown": "markdown"],
+        id: "marksman", name: "Markdown", lspconfig: "marksman", languages: ["md": "markdown", "markdown": "markdown"],
         binary: "marksman", arguments: ["server"]
     )
 
-    static let toml = standard(id: "taplo", name: "TOML", languages: ["toml": "toml"], binary: "taplo", arguments: ["lsp", "stdio"])
+    static let toml = standard(id: "taplo", name: "TOML", lspconfig: "taplo", languages: ["toml": "toml"], binary: "taplo", arguments: ["lsp", "stdio"])
 
-    static let lua = standard(id: "lua-language-server", name: "Lua", languages: ["lua": "lua"], binary: "lua-language-server")
+    static let lua = {
+        var lua = standard(id: "lua-language-server", name: "Lua", lspconfig: "lua_ls", languages: ["lua": "lua"], binary: "lua-language-server")
+        lua.settings = ["Lua": ["hint": ["enable": true]]]
+        return lua
+    }()
 
     static let docker = standard(
-        id: "dockerfile-language-server", name: "Dockerfile", languages: ["dockerfile": "dockerfile"],
+        id: "dockerfile-language-server", name: "Dockerfile", lspconfig: "dockerls", languages: ["dockerfile": "dockerfile"],
         fileNames: ["Dockerfile": "dockerfile", "Containerfile": "dockerfile"],
         binary: "docker-langserver", arguments: ["--stdio"], needs: "Node.js"
     )
 
     static let php = standard(
-        id: "intelephense", name: "PHP", languages: ["php": "php"], binary: "intelephense", arguments: ["--stdio"], needs: "Node.js"
+        id: "intelephense", name: "PHP", lspconfig: "intelephense", languages: ["php": "php"], roots: [["composer.json"]],
+        binary: "intelephense", arguments: ["--stdio"], needs: "Node.js"
     )
 
-    static let zig = standard(id: "zls", name: "Zig", languages: ["zig": "zig"], binary: "zls")
+    static let zig = standard(id: "zls", name: "Zig", lspconfig: "zls", languages: ["zig": "zig"], binary: "zls")
 
     static let svelte = standard(
-        id: "svelte-language-server", name: "Svelte", languages: ["svelte": "svelte"],
+        id: "svelte-language-server", name: "Svelte", lspconfig: "svelte", languages: ["svelte": "svelte"], roots: javaScriptRoots,
         binary: "svelteserver", arguments: ["--stdio"], needs: "Node.js"
     )
 
     static let terraform = standard(
-        id: "terraform-ls", name: "Terraform", languages: ["tf": "terraform", "tfvars": "terraform-vars"],
+        id: "terraform-ls", name: "Terraform", lspconfig: "terraformls", languages: ["tf": "terraform", "tfvars": "terraform-vars"],
         binary: "terraform-ls", arguments: ["serve"]
     )
 
     /// Mason installs it with RubyGems, which Orbit doesn't drive: found on PATH only.
-    static let ruby: LanguageServerConfig = {
-        var config = standard(id: "ruby-lsp", name: "Ruby", languages: ["rb": "ruby"], binary: "ruby-lsp")
-        config.install = nil
-        config.missing = "Install ruby-lsp: gem install ruby-lsp"
-        return config
-    }()
+    static let ruby = LanguageServerConfig(
+        id: "ruby-lsp", name: "Ruby", lspconfig: "ruby_lsp",
+        languages: ["rb": "ruby", "rake": "ruby", "gemspec": "ruby", "ru": "ruby"], fileNames: ["Gemfile": "ruby", "Rakefile": "ruby"],
+        roots: [["Gemfile"]],
+        launch: [.path(binary: "ruby-lsp")],
+        missingHint: "Install ruby-lsp: gem install ruby-lsp"
+    )
 
-    static let typescript = LanguageServerConfig(
-        id: "typescript",
-        name: "TypeScript",
-        languages: [
-            "ts": "typescript", "mts": "typescript", "cts": "typescript", "tsx": "typescriptreact",
-            "js": "javascript", "mjs": "javascript", "cjs": "javascript", "jsx": "javascriptreact",
-        ],
-        resolve: { root, environment in
-            let manager = FileManager.default
-            let modules = root.appendingPathComponent("node_modules")
-            let projectTypeScript = modules.appendingPathComponent("typescript")
-            let hasTSServer = manager.fileExists(atPath: projectTypeScript.appendingPathComponent("lib/tsserver.js").path)
-            let localTSC = modules.appendingPathComponent(".bin/tsc").path
-            if manager.fileExists(atPath: projectTypeScript.path), !hasTSServer, manager.isExecutableFile(atPath: localTSC) {
-                return AgentCommand(executable: localTSC, arguments: ["--lsp", "--stdio"])
-            }
-            let localServer = modules.appendingPathComponent(".bin/typescript-language-server").path
-            if hasTSServer, manager.isExecutableFile(atPath: localServer) {
-                return AgentCommand(executable: localServer, arguments: ["--stdio"])
-            }
-            if hasTSServer, let global = Shell.which("typescript-language-server", in: environment) {
-                return AgentCommand(executable: global, arguments: ["--stdio"])
-            }
-            guard let npx = Shell.which("npx", in: environment) else { return nil }
-            if hasTSServer {
-                // Picks the project's TypeScript (5/6) up from the workspace.
-                return AgentCommand(executable: npx, arguments: ["-y", "typescript-language-server", "--stdio"])
-            }
-            // No TypeScript in the project: the current one, native and fast.
-            return AgentCommand(executable: npx, arguments: ["-y", "-p", "typescript", "tsc", "--lsp", "--stdio"])
-        },
-        missing: "Install Node.js, or typescript-language-server in the project."
+    /// Eclipse JDT LS wants a folder of its own per project (`-data`).
+    static let java = LanguageServerConfig(
+        id: "jdtls", name: "Java", lspconfig: "jdtls", languages: ["java": "java"],
+        roots: [["mvnw", "gradlew", "settings.gradle", "settings.gradle.kts", ".git"], ["build.xml", "pom.xml", "build.gradle", "build.gradle.kts"]],
+        launch: [.installed, .path(binary: "jdtls", arguments: ["-data", "${dataDir}"])],
+        install: Install(package: "jdtls", binary: "jdtls", arguments: ["-data", "${dataDir}"], needs: "Java 21 and Python 3")
+    )
+
+    /// Mason installs it with NuGet, which Orbit doesn't drive: found on PATH only.
+    static let csharp = LanguageServerConfig(
+        id: "csharp-ls", name: "C#", lspconfig: "csharp_ls", languages: ["cs": "csharp", "csx": "csharp"],
+        roots: [["*.sln", "*.slnx"], ["*.csproj"]],
+        launch: [.path(binary: "csharp-ls")],
+        missingHint: "Install csharp-ls: dotnet tool install --global csharp-ls",
+        initializationOptions: ["AutomaticWorkspaceInit": true]
+    )
+
+    // MARK: Companions (D64)
+
+    /// Runs the project's own ESLint (it finds it and the config per file), so rules and plugins match.
+    static let eslint = LanguageServerConfig(
+        id: "eslint", name: "ESLint", lspconfig: "eslint",
+        languages: javaScriptLanguages.merging(["vue": "vue", "svelte": "svelte", "astro": "astro"]) { $1 },
+        roots: javaScriptRoots,
+        launch: [.installed, .path(binary: "vscode-eslint-language-server", arguments: ["--stdio"])],
+        install: Install(package: "eslint-lsp", binary: "vscode-eslint-language-server", arguments: ["--stdio"], needs: "Node.js"),
+        usedWith: ["eslint"],
+        purpose: "This project uses ESLint: see its problems and fixes in the editor.",
+        // What VS Code's extension sends by default (the server has no defaults of its own).
+        settings: [
+            "validate": "on",
+            "run": "onType",
+            "format": false,
+            "quiet": false,
+            "onIgnoredFiles": "off",
+            "useESLintClass": false,
+            "rulesCustomizations": [],
+            "nodePath": .null,
+            // The nearest package.json / config's folder: monorepo packages lint with their own setup.
+            "workingDirectory": ["mode": "auto"],
+            "workspaceFolder": ["uri": "${rootUri}", "name": "${rootName}"],
+            "problems": ["shortenToSingleLine": false],
+            "codeAction": [
+                "disableRuleComment": ["enable": true, "location": "separateLine"],
+                "showDocumentation": ["enable": true],
+            ],
+            "codeActionOnSave": ["enable": false, "mode": "all"],
+            // Read without a check, so it must be there; empty lets ESLint (8.57+) pick flat or legacy config itself.
+            "experimental": [:],
+        ]
+    )
+
+    /// Class completion, hover and lint; the server finds the project's Tailwind (v3 config or v4 CSS) itself.
+    static let tailwind = LanguageServerConfig(
+        id: "tailwindcss", name: "Tailwind CSS", lspconfig: "tailwindcss",
+        languages: javaScriptLanguages.merging([
+            "html": "html", "htm": "html", "css": "css", "scss": "scss", "less": "less",
+            "vue": "vue", "svelte": "svelte", "astro": "astro", "mdx": "mdx",
+        ]) { $1 },
+        roots: javaScriptRoots,
+        launch: [.installed, .path(binary: "tailwindcss-language-server", arguments: ["--stdio"])],
+        install: Install(package: "tailwindcss-language-server", binary: "tailwindcss-language-server", arguments: ["--stdio"], needs: "Node.js"),
+        usedWith: ["tailwindcss"],
+        purpose: "This project uses Tailwind CSS: class completion, previews and lint.",
+        settings: [
+            "editor": ["tabSize": 2],
+            "tailwindCSS": [
+                "validate": true,
+                "classAttributes": ["class", "className", "class:list", "classList", "ngClass"],
+                "lint": [
+                    "cssConflict": "warning", "invalidApply": "error", "invalidScreen": "error",
+                    "invalidVariant": "error", "invalidConfigPath": "error", "invalidTailwindDirective": "error",
+                    "recommendedVariantOrder": "warning",
+                ],
+            ],
+        ]
     )
 }
 
@@ -243,5 +495,97 @@ enum Shell {
         guard process.terminationStatus == 0 else { return nil }
         let line = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).first.map(String.init)
         return line?.isEmpty == false ? line : nil
+    }
+}
+
+/// Looking at a project from a file towards the folder's root. Generic on
+/// purpose (D65): which tool lives where is the servers' business.
+enum ProjectFiles {
+    /// The first folder from the file's up to `root` where `matches`.
+    static func nearest(from file: URL, root: URL, where matches: (URL) -> Bool) -> URL? {
+        let rootPath = root.standardizedFileURL.path
+        var directory = file.standardizedFileURL.deletingLastPathComponent()
+        while directory.path == rootPath || directory.path.hasPrefix(rootPath + "/") {
+            if matches(directory) { return directory }
+            guard directory.path != rootPath else { break }
+            directory = directory.deletingLastPathComponent()
+        }
+        return nil
+    }
+
+    /// `markers` are file names, or `*.ext` for any name with that extension.
+    static func contains(_ directory: URL, anyOf markers: [String]) -> Bool {
+        let manager = FileManager.default
+        let names = markers.filter { !$0.hasPrefix("*.") }
+        if names.contains(where: { manager.fileExists(atPath: directory.appendingPathComponent($0).path) }) { return true }
+        let extensions = markers.filter { $0.hasPrefix("*.") }.map { String($0.dropFirst(2)) }
+        guard !extensions.isEmpty, let entries = try? manager.contentsOfDirectory(atPath: directory.path) else { return false }
+        return entries.contains { entry in extensions.contains { entry.hasSuffix(".\($0)") } }
+    }
+
+    static func packageJSON(in directory: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent("package.json")) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    static func dependsOn(in directory: URL, where matches: (String) -> Bool) -> Bool {
+        guard let json = packageJSON(in: directory) else { return false }
+        return ["dependencies", "devDependencies", "peerDependencies"].contains { key in
+            ((json[key] as? [String: Any])?.keys).map { $0.contains(where: matches) } ?? false
+        }
+    }
+
+    /// `node_modules/.bin/<binary>` of the nearest node_modules holding `package`
+    /// (at `minimumMajor` or later), from the file up to `root`.
+    static func projectBinary(
+        package: String, binary: String, minimumMajor: Int?, from file: URL, root: URL, requirePackage: Bool = true
+    ) -> String? {
+        let manager = FileManager.default
+        var found: String?
+        _ = nearest(from: file, root: root) { directory in
+            let modules = directory.appendingPathComponent("node_modules")
+            guard requirePackage else {
+                let path = modules.appendingPathComponent(".bin/\(binary)").path
+                if manager.isExecutableFile(atPath: path) { found = path }
+                return found != nil
+            }
+            guard let manifest = try? Data(contentsOf: modules.appendingPathComponent("\(package)/package.json")) else { return false }
+            if let minimumMajor {
+                let version = (try? JSONSerialization.jsonObject(with: manifest) as? [String: Any])?["version"] as? String
+                guard let major = version?.split(separator: ".").first.flatMap({ Int($0) }), major >= minimumMajor else { return true }
+            }
+            let path = modules.appendingPathComponent(".bin/\(binary)").path
+            guard manager.isExecutableFile(atPath: path) else { return false }
+            found = path
+            return true
+        }
+        return found
+    }
+
+    /// The project's own tools ahead of the user's (D65): the nearest
+    /// `node_modules/.bin` and virtualenv from the file up to `root` go first on PATH.
+    static func environment(for file: URL?, root: URL, base: [String: String]) -> [String: String] {
+        let manager = FileManager.default
+        var directories: [String] = []
+        var environment = base
+        var foundVirtualEnv = false
+        var directory = (file ?? root.appendingPathComponent("_")).standardizedFileURL.deletingLastPathComponent()
+        let rootPath = root.standardizedFileURL.path
+        while directory.path == rootPath || directory.path.hasPrefix(rootPath + "/") {
+            let bin = directory.appendingPathComponent("node_modules/.bin").path
+            if manager.fileExists(atPath: bin) { directories.append(bin) }
+            if !foundVirtualEnv, let venv = [".venv", "venv"].lazy.map(directory.appendingPathComponent).first(where: {
+                manager.fileExists(atPath: $0.appendingPathComponent("pyvenv.cfg").path)
+            }) {
+                directories.append(venv.appendingPathComponent("bin").path)
+                environment["VIRTUAL_ENV"] = venv.path
+                foundVirtualEnv = true
+            }
+            guard directory.path != rootPath else { break }
+            directory = directory.deletingLastPathComponent()
+        }
+        guard !directories.isEmpty else { return environment }
+        environment["PATH"] = (directories + [base["PATH"] ?? "/usr/bin:/bin"]).joined(separator: ":")
+        return environment
     }
 }

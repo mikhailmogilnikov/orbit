@@ -1,6 +1,83 @@
 # Decision log
 
 Short ADR-style records. Newest at the bottom. Each: context → decision → why.
+Entries aren't rewritten when a later decision changes them: the later one
+says what it supersedes, and the old one gets a one-line note pointing to it.
+Entries superseded as a whole move to the archive.
+
+## Index
+
+Read this list, then the entries your work touches. → marks what replaced (part of) an entry;
+fully superseded entries live in [decisions-archive.md](decisions-archive.md).
+
+- D1. Native SwiftUI/AppKit, macOS 26+
+- D2. Everything is a plugin
+- D3. ACP for all agents — presets → D52
+- D4. STTextView + tree-sitter for the editor
+- D5. Agents write to disk immediately; Orbit reviews after
+- D6. Shadow-git checkpoints for change tracking
+- D7. Inline diffs in the editor — no separate review tab
+- D8. Line-based diff with `CollectionDifference`
+- D9. No App Sandbox, direct distribution
+- D10. Login-shell environment, filtered
+- D11. Built-in agent adapters via unpinned npx — archived, superseded by D52
+- D12. Per-block keyboard shortcuts
+- D13. App icon as an Icon Composer `.icon`
+- D14. Own syntax-highlight plugin instead of `NeonPlugin`
+- D15. One brand mark, shared by the icon and the UI
+- D16. Status bar only when there's something to say — partly outdated (D54, D65)
+- D17. Keep the system window toolbar as is — archived, superseded by D42
+- D18. Share compiled tree-sitter highlight queries
+- D19. Quick picks in the kernel; project search without ripgrep
+- D20. Terminal: SwiftTerm in a bottom panel
+- D21. Source Control panel first; worktrees opt-in with "Apply" — worktrees → D35
+- D22. Generated commit messages go through the user's agent
+- D23. Git diffs open in a tab; explorer shows git colors
+- D24. Own line-number ruler; cheaper highlighting
+- D25. Replace in files, path globs, recent files
+- D26. Ask before unsaved edits are lost
+- D27. Agent commands show up in our terminal
+- D28. Agent sessions come back: restored tabs + Recent
+- D29. Prompt attachments: @-files, ⌘L selection, images
+- D30. Git change markers in the gutter
+- D31. Stash, history and blame in the Source Control panel
+- D32. Syntax colors in diffs
+- D33. Disk changes under unsaved edits
+- D34. Composer paste and mid-draft mentions
+- D35. Isolated sessions use APFS clones, not git worktrees — amends D21
+- D36. Settings as a page in the main window
+- D37. Extensions: data-first packages, a public registry on GitHub — themes registry → D48
+- D38. Themes and icon themes use Zed's file formats
+- D39. Themed middle, native edges (like Xcode) — archived, superseded by D40
+- D40. Themes color only the code, chrome is native (as in Xcode) — amended by D41
+- D41. The theme background under the glass (Xcode 26) — amends D40
+- D42. No toolbar: tabs in the title bar — supersedes D17
+- D43. Agents panel: always a chat, one options button
+- D44. Cursor, Grok Build and OpenCode built in — archived, superseded by D52
+- D45. Changed files live in the agent chat, not the navigator
+- D46. Usage ring in the composer
+- D47. A compositing guard window in full screen
+- D48. Themes and icons come from Zed's catalog, with try-on — amends D37
+- D49. Theme selector, catalog thumbnails, light/dark pairs
+- D50. Catalog is a selectable List with a pinned try-on panel — replaces D48's list
+- D51. Translucent ("blurred") theme backgrounds are flattened
+- D52. Agents come from the ACP registry; no built-in presets — supersedes D11, D44, D3's presets
+- D53. Everything colored by the theme follows a switch live
+- D54. LSP: our own small client, our own server table, Mason for installs — in part → D65
+- D55. Language servers are tested end to end against the real servers — TS setup → D65
+- D56. Completion and signature help: one request per word, filtered locally
+- D57. Language servers install from the Mason registry, with our own installer — table → D65
+- D58. Extra grammars are compiled lazily, with Zed's highlight queries
+- D59. Code actions, rename, formatting, Problems
+- D60. Formatting follows the repository
+- D61. Formatters are data, overridable per project
+- D62. Find references, go to symbol, highlights of the symbol under the caret
+- D63. The bottom area has tabs, and the status bar opens its panels
+- D64. ESLint and Tailwind run beside a file's language server — in part → D65
+- D65. Language support is data; servers understand projects, Orbit doesn't — current
+- D66. Fixes in the hover card; ⌥Esc opens completion
+- D67. Features are found in a right-click menu, and their shortcuts are taught
+- D68. The hover card sits over the line, as in VS Code
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -13,6 +90,8 @@ features are plugins on the same public API; plugins talk only via service
 protocols in `OrbitAPI`.
 
 ### D3. ACP for all agents
+> **Presets superseded by D52: no agents are built in; all come from the ACP registry or a custom manifest.**
+
 One protocol for Claude Code, Codex, Gemini, etc. New agent = JSON manifest.
 Rejected: parsing terminal output (fragile); per-vendor SDKs (N integrations).
 
@@ -47,10 +126,6 @@ GUI apps lack the user's PATH. Resolve once via `$SHELL -ilc env`. Strip host
 agent session variables so agents don't think they're nested inside another
 Claude Code session or use its credentials.
 
-### D11. Built-in agent adapters via unpinned npx
-`npx -y @agentclientprotocol/{claude-agent,codex}-acp` — auto-updates, no
-bundling. Cost: ~1–2 s startup. Revisit (cache/bundle) if startup annoys.
-
 ### D12. Per-block keyboard shortcuts
 Keep ⌥⌘↩, Undo ⌥⌘⌫, next/prev ⌥⌘↓/↑, all ⇧⌘↩ / ⇧⌘⌫. ⌘N/⌘Y (Cursor's) were
 avoided because they clash with standard macOS shortcuts.
@@ -82,21 +157,14 @@ screen shows the real app icon (`NSApp.applicationIconImage`); smaller in-app
 spots (agents empty state) use `OrbitMark`. No SF Symbol stand-ins for the logo.
 If the icon glyph changes, update both SVGs.
 
-
 ### D16. Status bar only when there's something to say
+> **Partly out of date: the language item came back as the language server status (D54), with a menu (D65).**
+
 The bottom bar used to be always on, mostly showing just the file's language.
 The language item was dropped (the extension already says it), and
 `StatusItem.isVisible` lets each plugin report whether it has content; the
 shell shows the bar only while at least one item is visible (agents working /
 waiting for approval, changes to review).
-
-### D17. Keep the system window toolbar as is
-Tried moving editor tabs into the toolbar (Safari/Zed style) and hiding its
-items when no file is open. Toolbar items can't stretch, so it needed a
-hand-computed strip width per sidebar/inspector state, and hiding the toolbar
-also removes the traffic lights. Too fragile for little gain: the toolbar stays
-system-managed (title + file path, buttons always visible), tabs are a row
-below it. Don't fight AppKit chrome. **Superseded by D42.**
 
 ### D18. Share compiled tree-sitter highlight queries
 Compiling a highlight query is slow (~230 ms for Swift in Debug) while parsing
@@ -137,6 +205,8 @@ the login-shell environment so credential helpers work, and never prompts
 (`GIT_TERMINAL_PROMPT=0`); failures show git's own message. Discarding a new
 file moves it to the Trash. ⌘↩ commits only from the message field because
 the agent composer already owns ⌘↩.
+
+> **The worktree plan below was replaced by APFS clones (D35).**
 
 Worktrees (next): opt-in per session via an "Isolated" toggle, off by default,
 so a lone agent keeps working in the project as today. Results come back with
@@ -437,20 +507,9 @@ and redraws by observation. Icon SVGs render in their own colors through
 picked or it has no icon for a file. `~/.orbit/extensions` is watched
 (FSEvents), so editing a theme shows up immediately.
 
-### D39. Themed middle, native edges (like Xcode)
-Amends D38. With only the editor themed, a dark theme with its own background
-(GitHub Dark `#0D1117`) sat in grey chrome like a window inside a window. Now
-the theme's `editor.background` also paints the middle of the window — the
-tab bar, the toolbar area above the editor, the bottom panel and the
-inspector (agent chat) — through `View.editorBackground(fallback:)`. The
-sidebar stays native glass and frames the content, as in Xcode and Nova;
-Settings stay fully native. Themes without a background (the built-in Orbit
-ones) look exactly as before. Zed's per-surface keys (`tab_bar.background`,
-`panel.background`, …) are still ignored: one surface color keeps the middle
-calm and works with any Zed theme.
-**Superseded by D40.**
-
 ### D40. Themes color only the code, chrome is native (as in Xcode)
+> **Amended by D41: the theme background lies under the whole window.**
+
 Reverts D39. Painting the middle of the window fought the system at every
 edge: on macOS 26 the toolbar above a `NavigationSplitView` ignores
 `toolbarBackground`, the floating sidebar and inspector leave seams, and the
@@ -505,7 +564,6 @@ toggle that `NavigationSplitView` adds is removed
 (`.toolbar(removing: .sidebarToggle)`): it floated over the sidebar next to
 our own toggle in the tab row.
 
-
 ### D43. Agents panel: always a chat, one options button
 The agents panel always shows tabs and always has a chat to type into: on
 opening a folder its saved tabs come back, or a new chat opens; closing the
@@ -525,17 +583,6 @@ Built-in agents show their brand marks (Claude, OpenAI for Codex) instead of
 SF Symbols: SVG paths from Simple Icons (CC0) in `AgentIcon.swift`, rendered
 by NSImage's own SVG support as template images; Claude's is in its orange.
 Custom agents keep their `systemImage`.
-
-### D44. Cursor, Grok Build and OpenCode built in
-Their own CLIs speak ACP over stdio, no adapter needed: `cursor-agent acp`,
-`grok agent stdio`, `opencode acp` (all report models through
-`configOptions`). Unlike the npx-launched Claude/Codex adapters they must be
-installed by the user, so agents whose executable isn't on the login-shell
-PATH are hidden from the picker, menus and the default-agent setting
-(Settings lists them as "Not installed") and their `session/list` isn't asked.
-Logos of Cursor, Grok and OpenCode come from lobe-icons (MIT), drawn even-odd.
-A model option with a single choice is kept (Grok Build offers one model), so
-the composer button still names the model.
 
 ### D45. Changed files live in the agent chat, not the navigator
 The Changes panel in the left navigator is gone. Agent edits are made from
@@ -675,6 +722,8 @@ lines) take `version_control.added` / `deleted` from the theme like the
 gutter does, set from the same `applyTheme` that runs on every switch.
 
 ### D54. LSP: our own small client, our own server table, Mason for installs
+> **Superseded in part by D65: servers are data (root markers, launch sources, no npx), one per project root rather than per language, and hundreds come from nvim-lspconfig. The launch order below is history.**
+
 Zed's language support can't be reused: its built-in languages are Rust code
 in Zed, and extension languages are WASM that decides what to download and
 how to launch it. The Languages plugin (`OrbitLanguages`) is a plain LSP
@@ -702,6 +751,8 @@ problems and the server's markdown; ⌘-click and ⌃⌘J (Xcode's Jump to
 Definition) open the definition; ⌘' (Xcode's Next Issue) walks problems. The
 status bar shows the active file's server and its error/warning counts.
 
+> **Superseded by D65: no npx; a project without TypeScript gets Orbit's typescript-language-server.**
+
 Amendment (TypeScript 7): TypeScript 7 is the native compiler and has no
 `tsserver.js`, so typescript-language-server can't run on it; its own `tsc
 --lsp --stdio` is the server. The project's TypeScript decides: 7+ runs its
@@ -713,6 +764,8 @@ pulls after every open/change when a server advertises `diagnosticProvider`
 (dropping answers for older versions) and again on `workspace/diagnostic/refresh`.
 
 ### D55. Language servers are tested end to end against the real servers
+> **Since D65 the third TypeScript setup is "no project install" (Orbit's typescript-language-server), not npx.**
+
 Unit tests of the LSP client checked our own helpers, but what broke in
 practice was the meeting with a real server: how it is launched (TypeScript 7
 has no `tsserver.js`), what it expects (pull diagnostics), what it answers
@@ -777,6 +830,8 @@ The server side runs against real servers in `make test-languages`
 and snippet parser have unit tests.
 
 ### D57. Language servers install from the Mason registry, with our own installer
+> **The table is no longer only ours: D65 adds the servers imported from nvim-lspconfig, and ranks them per file type.**
+
 The author installs the languages they need themselves: opening a file whose
 server is missing shows a banner above the editor ("Python support isn't
 installed", Install / Not Now; Not Now stops offering that language), and
@@ -932,3 +987,292 @@ Prettier); shfmt has nothing to configure but `.editorconfig`, so being
 installed is enough, also only as a fallback. Prettier is also picked by
 being among `package.json`'s dependencies: its defaults are then the
 repo's style. Each one runs for real in the install tests.
+
+### D62. Find references, go to symbol, highlights of the symbol under the caret
+- **Find References** (⇧⌃⌘F → ⇧⌘R in D67; Xcode's Find Selected Symbol in Workspace):
+  `textDocument/references` with the declaration, listed in a **References**
+  bottom panel next to Problems: "12 references to `greet` in 3 files", files
+  grouped (the one searched from first), each use as its line with the symbol
+  marked; a click opens the spot with the caret on it. A panel rather than a
+  popover or picker: the list stays while the user walks through it, as in
+  Xcode's Find navigator. SourceKit-LSP answers from its background index, so
+  right after opening a Swift package it can come back empty; the panel says so.
+- **Go to Symbol in File** (⇧⌘O): the file's outline (`documentSymbol`,
+  hierarchical, or flat lists nested by range) in a quick pick, nested symbols
+  indented, starting on the symbol the caret is in; typing filters fuzzily.
+  **Go to Symbol in Project** (⌘T): `workspace/symbol` asked 120 ms after
+  typing pauses, from every running server (a language with no open file has
+  no server, and isn't started for a search); the pick re-reads results when
+  they arrive (its items read an observable list). No `resolveSupport`, so
+  servers send full locations.
+- **Highlights**: 250 ms after the caret rests, `documentHighlight` fills the
+  other uses of the symbol softly behind the text (writes a little stronger),
+  in Zed's `editor.document_highlight.read/write_background` when the theme
+  has them. Views only for the viewport, placed under the text view's content
+  (no text-storage attributes, like squiggles); cleared on edits; a lone hit
+  isn't drawn; moving within a highlighted use doesn't ask again.
+
+Opening a location now puts the caret at its column (`Workspace.open(_:)`,
+`pendingReveal` has a column), also for go to definition. The commands live in
+the Languages plugin and read the caret through `EditorSelectionProviding.caret`;
+only the highlights are the editor's. The real-server tests check references
+across files, highlights, the outline's nesting and project search for Swift
+and every TypeScript setup.
+
+### D63. The bottom area has tabs, and the status bar opens its panels
+With Problems and References next to Terminal, the bottom area showed one
+panel with no way to see or switch to the others but shortcuts. Now it has
+a header row: a tab per panel with its count (Problems: errors in red, else
+warnings in orange; References: the uses found), the shown panel's own
+controls after a divider (the terminal's session tabs and +, moved up from
+their own row, so the terminal loses no height), and Hide (chevron) on the
+right. The status bar starts with a button per bottom panel (icon and count,
+tinted while shown) that opens or hides it, like Xcode's debug-area toggle,
+so they're reachable with the area closed. Plugins give a panel a `badge`
+and an `accessory` in `PanelContribution`.
+
+Addendum (D62): every installable server is checked too. `make
+test-language-installs` now also asks each one for its file's outline (all 17
+answer, names and nesting checked where they nest: Python, HTML, Svelte) and
+for highlights where a symbol is used twice (C, Go, Python, Lua, Bash, PHP;
+JSON, YAML, TOML, Markdown, CSS, Dockerfile, Terraform and Svelte templates
+have nothing to highlight). Python, Go and Rust got a second file: Find
+References from a call reaches the method's declaration there, and ⌘T finds
+the type. Other languages' references aren't checked (one-file projects).
+
+### D64. ESLint and Tailwind run beside a file's language server
+A file had one server, so a TypeScript project showed no ESLint problems and
+no Tailwind class completion. Now the server table has **companions**: tools
+that serve a file type alongside its language server, started only when the
+file's project uses them (looked up from the file towards the folder, so
+monorepo packages count):
+> **Superseded in part by D65: Orbit no longer looks for ESLint or Tailwind configs; a companion starts when a package.json on the way up depends on it, and the server finds the config. The monorepo addendum (npx, two levels down) is gone too.**
+
+- **ESLint** (`eslint-lsp`, vscode-eslint's server): an ESLint config
+  (`eslint.config.*`, `.eslintrc*`, `eslintConfig` in package.json) *and*
+  ESLint in a node_modules on the way up. It runs the project's own ESLint, so
+  its rules and plugins apply. The server has no defaults, so Orbit answers
+  `workspace/configuration` with what VS Code sends (validate on type, working
+  directory "auto" for monorepos, flat config when the root has one) and
+  approves `eslint/confirmESLintExecution` itself. Its fixes and "disable for
+  this line" come through ⇧⌘A; formatting stays with the formatter (D60).
+- **Tailwind CSS** (`tailwindcss-language-server`): a `tailwind.config.*` or
+  `tailwindcss` in a package.json's dependencies (v4 has no config file).
+  Class completion inside `class`/`className`, the CSS behind a class on hover,
+  its lint.
+
+Merging: problems from every server (the Problems panel merges them by file),
+completion lists joined (each item remembers its server for resolve; a
+trigger character goes only to the server that declared it), hover joined
+(the language server's first), code actions joined (run by the server that
+offered them). Definition, references, rename, symbols, signature help and
+formatting stay the language server's. The status bar lists them after the
+language ("TypeScript · ESLint · Tailwind CSS", dimmed while not running,
+why in the tooltip). A missing companion is offered above the editor like a
+missing language server, saying why ("This project uses ESLint…"); Not Now
+stops it. `make test-language-installs` runs both against npm's ESLint 9
+and Tailwind 4: the project's rule and its fix, class completion and hover.
+
+Found on the way: formatters were given the file's path as opened, while
+they run in the folder's real path; ESLint then calls the file "outside of
+base path" and silently doesn't fix it (any folder opened through a
+symlink). Formatters now get the real path.
+
+Addendum (D54, D64): monorepos. pnpm doesn't hoist TypeScript to the root,
+so a workspace with it only in `apps/*/node_modules` fell back to npx, which
+npm refuses to run in a project whose `devEngines` names pnpm
+(EBADDEVENGINES). The project's TypeScript is now also looked for in
+workspace packages (two levels down), and npx runs outside the folder
+(`AgentCommand.workingDirectory`). Tailwind 4 counts as used when a
+package.json names only its build plugin (`@tailwindcss/vite`, `/postcss`).
+
+### D65. Language support is data; servers understand projects, Orbit doesn't
+Context: every bug in D54/D64 so far was Orbit guessing on a tool's behalf —
+where a pnpm monorepo keeps TypeScript, whether Tailwind 4 is used without a
+config, which ESLint config applies, whether npx may run (`devEngines`).
+Each fix was Swift code for one tool, and the list never ends: every language
+has its own version managers, virtualenvs and plugins. Meanwhile the servers
+we run already do this discovery themselves (the same code VS Code uses,
+written by the tools' authors) and do it better than our copy.
+
+Decision — a thin client. The split of responsibility is:
+- **Orbit installs and launches.** Servers come from Mason into our own
+  folder (D57), or from the project's toolchain where the server must match
+  it. No npx, never the project's package manager.
+- **The server understands the project.** Orbit passes the root and the
+  default settings VS Code sends; it does not look for tool configs itself.
+- **Every server is a data entry**, not Swift code. Four generic mechanisms
+  cover all languages, none of them tool-specific:
+  1. *Install*: a Mason package (binary, arguments, what it needs).
+  2. *Root markers, from the file*: the server runs in the nearest folder
+     with one of its markers (`Cargo.toml`, `go.mod`, `pyproject.toml`,
+     `package.json`, …). This is monorepo support for every language at once.
+  3. *Launch sources, in order*: a binary in the project (nearest
+     `node_modules/.bin/tsc` for TypeScript 7), then Orbit's Mason copy (the
+     user installed it on purpose), then one already on the machine (the
+     login shell's PATH, so mise / asdf / rbenv work; `xcrun`). Toolchain-bound
+     servers (TypeScript 7, Swift, Dart, Haskell, OCaml, Ruby) are entries like
+     any other, not special cases.
+  4. *Project environment*: the nearest root's `.venv/bin` and
+     `node_modules/.bin` are prepended to the server's PATH, so e.g. pyright
+     sees the project's interpreter.
+  Companions (D64) start by one generic rule: the file type plus "a
+  package.json on the way up from the file depends on package X (or its
+  `@X/` scope)". It only saves processes; correctness is the server's (ESLint
+  and Tailwind stay idle in projects that don't use them). ESLint plugins
+  alone (`eslint-plugin-*`, as oxlint projects have) don't count.
+- **Breadth comes from importing, not writing.** nvim-lspconfig already
+  describes 300+ servers in exactly these fields (command, file types, root
+  markers, default settings). It is converted into our format the way Mason,
+  the ACP registry and Zed's queries are reused; entries with Lua logic are
+  rewritten by hand or skipped. Our own table shrinks to overrides for the
+  main languages and the companions; `.orbit/settings.json` overrides any
+  entry per project. (To check before importing: the license and how much
+  converts without hand work.)
+- **What is promised.** A short list is tested against real servers (D55):
+  TS/JS, ESLint, Tailwind, CSS, Swift, Python, Rust, Go. The rest works "as
+  in Neovim": usually well, without our guarantee. We don't chase tools.
+- **Project setup is not the IDE's job.** clangd needs
+  `compile_commands.json`, Java a JDK, Haskell a matching GHC: Orbit shows
+  the server's own message, and the agent is the escape hatch ("set up
+  language support for this project" writes `.orbit/settings.json`).
+
+Rejected: hosting VS Code extensions (a Node extension host and a large API
+surface — not light), Zed's WASM extensions (D54), and continuing per-tool
+detection in Swift.
+
+Consequence: the D54/D64 detection code (config lookups for ESLint and
+Tailwind, walking monorepos for TypeScript, the npx ladder) is to be removed
+rather than extended. Order: (1) the data format with root markers, launch
+sources and project environment, current servers moved into it; (2) the
+nvim-lspconfig import; (3) "ask the agent" when a server fails to start.
+
+Step 1 done: `LanguageServerConfig` is a `Codable` value (no closures):
+file types, root marker groups, launch sources (`project` / `installed` /
+`path` / `xcrun`), install, `usedWith`, settings (with `${rootUri}` /
+`${rootName}`). Servers are keyed by config and root, so one folder can run
+two rust-analyzers or one TypeScript per JS monorepo (lockfile). Removed:
+ESLint / Tailwind config lookups, the monorepo walk for TypeScript, npx and
+`AgentCommand.workingDirectory`. A project without TypeScript now runs
+Orbit's typescript-language-server (offered like any missing server) instead
+of npx's TypeScript 7. Found on the way: ESLint's server reads
+`settings.experimental.useFlatConfig` without a check; an empty
+`experimental` lets ESLint 8.57+ choose flat or legacy config itself, so
+Orbit no longer looks for the config. Verified on a pnpm monorepo with
+TypeScript 7 in a package and Tailwind 4 via `@tailwindcss/vite`.
+
+Step 2 done: `make import-lspconfig` runs `scripts/import-lspconfig.py` on
+pinned nvim-lspconfig (Apache-2.0), Neovim's file-type table (Apache-2.0),
+GitHub Linguist's languages (MIT) and Mason's registry, and writes
+`OrbitLanguages/Resources/Servers.json` (committed; bump the pins and read
+the diff to update). The script only reads the Lua, never runs it: a field
+counts when it is plain data, plus two common shapes — `root_pattern(...)`
+for roots and "the project's node_modules/.bin copy, else the global one"
+for commands (our `.project` source). 327 of 420 servers convert; the rest
+need code (Java's `-data`, C#'s NuGet install) or have no file types Orbit
+can match (spell checkers, assistants for every file). Java (jdtls, with
+`${dataDir}` under `~/.orbit/languages/data`) and C# (csharp-ls) got entries
+of our own instead.
+
+Which server a file gets: ours if one serves it (ours replace the imported
+entry of the same lspconfig name and take over the files only it knew:
+`go.mod`, `.c++`); else the imported ones ranked for the extension by the
+script — the usual choice first where a language has several (`PREFERRED`,
+what VS Code's and Zed's extensions run), then installable from Mason, then
+the narrower server. Linters, formatters, spell checkers, assistants and
+servers for one framework (`NOT_A_DEFAULT`: Ruff, Biome, Harper, GitHub
+Actions in YAML…) are never a file's server. At runtime the first candidate
+already in the project, installed by Orbit or on the machine wins; else the
+first is offered for install. Settings → Languages lists ours, and imported
+ones once installed or found (all of them would be hundreds of rows).
+
+Step 3 done. `"languageServers"` in `.orbit/settings.json` (the project's,
+then `~/.orbit/settings.json`), keyed by file type like `"formatters"`: a
+server's name (Orbit's id or nvim-lspconfig's), `"off"`, `{ "server", … }` or
+`{ "command", "arguments", … }`, both with `settings` and
+`initializationOptions` merged over the server's own. A rule that can't be
+followed (unknown name, invalid JSON) becomes a server that doesn't start and
+says why in the status bar, never a quiet fallback (as with formatters, D61).
+Editing either file restarts the servers. The status bar's language item has
+a context menu: the file type's other servers (ranked), None, back to
+Orbit's choice, Edit Settings File; a choice is saved in the user's file (a
+personal preference; the project's file is for what a repo wants for
+everyone). A file type turned off shows "<language> off" there.
+
+When a server can't run (missing, failed, install failed), the alert offers
+"Ask Agent to Set Up": a new chat with a task in its composer — the file type,
+what Orbit tried, the error, and the two ways out (install what's missing, or
+a `languageServers` rule in the project's settings) — for the user to read and
+send. It goes through a new service, `AgentTasks` (OrbitAPI), implemented by
+the Agents plugin.
+
+### D66. Fixes in the hover card; ⌥Esc opens completion
+
+From the first pass over the LSP features on a Mac. Hovering a problem also
+asks for its code actions: up to three quick fixes (preferred first) are links
+in the card, with "More Actions… ⇧⌘A" for the rest, as in VS Code. The card
+stays open while the pointer crosses the gap to it, so they can be clicked.
+
+Completion opens on Esc (STTextView's own cancelOperation, as in Xcode) and
+⌥Esc as well as ⌃Space: macOS takes ⌃Space for switching input sources when
+there are several (a Russian layout), and the key never reaches Orbit.
+
+Addendum: Esc opening the list (a full one, with nothing typed) surprised on
+the first try, so Esc only closes things again; ⌥Esc (macOS's own complete:)
+and ⌃Space open it.
+
+Clicking the language item in the status bar toggles the Problems panel
+(it went to the next problem, which looked like nothing with one).
+
+### D67. Features are found in a right-click menu, and their shortcuts are taught
+
+The first pass on a Mac showed most language features were invisible: known
+only from the docs, behind three- and four-key shortcuts. Four layers, none of
+them a permanent bar in the window:
+
+1. **The editor's right-click menu** lists what applies here, above Cut, Copy,
+   Paste, each with its shortcut drawn: Go to Definition, Find References;
+   Rename, Fixes and Actions, Format Document; Ask Agent About This; Keep / Undo
+   Change on an agent's hunk. Any plugin's command can be there:
+   `OrbitCommand(editorMenu: EditorMenuPlacement(group, title:, isVisible:))`.
+   `isVisible` is asked each time the menu opens (it may read unobservable
+   state, unlike `isEnabled`); language items show only with a server.
+2. **A command run by mouse shows its shortcut** for two seconds in a capsule
+   at the bottom of the window: picked from a menu (not by its key), the
+   palette, the right-click menu, or a button that runs a command
+   (`commands.run(id, teaching: true)`, `commands.teach(_:)`).
+3. **Every shortcut in one place**: the keyboard button at the end of the
+   status bar opens a popover with all of them by category (the registry's,
+   plus the palette and Settings) and the mouse gestures; also Help →
+   Keyboard Shortcuts. It first opened while ⌘ was held alone, but holding ⌘
+   is how a ⌘-click is aimed, so it moved to a button.
+4. **Keys inside the popups**: the hover card on a symbol ends with
+   ⌘-click / ⇧⌘R / ⌃⌘E, the completion list with ↑↓ / ↩ ⇥ / ⎋.
+
+Tooltips name what an icon button does and, when a command does the same,
+its shortcut (`commands.help(id)`, "Show Problems (⇧⌘M)"); panels name the
+command that shows them (`PanelContribution.command(id)`), so the sidebar
+switcher, bottom tabs and status-bar toggles say their keys. New keys for
+what had none: Toggle Sidebar ⌃⌘S (macOS's), Toggle Agents ⌥⌘I (an
+inspector, as in Pages), Show Explorer ⇧⌘E (VS Code's).
+
+With ⌘ held, the symbol under the pointer is underlined in the link color
+and the pointer becomes a hand, once the server confirms a definition there
+(as in VS Code), so the ⌘-click is seen before it's made.
+
+Find References moved from Xcode's ⇧⌃⌘F to ⇧⌘R, beside ⇧⌘O (symbols),
+⇧⌘A (actions) and ⇧⌘M (problems). Other Xcode keys stay (⌃⌘J, ⌃⌘E);
+New Isolated Agent Session keeps ⌥⇧⌘N, as the ⌥ variant of ⇧⌘N.
+
+### D68. The hover card sits over the line, as in VS Code
+
+An NSPopover under the word (arrow, centered on it) read as a system
+balloon and covered the next lines being read. Now it's a borderless
+floating panel (`HoverPanel`, like the completion list): no arrow, above the
+line with its left edge at the word, below only when the editor has no room
+above. Sections split by lines: the problems (with their source dimmed), a
+bar of fixes and "Quick Fix… ⇧⌘A" on a faint fill, the server's symbol info,
+then the keys. Taller than 420 pt it scrolls. It closes when the caret moves,
+on typing or scrolling, and when the pointer leaves it for anywhere but the
+word; clicked into, it takes keys so its text can be copied.
+

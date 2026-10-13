@@ -180,29 +180,82 @@ struct HoverCard: View {
     let diagnostics: [Diagnostic]
     let markdown: String?
     let colors: DiagnosticsController.Colors
+    var fixes: [CodeAction] = []
+    var hasMoreActions = false
+    var showsSymbolKeys = false
+    var onFix: (CodeAction) -> Void = { _ in }
+    var onMoreActions: () -> Void = {}
 
+    /// Laid out like VS Code's: the problems, a bar of fixes under them, then
+    /// what the server says about the symbol, sections split by lines (D68).
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(diagnostics.enumerated()), id: \.offset) { _, diagnostic in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: Self.symbol(for: diagnostic.severity))
-                        .foregroundStyle(Color(nsColor: colors.color(for: diagnostic.severity)))
-                    Text(diagnostic.message)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 0) {
+            if !diagnostics.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(diagnostics.enumerated()), id: \.offset) { _, diagnostic in
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Image(systemName: Self.symbol(for: diagnostic.severity))
+                                .foregroundStyle(Color(nsColor: colors.color(for: diagnostic.severity)))
+                            (Text(diagnostic.message)
+                                + Text(diagnostic.source.map { "  \($0)" } ?? "").foregroundStyle(.tertiary))
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(10)
+                if !fixes.isEmpty || hasMoreActions {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(fixes) { fix in
+                            Button { onFix(fix) } label: {
+                                Label(fix.title, systemImage: fix.isPreferred ? "wand.and.sparkles" : "wrench.adjustable")
+                                    .labelStyle(FixLabelStyle())
+                            }
+                        }
+                        if hasMoreActions {
+                            Button(action: onMoreActions) {
+                                HStack(spacing: 6) {
+                                    Text("Quick Fix…")
+                                    Text("⇧⌘A").foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                    }
+                    .buttonStyle(.link)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.subtleFill)
                 }
             }
-            if !diagnostics.isEmpty, markdown != nil {
-                Divider()
-            }
             if let markdown {
+                if !diagnostics.isEmpty { Divider() }
                 MarkdownText(markdown)
+                    .padding(10)
+            }
+            if showsSymbolKeys {
+                Divider()
+                // What can be done with the symbol, and the keys for it (D67).
+                Text("⌘-click  definition   ·   ⇧⌘R  references   ·   ⌃⌘E  rename")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
             }
         }
-        .padding(12)
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: 540, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .font(.system(size: 12))
+    }
+
+    private struct FixLabelStyle: LabelStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                configuration.icon.frame(width: 14)
+                configuration.title.multilineTextAlignment(.leading)
+            }
+        }
     }
 
     private static func symbol(for severity: Diagnostic.Severity) -> String {

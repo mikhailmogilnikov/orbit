@@ -7,10 +7,19 @@ import SwiftUI
 struct LanguagesSettingsPane: View {
     let manager: LanguageManager
 
+    /// Ours, and the imported ones (D65) only once installed or found: hundreds otherwise.
+    private var shown: [LanguageServerConfig] {
+        LanguageServerConfig.all.filter { config in
+            !config.isImported || manager.foundOnMachine[config.id] != nil
+                || config.install.map { manager.receipts[$0.package] != nil } == true
+        }
+        .sorted { ($0.name, $0.id) < ($1.name, $1.id) }
+    }
+
     var body: some View {
         Form {
             Section {
-                ForEach(LanguageServerConfig.all.sorted { $0.name < $1.name }, id: \.id) { config in
+                ForEach(shown, id: \.id) { config in
                     LanguageRow(manager: manager, config: config)
                 }
             } header: {
@@ -21,7 +30,7 @@ struct LanguagesSettingsPane: View {
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Servers Orbit installs come from the Mason registry and live in ~/.orbit/languages. Ones already on your Mac (Xcode's SourceKit-LSP and clangd, rust-analyzer from rustup…) are used as they are. Highlighting for languages the editor doesn't have built in (Lua, Zig, Kotlin, TSX…) is compiled on the first open of such a file, into ~/.orbit/grammars.")
+                    Text("Servers Orbit installs come from the Mason registry and live in ~/.orbit/languages. Ones already on your Mac (Xcode's SourceKit-LSP and clangd, rust-analyzer from rustup…) are used as they are. Other languages get a server from nvim-lspconfig's catalog, offered when you open such a file; it shows here once installed. Highlighting for languages the editor doesn't have built in (Lua, Zig, Kotlin, TSX…) is compiled on the first open of such a file, into ~/.orbit/grammars.")
                     if let error = manager.registryError {
                         Text("Couldn't load the registry: \(error)").foregroundStyle(.orange)
                     }

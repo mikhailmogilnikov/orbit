@@ -170,6 +170,7 @@ private struct InstalledAgentRow: View {
                     } label: {
                         Image(systemName: "ellipsis")
                     }
+                    .help(provider.registry == nil ? "Show in Finder, Uninstall" : "Uninstall")
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
@@ -187,7 +188,11 @@ private struct RegistryAgentRow: View {
 
     var body: some View {
         let registry = store.registry
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            RegistryAgentIcon(agent: agent, size: 14)
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(agent.name)

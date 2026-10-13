@@ -9,7 +9,7 @@ import Glibc
 /// installed with a language's support, compiled on this Mac from the
 /// grammar's source at a pinned commit, colored by Zed's highlight queries
 /// (the capture names Zed themes style). Nothing loads until a file of that
-/// language opens.
+/// language opens, or a file embedding it (D69).
 public struct GrammarSource: Sendable, Hashable {
     /// Also the C symbol: `tree_sitter_<name>`.
     public var name: String
@@ -19,8 +19,11 @@ public struct GrammarSource: Sendable, Hashable {
     public var commit: String
     /// The grammar's folder in a repository holding several (`tsx`).
     public var path: String?
-    /// Folder URL with `highlights.scm`, pinned to a commit.
+    /// Folder URL with `highlights.scm` (and `injections.scm` when the language embeds others), pinned to a commit.
     public var queries: String
+
+    /// Bumped when installs gain a file (2: `injections.scm`), so older ones are redone.
+    public static let layout = 2
 
     public init(name: String, fileTypes: [String], fileNames: [String] = [], repository: String, commit: String, path: String? = nil, queries: String) {
         self.name = name
@@ -73,6 +76,19 @@ public struct GrammarSource: Sendable, Hashable {
             repository: "https://github.com/simeonoff/tree-sitter-scss", commit: "3f918284a73a54b53e4f326b0aa8c74ccbf4ee4d",
             queries: zedExtension("bajrangCoder/zed-scss", "18deab7712272b64a4ca24ed0950618631d77fa8", "scss")
         ),
+        GrammarSource(
+            name: "vue", fileTypes: ["vue"],
+            repository: "https://github.com/tree-sitter-grammars/tree-sitter-vue", commit: "7e48557b903a9db9c38cea3b7839ef7e1f36c693",
+            queries: zedExtension("zed-extensions/vue", "bbd770740d10fc38c72ccbd59f8898608cb70baf", "vue")
+        ),
+        // Markdown's text (emphasis, links, code spans) is a grammar of its own,
+        // injected into the block grammar's paragraphs. Zed's fork, as Zed pins it.
+        GrammarSource(
+            name: "markdown_inline", fileTypes: [],
+            repository: "https://github.com/zed-industries/tree-sitter-markdown", commit: "b596e737286780d7bfa9fcddceaeeb754574b352",
+            path: "tree-sitter-markdown-inline",
+            queries: "https://raw.githubusercontent.com/zed-industries/zed/26363aabdb31a0c016728634202e1ad5067033aa/crates/grammars/src/markdown-inline"
+        ),
         // The built-in TypeScript grammar can't read JSX.
         GrammarSource(
             name: "tsx", fileTypes: ["tsx", "jsx"],
@@ -85,6 +101,11 @@ public struct GrammarSource: Sendable, Hashable {
         let ext = url.pathExtension.lowercased(), name = url.lastPathComponent
         return all.first { $0.fileTypes.contains(ext) || $0.fileNames.contains(name) }
     }
+
+    /// For a language another one embeds: by grammar name (`markdown_inline`) or file type.
+    public static func source(named name: String) -> GrammarSource? {
+        all.first { $0.name == name } ?? all.first { $0.fileTypes.contains(name) }
+    }
 }
 
 /// A compiled grammar on disk, as the editor loads it.
@@ -96,6 +117,10 @@ public struct InstalledGrammar: Codable, Sendable, Hashable {
     /// Absolute paths.
     public var library: String
     public var highlights: String
+    /// What it embeds (CSS and JS in Vue); not every language has one.
+    public var injections: String?
+    /// `GrammarSource.layout` when it was installed; nil before injections.
+    public var layout: Int?
 
     public var symbol: String { "tree_sitter_\(name)" }
 }
@@ -179,13 +204,18 @@ public struct GrammarStore: Sendable {
 
         let highlights = work.appendingPathComponent("highlights.scm")
         try Self.run("/usr/bin/curl", ["-fsSL", "--retry", "2", "-o", highlights.path, source.queries + "/highlights.scm"], environment: environment)
+        // Optional: a 404 means the language embeds nothing.
+        let injections = work.appendingPathComponent("injections.scm")
+        let embeds = (try? Self.run("/usr/bin/curl", ["-fsSL", "--retry", "2", "-o", injections.path, source.queries + "/injections.scm"], environment: environment)) != nil
         try? manager.removeItem(at: checkout)
 
         let destination = root.appendingPathComponent(source.name)
         let installed = InstalledGrammar(
             name: source.name, commit: source.commit, fileTypes: source.fileTypes, fileNames: source.fileNames,
             library: destination.appendingPathComponent(library.lastPathComponent).path,
-            highlights: destination.appendingPathComponent("highlights.scm").path
+            highlights: destination.appendingPathComponent("highlights.scm").path,
+            injections: embeds ? destination.appendingPathComponent("injections.scm").path : nil,
+            layout: GrammarSource.layout
         )
         try JSONEncoder().encode(installed).write(to: work.appendingPathComponent("grammar.json"))
         let old = root.appendingPathComponent(".old-\(source.name)-\(UUID().uuidString)")

@@ -166,57 +166,128 @@ struct HighlightCache {
     }
 }
 
+/// Capture names of every language in one numbering, so spans of embedded
+/// languages share the highlight cache with the file's own. 0 is "none".
+enum CaptureTable {
+    private static let table = Mutex<(names: [String], ids: [String: UInt16])>(([""], ["": 0]))
+
+    static func id(_ name: String) -> UInt16 {
+        table.withLock { table in
+            if let id = table.ids[name] { return id }
+            let id = UInt16(clamping: table.names.count)
+            table.names.append(name)
+            table.ids[name] = id
+            return id
+        }
+    }
+
+    static var count: Int { table.withLock { $0.names.count } }
+
+    /// Names from an id on, for whoever caches something per id.
+    static func names(from id: Int) -> [String] {
+        table.withLock { Array($0.names[min(id, $0.names.count)...]) }
+    }
+
+    /// Captured as `@none`: explicitly no color (Markdown's code block contents).
+    static let none = id("none")
+}
+
+/// A grammar's compiled queries, with its captures' ids in `CaptureTable`.
+final class LanguageQueries: @unchecked Sendable {
+    let grammar: Grammar
+    let language: SwiftTreeSitter.Language
+    let highlights: Query
+    /// Where it embeds other languages (D69); nil when it doesn't.
+    let injections: Query?
+    let ids: [String: UInt16]
+
+    init(grammar: Grammar, language: SwiftTreeSitter.Language, highlights: Query, injections: Query?) {
+        self.grammar = grammar
+        self.language = language
+        self.highlights = highlights
+        self.injections = injections
+        ids = Dictionary((0..<highlights.captureCount).compactMap { index in
+            highlights.captureName(for: index).map { ($0, CaptureTable.id($0)) }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+}
+
 /// Tree-sitter parsing and highlight queries on a background queue, the way
 /// Zed does it: the main thread hands over edits with a text snapshot and may
 /// wait a couple of milliseconds for the result; anything slower arrives as a
 /// patch later while the shifted old highlights stay on screen.
 ///
+/// Languages embedded in the file (CSS and JS in HTML, code blocks in
+/// Markdown) are layers: each its own tree over its piece of the text,
+/// parsed again only where an edit lands, painted over the file's colors (D69).
+///
 /// All mutable state is confined to `queue`; the main thread talks to it only
 /// through the locked inbox and outbox.
 final class HighlightWorker: @unchecked Sendable {
-    let captureNames: [String]
-
     private struct Inbox {
         var reset: (TextSnapshot, Int)?
         var edits: [(TextEdit, TextSnapshot, Int)] = []
         var theme: ColorTheme?
+        var reloadsLayers = false
         var focus = NSRange(location: 0, length: 0)
         var waiters: [DispatchSemaphore] = []
         var isScheduled = false
         var isCancelled = false
     }
 
+    /// An embedded language's piece of the document, parsed on its own.
+    private struct Layer {
+        let queries: LanguageQueries
+        /// Where its text is in the document.
+        var range: NSRange
+        /// 1 for what the file embeds, 2 for what that embeds…
+        let depth: Int
+        var tree: MutableTree?
+        /// Its text as of the last parse (the tree's coordinates are offsets in it).
+        var text: NSString
+        var lineStarts: [Int]
+        /// An edit landed inside: the tree took it, the parse is still due.
+        var isEdited = false
+
+        var key: String { "\(queries.grammar.key)@\(range.location)" }
+    }
+
     private let inbox = Mutex(Inbox())
     private let outbox = Mutex<[HighlightPatch]>([])
+    /// Languages files embed that aren't installed yet; the editor installs them.
+    private let missing = Mutex<Set<String>>([])
     private let notify: @Sendable () -> Void
     private let queue = DispatchQueue(label: "dev.orbit.highlight", qos: .userInitiated)
 
     // Confined to `queue`.
     private let parser = Parser()
-    private let query: Query
-    private let captureIDs: [String: UInt16]
-    private var colored: [Bool]
+    private let host: LanguageQueries
+    private var theme: ColorTheme
+    /// Indexed by capture id: whether the theme colors it.
+    private var colored: [Bool] = []
     private var tree: MutableTree?
     private var text = TextSnapshot(string: "")
     private var lineStarts = [0]
     private var version = 0
     private var invalid = IndexSet()
+    private var layers: [Layer] = []
+    /// Text whose embedded languages may have changed since they were last looked for.
+    private var injectionsDirty = IndexSet()
+    private var parsers: [String: Parser] = [:]
 
     /// Background patches cover at most this much text, so a new edit never
     /// waits long behind them.
     private static let chunkLength = 8 * 1024
+    /// Embedded in embedded in embedded, at most (HTML in Markdown's text in a doc comment…).
+    private static let maxDepth = 3
+    private static let maxLayers = 5000
 
     /// `notify` is called on any thread whenever patches are ready.
     init?(grammar: Grammar, theme: ColorTheme, notify: @escaping @Sendable () -> Void) {
-        guard let query = HighlightQueries.query(for: grammar), let language = grammar.language,
-              (try? parser.setLanguage(language)) != nil
-        else { return nil }
-        self.query = query
+        guard let host = HighlightQueries.queries(for: grammar), (try? parser.setLanguage(host.language)) != nil else { return nil }
+        self.host = host
+        self.theme = theme
         self.notify = notify
-        let names = (0..<query.captureCount).map { query.captureName(for: $0) ?? "" }
-        captureNames = names
-        captureIDs = Dictionary(names.enumerated().map { ($1, UInt16($0 + 1)) }, uniquingKeysWith: { first, _ in first })
-        colored = Self.colored(names, theme: theme)
     }
 
     // MARK: Main thread API
@@ -240,6 +311,11 @@ final class HighlightWorker: @unchecked Sendable {
         post { $0.theme = theme }
     }
 
+    /// A grammar got installed: embedded languages that had none get one now.
+    func reloadLayers() {
+        post { $0.reloadsLayers = true }
+    }
+
     /// The text on screen; it's highlighted first.
     func setFocus(_ range: NSRange) {
         inbox.withLock { $0.focus = range }
@@ -253,6 +329,14 @@ final class HighlightWorker: @unchecked Sendable {
         outbox.withLock { patches in
             defer { patches.removeAll() }
             return patches
+        }
+    }
+
+    /// Embedded languages that need a grammar installed (`GrammarSource` names).
+    func takeMissingGrammars() -> Set<String> {
+        missing.withLock { names in
+            defer { names.removeAll() }
+            return names
         }
     }
 
@@ -278,6 +362,7 @@ final class HighlightWorker: @unchecked Sendable {
                 inbox.reset = nil
                 inbox.edits.removeAll()
                 inbox.theme = nil
+                inbox.reloadsLayers = false
                 inbox.waiters.removeAll()
                 inbox.isScheduled = false
             }
@@ -290,7 +375,9 @@ final class HighlightWorker: @unchecked Sendable {
             text = snapshot
             lineStarts = LineStarts.of(snapshot.string)
             tree = nil
+            layers.removeAll()
             invalid = IndexSet(integersIn: 0..<snapshot.length)
+            injectionsDirty = invalid
             self.version = version
             needsParse = true
         }
@@ -300,13 +387,20 @@ final class HighlightWorker: @unchecked Sendable {
             needsParse = true
         }
         if let theme = taken.theme {
-            let colored = Self.colored(captureNames, theme: theme)
-            if colored != self.colored {
-                self.colored = colored
+            self.theme = theme
+            let old = colored
+            colored.removeAll()
+            if old != (0..<old.count).map({ isColored(UInt16($0)) }) {
                 invalid = IndexSet(integersIn: 0..<text.length)
             }
         }
+        if taken.reloadsLayers {
+            for layer in layers { invalid.insert(integersIn: Range(layer.range) ?? 0..<0) }
+            layers.removeAll()
+            injectionsDirty = IndexSet(integersIn: 0..<text.length)
+        }
         if needsParse { parse() }
+        if needsParse || taken.reloadsLayers { updateLayers() }
 
         // What's on screen goes out first and in one piece; the main thread may be waiting for it.
         let focus = Self.clamp(taken.focus, to: text.length)
@@ -345,12 +439,63 @@ final class HighlightWorker: @unchecked Sendable {
         invalid = edit.map(invalid)
         let lines = snapshot.string.lineRange(for: NSRange(location: start, length: edit.newLength))
         invalid.insert(integersIn: Range(lines) ?? start..<start)
+        injectionsDirty = edit.map(injectionsDirty)
+        injectionsDirty.insert(integersIn: Range(lines) ?? start..<start)
+        for index in layers.indices { apply(edit, to: &layers[index], snapshot: snapshot) }
+    }
+
+    /// Layers after the edit move; one it lands inside takes it into its tree.
+    private func apply(_ edit: TextEdit, to layer: inout Layer, snapshot: TextSnapshot) {
+        let lower = layer.range.location, upper = NSMaxRange(layer.range)
+        let editEnd = NSMaxRange(edit.range)
+        if editEnd < lower {
+            layer.range.location += edit.delta
+            return
+        }
+        guard edit.range.location <= upper else { return }
+        layer.isEdited = true
+        guard edit.range.location >= lower, editEnd <= upper, layer.tree != nil else {
+            // Across its edge: it's looked for again and parsed afresh.
+            layer.tree = nil
+            let mappedLower = edit.map(lower)
+            layer.range = NSRange(location: mappedLower, length: max(0, edit.map(upper) - mappedLower))
+            return
+        }
+        let start = edit.range.location - lower
+        let oldEnd = start + edit.range.length, newEnd = start + edit.newLength
+        let startPoint = Self.point(at: start, in: layer.lineStarts)
+        let oldEndPoint = Self.point(at: oldEnd, in: layer.lineStarts)
+        layer.range.length += edit.delta
+        guard NSMaxRange(layer.range) <= snapshot.length else {
+            layer.tree = nil
+            return
+        }
+        layer.text = snapshot.string.substring(with: layer.range) as NSString
+        layer.lineStarts = LineStarts.of(layer.text)
+        layer.tree?.edit(InputEdit(
+            startByte: start * 2, oldEndByte: oldEnd * 2, newEndByte: newEnd * 2,
+            startPoint: startPoint, oldEndPoint: oldEndPoint, newEndPoint: Self.point(at: newEnd, in: layer.lineStarts)
+        ))
     }
 
     private func parse() {
-        let string = text.string
+        let newTree = Self.parse(text.string, with: parser, old: tree)
+        if let oldTree = tree, let newTree {
+            let length = text.length
+            for changed in newTree.changedRanges(from: oldTree) {
+                let lower = Int(changed.bytes.lowerBound) / 2, upper = min(Int(changed.bytes.upperBound) / 2, length)
+                if upper > lower {
+                    invalid.insert(integersIn: lower..<upper)
+                    injectionsDirty.insert(integersIn: lower..<upper)
+                }
+            }
+        }
+        tree = newTree
+    }
+
+    private static func parse(_ string: NSString, with parser: Parser, old: MutableTree?) -> MutableTree? {
         let length = string.length
-        let newTree = parser.parse(tree: tree, readBlock: { byte, _ in
+        return parser.parse(tree: old, readBlock: { byte, _ in
             let start = byte / 2
             guard start < length else { return nil }
             let count = min(16 * 1024, length - start)
@@ -360,14 +505,124 @@ final class HighlightWorker: @unchecked Sendable {
             }
             return data
         })
-        if let oldTree = tree, let newTree {
-            for changed in newTree.changedRanges(from: oldTree) {
-                let lower = Int(changed.bytes.lowerBound) / 2, upper = min(Int(changed.bytes.upperBound) / 2, length)
-                if upper > lower { invalid.insert(integersIn: lower..<upper) }
+    }
+
+    // MARK: Embedded languages
+
+    /// Looks for embedded languages again where the text changed: layers
+    /// elsewhere stay as they are, ones found again keep their trees.
+    private func updateLayers() {
+        defer { injectionsDirty = IndexSet() }
+        guard host.injections != nil || !layers.isEmpty, !injectionsDirty.isEmpty, let tree else { return }
+
+        // A layer the change touches is looked for whole, with what it embeds.
+        var dirty = injectionsDirty
+        for layer in layers where layer.depth == 1 && (layer.isEdited || dirty.intersects(integersIn: Range(layer.range) ?? 0..<0)) {
+            dirty.insert(integersIn: layer.range.location..<max(layer.range.location + 1, NSMaxRange(layer.range)))
+        }
+        var kept: [Layer] = []
+        var reusable: [String: Layer] = [:]
+        for layer in layers {
+            let range = layer.range.location..<max(layer.range.location + 1, NSMaxRange(layer.range))
+            if layer.isEdited || dirty.intersects(integersIn: range) {
+                reusable[layer.key] = layer
+            } else {
+                kept.append(layer)
             }
         }
-        tree = newTree
+
+        var added: [Layer] = []
+        var found = Self.injections(in: tree, queries: host, text: text.string, base: 0, within: dirty)
+        var depth = 1
+        while !found.isEmpty, depth <= Self.maxDepth {
+            var deeper: [(String, NSRange)] = []
+            var seen = Set<String>()
+            for (name, range) in found where range.length > 0 && kept.count + added.count < Self.maxLayers {
+                guard let grammar = Grammar.named(name) else {
+                    if let source = GrammarSource.source(named: Grammar.injectionKey(name)) {
+                        _ = missing.withLock { $0.insert(source.name) }
+                    }
+                    continue
+                }
+                guard let queries = HighlightQueries.queries(for: grammar), seen.insert("\(grammar.key)@\(range.location)").inserted,
+                      var layer = layer(for: queries, range: range, depth: depth, reusing: reusable.removeValue(forKey: "\(grammar.key)@\(range.location)"))
+                else { continue }
+                layer.isEdited = false
+                added.append(layer)
+                if let tree = layer.tree, depth < Self.maxDepth {
+                    deeper += Self.injections(in: tree, queries: queries, text: layer.text, base: layer.range.location, within: nil)
+                }
+            }
+            found = deeper
+            depth += 1
+        }
+        for layer in reusable.values { invalid.insert(integersIn: Range(layer.range) ?? 0..<0) }
+        layers = (kept + added).sorted { ($0.depth, $0.range.location) < ($1.depth, $1.range.location) }
     }
+
+    /// A parsed layer, from the old one when it's the same language at the same place.
+    private func layer(for queries: LanguageQueries, range: NSRange, depth: Int, reusing old: Layer?) -> Layer? {
+        guard NSMaxRange(range) <= text.length else { return nil }
+        if var old, old.range == range, !old.isEdited, old.tree != nil {
+            old.isEdited = false
+            return old
+        }
+        let parser = parsers[queries.grammar.key] ?? {
+            let parser = Parser()
+            try? parser.setLanguage(queries.language)
+            parsers[queries.grammar.key] = parser
+            return parser
+        }()
+        let string = text.string.substring(with: range) as NSString
+        let oldTree = old?.range.length == range.length ? old?.tree : nil
+        guard let tree = Self.parse(string, with: parser, old: oldTree) else { return nil }
+        if let oldTree {
+            for changed in tree.changedRanges(from: oldTree) {
+                let lower = Int(changed.bytes.lowerBound) / 2, upper = min(Int(changed.bytes.upperBound) / 2, range.length)
+                if upper > lower { invalid.insert(integersIn: (range.location + lower)..<(range.location + upper)) }
+            }
+        } else {
+            invalid.insert(integersIn: Range(range) ?? 0..<0)
+        }
+        return Layer(queries: queries, range: range, depth: depth, tree: tree, text: string, lineStarts: LineStarts.of(string))
+    }
+
+    /// What a tree embeds, as (language name, document range). Zed's queries
+    /// (`@content`, `@language`, `#set! language`) and nvim's (`@injection.*`)
+    /// both work; `#offset!` trims the content (a template's backticks).
+    private static func injections(in tree: MutableTree, queries: LanguageQueries, text: NSString, base: Int, within: IndexSet?) -> [(String, NSRange)] {
+        guard let query = queries.injections, let root = tree.rootNode else { return [] }
+        let provider: Predicate.TextProvider = { range, _ in
+            NSMaxRange(range) <= text.length ? text.substring(with: range) : nil
+        }
+        let runs = within.map { $0.rangeView.map { NSRange(location: $0.lowerBound - base, length: $0.count) } } ?? [nil]
+        var result: [(String, NSRange)] = []
+        var seen = Set<NSRange>()
+        for run in runs {
+            let cursor = query.execute(node: root, in: tree)
+            if let run { cursor.setRange(run) }
+            for match in cursor.resolve(with: Predicate.Context(textProvider: provider)) {
+                guard let content = match.captures.first(where: { $0.name == "injection.content" || $0.name == "content" }) else { continue }
+                var name = match.metadata["injection.language"] ?? match.metadata["language"]
+                    ?? content.metadata["injection.language"] ?? content.metadata["language"]
+                if let node = match.captures.first(where: { $0.name == "injection.language" || $0.name == "language" })?.node {
+                    name = provider(node.range, node.pointRange) ?? name
+                }
+                guard let name else { continue }
+                var range = content.node.range
+                for case let .generic("offset!", strings, captureNames) in match.predicates
+                where captureNames.contains(content.name ?? "") && strings.count == 4 {
+                    let start = Int(strings[1]) ?? 0, end = Int(strings[3]) ?? 0
+                    range = NSRange(location: range.location + start, length: max(0, range.length - start + end))
+                }
+                guard range.length > 0, seen.insert(range).inserted else { continue }
+                result.append((name, NSRange(location: range.location + base, length: range.length)))
+            }
+        }
+        return result
+    }
+
+    // MARK: Highlights
 
     /// The invalid run closest after `location` (or the first one), at most a chunk long.
     private func nextChunk(near location: Int) -> Range<Int>? {
@@ -388,24 +643,13 @@ final class HighlightWorker: @unchecked Sendable {
     }
 
     private func highlights(in range: NSRange) -> [HighlightSpan] {
-        guard range.length > 0, let tree, let root = tree.rootNode else { return [] }
-        let string = text.string
-        let cursor = query.execute(node: root, in: tree)
-        cursor.setRange(range)
-        let context = Predicate.Context(textProvider: { range, _ in
-            NSMaxRange(range) <= string.length ? string.substring(with: range) : nil
-        })
-
-        // Later captures are more specific and win, like painting over.
+        guard range.length > 0, let tree else { return [] }
+        // Later captures are more specific and win, like painting over; layers paint over the file.
         var paint = [UInt16](repeating: 0, count: range.length)
-        for highlight in cursor.resolve(with: context).highlights() {
-            guard let id = captureIDs[highlight.name], colored[Int(id) - 1] else { continue }
-            let clipped = NSIntersectionRange(highlight.range, range)
-            guard clipped.length > 0 else { continue }
-            let lower = clipped.location - range.location
-            paint.withUnsafeMutableBufferPointer { buffer in
-                for index in lower..<(lower + clipped.length) { buffer[index] = id }
-            }
+        self.paint(&paint, range: range, tree: tree, queries: host, text: text.string, base: 0)
+        for layer in layers where NSIntersectionRange(layer.range, range).length > 0 {
+            guard let layerTree = layer.tree else { continue }
+            self.paint(&paint, range: range, tree: layerTree, queries: layer.queries, text: layer.text, base: layer.range.location)
         }
 
         var spans: [HighlightSpan] = []
@@ -420,16 +664,49 @@ final class HighlightWorker: @unchecked Sendable {
         return spans
     }
 
+    /// Paints one tree's captures in `range` (document offsets); the tree's own
+    /// offsets start at `base`.
+    private func paint(_ paint: inout [UInt16], range: NSRange, tree: MutableTree, queries: LanguageQueries, text: NSString, base: Int) {
+        guard let root = tree.rootNode else { return }
+        let local = NSIntersectionRange(NSRange(location: range.location - base, length: range.length), NSRange(location: 0, length: text.length))
+        guard local.length > 0 else { return }
+        let cursor = queries.highlights.execute(node: root, in: tree)
+        cursor.setRange(local)
+        let context = Predicate.Context(textProvider: { range, _ in
+            NSMaxRange(range) <= text.length ? text.substring(with: range) : nil
+        })
+        for highlight in cursor.resolve(with: context).highlights() {
+            guard let id = queries.ids[highlight.name] else { continue }
+            let isNone = id == CaptureTable.none
+            guard isNone || isColored(id) else { continue }
+            let clipped = NSIntersectionRange(NSRange(location: highlight.range.location + base, length: highlight.range.length), range)
+            guard clipped.length > 0 else { continue }
+            let lower = clipped.location - range.location
+            let value = isNone ? 0 : id
+            paint.withUnsafeMutableBufferPointer { buffer in
+                for index in lower..<(lower + clipped.length) { buffer[index] = value }
+            }
+        }
+    }
+
+    private func isColored(_ id: UInt16) -> Bool {
+        let index = Int(id)
+        if index >= colored.count {
+            colored += CaptureTable.names(from: colored.count).map { theme.style(forCapture: $0)?.color != nil }
+        }
+        return index < colored.count && colored[index]
+    }
+
     private func point(at offset: Int) -> Point {
+        Self.point(at: offset, in: lineStarts)
+    }
+
+    private static func point(at offset: Int, in lineStarts: [Int]) -> Point {
         let row = max(0, LineStarts.firstIndex(in: lineStarts, after: offset) - 1)
         return Point(row: row, column: (offset - lineStarts[row]) * 2)
     }
 
     // MARK: Helpers
-
-    private static func colored(_ names: [String], theme: ColorTheme) -> [Bool] {
-        names.map { theme.style(forCapture: $0)?.color != nil }
-    }
 
     private static func clamp(_ range: NSRange, to length: Int) -> NSRange {
         let lower = min(max(0, range.location), length)

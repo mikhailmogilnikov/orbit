@@ -10,7 +10,7 @@
   Source Control (gutter markers, blame), Keyboard Shortcuts, Plugins
 - Explorer (lazy file tree)
 - Editor: STTextView, line numbers, tree-sitter highlighting (~20 languages), save
-- Agents over ACP: Claude Code, Codex, Cursor, Grok Build, OpenCode (D44), custom JSON agents; parallel sessions;
+- Agents over ACP: Claude Code, Codex, Cursor, Grok Build, OpenCode (D52), custom JSON agents; parallel sessions;
   streaming transcript, thinking, tool cards with diffs/output, plans,
   permission prompts, model/mode/effort pickers from `configOptions`
 - Change tracking via shadow-git checkpoints
@@ -97,44 +97,67 @@
   Rust, Go, C/C++/ObjC, JSON, CSS, HTML, YAML, Shell, Markdown, TOML, Lua,
   Dockerfile, PHP, Zig, Svelte, Terraform, Ruby + Swift, TypeScript)
 - Code actions ⇧⌘A, rename ⌃⌘E, format ⌃⇧I / on save, Problems panel ⇧⌘M (D59)
+- Find References ⇧⌘R (was ⇧⌃⌘F, D67) (References panel), Go to Symbol in File ⇧⌘O and in
+  Project ⌘T, highlights of the symbol under the caret (D62)
+- ESLint and Tailwind CSS beside the file's language server, when the
+  project uses them: problems, fixes, class completion and hover (D64)
+- Language servers as data (D65): root markers per server (one server per
+  project root: Cargo / Go / Python workspaces, one TypeScript per JS
+  monorepo), launch from the project / Orbit's copy / the machine, the
+  project's `node_modules/.bin` and `.venv` first on the server's PATH; no npx;
+  327 more servers imported from nvim-lspconfig (`make import-lspconfig`),
+  ranked per extension, the installed one winning; Java and C# entries;
+  `"languageServers"` rules in `.orbit/settings.json` and the status bar's
+  menu to pick a file type's server; "Ask Agent to Set Up" when one can't run
+- Bottom area tabs (Terminal / Problems / References with counts, Hide) and
+  status-bar buttons that open each panel (D63)
 - Formatting uses the repo's formatter (Prettier, Biome, oxfmt, dprint, Deno, ESLint, Ruff, Black, StyLua, RuboCop, Standard, Pint, PHP CS Fixer, shfmt, or any command in `.orbit/settings.json`), else the server with `.editorconfig` indentation (D60, D61); Settings → Languages → Formatting shows which
 - Lazy syntax highlighting (D58): grammars for Lua, Zig, Terraform/HCL,
   Dockerfile, Kotlin, Svelte, SCSS and TSX/JSX compiled on first open from
   pinned commits, colored by Zed's queries
 - Completion while typing and signature help (D56): local fuzzy filtering,
   snippets with placeholders, auto-imports, docs for the selected item
+- Features made findable (D67): the editor's right-click menu with shortcuts,
+  the shortcut shown after a command is run by mouse, a keyboard button in
+  the status bar listing every shortcut, tooltips with shortcuts on icon
+  buttons (shown after 0.25 s), ⌘-hover underlines a symbol with a
+  definition; keys inside the hover card and the completion list; new keys:
+  ⌃⌘S sidebar, ⌥⌘I agents, ⇧⌘E explorer, ⇧⌘R references
+- Hover card over the line like VS Code's (D68), with the problem's fixes and
+  "Quick Fix…" in it (D66); only applicable code actions are listed
 - Language-server tests against real servers (D55): Swift, TypeScript 7 / 5 /
-  npx; `make test-languages`, also on Linux (`scripts/linux-swift.sh`)
+  without a project install; `make test-languages`, also on Linux (`scripts/linux-swift.sh`)
 
 ## Next (rough priority)
-1. Agent changes tracking improvements: separate changed files view from the composer,
-   better visual integration with inline diffs
-2. LSP, next steps (D54): find references, document/workspace symbols,
-   inlay hints; injections for embedded languages; several servers per file
-   (ESLint, Tailwind)
-3. Own extension registry (GitHub repo with `index.json`, PR to publish) for
+1. LSP, next steps (D54): inlay hints; injections for embedded languages
+2. Own extension registry (GitHub repo with `index.json`, PR to publish) for
    extensions Zed's catalog can't carry (languages, agents, code plugins)
-4. Code plugins in TypeScript via JavaScriptCore, same package format
-5. Release build, notarization, Sparkle updates
+3. Code plugins in TypeScript via JavaScriptCore, same package format
+4. Release build, notarization, Sparkle updates
 
 ## Not implemented yet
 Everything below is known to be missing; nothing here is in progress.
 
 **Language features (LSP)**
-- Find references, document symbols (outline, ⌘⇧O), workspace symbols
-- Inlay hints, code lens, semantic tokens, document highlights (other uses
-  of the symbol under the caret), folding and selection ranges
+- An outline panel (symbols are only in the ⇧⌘O picker); a peek view for
+  references (they go to the References panel)
+- Inlay hints, code lens, semantic tokens, folding and selection ranges
 - Call / type hierarchy, linked editing (renaming an HTML tag's pair)
-- Several servers per file (ESLint, Tailwind CSS alongside TypeScript)
-- Server settings: `workspace/configuration` is answered with `{}`; no way
-  to pass a server options, globally or per project
+- Other companions (Stylelint, Biome's server, Prettier's lint); companions
+  and project roots are picked per file when it opens (a dependency or
+  lockfile added later needs Restart Language Servers)
+- Companions (ESLint, Tailwind) can't be turned off or configured in
+  `.orbit/settings.json` (only "Not Now" on their install offer)
 - Diagnostics for files that aren't open (workspace / pull diagnostics for
   the whole project); the Problems panel lists open files only
 - File operations in workspace edits (create / rename / delete files from a
   rename or a code action); rename has no preview of the files it touches
 - Code actions on save (organize imports, ESLint fixes after Prettier formats)
-- Servers for Kotlin, Java, C#, Elixir, Dart and others not in the table;
-  RubyGems / NuGet / opam packages can't be installed (D57)
+- Imported servers (D65) aren't tested one by one (only Prisma's install
+  runs in `make test-language-installs`); 93 of nvim-lspconfig's need code
+  and are missing (Angular, Flow, Julia, PowerShell, Roslyn…); choosing
+  another server for a language than the ranked one needs it installed and
+  the first one not; RubyGems / NuGet / opam packages can't be installed (D57)
 
 **Formatting**
 - Format selection / range and format on type
@@ -147,7 +170,8 @@ Everything below is known to be missing; nothing here is in progress.
   copy is used, on purpose); Pint and PHP CS Fixer don't use their cache
 - Rules can't be edited in Settings, only in the JSON file; the Formatting
   section refreshes when Settings opens, not when the files change
-- `.orbit/settings.json` holds only `formatters` so far
+- `.orbit/settings.json` holds `formatters` and `languageServers` only (no
+  editor or agent options yet)
 
 **Editor**
 - Tree-sitter injections (CSS / JS inside HTML, Svelte, Vue, Markdown code blocks)
@@ -160,6 +184,22 @@ Everything below is known to be missing; nothing here is in progress.
 - Find in terminal, a terminal font size of its own
 
 ## Known gaps / to verify
+- Companions (D64): ESLint and Tailwind run for real in the install tests;
+  in the app (status bar names, merged completion with Tailwind's long
+  class lists, the install banner) unverified on a Mac. Vue and Astro files
+  get ESLint/Tailwind only (no language server of their own).
+- Checked by hand on a Mac on 2026-10-13 (TypeScript, Python): server install
+  and the status-bar menu, Problems and References, navigation, completion,
+  code actions, rename, formatting and its corner note, agent registry; the
+  fixes it led to are in D66–D68. Still unchecked by hand: Rust, Go and the
+  other servers, Tailwind/ESLint companions, the theme catalog's install.
+- Navigation (D62): the server side runs in `make test-languages` (Swift,
+  TypeScript) and `make test-language-installs` (outline for every server,
+  references and project symbols for Python, Go, Rust; Rust not yet run, no
+  cargo on the author's Mac). Go to Symbol in Project only asks servers
+  already running.
+- Bottom area header and status-bar panel buttons (D63): unverified on a Mac
+  (terminal tabs in the header, badge colors, spacing next to agent items).
 - Code actions / rename / formatting (D59): editor side unverified on a Mac
   (menu placement, rename field, undo). File operations in edits (create,
   rename files) are skipped.

@@ -12,14 +12,14 @@ enum CommandPalette {
                 .compactMap { command -> (QuickPickItem, Int)? in
                     let label = "\(command.category): \(command.title)"
                     guard let match = FuzzyMatch.match(query, in: label) else { return nil }
-                    return (item(for: command, label: label, positions: match.positions), match.score)
+                    return (item(for: command, label: label, positions: match.positions, commands: commands), match.score)
                 }
                 .sorted { query.isEmpty ? String($0.0.title.characters) < String($1.0.title.characters) : $0.1 > $1.1 }
                 .map(\.0)
         })
     }
 
-    private static func item(for command: OrbitCommand, label: String, positions: [Int]) -> QuickPickItem {
+    private static func item(for command: OrbitCommand, label: String, positions: [Int], commands: CommandRegistry) -> QuickPickItem {
         // Category dimmed, then the title; matches highlighted in both.
         let titleOffset = command.category.count + 2
         var title = FuzzyMatch.highlighted(command.category, positions: positions.filter { $0 < command.category.count })
@@ -34,6 +34,7 @@ enum CommandPalette {
             systemImage: command.systemImage ?? "command",
             trailing: command.shortcut?.displayString
         ) {
+            commands.teach(command)
             command.run()
         }
     }
@@ -224,24 +225,3 @@ struct QuickPickRow: View {
     }
 }
 
-extension KeyboardShortcut {
-    var displayString: String {
-        var result = ""
-        if modifiers.contains(.control) { result += "⌃" }
-        if modifiers.contains(.option) { result += "⌥" }
-        if modifiers.contains(.shift) { result += "⇧" }
-        if modifiers.contains(.command) { result += "⌘" }
-        switch key {
-        case .return: result += "↩"
-        case .delete: result += "⌫"
-        case .escape: result += "⎋"
-        case .tab: result += "⇥"
-        case .upArrow: result += "↑"
-        case .downArrow: result += "↓"
-        case .leftArrow: result += "←"
-        case .rightArrow: result += "→"
-        default: result += String(key.character).uppercased()
-        }
-        return result
-    }
-}

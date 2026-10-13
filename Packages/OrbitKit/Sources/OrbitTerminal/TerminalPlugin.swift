@@ -23,7 +23,9 @@ public final class TerminalPlugin: OrbitPlugin {
 
         ui.addBottomPanel(PanelContribution(id: TerminalStore.panelID, title: "Terminal", systemImage: "terminal") {
             TerminalPanel(store: store)
-        })
+        }.accessory {
+            TerminalTabs(store: store)
+        }.command("terminal.toggle"))
 
         context.commands.register(OrbitCommand(
             id: "terminal.toggle",
@@ -202,9 +204,8 @@ struct TerminalPanel: View {
     let store: TerminalStore
 
     var body: some View {
+        // The session tabs are in the bottom area's header (`TerminalTabs`).
         VStack(spacing: 0) {
-            TerminalTabs(store: store)
-            Divider()
             if let session = store.selected {
                 TerminalHost(session: session, fontSize: Preferences.shared.codeFontSize)
                     .padding(.leading, 8)
@@ -213,7 +214,6 @@ struct TerminalPanel: View {
                 Spacer()
             }
         }
-        // Opaque, matching the terminal itself, so the tab strip doesn't show the window through.
         .background(Theme.terminalBackground)
         .onAppear {
             // Revealed from the shell (e.g. its own toggle) without a session yet.
@@ -222,7 +222,7 @@ struct TerminalPanel: View {
     }
 }
 
-private struct TerminalTabs: View {
+struct TerminalTabs: View {
     let store: TerminalStore
 
     var body: some View {
@@ -244,8 +244,6 @@ private struct TerminalTabs: View {
             }
             IconButton("plus", help: "New Terminal (⌃⇧`)") { store.newSession() }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 30)
     }
 }
 

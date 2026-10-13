@@ -23,21 +23,57 @@ enum AgentLogo {
 
     /// A template image, so menus and SwiftUI can tint it.
     static func image(for provider: AgentProvider) -> NSImage? {
-        if let image = cache[provider.id] { return image }
-        guard let path = paths[provider.id] else {
-            // Registry icons are monochrome (currentColor), so they tint like the marks.
-            guard let image = NSImage(contentsOf: provider.iconFile) else { return nil }
-            image.isTemplate = true
-            cache[provider.id] = image
-            return image
-        }
-        let providerID = provider.id
+        if let image = mark(provider.id) { return image }
+        // Registry icons are monochrome (currentColor), so they tint like the marks.
+        return template(provider.id) { try? Data(contentsOf: provider.iconFile) }
+    }
+
+    /// Not installed yet: the built-in mark, else the registry's icon once downloaded.
+    static func image(for agent: RegistryAgent) async -> NSImage? {
+        if let image = mark(agent.id) ?? cache[agent.id] { return image }
+        guard let icon = agent.icon, let url = URL(string: icon, relativeTo: AgentRegistry.indexURL),
+              let (data, _) = try? await URLSession.shared.data(from: url), data.count < 256 * 1024 else { return nil }
+        return template(agent.id) { data }
+    }
+
+    private static func mark(_ id: String) -> NSImage? {
+        guard let path = paths[id] else { return nil }
         let fill = path.evenOdd ? #" fill-rule="evenodd""# : ""
         let svg = #"<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path"# + fill + #" d=""# + path.data + #""/></svg>"#
-        guard let image = NSImage(data: Data(svg.utf8)) else { return nil }
+        return template(id) { Data(svg.utf8) }
+    }
+
+    private static func template(_ id: String, _ data: () -> Data?) -> NSImage? {
+        if let image = cache[id] { return image }
+        guard let data = data(), let image = NSImage(data: data) else { return nil }
         image.isTemplate = true
-        cache[providerID] = image
+        cache[id] = image
         return image
+    }
+}
+
+/// A registry agent's icon, fetched on first show; a placeholder symbol until then.
+struct RegistryAgentIcon: View {
+    let agent: RegistryAgent
+    var size: CGFloat = 12
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                let logo = Image(nsImage: image)
+                    .renderingMode(.template)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: size, height: size)
+                if let tint = AgentLogo.tint(for: agent.id) { logo.foregroundStyle(tint) } else { logo }
+            } else {
+                Image(systemName: "sparkle")
+                    .font(.system(size: size * 0.85, weight: .semibold))
+                    .frame(width: size, height: size)
+            }
+        }
+        .task(id: agent.id) { image = await AgentLogo.image(for: agent) }
     }
 }
 

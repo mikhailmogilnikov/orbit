@@ -36,6 +36,13 @@ final class LanguageServer {
     @ObservationIgnored private var renames = false
     @ObservationIgnored private var preparesRename = false
     @ObservationIgnored private(set) var formats = false
+    @ObservationIgnored private var findsReferences = false
+    @ObservationIgnored private var highlightsSymbols = false
+    @ObservationIgnored private var outlines = false
+    @ObservationIgnored private(set) var searchesSymbols = false
+    @ObservationIgnored private var hasInlayHints = false
+    /// Bumped on `workspace/inlayHint/refresh`: editors fetch their hints again.
+    private(set) var inlayHintsRevision = 0
     @ObservationIgnored private var actionGeneration = 0
     @ObservationIgnored private var actionRaw: (generation: Int, items: [JSONValue]) = (0, [])
     /// Applies an edit the server asks for (after running one of its commands).
@@ -46,10 +53,16 @@ final class LanguageServer {
     @ObservationIgnored private let realRoot: String?
 
     let installer: LanguageInstaller
+    /// The file that started it and the open folder: where the project's own
+    /// tools are looked for (D65). Without them, only `root`.
+    private let origin: URL?
+    private let folder: URL
 
-    init(config: LanguageServerConfig, root: URL, installer: LanguageInstaller = .shared) {
+    init(config: LanguageServerConfig, root: URL, origin: URL? = nil, folder: URL? = nil, installer: LanguageInstaller = .shared) {
         self.config = config
         self.root = root
+        self.origin = origin
+        self.folder = folder ?? root
         self.installer = installer
         let real = Self.realPath(root.path)
         realRoot = real == root.standardizedFileURL.path ? nil : real
@@ -68,20 +81,23 @@ final class LanguageServer {
     }
 
     private func launch(environment: [String: String]) async -> Bool {
-        let config = config, root = root
+        let config = config, root = root, origin = origin, folder = folder
         let installer = installer
-        let command = await Task.detached(priority: .userInitiated) {
-            config.command(root: root, environment: environment, installer: installer)
+        let launched = await Task.detached(priority: .userInitiated) {
+            config.command(file: origin, root: folder, environment: environment, installer: installer).map { command in
+                (command, ProjectFiles.environment(for: origin, root: folder, base: environment))
+            }
         }.value
-        guard let command else {
+        guard let (command, projectEnvironment) = launched else {
             state = .unavailable(config.missing)
             return false
         }
-        var env = environment
+        var env = projectEnvironment
         env.merge(command.environment) { _, new in new }
+        let settings = config.settings(for: root)
         let connection = JSONRPCConnection(
             executable: URL(fileURLWithPath: command.executable),
-            arguments: command.arguments,
+            arguments: command.arguments.map { $0 == "${dataDir}" ? dataDirectory.path : $0 },
             environment: env,
             currentDirectory: root,
             framing: .contentLength,
@@ -97,11 +113,15 @@ final class LanguageServer {
                     let applied = await self?.applyFromServer(params) ?? false
                     return ["applied": .bool(applied)]
                 }
+                if method == "workspace/inlayHint/refresh" {
+                    Task { @MainActor in self?.inlayHintsRevision += 1 }
+                    return .null
+                }
                 if method == "client/registerCapability" {
                     Task { @MainActor in self?.register(params["registrations"]?.array ?? []) }
                     return .null
                 }
-                return try Self.answer(method, params, root: root)
+                return try Self.answer(method, params, root: root, settings: settings)
             },
             onExit: { [weak self] status, stderr in
                 Task { @MainActor in self?.didExit(status: status, stderr: stderr) }
@@ -129,9 +149,17 @@ final class LanguageServer {
         }
     }
 
+    /// For servers that keep an index of their own per project (`${dataDir}`, Java's `-data`).
+    private var dataDirectory: URL {
+        let name = root.standardizedFileURL.path.replacingOccurrences(of: "/", with: "_")
+        let directory = installer.root.appendingPathComponent("data/\(config.id)/\(name)")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
     private var initializeParams: JSONValue {
         let rootURI = JSONValue.string(root.absoluteString)
-        return [
+        var params: JSONValue = [
             "processId": .number(Double(ProcessInfo.processInfo.processIdentifier)),
             "clientInfo": ["name": "Orbit"],
             "rootUri": rootURI,
@@ -179,22 +207,47 @@ final class LanguageServer {
                         ],
                     ],
                     "definition": ["linkSupport": true],
+                    "references": ["dynamicRegistration": false],
+                    "documentHighlight": ["dynamicRegistration": false],
+                    "documentSymbol": ["hierarchicalDocumentSymbolSupport": true],
+                    "inlayHint": ["dynamicRegistration": false],
                 ],
                 "workspace": [
                     "workspaceFolders": true, "configuration": true, "applyEdit": true,
                     "workspaceEdit": ["documentChanges": true],
+                    // No `resolveSupport`: results must come with their ranges.
+                    "symbol": ["dynamicRegistration": false],
+                    "inlayHint": ["refreshSupport": true],
                 ],
             ],
         ]
+        if case .object(var object) = params, let options = config.initializationOptions {
+            object["initializationOptions"] = options
+            params = .object(object)
+        }
+        return params
     }
 
     /// Server-to-client requests we have to answer so servers don't stall.
-    private nonisolated static func answer(_ method: String, _ params: JSONValue, root: URL) throws -> JSONValue {
+    private nonisolated static func answer(_ method: String, _ params: JSONValue, root: URL, settings: JSONValue?) throws -> JSONValue {
         switch method {
         case "workspace/configuration":
-            // No settings of our own: the server's defaults for each asked section
+            // The config's settings by section (dotted), else the server's defaults
             // (an empty object; the CSS server fails on null).
-            return .array(Array(repeating: .object([:]), count: params["items"]?.array?.count ?? 0))
+            let items = params["items"]?.array ?? []
+            return .array(items.map { item in
+                guard var value = settings else { return .object([:]) }
+                for key in (item["section"]?.string ?? "").split(separator: ".") {
+                    guard let next = value[String(key)] else { return .object([:]) }
+                    value = next
+                }
+                return value
+            })
+        // ESLint's own requests (D64): run the project's ESLint without asking; nothing to show for the rest.
+        case "eslint/confirmESLintExecution":
+            return 4
+        case "eslint/probeFailed", "eslint/noLibrary", "eslint/openDoc":
+            return .object([:])
         case "workspace/workspaceFolders":
             return [["uri": .string(root.absoluteString), "name": .string(root.lastPathComponent)]]
         case "window/workDoneProgress/create", "client/registerCapability", "client/unregisterCapability",
@@ -220,6 +273,11 @@ final class LanguageServer {
         renames = enabled(rename)
         preparesRename = rename?["prepareProvider"]?.bool ?? false
         formats = enabled(capabilities?["documentFormattingProvider"])
+        findsReferences = enabled(capabilities?["referencesProvider"])
+        highlightsSymbols = enabled(capabilities?["documentHighlightProvider"])
+        outlines = enabled(capabilities?["documentSymbolProvider"])
+        searchesSymbols = enabled(capabilities?["workspaceSymbolProvider"])
+        hasInlayHints = enabled(capabilities?["inlayHintProvider"])
         triggers = LanguageTriggers(
             completion: strings(completion?["triggerCharacters"]),
             signatureHelp: strings(signature?["triggerCharacters"]),
@@ -248,6 +306,17 @@ final class LanguageServer {
                 preparesRename = options?["prepareProvider"]?.bool ?? preparesRename
             case "textDocument/formatting":
                 formats = true
+            case "textDocument/references":
+                findsReferences = true
+            case "textDocument/documentHighlight":
+                highlightsSymbols = true
+            case "textDocument/documentSymbol":
+                outlines = true
+            case "workspace/symbol":
+                searchesSymbols = true
+            case "textDocument/inlayHint":
+                hasInlayHints = true
+                inlayHintsRevision += 1
             case "textDocument/signatureHelp":
                 helpsWithSignatures = true
                 triggers.signatureHelp.formUnion(strings(options?["triggerCharacters"]))
@@ -385,12 +454,119 @@ final class LanguageServer {
     func definition(at position: SourcePosition, in url: URL) async -> [SourceLocation] {
         guard let connection, documents[url] != nil,
               let result = try? await connection.request("textDocument/definition", Self.positionParams(url, position)) else { return [] }
+        return locations(result)
+    }
+
+    /// Location, LocationLink (targetUri / targetSelectionRange), or a list of either.
+    private func locations(_ result: JSONValue) -> [SourceLocation] {
         let items = result.array ?? (result.isNull ? [] : [result])
         return items.compactMap { item in
-            // Location, or LocationLink (targetUri / targetSelectionRange).
             guard let uri = item["uri"]?.string ?? item["targetUri"]?.string, let target = Self.fileURL(uri).map(local),
                   let range = Self.range(item["range"] ?? item["targetSelectionRange"] ?? item["targetRange"]) else { return nil }
             return SourceLocation(url: target, range: range)
+        }
+    }
+
+    // MARK: Navigation (D62)
+
+    func references(at position: SourcePosition, in url: URL) async -> [SourceLocation] {
+        guard let connection, findsReferences, documents[url] != nil else { return [] }
+        var params = Self.positionParams(url, position).object ?? [:]
+        params["context"] = ["includeDeclaration": true]
+        guard let result = try? await connection.request("textDocument/references", .object(params)) else { return [] }
+        return locations(result)
+    }
+
+    func highlights(at position: SourcePosition, in url: URL) async -> [SymbolHighlight] {
+        guard let connection, highlightsSymbols, documents[url] != nil,
+              let result = try? await connection.request("textDocument/documentHighlight", Self.positionParams(url, position)) else { return [] }
+        return (result.array ?? []).compactMap { item in
+            // Kind 3 is a write; 1 (text) and 2 (read) look the same.
+            Self.range(item["range"]).map { SymbolHighlight(range: $0, isWrite: item["kind"]?.int == 3) }
+        }
+    }
+
+    func inlayHints(in range: SourceRange, url: URL) async -> [InlayHint] {
+        guard let connection, hasInlayHints, documents[url] != nil,
+              let result = try? await connection.request("textDocument/inlayHint", [
+                  "textDocument": ["uri": .string(url.absoluteString)], "range": Self.json(range),
+              ]) else { return [] }
+        return (result.array ?? []).compactMap(Self.inlayHint)
+    }
+
+    /// A label is a string or a list of parts (each may link somewhere; only the text is kept).
+    nonisolated static func inlayHint(_ value: JSONValue) -> InlayHint? {
+        guard let position = position(value["position"]) else { return nil }
+        let label = value["label"]?.string ?? (value["label"]?.array ?? []).compactMap { $0["value"]?.string }.joined()
+        guard !label.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return InlayHint(
+            position: position, label: label,
+            kind: value["kind"]?.int.flatMap(InlayHint.Kind.init(rawValue:)),
+            tooltip: value["tooltip"]?.string ?? value["tooltip"]?["value"]?.string,
+            paddingLeft: value["paddingLeft"]?.bool ?? false,
+            paddingRight: value["paddingRight"]?.bool ?? false
+        )
+    }
+
+    func symbols(in url: URL) async -> [LanguageSymbol]? {
+        guard let connection, outlines, documents[url] != nil,
+              let result = try? await connection.request("textDocument/documentSymbol", ["textDocument": ["uri": .string(url.absoluteString)]]),
+              let items = result.array else { return nil }
+        return Self.outline(items, in: url)
+    }
+
+    /// Hierarchical `DocumentSymbol`s flattened parents first, or flat
+    /// `SymbolInformation`s nested by which range holds which.
+    nonisolated static func outline(_ items: [JSONValue], in url: URL) -> [LanguageSymbol] {
+        var symbols: [LanguageSymbol] = []
+        if items.first?["selectionRange"] != nil {
+            func walk(_ items: [JSONValue], depth: Int, container: String?) {
+                let sorted = items.sorted { (range($0["range"])?.start ?? .init(line: 0, character: 0)) < (range($1["range"])?.start ?? .init(line: 0, character: 0)) }
+                for item in sorted {
+                    guard let name = item["name"]?.string, let selection = range(item["selectionRange"]) else { continue }
+                    symbols.append(LanguageSymbol(
+                        name: name, detail: item["detail"]?.string.flatMap { $0.isEmpty ? nil : $0 },
+                        kind: item["kind"]?.int.flatMap(SymbolKind.init(rawValue:)) ?? .variable,
+                        location: SourceLocation(url: url, range: selection), container: container, depth: depth
+                    ))
+                    walk(item["children"]?.array ?? [], depth: depth + 1, container: name)
+                }
+            }
+            walk(items, depth: 0, container: nil)
+            return symbols
+        }
+        let flat = items.compactMap { item -> (LanguageSymbol, SourceRange)? in
+            guard let name = item["name"]?.string, let range = range(item["location"]?["range"]) else { return nil }
+            let symbol = LanguageSymbol(
+                name: name, kind: item["kind"]?.int.flatMap(SymbolKind.init(rawValue:)) ?? .variable,
+                location: SourceLocation(url: url, range: range), container: item["containerName"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+            )
+            return (symbol, range)
+        }
+        .sorted { $0.1.start < $1.1.start }
+        var open: [SourceRange] = []
+        for (var symbol, range) in flat {
+            while let last = open.last, !(last.contains(range.start) && range.end <= last.end) { open.removeLast() }
+            symbol.depth = open.count
+            open.append(range)
+            symbols.append(symbol)
+        }
+        return symbols
+    }
+
+    func projectSymbols(matching query: String) async -> [LanguageSymbol] {
+        guard let connection, searchesSymbols,
+              let result = try? await connection.request("workspace/symbol", ["query": .string(query)]) else { return [] }
+        return (result.array ?? []).compactMap { item in
+            guard let name = item["name"]?.string, let uri = item["location"]?["uri"]?.string,
+                  let url = Self.fileURL(uri).map(local) else { return nil }
+            // `WorkspaceSymbol` may leave the range out; the top of the file then.
+            let range = Self.range(item["location"]?["range"]) ?? SourceRange(start: .init(line: 0, character: 0), end: .init(line: 0, character: 0))
+            return LanguageSymbol(
+                name: name, kind: item["kind"]?.int.flatMap(SymbolKind.init(rawValue:)) ?? .variable,
+                location: SourceLocation(url: url, range: range),
+                container: item["containerName"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+            )
         }
     }
 

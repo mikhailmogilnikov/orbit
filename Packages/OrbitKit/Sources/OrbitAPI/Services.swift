@@ -54,6 +54,14 @@ public protocol AgentCompletion: AnyObject {
     func complete(_ prompt: String, in directory: URL) async throws -> String
 }
 
+/// Hands a task to the agent chat, implemented by the Agents plugin: a chat
+/// in the open folder with `prompt` in its composer, for the user to read and
+/// send. False when there's no agent to ask.
+@MainActor
+public protocol AgentTasks: AnyObject {
+    func draftTask(_ prompt: String) -> Bool
+}
+
 /// How a file differs from version control, for decorations (explorer colors, badges).
 public enum FileChangeKind: Int, Sendable, Comparable {
     // Raw values rank importance: a folder takes its most important child's kind.
@@ -125,6 +133,8 @@ public protocol EditorSelectionProviding: AnyObject {
     var selection: EditorSelection? { get }
     /// Where the insertion point is; observable, settles shortly after it moves.
     var cursor: EditorCursor? { get }
+    /// The insertion point right now, as language servers count it (not observable).
+    var caret: SourceLocation? { get }
 }
 
 /// The version-control copy of files, for change markers in the editor.

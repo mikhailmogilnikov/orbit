@@ -9,13 +9,47 @@ public struct PanelContribution: Identifiable {
     public let systemImage: String
     public let order: Int
     public let makeView: @MainActor () -> AnyView
+    /// A count next to the panel's name (bottom panels): problems, results…
+    public let badge: (@MainActor () -> PanelBadge?)?
+    /// Controls of the shown panel, in the bottom area's header (terminal tabs).
+    public private(set) var makeAccessory: (@MainActor () -> AnyView)?
+    /// The command that shows the panel: its shortcut goes in the panel button's tooltip.
+    public private(set) var commandID: String?
 
-    public init<V: View>(id: String, title: String, systemImage: String, order: Int = 100, @ViewBuilder view: @escaping @MainActor () -> V) {
+    public init<V: View>(
+        id: String, title: String, systemImage: String, order: Int = 100,
+        badge: (@MainActor () -> PanelBadge?)? = nil,
+        @ViewBuilder view: @escaping @MainActor () -> V
+    ) {
         self.id = id
         self.title = title
         self.systemImage = systemImage
         self.order = order
+        self.badge = badge
         makeView = { AnyView(view()) }
+    }
+
+    public func command(_ id: String) -> PanelContribution {
+        var copy = self
+        copy.commandID = id
+        return copy
+    }
+
+    public func accessory<A: View>(@ViewBuilder _ content: @escaping @MainActor () -> A) -> PanelContribution {
+        var copy = self
+        copy.makeAccessory = { AnyView(content()) }
+        return copy
+    }
+}
+
+public struct PanelBadge: Sendable, Hashable {
+    public enum Style: Sendable, Hashable { case plain, error, warning }
+    public var count: Int
+    public var style: Style
+
+    public init(_ count: Int, style: Style = .plain) {
+        self.count = count
+        self.style = style
     }
 }
 
@@ -190,6 +224,8 @@ public struct OrbitCommand: Identifiable {
     public let systemImage: String?
     public let shortcut: KeyboardShortcut?
     public let isEnabled: @MainActor () -> Bool
+    /// In the editor's right-click menu too, when set.
+    public let editorMenu: EditorMenuPlacement?
     public let run: @MainActor () -> Void
 
     public init(
@@ -199,6 +235,7 @@ public struct OrbitCommand: Identifiable {
         systemImage: String? = nil,
         shortcut: KeyboardShortcut? = nil,
         isEnabled: @escaping @MainActor () -> Bool = { true },
+        editorMenu: EditorMenuPlacement? = nil,
         run: @escaping @MainActor () -> Void
     ) {
         self.id = id
@@ -207,8 +244,40 @@ public struct OrbitCommand: Identifiable {
         self.systemImage = systemImage
         self.shortcut = shortcut
         self.isEnabled = isEnabled
+        self.editorMenu = editorMenu
         self.run = run
     }
+}
+
+/// Where a command sits in the editor's right-click menu (above Cut, Copy,
+/// Paste). Groups go in this order, separated; `isVisible` is asked each time
+/// the menu opens, so it may read anything (unlike `isEnabled`).
+public struct EditorMenuPlacement {
+    public enum Group: Int, Comparable, Sendable {
+        case navigate, edit, agent, review
+        public static func < (a: Group, b: Group) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    public let group: Group
+    /// Shown instead of the command's title ("Ask Agent" for "Focus Agent Chat").
+    public let title: String?
+    public let isVisible: @MainActor () -> Bool
+
+    public init(_ group: Group, title: String? = nil, isVisible: @escaping @MainActor () -> Bool = { true }) {
+        self.group = group
+        self.title = title
+        self.isVisible = isVisible
+    }
+}
+
+/// A command just run by mouse (menu, palette, a button) that has a shortcut:
+/// the shell shows the shortcut for a moment, so it gets learned.
+public struct CommandHint: Equatable {
+    public let id = UUID()
+    public let title: String
+    public let shortcut: KeyboardShortcut
+
+    public static func == (a: CommandHint, b: CommandHint) -> Bool { a.id == b.id }
 }
 
 @MainActor
@@ -227,9 +296,36 @@ public final class CommandRegistry {
         all.removeAll { $0.id == id }
     }
 
-    public func run(_ id: String) {
+    /// The latest shortcut to show (see `CommandHint`).
+    public private(set) var hint: CommandHint?
+
+    /// `teaching`: run without its shortcut (a click), so the shortcut is shown.
+    public func run(_ id: String, teaching: Bool = false) {
         guard let command = all.first(where: { $0.id == id }), command.isEnabled() else { return }
+        if teaching { teach(command) }
         command.run()
+    }
+
+    /// A tooltip naming what a button does and its command's shortcut:
+    /// "Find References (⇧⌘R)". `text` replaces the command's title.
+    public func help(_ id: String, _ text: String? = nil) -> String {
+        let command = all.first { $0.id == id }
+        let title = text ?? command?.title ?? ""
+        guard let shortcut = command?.shortcut else { return title }
+        return "\(title) (\(shortcut.displayString))"
+    }
+
+    public func teach(_ command: OrbitCommand) {
+        guard let shortcut = command.shortcut else { return }
+        hint = CommandHint(title: command.title, shortcut: shortcut)
+    }
+
+    /// The editor's right-click menu: visible commands with a placement, by group.
+    public func editorMenuCommands() -> [OrbitCommand] {
+        all.enumerated()
+            .filter { $0.element.editorMenu?.isVisible() == true }
+            .sorted { ($0.element.editorMenu!.group, $0.offset) < ($1.element.editorMenu!.group, $1.offset) }
+            .map(\.element)
     }
 
     public var categories: [String] {
@@ -254,5 +350,28 @@ public final class ServiceRegistry {
 
     public func resolve<Service>(_ type: Service.Type) -> Service? {
         services[ObjectIdentifier(type)] as? Service
+    }
+}
+
+extension KeyboardShortcut {
+    /// "⇧⌘P", as menus draw it.
+    public var displayString: String {
+        var result = ""
+        if modifiers.contains(.control) { result += "⌃" }
+        if modifiers.contains(.option) { result += "⌥" }
+        if modifiers.contains(.shift) { result += "⇧" }
+        if modifiers.contains(.command) { result += "⌘" }
+        switch key {
+        case .return: result += "↩"
+        case .delete: result += "⌫"
+        case .escape: result += "⎋"
+        case .tab: result += "⇥"
+        case .upArrow: result += "↑"
+        case .downArrow: result += "↓"
+        case .leftArrow: result += "←"
+        case .rightArrow: result += "→"
+        default: result += String(key.character).uppercased()
+        }
+        return result
     }
 }

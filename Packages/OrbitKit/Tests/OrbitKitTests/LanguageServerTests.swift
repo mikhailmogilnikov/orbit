@@ -5,6 +5,190 @@ import Foundation
 import Testing
 
 @Suite struct LanguageServerTests {
+    /// D65: one TypeScript server per monorepo (its lockfile), the project's own
+    /// TypeScript nearest to the file, companions by dependency, its tools first on PATH.
+    @Test func launchesFromTheProject() throws {
+        let manager = FileManager.default
+        let root = manager.temporaryDirectory.appendingPathComponent("orbit-ts-\(UUID().uuidString)")
+        defer { try? manager.removeItem(at: root) }
+        func write(_ path: String, _ text: String, executable: Bool = false) throws {
+            let url = root.appendingPathComponent(path)
+            try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            if executable { try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path) }
+        }
+        // pnpm keeps TypeScript in the package, not the root.
+        try write("pnpm-lock.yaml", "")
+        try write("package.json", #"{"devEngines": {"packageManager": {"name": "pnpm"}}}"#)
+        try write("apps/booking/package.json", #"{"devDependencies": {"@tailwindcss/vite": "4", "typescript": "7"}}"#)
+        try write("apps/booking/node_modules/typescript/package.json", #"{"version": "7.0.2"}"#)
+        try write("apps/booking/node_modules/.bin/tsc", "#!/bin/sh\n", executable: true)
+        try write("apps/legacy/package.json", "{}")
+        try write("apps/legacy/node_modules/typescript/package.json", #"{"version": "5.9.3"}"#)
+        try write("apps/legacy/node_modules/.bin/tsc", "#!/bin/sh\n", executable: true)
+
+        let page = root.appendingPathComponent("apps/booking/src/app.tsx")
+        let config = LanguageServerConfig.typescript
+        #expect(config.root(for: page, in: root).path == root.standardizedFileURL.path)
+        let empty = LanguageInstaller(root: root.appendingPathComponent("none"))
+        let command = try #require(config.command(file: page, root: root, environment: ["PATH": "/nonexistent"], installer: empty))
+        #expect(command.executable == root.appendingPathComponent("apps/booking/node_modules/.bin/tsc").path)
+        #expect(command.arguments == ["--lsp", "--stdio"])
+        // TypeScript 5 isn't its own server: nothing else is there to run it.
+        let legacy = root.appendingPathComponent("apps/legacy/index.ts")
+        #expect(config.command(file: legacy, root: root, environment: ["PATH": "/nonexistent"], installer: empty) == nil)
+
+        #expect(LanguageServerConfig.tailwind.isUsed(by: page, in: root))
+        #expect(!LanguageServerConfig.eslint.isUsed(by: page, in: root))
+        #expect(!LanguageServerConfig.tailwind.isUsed(by: legacy, in: root))
+
+        let environment = ProjectFiles.environment(for: page, root: root, base: ["PATH": "/usr/bin"])
+        #expect(environment["PATH"] == root.appendingPathComponent("apps/booking/node_modules/.bin").standardizedFileURL.path + ":/usr/bin")
+    }
+
+    /// Workspace markers win over a package's own manifest; without any, the folder.
+    @Test func rootsFollowMarkers() throws {
+        let manager = FileManager.default
+        let root = manager.temporaryDirectory.appendingPathComponent("orbit-roots-\(UUID().uuidString)").standardizedFileURL
+        defer { try? manager.removeItem(at: root) }
+        for path in ["rust/Cargo.lock", "rust/Cargo.toml", "rust/crates/core/Cargo.toml", "tool/Cargo.toml", "py/.venv/pyvenv.cfg", "py/pyproject.toml"] {
+            let url = root.appendingPathComponent(path)
+            try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "".write(to: url, atomically: true, encoding: .utf8)
+        }
+        let rust = LanguageServerConfig.rust
+        #expect(rust.root(for: root.appendingPathComponent("rust/crates/core/src/lib.rs"), in: root).path == root.appendingPathComponent("rust").path)
+        #expect(rust.root(for: root.appendingPathComponent("tool/src/main.rs"), in: root).path == root.appendingPathComponent("tool").path)
+        #expect(rust.root(for: root.appendingPathComponent("loose.rs"), in: root).path == root.path)
+        #expect(LanguageServerConfig.swift.root(for: root.appendingPathComponent("rust/a.swift"), in: root).path == root.path)
+
+        let script = root.appendingPathComponent("py/app/main.py")
+        #expect(LanguageServerConfig.python.root(for: script, in: root).path == root.appendingPathComponent("py").path)
+        let environment = ProjectFiles.environment(for: script, root: root, base: ["PATH": "/usr/bin"])
+        #expect(environment["VIRTUAL_ENV"] == root.appendingPathComponent("py/.venv").path)
+        #expect(environment["PATH"] == root.appendingPathComponent("py/.venv/bin").path + ":/usr/bin")
+    }
+
+    /// D65: nvim-lspconfig's servers, ours replacing theirs, one ranked list per extension.
+    @Test func importedServersFillInTheRest() throws {
+        let imported = ImportedServers.shared
+        #expect(imported.servers.count > 300)
+        let ids = Set(LanguageServerConfig.all.map(\.id))
+        #expect(ids.count == LanguageServerConfig.all.count)
+        for (name, servers) in imported.choices.extensions.merging(imported.choices.fileNames, uniquingKeysWith: { $1 }) {
+            for server in servers { #expect(imported.byName[server] != nil, "\(name): \(server)") }
+        }
+        func first(_ path: String) -> String? { LanguageServerConfig.config(for: URL(fileURLWithPath: path))?.id }
+        // Ours win, also for files only the imported entry of the same server knew.
+        #expect(first("/p/main.py") == "basedpyright")
+        #expect(first("/p/Gemfile") == "ruby-lsp")
+        #expect(first("/p/x.c++") == "clangd")
+        #expect(LanguageServerConfig.clang.languageID(for: URL(fileURLWithPath: "/p/x.c++")) == "cpp")
+        #expect(first("/p/go.mod") == "gopls")
+        #expect(LanguageServerConfig.go.languageID(for: URL(fileURLWithPath: "/p/go.mod")) == "gomod")
+        #expect(!ids.contains("ts_ls") && !ids.contains("rust_analyzer"))
+        // The rest come ranked; tools (spell checkers, linters) never are a file's server.
+        #expect(first("/p/App.kt") == "kotlin_lsp")
+        #expect(first("/p/lib.ex") == "expert")
+        #expect(first("/p/schema.prisma") == "prismals")
+        #expect(LanguageServerConfig.config(id: "prismals")?.name == "Prisma")
+        #expect(first("/p/notes.txt") == nil)
+        #expect(!LanguageServerConfig.candidates(for: URL(fileURLWithPath: "/p/a.vue")).contains { $0.id == "biome" })
+    }
+
+    /// Of a language's servers, one already on the machine wins over the usual choice.
+    @Test func installedServerIsChosen() throws {
+        let manager = FileManager.default
+        let bin = manager.temporaryDirectory.appendingPathComponent("orbit-bin-\(UUID().uuidString)")
+        defer { try? manager.removeItem(at: bin) }
+        try manager.createDirectory(at: bin, withIntermediateDirectories: true)
+        let file = URL(fileURLWithPath: "/p/App.kt"), root = URL(fileURLWithPath: "/p")
+        let none = LanguageInstaller(root: bin.appendingPathComponent("none"))
+        #expect(LanguageServerConfig.choose(for: file, in: root, environment: ["PATH": bin.path], installer: none)?.id == "kotlin_lsp")
+        let other = bin.appendingPathComponent("kotlin-language-server")
+        try "#!/bin/sh\n".write(to: other, atomically: true, encoding: .utf8)
+        try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: other.path)
+        #expect(LanguageServerConfig.choose(for: file, in: root, environment: ["PATH": bin.path], installer: none)?.id == "kotlin_language_server")
+    }
+
+    /// `"languageServers"` in .orbit/settings.json: another server, none, a command, settings merged over the server's.
+    @Test func settingsChooseServers() throws {
+        let json = #"""
+        { "formatters": { "py": "ruff" },
+          "languageServers": {
+            "kt": "kotlin_language_server",
+            "vue, .astro": "off",
+            "nix": { "command": "/opt/nixd", "arguments": ["--log=error"] },
+            "py": { "server": "pyright", "settings": { "python": { "analysis": { "typeCheckingMode": "strict" } } } },
+            "zig": "zls_typo"
+          } }
+        """#
+        let layer = try LanguageServerSettings.parse(Data(json.utf8), displayPath: ".orbit/settings.json")
+        func resolve(_ path: String) -> LanguageServerConfig? {
+            let file = URL(fileURLWithPath: path)
+            return LanguageServerSettings.resolve(for: file, layers: [layer], default: LanguageServerConfig.config(for: file))
+        }
+        #expect(resolve("/p/App.kt")?.id == "kotlin_language_server")
+        #expect(resolve("/p/App.vue") == nil && resolve("/p/Page.astro") == nil)
+        #expect(resolve("/p/main.go")?.id == "gopls")
+        let nix = try #require(resolve("/p/flake.nix"))
+        #expect(nix.launch == [.file(path: "/opt/nixd", arguments: ["--log=error"])])
+        #expect(nix.languageID(for: URL(fileURLWithPath: "/p/flake.nix")) == "nix")
+        let python = try #require(resolve("/p/main.py"))
+        #expect(python.id == "pyright")
+        #expect(python.settings?["python"]?["analysis"]?["typeCheckingMode"]?.string == "strict")
+        // A rule that can't be followed says so instead of quietly using the default.
+        let typo = try #require(resolve("/p/main.zig"))
+        #expect(typo.launch.isEmpty && typo.missing.contains("zls_typo"))
+
+        #expect(throws: (any Error).self) { try LanguageServerSettings.parse(Data(#"{"languageServers": {"kt": 3}}"#.utf8), displayPath: "x") }
+    }
+
+    /// Choosing from the status bar writes the user's file and keeps the rest of it.
+    @Test func choosingAServerKeepsTheSettingsFile() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".orbit"), withIntermediateDirectories: true)
+        try #"{"formatters": {"md": "off"}}"#.write(to: FormatterSettings.userFile(home: home), atomically: true, encoding: .utf8)
+        try LanguageServerSettings.choose("kotlin_language_server", forType: "kt", home: home)
+        var layers = try LanguageServerSettings.layers(root: nil, home: home)
+        #expect(layers.first?.rules["kt"] == .server("kotlin_language_server", .init()))
+        #expect(try FormatterSettings.layers(root: nil, home: home).first?.rule(for: "md") == .off)
+        try LanguageServerSettings.choose(nil, forType: "kt", home: home)
+        layers = try LanguageServerSettings.layers(root: nil, home: home)
+        #expect(layers.first?.rules.isEmpty == true)
+    }
+
+    @Test func settingsMergeObjects() {
+        let base: JSONValue = ["a": ["b": 1, "c": 2], "d": [1]]
+        #expect(base.merging(["a": ["c": 3], "d": [2]]) == ["a": ["b": 1, "c": 3], "d": [2]])
+    }
+
+    @Test func settingsNameTheServersRoot() {
+        let root = URL(fileURLWithPath: "/work/web")
+        let settings = LanguageServerConfig.eslint.settings(for: root)
+        #expect(settings?["workspaceFolder"]?["uri"]?.string == "file:///work/web")
+        #expect(settings?["workspaceFolder"]?["name"]?.string == "web")
+    }
+
+    /// Servers without hierarchical symbols send a flat list; nesting comes from which range holds which.
+    @Test func flatSymbolsNestByRange() throws {
+        func symbol(_ name: String, _ kind: Int, _ lines: ClosedRange<Int>) -> JSONValue {
+            ["name": .string(name), "kind": .number(Double(kind)), "location": [
+                "uri": "file:///a.ts",
+                "range": ["start": ["line": .number(Double(lines.lowerBound)), "character": 0],
+                          "end": ["line": .number(Double(lines.upperBound)), "character": 1]],
+            ]]
+        }
+        let url = URL(fileURLWithPath: "/a.ts")
+        let outline = LanguageServer.outline([
+            symbol("helper", 12, 10...12), symbol("Greeter", 5, 0...8), symbol("greet", 6, 2...4), symbol("name", 7, 1...1),
+        ], in: url)
+        #expect(outline.map(\.name) == ["Greeter", "name", "greet", "helper"])
+        #expect(outline.map(\.depth) == [0, 1, 1, 0])
+        #expect(outline[2].kind == .method)
+    }
+
     @Test func incrementalChangeCoversOnlyTheEdit() throws {
         let change = try #require(TextChange(from: "let a = 1\nlet b = 2\n", to: "let a = 1\nlet bc = 2\n"))
         #expect(change.range == SourceRange(start: SourcePosition(line: 1, character: 5), end: SourcePosition(line: 1, character: 5)))

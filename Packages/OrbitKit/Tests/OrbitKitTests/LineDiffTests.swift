@@ -195,3 +195,22 @@ import Foundation
         #expect(document.diskConflict == nil)
     }
 }
+
+@MainActor
+@Suite struct WorkspaceTabTests {
+    /// A definition reported as /private/tmp/… lands in the tab opened as /tmp/… .
+    @Test func onePathSpellingPerTab() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("a.ts")
+        try Data().write(to: file)
+        let real = file.resolvingSymlinksInPath().path
+        let privatePath = real.hasPrefix("/private") ? real : "/private" + real
+        let workspace = Workspace()
+        workspace.openFile(URL(fileURLWithPath: real))
+        workspace.openFile(URL(fileURLWithPath: privatePath))
+        workspace.openFile(URL(string: "file://" + privatePath)!)
+        #expect(workspace.tabs.count == 1)
+    }
+}

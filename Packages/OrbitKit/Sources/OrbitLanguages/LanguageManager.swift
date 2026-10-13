@@ -10,9 +10,16 @@ import OrbitAPI
 @Observable
 final class LanguageManager: LanguageIntelligence {
     private let workspace: Workspace
-    private(set) var servers: [String: LanguageServer] = [:]
+    /// One per server and project root inside the folder (D65): a folder with
+    /// two Rust workspaces runs two rust-analyzers, a JS monorepo one TypeScript.
+    struct ServerKey: Hashable {
+        var id: String
+        var root: URL
+    }
+
+    private(set) var servers: [ServerKey: LanguageServer] = [:]
     /// Servers that couldn't start, so files of their language say why without retrying on every keystroke.
-    private(set) var unavailable: [String: LanguageServerState] = [:]
+    private(set) var unavailable: [ServerKey: LanguageServerState] = [:]
 
     let environment: Task<[String: String], Never>
     @ObservationIgnored let installer = LanguageInstaller.shared
@@ -32,7 +39,16 @@ final class LanguageManager: LanguageIntelligence {
     /// `environment` once resolved, for checks that can't wait for it.
     @ObservationIgnored private var shellEnvironment: [String: String]?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
-    @ObservationIgnored private var idleTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var idleTasks: [ServerKey: Task<Void, Never>] = [:]
+    /// Each file's servers: its language's, then the companions its project uses (ESLint, Tailwind).
+    @ObservationIgnored private var placements: [URL: [ServerKey]] = [:]
+    /// Servers as `.orbit/settings.json` made them (another server, a command, its settings), by id.
+    @ObservationIgnored private var effective: [String: LanguageServerConfig] = [:]
+    @ObservationIgnored private var serverSettings: Result<[LanguageServerSettings], Error> = .success([])
+    /// When the settings files last changed: an edit restarts the servers.
+    @ObservationIgnored private var settingsStamp: [Date?]?
+    /// Bumped on every reload, so views showing the chosen server redraw.
+    private var settingsRevision = 0
 
     /// Typing pauses this long before the server hears about it.
     private static let syncDelay: Duration = .milliseconds(120)
@@ -77,63 +93,241 @@ final class LanguageManager: LanguageIntelligence {
     }
 
     private func sync() async {
+        // Which of a language's servers is installed decides which one a file gets.
+        if shellEnvironment == nil { shellEnvironment = await environment.value }
+        reloadSettingsIfChanged()
         if workspace.root != root {
             root = workspace.root
             for server in servers.values { server.shutdown() }
             servers.removeAll()
             unavailable.removeAll()
+            placements.removeAll()
         }
         guard let root else { return }
 
         let documents = workspace.documents.open.values.filter { $0.loadError == nil }
-        var wanted: [String: [TextDocument]] = [:]
+        var wanted: [ServerKey: [TextDocument]] = [:]
         for document in documents {
-            guard let config = LanguageServerConfig.config(for: document.url) else { continue }
-            wanted[config.id, default: []].append(document)
+            for key in keys(for: document.url) { wanted[key, default: []].append(document) }
         }
 
-        for (id, server) in servers {
-            let open = Set((wanted[id] ?? []).map(\.url))
+        for (key, server) in servers {
+            let open = Set((wanted[key] ?? []).map(\.url))
             for url in server.openDocuments where !open.contains(url) { server.close(url) }
-            if open.isEmpty { scheduleIdleShutdown(id) } else { idleTasks.removeValue(forKey: id)?.cancel() }
+            if open.isEmpty { scheduleIdleShutdown(key) } else { idleTasks.removeValue(forKey: key)?.cancel() }
         }
 
-        for (id, documents) in wanted where unavailable[id] == nil {
-            guard let config = LanguageServerConfig.all.first(where: { $0.id == id }) else { continue }
+        for (key, documents) in wanted where unavailable[key] == nil {
+            guard let config = serverConfig(id: key.id) else { continue }
             let server: LanguageServer
-            if let running = servers[id] {
+            if let running = servers[key] {
                 server = running
             } else {
-                server = LanguageServer(config: config, root: root)
+                server = LanguageServer(config: config, root: key.root, origin: documents.first?.url, folder: root)
                 server.onApplyEdit = { [weak self] edit in self?.apply(edit) ?? false }
-                servers[id] = server
+                servers[key] = server
             }
             guard await server.start(environment: environment) else {
-                unavailable[id] = server.state
-                servers[id] = nil
+                unavailable[key] = server.state
+                servers[key] = nil
                 continue
             }
             for document in documents { server.sync(document.url, text: document.text) }
         }
     }
 
-    private func scheduleIdleShutdown(_ id: String) {
-        guard idleTasks[id] == nil else { return }
-        idleTasks[id] = Task { [weak self] in
+    private func scheduleIdleShutdown(_ key: ServerKey) {
+        guard idleTasks[key] == nil else { return }
+        idleTasks[key] = Task { [weak self] in
             try? await Task.sleep(for: Self.idleTimeout)
             guard !Task.isCancelled, let self else { return }
-            idleTasks[id] = nil
-            guard let server = servers[id], server.openDocuments.isEmpty else { return }
+            idleTasks[key] = nil
+            guard let server = servers[key], server.openDocuments.isEmpty else { return }
             server.shutdown()
-            servers[id] = nil
+            servers[key] = nil
         }
     }
 
-    /// Before asking about a file, send its latest text right away.
+    /// The file's language server first, then the tools its project uses beside it (D64),
+    /// each at the project root it runs in (D65).
+    func keys(for url: URL) -> [ServerKey] {
+        guard let root else { return [] }
+        let file = url.standardizedFileURL
+        if let cached = placements[file] { return cached }
+        let chosen = languageConfig(for: file, in: root)
+        let language: LanguageServerConfig?
+        switch serverSettings {
+        case .success(let layers): language = LanguageServerSettings.resolve(for: file, layers: layers, default: chosen)
+        case .failure(let error): language = chosen.map { LanguageServerSettings.broken(file, $0, error.localizedDescription) }
+        }
+        if let language { effective[language.id] = language }
+        let configs = (language.map { [$0] } ?? [])
+            + LanguageServerConfig.companions(for: url).filter { $0.isUsed(by: file, in: root) }
+        let keys = configs.map { ServerKey(id: $0.id, root: $0.root(for: file, in: root)) }
+        // Until the shell's PATH is known, what's installed can't be told: decide again then.
+        if shellEnvironment != nil { placements[file] = keys }
+        return keys
+    }
+
+    private func languageConfig(for file: URL, in root: URL) -> LanguageServerConfig? {
+        guard let environment = shellEnvironment else { return LanguageServerConfig.config(for: file) }
+        return LanguageServerConfig.choose(for: file, in: root, environment: environment, installer: installer)
+    }
+
+    private func serverConfig(id: String) -> LanguageServerConfig? {
+        effective[id] ?? LanguageServerConfig.config(id: id)
+    }
+
+    private func reloadSettingsIfChanged() {
+        let files = [root.map(FormatterSettings.projectFile), FormatterSettings.userFile()].compactMap { $0 }
+        let stamp = files.map { (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }
+        guard stamp != settingsStamp else { return }
+        let first = settingsStamp == nil
+        settingsStamp = stamp
+        serverSettings = Result { try LanguageServerSettings.layers(root: root) }
+        settingsRevision += 1
+        placements.removeAll()
+        effective.removeAll()
+        guard !first else { return }
+        for server in servers.values { server.shutdown() }
+        servers.removeAll()
+        unavailable.removeAll()
+    }
+
+    /// A file whose language server the settings turned off: (the language, which file says so).
+    func turnedOff(_ url: URL) -> String? {
+        _ = settingsRevision
+        guard languageKey(for: url) == nil, let usual = LanguageServerConfig.config(for: url),
+              case .success(let layers) = serverSettings,
+              layers.contains(where: { $0.rule(for: url) == .off }) else { return nil }
+        return usual.name
+    }
+
+    /// The server the settings name for this file type, if they do.
+    func chosenInSettings(_ url: URL) -> String? {
+        _ = settingsRevision
+        guard case .success(let layers) = serverSettings else { return nil }
+        for layer in layers {
+            switch layer.rule(for: url) {
+            case .server(let id, _)?: return id
+            case .off?: return "off"
+            case .command?: return "command"
+            case nil: continue
+            }
+        }
+        return nil
+    }
+
+    /// Servers that could take the file, for choosing another: (id, what to show).
+    func alternatives(for url: URL) -> [(id: String, title: String)] {
+        LanguageServerConfig.alternatives(for: url).map { config in
+            (config.id, config.isImported ? "\(config.name) — \(config.id)" : config.name)
+        }
+    }
+
+    /// Remembers the server for this file type in `~/.orbit/settings.json`
+    /// ("off" for none, nil back to Orbit's choice); the servers restart with it.
+    func chooseServer(_ id: String?, for url: URL) -> String? {
+        let type = url.pathExtension.isEmpty ? url.lastPathComponent.lowercased() : url.pathExtension.lowercased()
+        do {
+            try LanguageServerSettings.choose(id, forType: type)
+        } catch {
+            return error.localizedDescription
+        }
+        scheduleSync()
+        return nil
+    }
+
+    /// A task for the agent when a file's language server can't run (D65): what
+    /// Orbit tried, and the two ways out it has — install the tool, or point
+    /// Orbit at a server in the project's `.orbit/settings.json`.
+    func setUpPrompt(for url: URL, problem: String) -> String {
+        let config = config(for: url)
+        let type = url.pathExtension.isEmpty ? url.lastPathComponent : ".\(url.pathExtension)"
+        let others = alternatives(for: url).map(\.id).filter { $0 != config?.id }
+        let launch = config.map { config in
+            config.launch.map { source -> String in
+                switch source {
+                case .project(let package, let binary, _, _): "node_modules/.bin/\(binary)" + (package.map { " (npm package \($0))" } ?? "")
+                case .installed: config.install.map { "Orbit's copy of Mason package \($0.package)" } ?? "Orbit's copy"
+                case .path(let binary, let arguments): ([binary] + arguments).joined(separator: " ") + " on PATH"
+                case .xcrun(let tool, _): "xcrun --find \(tool)"
+                case .file(let path, let arguments): ([path] + arguments).joined(separator: " ")
+                }
+            }.joined(separator: ", then ")
+        } ?? "nothing: no server is known for this file type"
+        return """
+        Orbit (the editor) can't run a language server for \(type) files in this project, e.g. \(relativePath(url)).
+
+        Server: \(config.map { "\($0.name) (\($0.id))" } ?? "none")
+        Orbit looks for it as: \(launch)
+        Problem: \(problem)
+
+        Please get it working for this project. Either install what's missing (say what you install and how), or, if this project needs a different server or command, add a rule to .orbit/settings.json in the project root, merged with what's there:
+
+        { "languageServers": { "\(type.trimmingCharacters(in: CharacterSet(charactersIn: ".")))": "<server>" } }
+
+        where <server> is one of \(others.isEmpty ? "the servers nvim-lspconfig names" : others.prefix(6).joined(separator: ", ")), or "off", or { "command": "<executable>", "arguments": [...], "settings": {...}, "initializationOptions": {...} }. Rules are keyed by file type ("ts, tsx" works); settings are sent as the answer to workspace/configuration. Orbit restarts its servers when the file changes. Check that the server starts in this project before you finish.
+        """
+    }
+
+    private func relativePath(_ url: URL) -> String {
+        guard let root, url.path.hasPrefix(root.path + "/") else { return url.lastPathComponent }
+        return String(url.path.dropFirst(root.path.count + 1))
+    }
+
+    /// Opens `~/.orbit/settings.json` (creating it) to set servers up by hand.
+    func editServerSettings() {
+        let url = FormatterSettings.userFile()
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? "{\n  \"languageServers\": {}\n}\n".write(to: url, atomically: true, encoding: .utf8)
+        }
+        workspace.openFile(url)
+    }
+
+    /// The file's language server's key.
+    private func languageKey(for url: URL) -> ServerKey? {
+        keys(for: url).first { serverConfig(id: $0.id)?.isCompanion == false }
+    }
+
+    /// The file's server of config `id` (a code action's or completion's).
+    private func server(id: String, for url: URL) -> LanguageServer? {
+        keys(for: url).first { $0.id == id }.flatMap { servers[$0] }
+    }
+
+    /// Before asking about a file, send its latest text right away; the file's language server.
     private func flush(_ url: URL) async -> LanguageServer? {
-        guard let config = LanguageServerConfig.config(for: url), let server = servers[config.id] else { return nil }
+        guard let key = languageKey(for: url), let server = servers[key] else { return nil }
         if let document = workspace.documents.existingDocument(for: url) { server.sync(document.url, text: document.text) }
         return server
+    }
+
+    /// Every server the file has, its language server first, with its latest text.
+    private func flushAll(_ url: URL) -> [LanguageServer] {
+        let document = workspace.documents.existingDocument(for: url)
+        return keys(for: url).compactMap { key in
+            guard let server = servers[key] else { return nil }
+            if let document { server.sync(document.url, text: document.text) }
+            return server
+        }
+    }
+
+    /// Asks every server of the file at once; answers in the servers' order.
+    private func gather<T: Sendable>(_ url: URL, _ ask: @escaping @MainActor (LanguageServer) async -> T?) async -> [(LanguageServer, T)] {
+        let servers = flushAll(url)
+        // Tasks rather than a group (the region checker can't follow one here);
+        // cancelling the caller still cancels the requests (`$/cancelRequest`).
+        let tasks = servers.map { server in Task { await ask(server) } }
+        return await withTaskCancellationHandler {
+            var answers: [(LanguageServer, T)] = []
+            for (server, task) in zip(servers, tasks) {
+                if let answer = await task.value { answers.append((server, answer)) }
+            }
+            return answers
+        } onCancel: {
+            for task in tasks { task.cancel() }
+        }
     }
 
     /// Stops every server and forgets failures; open files start them again.
@@ -141,6 +335,9 @@ final class LanguageManager: LanguageIntelligence {
         for server in servers.values { server.shutdown() }
         servers.removeAll()
         unavailable.removeAll()
+        placements.removeAll()
+        effective.removeAll()
+        settingsStamp = nil
         scheduleSync()
     }
 
@@ -160,7 +357,6 @@ final class LanguageManager: LanguageIntelligence {
         defer { isLoadingRegistry = false }
         let installer = installer
         let environment = await environment.value
-        let root = workspace.root ?? FileManager.default.homeDirectoryForCurrentUser
         let (receipts, found) = await Task.detached(priority: .utility) {
             var receipts: [String: LanguageInstaller.Receipt] = [:]
             var found: [String: String] = [:]
@@ -168,7 +364,7 @@ final class LanguageManager: LanguageIntelligence {
                 if let install = config.install, let receipt = installer.receipt(for: install.package) {
                     receipts[install.package] = receipt
                 }
-                if let command = config.resolve(root, environment) { found[config.id] = command.executable }
+                if let command = config.machineCommand(environment: environment) { found[config.id] = command.executable }
             }
             return (receipts, found)
         }.value
@@ -228,8 +424,9 @@ final class LanguageManager: LanguageIntelligence {
 
     /// A new or removed copy takes over from the running one; open files start it again.
     private func restartServer(_ id: String) {
-        servers.removeValue(forKey: id)?.shutdown()
-        unavailable[id] = nil
+        for key in servers.keys where key.id == id { servers.removeValue(forKey: key)?.shutdown() }
+        unavailable = unavailable.filter { $0.key.id != id }
+        placements.removeAll()
         scheduleSync()
     }
 
@@ -242,15 +439,22 @@ final class LanguageManager: LanguageIntelligence {
     @ObservationIgnored var editing: () -> SourceEditing? = { nil }
 
     private func runningServer(for url: URL) -> LanguageServer? {
-        config(for: url).flatMap { servers[$0.id] }
+        languageKey(for: url).flatMap { servers[$0] }
     }
 
     func codeActions(for range: SourceRange, in url: URL) async -> [CodeAction] {
-        await flush(url)?.codeActions(for: range, in: url.standardizedFileURL) ?? []
+        let file = url.standardizedFileURL
+        return await gather(url) { await $0.codeActions(for: range, in: file) }.flatMap { server, actions in
+            actions.map { action in
+                var action = action
+                action.server = server.config.id
+                return action
+            }
+        }
     }
 
     func perform(_ action: CodeAction, in url: URL) async -> String? {
-        guard let server = runningServer(for: url) else { return "The language server isn't running." }
+        guard let server = action.server.flatMap({ server(id: $0, for: url) }) ?? runningServer(for: url) else { return "The language server isn't running." }
         if let reason = action.disabledReason { return reason }
         let worked = await server.perform(action) { [weak self] edit in self?.apply(edit) ?? false }
         return worked ? nil : "The language server couldn't apply “\(action.title)”."
@@ -355,11 +559,12 @@ final class LanguageManager: LanguageIntelligence {
     }
 
     var problems: [FileProblems] {
-        servers.values.flatMap { server in
-            server.diagnostics.compactMap { url, diagnostics in
-                diagnostics.isEmpty ? nil : FileProblems(url: url, diagnostics: diagnostics.sorted { $0.range.start < $1.range.start })
-            }
+        // A file's language server and ESLint report the same file.
+        var byFile: [URL: [Diagnostic]] = [:]
+        for server in servers.values {
+            for (url, diagnostics) in server.diagnostics where !diagnostics.isEmpty { byFile[url, default: []] += diagnostics }
         }
+        return byFile.map { url, diagnostics in FileProblems(url: url, diagnostics: diagnostics.sorted { $0.range.start < $1.range.start }) }
         .sorted { lhs, rhs in
             let left = lhs.diagnostics.map(\.severity).max() ?? .hint, right = rhs.diagnostics.map(\.severity).max() ?? .hint
             return left != right ? left > right : lhs.url.path < rhs.url.path
@@ -392,46 +597,66 @@ final class LanguageManager: LanguageIntelligence {
         return worked
     }
 
+    /// The first of the file's servers (its language's, then ESLint, Tailwind…) that isn't installed.
+    private func offeredConfig(for url: URL) -> LanguageServerConfig? {
+        keys(for: url).lazy.compactMap { key -> LanguageServerConfig? in
+            guard let config = self.serverConfig(id: key.id), config.install != nil, !self.declined.contains(config.id) else { return nil }
+            if self.installing.contains(config.id) || self.installFailures[config.id] != nil { return config }
+            if case .unavailable = self.unavailable[key] { return config }
+            return nil
+        }.first
+    }
+
     func installOffer(for url: URL) -> LanguageInstallOffer? {
-        guard let config = config(for: url), let install = config.install, !declined.contains(config.id) else { return nil }
-        let isInstalling = installing.contains(config.id)
-        let failure = installFailures[config.id]
-        var isMissing = false
-        if case .unavailable = unavailable[config.id] { isMissing = true }
-        guard isInstalling || failure != nil || isMissing else { return nil }
-        return LanguageInstallOffer(name: config.name, needs: install.needs, isInstalling: isInstalling, failure: failure)
+        guard let config = offeredConfig(for: url), let install = config.install else { return nil }
+        return LanguageInstallOffer(
+            name: config.name, needs: install.needs,
+            isInstalling: installing.contains(config.id), failure: installFailures[config.id], purpose: config.purpose
+        )
     }
 
     func installServer(for url: URL) {
-        guard let config = config(for: url) else { return }
+        guard let config = offeredConfig(for: url) else { return }
         Task { await install(config.id) }
     }
 
     func declineInstall(for url: URL) {
-        guard let config = config(for: url) else { return }
+        guard let config = offeredConfig(for: url) else { return }
         declined.insert(config.id)
         UserDefaults.standard.set(declined.sorted(), forKey: Self.declinedKey)
     }
 
     func config(for url: URL) -> LanguageServerConfig? {
-        LanguageServerConfig.config(for: url)
+        languageKey(for: url).flatMap { serverConfig(id: $0.id) }
     }
 
     // MARK: LanguageIntelligence
 
     func diagnostics(for url: URL) -> [Diagnostic] {
-        guard let config = LanguageServerConfig.config(for: url) else { return [] }
-        return servers[config.id]?.diagnostics[url.standardizedFileURL] ?? []
+        let file = url.standardizedFileURL
+        return keys(for: url).flatMap { servers[$0]?.diagnostics[file] ?? [] }
+    }
+
+    /// ESLint, Tailwind… running beside the file's language server, for the status bar.
+    func companions(for url: URL) -> [(name: String, state: LanguageServerState)] {
+        keys(for: url).compactMap { key in
+            guard let config = serverConfig(id: key.id), config.isCompanion else { return nil }
+            return (config.name, unavailable[key] ?? servers[key]?.state ?? .starting)
+        }
     }
 
     func server(for url: URL) -> (name: String, state: LanguageServerState)? {
-        guard let config = LanguageServerConfig.config(for: url) else { return nil }
-        if let state = unavailable[config.id] { return (config.name, state) }
-        return (config.name, servers[config.id]?.state ?? .starting)
+        guard let key = languageKey(for: url), let config = serverConfig(id: key.id) else { return nil }
+        if let state = unavailable[key] { return (config.name, state) }
+        return (config.name, servers[key]?.state ?? .starting)
     }
 
+    /// The language server's, then what the others add (Tailwind's CSS for a class).
     func hover(at position: SourcePosition, in url: URL) async -> HoverInfo? {
-        await flush(url)?.hover(at: position, in: url.standardizedFileURL)
+        let file = url.standardizedFileURL
+        let answers = await gather(url) { await $0.hover(at: position, in: file) }.map(\.1)
+        guard let first = answers.first else { return nil }
+        return HoverInfo(markdown: answers.map(\.markdown).joined(separator: "\n\n"), range: first.range)
     }
 
     func definition(at position: SourcePosition, in url: URL) async -> [SourceLocation] {
@@ -439,22 +664,84 @@ final class LanguageManager: LanguageIntelligence {
     }
 
     func triggers(for url: URL) -> LanguageTriggers {
-        guard let config = LanguageServerConfig.config(for: url), let server = servers[config.id], server.state == .running else {
-            return LanguageTriggers()
+        var triggers = LanguageTriggers()
+        for key in keys(for: url) {
+            guard let server = servers[key], server.state == .running else { continue }
+            triggers.completion.formUnion(server.triggers.completion)
+            // Signature help is the language server's alone.
+            if !server.config.isCompanion {
+                triggers.signatureHelp = server.triggers.signatureHelp
+                triggers.signatureHelpRetrigger = server.triggers.signatureHelpRetrigger
+            }
         }
-        return server.triggers
+        return triggers
     }
 
+    /// Every server's suggestions in one list; each item remembers its server for `resolve`.
     func completions(at position: SourcePosition, in url: URL, trigger: CompletionTrigger) async -> CompletionList? {
-        await flush(url)?.completions(at: position, in: url.standardizedFileURL, trigger: trigger)
+        let file = url.standardizedFileURL
+        let lists = await gather(url) { server -> CompletionList? in
+            // A trigger character belongs to the server that declared it.
+            if case .character(let character) = trigger, !server.triggers.completion.contains(character) { return nil }
+            return await server.completions(at: position, in: file, trigger: trigger)
+        }
+        guard !lists.isEmpty, !Task.isCancelled else { return nil }
+        if lists.count == 1, let (server, list) = lists.first, !server.config.isCompanion { return list }
+        var items: [CompletionItem] = []
+        for (server, list) in lists {
+            items += list.items.map { item in
+                var item = item
+                item.server = server.config.id
+                return item
+            }
+        }
+        return CompletionList(items: items, isIncomplete: lists.contains { $0.1.isIncomplete })
     }
 
     func resolve(_ item: CompletionItem, in url: URL) async -> CompletionItem {
-        guard let config = LanguageServerConfig.config(for: url), let server = servers[config.id] else { return item }
+        guard let server = item.server.flatMap({ server(id: $0, for: url) }) ?? runningServer(for: url) else { return item }
         return await server.resolve(item)
     }
 
     func signatureHelp(at position: SourcePosition, in url: URL, trigger: String?, isRetrigger: Bool) async -> SignatureHelp? {
         await flush(url)?.signatureHelp(at: position, in: url.standardizedFileURL, trigger: trigger, isRetrigger: isRetrigger)
+    }
+
+    // MARK: Navigation (D62)
+
+    func references(at position: SourcePosition, in url: URL) async -> [SourceLocation] {
+        await flush(url)?.references(at: position, in: url.standardizedFileURL) ?? []
+    }
+
+    func highlights(at position: SourcePosition, in url: URL) async -> [SymbolHighlight] {
+        await flush(url)?.highlights(at: position, in: url.standardizedFileURL) ?? []
+    }
+
+    func symbols(in url: URL) async -> [LanguageSymbol]? {
+        await flush(url)?.symbols(in: url.standardizedFileURL)
+    }
+
+    // MARK: Inlay hints
+
+    /// The language server's alone: companions (ESLint, Tailwind) have none.
+    func inlayHints(in range: SourceRange, url: URL) async -> [InlayHint] {
+        await flush(url)?.inlayHints(in: range, url: url.standardizedFileURL) ?? []
+    }
+
+    func inlayHintsRevision(for url: URL) -> Int {
+        runningServer(for: url)?.inlayHintsRevision ?? 0
+    }
+
+    /// Only servers already running answer: one for a language nobody opened isn't started for a search.
+    func projectSymbols(matching query: String) async -> [LanguageSymbol] {
+        let searching = servers.values.filter { $0.state == .running && $0.searchesSymbols }
+        return await withTaskGroup(of: [LanguageSymbol].self) { group in
+            for server in searching {
+                group.addTask { await server.projectSymbols(matching: query) }
+            }
+            var all: [LanguageSymbol] = []
+            for await symbols in group { all += symbols }
+            return all
+        }
     }
 }

@@ -2,7 +2,7 @@ DERIVED := .build/xcode
 CONFIG ?= Debug
 APP := $(DERIVED)/Build/Products/$(CONFIG)/Orbit.app
 
-.PHONY: project build run test test-languages test-language-installs release clean
+.PHONY: project build run test test-languages test-language-installs import-lspconfig release clean
 
 project:
 	xcodegen generate --quiet
@@ -29,6 +29,25 @@ test-languages:
 test-language-installs:
 	cd Packages/OrbitKit && ORBIT_INSTALL_TESTS=1 PATH="/opt/swift/usr/bin:$$PATH" swift test --filter "LanguageInstall|Grammar"; \
 		status=$$?; [ "$$(uname)" = Linux ] && git checkout -q -- Package.resolved; exit $$status
+
+# Regenerates OrbitLanguages/Resources/Servers.json from nvim-lspconfig,
+# Neovim's and Linguist's file types and Mason's registry (D65). Bump the pins
+# to pick up new servers; read the diff before committing it.
+LSPCONFIG_COMMIT := 6d27c288ff951e1e94cb5f91c800adeddf0dc0c2
+NEOVIM_TAG := v0.11.4
+LINGUIST_TAG := v9.4.0
+import-lspconfig:
+	@tmp=$$(mktemp -d) && \
+	git init -q $$tmp/lspconfig && \
+	git -C $$tmp/lspconfig fetch -q --depth 1 https://github.com/neovim/nvim-lspconfig.git $(LSPCONFIG_COMMIT) && \
+	git -C $$tmp/lspconfig checkout -q FETCH_HEAD && \
+	curl -sSfL -o $$tmp/filetype.lua https://raw.githubusercontent.com/neovim/neovim/$(NEOVIM_TAG)/runtime/lua/vim/filetype.lua && \
+	curl -sSfL -o $$tmp/languages.yml https://raw.githubusercontent.com/github-linguist/linguist/$(LINGUIST_TAG)/lib/linguist/languages.yml && \
+	curl -sSfL -o $$tmp/registry.zip https://github.com/mason-org/mason-registry/releases/latest/download/registry.json.zip && \
+	unzip -q -o $$tmp/registry.zip -d $$tmp && \
+	python3 -I scripts/import-lspconfig.py $$tmp/lspconfig $$tmp/filetype.lua $$tmp/languages.yml $$tmp/registry.json \
+		$(LSPCONFIG_COMMIT) Packages/OrbitKit/Sources/OrbitLanguages/Resources/Servers.json; \
+	status=$$?; rm -rf $$tmp; exit $$status
 
 release:
 	$(MAKE) build CONFIG=Release

@@ -34,8 +34,7 @@ struct LanguageServerIntegrationTests {
     @Test func serverDyingInHandshakeSaysWhy() async throws {
         let config = LanguageServerConfig(
             id: "broken", name: "Broken", languages: ["broken": "broken"],
-            resolve: { _, _ in AgentCommand(executable: "/bin/sh", arguments: ["-c", "echo 'no tsserver.js here' >&2; exit 3"]) },
-            missing: ""
+            launch: [.path(binary: "sh", arguments: ["-c", "echo 'no tsserver.js here' >&2; exit 3"])]
         )
         let server = LanguageServer(config: config, root: FileManager.default.temporaryDirectory)
         #expect(await server.start(environment: Task { ProcessInfo.processInfo.environment }) == false)
@@ -49,7 +48,7 @@ struct LanguageServerIntegrationTests {
     @Test func missingServerSaysWhatToInstall() async {
         let config = LanguageServerConfig(
             id: "absent", name: "Absent", languages: ["absent": "absent"],
-            resolve: { _, _ in nil }, missing: "Install the absent server."
+            launch: [.path(binary: "orbit-absent-server")], missingHint: "Install the absent server."
         )
         let server = LanguageServer(config: config, root: FileManager.default.temporaryDirectory)
         #expect(await server.start(environment: Task { [:] }) == false)
@@ -107,6 +106,39 @@ struct LanguageServerIntegrationTests {
         #expect(definitions.contains { $0.url.path == target.standardizedFileURL.path && $0.range.start.line == expected.line },
                 "\(definitions)")
 
+        // Navigation (D62): uses of the method, the variable's uses in this file, the other file's outline, project search.
+        // SourceKit-LSP answers from its index, which is built in the background.
+        var references: [OrbitAPI.SourceLocation] = []
+        try await eventually(language.timeout, "references to greet()") {
+            references.contains { $0.url.path == main.standardizedFileURL.path && $0.range.start.line == call.line }
+        } poll: {
+            references = await server.references(at: call, in: main)
+        }
+        if language.renamesAcrossFiles {
+            #expect(references.contains { $0.url.path == target.standardizedFileURL.path && $0.range.start.line == expected.line },
+                    "\(references)")
+        }
+        let variable = try #require(Self.position(of: "greeter.", in: text))
+        let highlights = await server.highlights(at: variable, in: main)
+        let declared = try #require(Self.position(of: "greeter =", in: text))
+        #expect(highlights.contains { $0.range.start == declared } && highlights.contains { $0.range.start == variable }, "\(highlights)")
+        server.sync(target, text: targetText)
+        let outline = try #require(await server.symbols(in: target))
+        let type = try #require(outline.first { $0.name == "Greeter" }, "\(outline.map(\.name))")
+        #expect(type.depth == 0 && type.kind.isContainer, "\(type)")
+        let method = try #require(outline.first { $0.name.hasPrefix("greet") && $0.name != "Greeter" }, "\(outline.map(\.name))")
+        #expect(method.depth == 1 && method.kind == .method, "\(method)")
+        #expect(method.location.range.start.line == expected.line)
+        server.close(target)
+        if language.renamesAcrossFiles {
+            var found: [LanguageSymbol] = []
+            try await eventually(language.timeout, "Greeter in the project's symbols") {
+                found.contains { $0.name == "Greeter" && $0.location.url.path == target.standardizedFileURL.path }
+            } poll: {
+                found = await server.projectSymbols(matching: "Greet")
+            }
+        }
+
         // An edit above moves the error down with it (incremental sync).
         text = "\n\n" + text
         server.sync(main, text: text)
@@ -119,6 +151,19 @@ struct LanguageServerIntegrationTests {
         try await eventually(language.timeout, "the error to go away") {
             !(server.diagnostics[main.standardizedFileURL] ?? []).contains { $0.severity == .error }
         }
+
+        // Inlay hints for the whole file, with the settings Orbit sends.
+        text += "\n" + language.inlayHint.code
+        server.sync(main, text: text)
+        let lineCount = text.components(separatedBy: "\n").count
+        var hints: [InlayHint] = []
+        try await eventually(language.timeout, "an inlay hint \"\(language.inlayHint.label)\"") {
+            hints.contains { $0.label.contains(language.inlayHint.label) }
+        } poll: {
+            hints = await server.inlayHints(in: SourceRange(start: .init(line: 0, character: 0), end: .init(line: lineCount, character: 0)), url: main)
+        }
+        let hinted = try #require(hints.first { $0.label.contains(language.inlayHint.label) })
+        #expect(hinted.position == Self.position(of: language.inlayHint.at, in: text), "\(hints)")
 
         // Completion after a dot, filtered as the editor does; a superseded request is cancelled harmlessly.
         #expect(server.triggers.completion.contains("."))
@@ -222,14 +267,18 @@ struct LanguageServerIntegrationTests {
         return try #require(found)
     }
 
-    private func eventually(_ timeout: Duration, _ what: String, _ condition: () -> Bool) async throws {
+    private func eventually(
+        _ timeout: Duration, _ what: String, _ condition: () -> Bool, poll: () async -> Void = {}
+    ) async throws {
         let deadline = ContinuousClock.now + timeout
+        await poll()
         while !condition() {
             guard ContinuousClock.now < deadline else {
                 Issue.record("Timed out waiting for \(what)")
                 throw CancellationError()
             }
             try await Task.sleep(for: .milliseconds(50))
+            await poll()
         }
     }
 
@@ -281,6 +330,8 @@ struct LanguageCase: Sendable {
     var definitionFile: String
     var definitionAt: String
     var fix: (from: String, to: String)
+    /// Appended once the file is clean; `label` should show up just before `at`.
+    var inlayHint: (code: String, label: String, at: String)
     /// Typed at the end of the file: completion and signature help there.
     var memberAccess = "greeter.gre"
     var call: String
@@ -302,6 +353,7 @@ struct LanguageCase: Sendable {
         hoverContains: "func greet() -> String",
         definitionFile: "Sources/Demo/Greeter.swift", definitionAt: "greet()",
         fix: ("let count: Int", "let count: String"),
+        inlayHint: ("let inferred = 1 + 1", "Int", " = 1 + 1"),
         call: "_ = Greeter(",
         requiresSignatureHelp: false,
         typo: ("func later() -> Int { var later = 1; return later }", "never mutated", "let", "let later = 1"),
@@ -318,6 +370,7 @@ struct LanguageCase: Sendable {
         hoverContains: "greet(): string",
         definitionFile: "src/greeter.ts", definitionAt: "greet()",
         fix: ("count: number", "count: string"),
+        inlayHint: ("function twice(times: number) { return times * 2 }\ntwice(21);", "times", "21);"),
         call: "new Greeter(",
         typo: ("shout(\"hi\");", "shout", "import", "shout } from"),
         messy: ("const   spaced=1", "const spaced = 1")
@@ -328,7 +381,8 @@ struct LanguageCase: Sendable {
         $0.name = "TypeScript 5"
         $0.npmPackages = ["typescript@5", "typescript-language-server@5"]
     }
-    static let typeScriptBare = with(typeScript) { $0.name = "TypeScript (npx)" }
+    /// The project has no TypeScript: Orbit's typescript-language-server (or one on PATH) with its own.
+    static let typeScriptBare = with(typeScript) { $0.name = "TypeScript (no project install)" }
 
     private static func with(_ base: LanguageCase, _ change: (inout LanguageCase) -> Void) -> LanguageCase {
         var copy = base
@@ -339,7 +393,8 @@ struct LanguageCase: Sendable {
     var isAvailable: Bool {
         let environment = ProcessInfo.processInfo.environment
         if !npmPackages.isEmpty { return Shell.which("npm", in: environment) != nil }
-        return config.resolve(Self.fixtures.appendingPathComponent(fixture), environment) != nil
+        let root = Self.fixtures.appendingPathComponent(fixture)
+        return config.command(file: nil, root: root, environment: environment, installer: .shared) != nil
     }
 
     static let fixtures = URL(fileURLWithPath: #filePath)
@@ -355,7 +410,7 @@ struct LanguageCase: Sendable {
         try manager.createDirectory(at: base, withIntermediateDirectories: true)
         try manager.copyItem(at: Self.fixtures.appendingPathComponent(fixture), to: real)
         if !npmPackages.isEmpty {
-            try manager.createSymbolicLink(at: real.appendingPathComponent("node_modules"), withDestinationURL: try installedPackages())
+            try manager.createSymbolicLink(at: real.appendingPathComponent("node_modules"), withDestinationURL: try Self.installedPackages(npmPackages))
         }
         let link = base.appendingPathComponent("project")
         try manager.createSymbolicLink(at: link, withDestinationURL: real)
@@ -363,7 +418,7 @@ struct LanguageCase: Sendable {
     }
 
     /// One install per package set, reused by later runs.
-    private func installedPackages() throws -> URL {
+    static func installedPackages(_ npmPackages: [String]) throws -> URL {
         let key = npmPackages.joined(separator: "+").replacingOccurrences(of: "/", with: "_")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-lsp-npm/\(key)")
         let modules = directory.appendingPathComponent("node_modules")

@@ -16,7 +16,8 @@ let package = Package(
         .target(
             name: "OrbitLanguages",
             dependencies: ["OrbitAPI", "OrbitACP"],
-            sources: ["LanguageServer.swift", "LanguageServerConfig.swift", "TextChange.swift", "LanguageInstaller.swift", "ProjectFormatter.swift"]
+            sources: ["LanguageServer.swift", "LanguageServerConfig.swift", "LanguageServerSettings.swift", "ImportedServers.swift", "TextChange.swift", "LanguageInstaller.swift", "ProjectFormatter.swift"],
+            resources: [.copy("Resources/Servers.json")]
         ),
         .testTarget(
             name: "OrbitKitTests",
@@ -61,7 +62,7 @@ let package = Package(
             dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP", .product(name: "SwiftTerm", package: "SwiftTerm")]
         ),
         .target(name: "OrbitAgents", dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP"]),
-        .target(name: "OrbitLanguages", dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP"]),
+        .target(name: "OrbitLanguages", dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP"], resources: [.copy("Resources/Servers.json")]),
         .target(
             name: "OrbitKit",
             dependencies: ["OrbitAPI", "OrbitUI", "OrbitExplorer", "OrbitEditor", "OrbitReview", "OrbitSearch", "OrbitGit", "OrbitTerminal", "OrbitAgents", "OrbitLanguages"]

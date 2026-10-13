@@ -7,7 +7,9 @@ plugin-first. Built primarily for the author's own use.
 Read before significant work:
 - `docs/product.md` — principles and UX decisions (what to build and why)
 - `docs/architecture.md` — modules, plugin model, ACP, review pipeline
-- `docs/decisions.md` — decision log; **add an entry** for every new product/tech decision
+- `docs/decisions.md` — decision log: read its index, then the entries your work
+  touches; **add an entry** for every new product/tech decision (and a note on
+  any older entry it changes)
 - `docs/roadmap.md` — done / next / known gaps; keep it current
 
 ## Working with the author
@@ -34,6 +36,7 @@ make run     # build, kill running Orbit, open the app
 make test    # swift test in Packages/OrbitKit
 make test-languages   # LSP client against real servers (D55); runs on Linux too
 make test-language-installs   # every server installed from Mason and run (D57); slow once
+make import-lspconfig   # regenerate the imported server table from nvim-lspconfig (D65)
 make clean
 cd Packages/OrbitKit && swift build   # fast compile check of all modules
 ```
@@ -104,6 +107,9 @@ examples/extensions/      sample extensions (theme, icon theme)
   `.background`, for fills in the middle of the window. File icons: `FileIconView`, not `FileIcon.systemImage`.
 - Agent changes are reviewed **inline in the editor** — do not reintroduce a
   separate review mode/tab (explicit product decision D7).
+- Icon-only buttons get a `.help` tooltip; when a command does the same,
+  use `commands.help(id)` ("Find References (⇧⌘R)") so it carries the
+  shortcut, and link a panel to the command showing it with `.command(id)` (D67).
 - Keep comment density low; explain *why*, not *what*.
 
 ## Gotchas

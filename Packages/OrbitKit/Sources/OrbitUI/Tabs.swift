@@ -51,6 +51,7 @@ public struct TabChip<Icon: View>: View {
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
+                    .help("Close Tab (⌘W)")
                 } else if isDirty {
                     Circle().fill(.secondary).frame(width: 6, height: 6)
                 }

@@ -21,7 +21,7 @@ public final class SearchPlugin: OrbitPlugin {
 
         ui.addSidebarPanel(PanelContribution(id: "search", title: "Search", systemImage: "magnifyingglass", order: 5) {
             SearchPanel(model: search, workspace: workspace)
-        })
+        }.command("search.findInProject"))
 
         context.commands.register(OrbitCommand(
             id: "search.quickOpen",

@@ -46,7 +46,7 @@ public final class GitPlugin: OrbitPlugin {
 
         ui.addSidebarPanel(PanelContribution(id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", order: 15) {
             GitPanel(model: model)
-        })
+        }.command("git.show"))
 
         let isReady: @MainActor () -> Bool = { model.state == .ready && !model.isBusy }
         context.commands.register(OrbitCommand(
