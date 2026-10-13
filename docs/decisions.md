@@ -737,3 +737,35 @@ through npx outlived Orbit's shutdown, because npm doesn't pass `exit` or
 SIGTERM on (the connection now closes the server's input, which ends the whole
 chain); and go to definition in a folder opened through a symlink pointed at
 the real path (server paths are mapped back under the folder as opened).
+
+### D56. Completion and signature help: one request per word, filtered locally
+Completion opens while typing, like every IDE: on the first letter of a word
+(not a digit) and on the server's trigger characters (`.`, quotes, `<`…, but
+not space). ⌃Space opens it anywhere. Return and Tab accept, Esc closes,
+↑↓/Page move.
+
+Speed is the point, so the server is asked once per word: further typing
+filters that list on the client with a fuzzy matcher (`FuzzyPattern` in
+OrbitAPI: the letters in order, the first one at a word start, prefix and
+word-start matches first, then the server's `sortText`). A longer pattern
+only narrows the previous matches. Only lists the server marks incomplete
+(SourceKit-LSP caps its own) are asked again, 40 ms after the last key, and
+the superseded request is cancelled with `$/cancelRequest` (JSON-RPC requests
+to language servers are tied to Swift task cancellation). A word with no
+matches keeps its (hidden) session, so typing a new name doesn't hit the
+server per key. Long lists are parsed off the main actor; the popup is an
+NSTableView in a non-activating child panel, so only the visible rows exist
+and focus never leaves the text view. Documentation is resolved
+(`completionItem/resolve`) only for the selected row, after 80 ms.
+
+Accepting uses the server's edit range when it gives one, expands snippets
+(`$1`, `${1:name}`, choices, `$0`) with Tab/⇧Tab through the placeholders,
+and applies auto-import edits after resolving (they may land a moment
+later, as in VS Code). Signature help shows above the line on the server's
+trigger characters and follows the caret inside the call. SourceKit-LSP in
+Swift 6.2 has no signature help; Swift completions carry placeholders
+instead, as in Xcode.
+
+The server side runs against real servers in `make test-languages`
+(completion after a dot, resolve, signature help, cancellation); the matcher
+and snippet parser have unit tests.

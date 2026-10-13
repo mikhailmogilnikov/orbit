@@ -8,7 +8,7 @@ let package = Package(
     name: "OrbitKit",
     targets: [
         .target(name: "OrbitACP"),
-        .target(name: "OrbitAPI", sources: ["LanguageIntelligence.swift"]),
+        .target(name: "OrbitAPI", sources: ["LanguageIntelligence.swift", "Completion.swift"]),
         .target(
             name: "OrbitLanguages",
             dependencies: ["OrbitAPI", "OrbitACP"],
@@ -18,7 +18,7 @@ let package = Package(
             name: "OrbitKitTests",
             dependencies: ["OrbitAPI", "OrbitACP", "OrbitLanguages"],
             exclude: ["Fixtures"],
-            sources: ["LanguageServerTests.swift", "LanguageServerIntegrationTests.swift"]
+            sources: ["LanguageServerTests.swift", "LanguageServerIntegrationTests.swift", "CompletionTests.swift"]
         ),
     ]
 )

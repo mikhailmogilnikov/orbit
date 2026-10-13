@@ -92,6 +92,8 @@
   agent inline-diff overlays use the theme's version-control colors
 - Theme selector ⌃⌘T with live preview over installed and catalog themes;
   catalog thumbnails; light/dark partner picked together (D49)
+- Completion while typing and signature help (D56): local fuzzy filtering,
+  snippets with placeholders, auto-imports, docs for the selected item
 - Language-server tests against real servers (D55): Swift, TypeScript 7 / 5 /
   npx; `make test-languages`, also on Linux (`scripts/linux-swift.sh`)
 
@@ -100,13 +102,15 @@
    better visual integration with inline diffs
 2. LSP, next steps (D54): install missing servers from the Mason registry
    (ask on first file of a language); more languages (Python, Rust, Go, C);
-   completion, rename, format, code actions; a Problems list
+   rename, format, code actions (⌘.), find references, symbols; a Problems list
 3. Own extension registry (GitHub repo with `index.json`, PR to publish) for
    extensions Zed's catalog can't carry (languages, agents, code plugins)
 4. Code plugins in TypeScript via JavaScriptCore, same package format
 5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
+- Completion (D56): unverified on a Mac (popup look, keys, placement near
+  screen edges, IME). Placeholders aren't drawn as tokens, only selected.
 - LSP (D54): the client is tested against real servers on Linux (D55); the
   editor side (squiggles, hover card, ⌘-click) only by hand. sourcekit-lsp understands SwiftPM packages
   fully; Xcode projects (App/) get single-file results only (no build server).

@@ -21,7 +21,7 @@ test:
 # Each language against its real server (D55). Also runs on Linux
 # (scripts/linux-swift.sh), where SwiftPM drops the macOS-only pins.
 test-languages:
-	cd Packages/OrbitKit && PATH="/opt/swift/usr/bin:$$PATH" swift test --filter LanguageServer; \
+	cd Packages/OrbitKit && PATH="/opt/swift/usr/bin:$$PATH" swift test --filter "LanguageServer|Completion"; \
 		status=$$?; [ "$$(uname)" = Linux ] && git checkout -q -- Package.resolved; exit $$status
 
 release:

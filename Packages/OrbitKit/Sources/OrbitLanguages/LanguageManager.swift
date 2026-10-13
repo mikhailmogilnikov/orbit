@@ -150,4 +150,24 @@ final class LanguageManager: LanguageIntelligence {
     func definition(at position: SourcePosition, in url: URL) async -> [SourceLocation] {
         await flush(url)?.definition(at: position, in: url.standardizedFileURL) ?? []
     }
+
+    func triggers(for url: URL) -> LanguageTriggers {
+        guard let config = LanguageServerConfig.config(for: url), let server = servers[config.id], server.state == .running else {
+            return LanguageTriggers()
+        }
+        return server.triggers
+    }
+
+    func completions(at position: SourcePosition, in url: URL, trigger: CompletionTrigger) async -> CompletionList? {
+        await flush(url)?.completions(at: position, in: url.standardizedFileURL, trigger: trigger)
+    }
+
+    func resolve(_ item: CompletionItem, in url: URL) async -> CompletionItem {
+        guard let config = LanguageServerConfig.config(for: url), let server = servers[config.id] else { return item }
+        return await server.resolve(item)
+    }
+
+    func signatureHelp(at position: SourcePosition, in url: URL, trigger: String?, isRetrigger: Bool) async -> SignatureHelp? {
+        await flush(url)?.signatureHelp(at: position, in: url.standardizedFileURL, trigger: trigger, isRetrigger: isRetrigger)
+    }
 }

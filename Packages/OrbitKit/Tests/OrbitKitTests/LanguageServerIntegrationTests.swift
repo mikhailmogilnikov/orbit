@@ -120,6 +120,39 @@ struct LanguageServerIntegrationTests {
             !(server.diagnostics[main.standardizedFileURL] ?? []).contains { $0.severity == .error }
         }
 
+        // Completion after a dot, filtered as the editor does; a superseded request is cancelled harmlessly.
+        #expect(server.triggers.completion.contains("."))
+        text += "\n" + language.memberAccess
+        server.sync(main, text: text)
+        let end = try #require(Self.position(of: language.memberAccess, in: text)).advanced(by: language.memberAccess.utf16.count)
+        let superseded = Task { await server.completions(at: end, in: main, trigger: .invoked) }
+        superseded.cancel()
+        _ = await superseded.value
+        let list = try #require(await server.completions(at: end, in: main, trigger: .invoked))
+        let typed = FuzzyPattern("gre")
+        let best = list.items.filter { typed.score($0.filterText) != nil }.max { typed.score($0.filterText)! < typed.score($1.filterText)! }
+        let greet = try #require(best, "\(list.items.prefix(20).map(\.label))")
+        #expect(greet.filterText.hasPrefix("greet"))
+        #expect(greet.kind == .method)
+        let inserted = greet.isSnippet ? Snippet(greet.insertText).text : greet.insertText
+        #expect(inserted.hasPrefix("greet"))
+        let resolved = await server.resolve(greet)
+        #expect(resolved.detail?.contains("String") == true || resolved.documentation?.contains("String") == true
+                || resolved.label.contains("String") || resolved.detail?.contains("string") == true, "\(resolved)")
+
+        // Signature help inside a call, on the first parameter (SourceKit-LSP before Swift 6.3 has none).
+        if language.requiresSignatureHelp || !server.triggers.signatureHelp.isEmpty {
+            #expect(server.triggers.signatureHelp.contains("("))
+            text += "\n" + language.call
+            server.sync(main, text: text)
+            let inCall = try #require(Self.position(of: language.call, in: text)).advanced(by: language.call.utf16.count)
+            let help = try #require(await server.signatureHelp(at: inCall, in: main, trigger: "(", isRetrigger: false))
+            let signature = help.signatures[help.activeSignature]
+            let parameter = try #require(signature.parameters.first)
+            #expect((signature.label as NSString).substring(with: parameter).contains("name"), "\(signature)")
+            #expect((signature.activeParameter ?? help.activeParameter) == 0)
+        }
+
         // Nothing keeps running after shutdown, including what npx started.
         let processes = [pid] + Self.descendants(of: pid)
         server.shutdown()
@@ -178,6 +211,12 @@ struct LanguageServerIntegrationTests {
 }
 
 /// A language, its fixture project and what its server must say about it.
+extension SourcePosition {
+    func advanced(by characters: Int) -> SourcePosition {
+        SourcePosition(line: line, character: character + characters)
+    }
+}
+
 struct LanguageCase: Sendable {
     var name: String
     var fixture: String
@@ -192,6 +231,10 @@ struct LanguageCase: Sendable {
     var definitionFile: String
     var definitionAt: String
     var fix: (from: String, to: String)
+    /// Typed at the end of the file: completion and signature help there.
+    var memberAccess = "greeter.gre"
+    var call: String
+    var requiresSignatureHelp = true
     /// Cold servers index the project first (SourceKit-LSP builds the package).
     var timeout: Duration = .seconds(60)
 
@@ -204,6 +247,8 @@ struct LanguageCase: Sendable {
         hoverContains: "func greet() -> String",
         definitionFile: "Sources/Demo/Greeter.swift", definitionAt: "greet()",
         fix: ("let count: Int", "let count: String"),
+        call: "_ = Greeter(",
+        requiresSignatureHelp: false,
         timeout: .seconds(180)
     )
 
@@ -215,7 +260,8 @@ struct LanguageCase: Sendable {
         callAt: "greet()",
         hoverContains: "greet(): string",
         definitionFile: "src/greeter.ts", definitionAt: "greet()",
-        fix: ("count: number", "count: string")
+        fix: ("count: number", "count: string"),
+        call: "new Greeter("
     )
 
     static let typeScript7 = with(typeScript) { $0.name = "TypeScript 7"; $0.npmPackages = ["typescript@7"] }

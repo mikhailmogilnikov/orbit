@@ -153,14 +153,42 @@ public final class JSONRPCConnection: @unchecked Sendable {
     // MARK: Outgoing
 
     public func request(_ method: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {
+        // Language servers drop work they're told is obsolete (a completion
+        // request superseded by more typing); ACP has its own cancel messages.
+        guard framing == .contentLength else { return try await send(method, params, state: nil) }
+        let state = RequestState()
+        return try await withTaskCancellationHandler {
+            try await send(method, params, state: state)
+        } onCancel: {
+            queue.async {
+                state.isCancelled = true
+                guard let id = state.id, let continuation = self.pending.removeValue(forKey: id) else { return }
+                self.write(["jsonrpc": "2.0", "method": "$/cancelRequest", "params": ["id": .number(Double(id))]])
+                continuation.resume(throwing: CancellationError())
+            }
+        }
+    }
+
+    /// Confined to `queue`, like the rest of the state.
+    private final class RequestState: @unchecked Sendable {
+        var id: Int?
+        var isCancelled = false
+    }
+
+    private func send(_ method: String, _ params: JSONValue, state: RequestState?) async throws -> JSONValue {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 guard !self.exited else {
                     continuation.resume(throwing: JSONRPCError.processExited)
                     return
                 }
+                if state?.isCancelled == true {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 let id = self.nextID
                 self.nextID += 1
+                state?.id = id
                 self.pending[id] = continuation
                 self.write(["jsonrpc": "2.0", "id": .number(Double(id)), "method": .string(method), "params": params])
             }

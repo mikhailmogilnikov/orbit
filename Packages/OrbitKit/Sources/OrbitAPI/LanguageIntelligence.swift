@@ -134,4 +134,11 @@ public protocol LanguageIntelligence: AnyObject {
     func server(for url: URL) -> (name: String, state: LanguageServerState)?
     func hover(at position: SourcePosition, in url: URL) async -> HoverInfo?
     func definition(at position: SourcePosition, in url: URL) async -> [SourceLocation]
+    /// What opens completion and signature help in this file; empty without a running server.
+    func triggers(for url: URL) -> LanguageTriggers
+    /// Suggestions at the caret; nil when there's no server or the request was superseded.
+    func completions(at position: SourcePosition, in url: URL, trigger: CompletionTrigger) async -> CompletionList?
+    /// The item with its documentation and auto-import edits filled in.
+    func resolve(_ item: CompletionItem, in url: URL) async -> CompletionItem
+    func signatureHelp(at position: SourcePosition, in url: URL, trigger: String?, isRetrigger: Bool) async -> SignatureHelp?
 }

@@ -52,6 +52,8 @@ struct CodeEditor: NSViewRepresentable {
             orbitView.onMouseMoved = { [weak coordinator] point in coordinator?.mouseMoved(to: point) }
             orbitView.onMouseExited = { [weak coordinator] in coordinator?.mouseExited() }
             orbitView.onCommandClick = { [weak coordinator] point in coordinator?.commandClick(at: point) ?? false }
+            orbitView.onCommand = { [weak coordinator] selector in coordinator?.completion.handle(selector) ?? false }
+            orbitView.onResignFocus = { [weak coordinator] in coordinator?.closePopups() }
         }
         coordinator.observeScrolling(of: scrollView)
 
@@ -129,6 +131,7 @@ struct CodeEditor: NSViewRepresentable {
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
         if ActiveEditor.shared.coordinator === coordinator { ActiveEditor.shared.coordinator = nil }
+        coordinator.closePopups()
     }
 
     @MainActor
@@ -149,6 +152,10 @@ struct CodeEditor: NSViewRepresentable {
         var isApplyingExternalChange = false
         private var themeObserver: NSObjectProtocol?
         private var systemInsertionPoint: NSColor?
+        /// Completion and signature help (D56).
+        lazy var completion = CompletionController(editor: self)
+        /// The edit being made, from `willChangeTextIn`, for completion after it lands.
+        private var pendingEdit: (location: Int, length: Int, replacement: String)?
 
         init(document: TextDocument) {
             self.document = document
@@ -209,13 +216,47 @@ struct CodeEditor: NSViewRepresentable {
             )
         }
 
+        func textView(_ textView: STTextView, willChangeTextIn affectedCharRange: NSTextRange, replacementString: String) {
+            let range = NSRange(affectedCharRange, in: textView.textContentManager)
+            pendingEdit = (range.location, range.length, replacementString)
+        }
+
         func textViewDidChangeText(_ notification: Notification) {
             scheduleGitMarkers()
             diagnosticsController.textDidChange()
             closeHover()
-            guard !isApplyingExternalChange, let textView else { return }
+            let edit = pendingEdit
+            pendingEdit = nil
+            guard !isApplyingExternalChange, let textView else {
+                closePopups()
+                return
+            }
             document.text = textView.text ?? ""
             syncedRevision = document.revision
+            if let edit { completion.textDidChange(location: edit.location, oldLength: edit.length, replacement: edit.replacement) }
+        }
+
+        func closePopups() {
+            completion.close()
+            completion.signatures.close()
+        }
+
+        /// A character's rect on screen (for popups); nil when it isn't laid out.
+        func screenRect(at offset: Int) -> NSRect? {
+            guard let textView, let window = textView.window else { return nil }
+            let content = textView.textContentManager
+            let manager = textView.textLayoutManager
+            guard let location = content.location(content.documentRange.location, offsetBy: offset) else { return nil }
+            var frame: CGRect?
+            manager.enumerateTextSegments(in: NSTextRange(location: location), type: .standard, options: [.upstreamAffinity, .rangeNotRequired]) { _, segment, _, _ in
+                frame = segment
+                return false
+            }
+            guard let frame else { return nil }
+            let contentFrame = textView.contentFrame
+            let local = frame.offsetBy(dx: contentFrame.minX, dy: contentFrame.minY)
+            guard textView.visibleRect.intersects(local.insetBy(dx: -1, dy: -1)) else { return nil }
+            return window.convertToScreen(textView.convert(local, to: nil))
         }
 
         // MARK: Git change markers
@@ -246,6 +287,7 @@ struct CodeEditor: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
+            completion.selectionDidChange()
             ActiveEditor.shared.coordinator = self
             ruler?.needsDisplay = true
             EditorSelectionService.shared.cursorMoved(in: self)
@@ -285,7 +327,11 @@ struct CodeEditor: NSViewRepresentable {
             scrollObserver = NotificationCenter.default.addObserver(
                 forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.closeHover() }
+                MainActor.assumeIsolated {
+                    self?.closeHover()
+                    self?.completion.signatures.close()
+                    self?.completion.reposition()
+                }
             }
         }
 
@@ -427,6 +473,9 @@ final class OrbitTextView: STTextView {
     var onMouseExited: (() -> Void)?
     /// ⌘-click; returns whether it was handled (go to definition).
     var onCommandClick: ((NSPoint) -> Bool)?
+    /// Key commands (arrows, Return, Tab, Esc, ⌃Space) the completion list may take; true when handled.
+    var onCommand: ((Selector) -> Bool)?
+    var onResignFocus: (() -> Void)?
     private var hoverArea: NSTrackingArea?
 
     override func updateTrackingAreas() {
@@ -450,6 +499,17 @@ final class OrbitTextView: STTextView {
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), onCommandClick?(convert(event.locationInWindow, from: nil)) == true { return }
         super.mouseDown(with: event)
+    }
+
+    override func doCommand(by selector: Selector) {
+        if onCommand?(selector) == true { return }
+        super.doCommand(by: selector)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onResignFocus?() }
+        return resigned
     }
 
     override func viewDidChangeEffectiveAppearance() {

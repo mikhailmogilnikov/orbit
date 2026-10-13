@@ -22,6 +22,13 @@ final class LanguageServer {
     /// The server answers `textDocument/diagnostic` instead of pushing (TypeScript 7).
     @ObservationIgnored private var pullsDiagnostics = false
     @ObservationIgnored private var isShuttingDown = false
+    @ObservationIgnored private(set) var triggers = LanguageTriggers()
+    @ObservationIgnored private var completes = false
+    @ObservationIgnored private var resolvesCompletions = false
+    @ObservationIgnored private var helpsWithSignatures = false
+    /// The latest completion response as the server sent it, for `completionItem/resolve`.
+    @ObservationIgnored private var completionGeneration = 0
+    @ObservationIgnored private var completionRaw: (generation: Int, items: [JSONValue]) = (0, [])
 
     /// The folder's real path when it was opened through a symlink (macOS's
     /// /tmp, /var): servers answer with that one, or half-resolved ones.
@@ -83,6 +90,7 @@ final class LanguageServer {
             let sync = result["capabilities"]?["textDocumentSync"]
             incremental = (sync?["change"]?.int ?? sync?.int ?? 2) == 2
             pullsDiagnostics = result["capabilities"]?["diagnosticProvider"].map { !$0.isNull } ?? false
+            readFeatures(result["capabilities"])
             connection.notify("initialized")
             state = .running
             return true
@@ -110,6 +118,28 @@ final class LanguageServer {
                     "publishDiagnostics": ["relatedInformation": false],
                     "diagnostic": ["dynamicRegistration": false, "relatedDocumentSupport": false],
                     "hover": ["contentFormat": ["markdown", "plaintext"]],
+                    "completion": [
+                        "contextSupport": true,
+                        "completionItem": [
+                            "snippetSupport": true,
+                            "insertReplaceSupport": true,
+                            "labelDetailsSupport": true,
+                            "deprecatedSupport": true,
+                            "preselectSupport": true,
+                            "tagSupport": ["valueSet": [1]],
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "resolveSupport": ["properties": ["documentation", "detail", "additionalTextEdits"]],
+                        ],
+                        "completionList": ["itemDefaults": ["editRange", "insertTextFormat", "data"]],
+                    ],
+                    "signatureHelp": [
+                        "contextSupport": true,
+                        "signatureInformation": [
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "parameterInformation": ["labelOffsetSupport": true],
+                            "activeParameterSupport": true,
+                        ],
+                    ],
                     "definition": ["linkSupport": true],
                 ],
                 "workspace": ["workspaceFolders": true, "configuration": true],
@@ -131,6 +161,20 @@ final class LanguageServer {
         default:
             throw JSONRPCError.methodNotFound(method)
         }
+    }
+
+    private func readFeatures(_ capabilities: JSONValue?) {
+        func strings(_ value: JSONValue?) -> Set<String> { Set(value?.array?.compactMap(\.string) ?? []) }
+        let completion = capabilities?["completionProvider"]
+        let signature = capabilities?["signatureHelpProvider"]
+        completes = completion.map { !$0.isNull } ?? false
+        resolvesCompletions = completion?["resolveProvider"]?.bool ?? false
+        helpsWithSignatures = signature.map { !$0.isNull } ?? false
+        triggers = LanguageTriggers(
+            completion: strings(completion?["triggerCharacters"]),
+            signatureHelp: strings(signature?["triggerCharacters"]),
+            signatureHelpRetrigger: strings(signature?["retriggerCharacters"])
+        )
     }
 
     private func handleNotification(_ method: String, _ params: JSONValue) {
@@ -264,6 +308,145 @@ final class LanguageServer {
         }
     }
 
+    // MARK: Completion
+
+    /// Parsing a long list (TypeScript sends every global) happens off the main actor.
+    func completions(at position: SourcePosition, in url: URL, trigger: CompletionTrigger) async -> CompletionList? {
+        guard let connection, completes, documents[url] != nil else { return nil }
+        let context: JSONValue = switch trigger {
+        case .invoked: ["triggerKind": 1]
+        case .character(let character): ["triggerKind": 2, "triggerCharacter": .string(character)]
+        case .incomplete: ["triggerKind": 3]
+        }
+        let params: JSONValue = [
+            "textDocument": ["uri": .string(url.absoluteString)], "position": Self.json(position), "context": context,
+        ]
+        completionGeneration += 1
+        let generation = completionGeneration
+        guard let (list, raw) = await Self.fetchCompletions(connection, params, generation: generation, resolves: resolvesCompletions),
+              !Task.isCancelled else { return nil }
+        if resolvesCompletions, generation == completionGeneration { completionRaw = (generation, raw) }
+        return list
+    }
+
+    private nonisolated static func fetchCompletions(
+        _ connection: JSONRPCConnection, _ params: JSONValue, generation: Int, resolves: Bool
+    ) async -> (CompletionList, [JSONValue])? {
+        guard let result = try? await connection.request("textDocument/completion", params) else { return nil }
+        return completionList(result, generation: generation, resolves: resolves)
+    }
+
+    /// Item tokens carry the response they came from, so a resolve never mixes lists up.
+    nonisolated static func completionList(_ result: JSONValue, generation: Int, resolves: Bool) -> (CompletionList, [JSONValue]) {
+        let items = result.array ?? result["items"]?.array ?? []
+        let defaults = result["itemDefaults"]
+        var raw: [JSONValue] = []
+        var parsed: [CompletionItem] = []
+        parsed.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            guard var completion = completionItem(item, defaults: defaults, token: generation << 20 | index) else { continue }
+            completion.needsResolve = resolves && (completion.documentation == nil || item["additionalTextEdits"] == nil)
+            parsed.append(completion)
+            if resolves {
+                // Servers expect their `data` back; a list may have put it in the defaults.
+                if item["data"] == nil, let data = defaults?["data"], var object = item.object {
+                    object["data"] = data
+                    raw.append(.object(object))
+                } else {
+                    raw.append(item)
+                }
+            }
+        }
+        if resolves, raw.count != items.count { raw = items }
+        return (CompletionList(items: parsed, isIncomplete: result["isIncomplete"]?.bool ?? false), raw)
+    }
+
+    nonisolated static func completionItem(_ item: JSONValue, defaults: JSONValue?, token: Int) -> CompletionItem? {
+        guard let label = item["label"]?.string else { return nil }
+        let labelDetails = item["labelDetails"]
+        let edit = item["textEdit"]
+        // InsertReplaceEdit: insert, like other editors by default.
+        let editRange = range(edit?["range"] ?? edit?["insert"])
+            ?? range(defaults?["editRange"]?["insert"] ?? defaults?["editRange"])
+        let text = edit?["newText"]?.string ?? item["textEditText"]?.string ?? item["insertText"]?.string ?? label
+        let format = item["insertTextFormat"]?.int ?? defaults?["insertTextFormat"]?.int
+        let documentation = markdown(item["documentation"])
+        return CompletionItem(
+            token: token,
+            label: label + (labelDetails?["detail"]?.string ?? ""),
+            kind: item["kind"]?.int.flatMap(CompletionItem.Kind.init(rawValue:)),
+            detail: item["detail"]?.string ?? labelDetails?["description"]?.string,
+            documentation: documentation.isEmpty ? nil : documentation,
+            sortText: item["sortText"]?.string,
+            filterText: item["filterText"]?.string ?? label,
+            insertText: text,
+            isSnippet: format == 2,
+            range: editRange,
+            additionalEdits: (item["additionalTextEdits"]?.array ?? []).compactMap(textEdit),
+            isPreselected: item["preselect"]?.bool ?? false,
+            isDeprecated: item["deprecated"]?.bool == true || item["tags"]?.array?.contains(1) == true
+        )
+    }
+
+    nonisolated static func textEdit(_ value: JSONValue) -> TextEdit? {
+        guard let range = range(value["range"]), let text = value["newText"]?.string else { return nil }
+        return TextEdit(range: range, newText: text)
+    }
+
+    func resolve(_ item: CompletionItem) async -> CompletionItem {
+        let index = item.token & (1 << 20 - 1)
+        guard item.needsResolve, let connection, completionRaw.generation == item.token >> 20, index < completionRaw.items.count,
+              let result = try? await connection.request("completionItem/resolve", completionRaw.items[index]),
+              let resolved = Self.completionItem(result, defaults: nil, token: item.token) else { return item }
+        var item = item
+        item.needsResolve = false
+        item.documentation = resolved.documentation ?? item.documentation
+        item.detail = resolved.detail ?? item.detail
+        if !resolved.additionalEdits.isEmpty { item.additionalEdits = resolved.additionalEdits }
+        return item
+    }
+
+    // MARK: Signature help
+
+    func signatureHelp(at position: SourcePosition, in url: URL, trigger: String?, isRetrigger: Bool) async -> SignatureHelp? {
+        guard let connection, helpsWithSignatures, documents[url] != nil else { return nil }
+        var context: [String: JSONValue] = ["triggerKind": trigger == nil ? 3 : 2, "isRetrigger": .bool(isRetrigger)]
+        if let trigger { context["triggerCharacter"] = .string(trigger) }
+        let params: JSONValue = [
+            "textDocument": ["uri": .string(url.absoluteString)], "position": Self.json(position), "context": .object(context),
+        ]
+        guard let result = try? await connection.request("textDocument/signatureHelp", params), !result.isNull else { return nil }
+        return Self.signatureHelp(result)
+    }
+
+    nonisolated static func signatureHelp(_ value: JSONValue) -> SignatureHelp? {
+        let signatures: [SignatureHelp.Signature] = (value["signatures"]?.array ?? []).compactMap { signature in
+            guard let label = signature["label"]?.string else { return nil }
+            let text = label as NSString
+            var searchFrom = 0
+            let parameters: [NSRange] = (signature["parameters"]?.array ?? []).map { parameter in
+                if let offsets = parameter["label"]?.array, offsets.count == 2, let start = offsets[0].int, let end = offsets[1].int {
+                    return NSRange(location: start, length: max(0, end - start))
+                }
+                guard let name = parameter["label"]?.string, searchFrom <= text.length else { return NSRange(location: 0, length: 0) }
+                let found = text.range(of: name, range: NSRange(location: searchFrom, length: text.length - searchFrom))
+                if found.location != NSNotFound { searchFrom = NSMaxRange(found) }
+                return found.location == NSNotFound ? NSRange(location: 0, length: 0) : found
+            }
+            let documentation = markdown(signature["documentation"])
+            return SignatureHelp.Signature(
+                label: label, documentation: documentation.isEmpty ? nil : documentation,
+                parameters: parameters, activeParameter: signature["activeParameter"]?.int
+            )
+        }
+        guard !signatures.isEmpty else { return nil }
+        return SignatureHelp(
+            signatures: signatures,
+            activeSignature: min(max(0, value["activeSignature"]?.int ?? 0), signatures.count - 1),
+            activeParameter: value["activeParameter"]?.int ?? 0
+        )
+    }
+
     /// MarkupContent, a MarkedString or an array of them, as markdown.
     nonisolated static func markdown(_ contents: JSONValue?) -> String {
         guard let contents else { return "" }
@@ -277,15 +460,15 @@ final class LanguageServer {
         return ""
     }
 
-    private static func positionParams(_ url: URL, _ position: SourcePosition) -> JSONValue {
+    private nonisolated static func positionParams(_ url: URL, _ position: SourcePosition) -> JSONValue {
         ["textDocument": ["uri": .string(url.absoluteString)], "position": json(position)]
     }
 
-    private static func json(_ position: SourcePosition) -> JSONValue {
+    private nonisolated static func json(_ position: SourcePosition) -> JSONValue {
         ["line": .number(Double(position.line)), "character": .number(Double(position.character))]
     }
 
-    private static func json(_ range: SourceRange) -> JSONValue {
+    private nonisolated static func json(_ range: SourceRange) -> JSONValue {
         ["start": json(range.start), "end": json(range.end)]
     }
 

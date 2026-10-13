@@ -73,6 +73,9 @@ final class DiagnosticsController {
 
     var length: Int { storage?.length ?? 0 }
 
+    /// The text as the view holds it, without copying.
+    var string: NSString? { storage?.string as NSString? }
+
     /// The diagnostics at a UTF-16 offset, most severe first.
     func diagnostics(at offset: Int) -> [Diagnostic] {
         let starts = lineStarts, length = length
