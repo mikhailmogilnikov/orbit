@@ -130,6 +130,8 @@ examples/extensions/      sample extensions (theme, icon theme)
 - Since macOS 14 NSViews don't clip to bounds by default: a custom `draw(_:)`
   that fills `dirtyRect` can paint over siblings (the line-number ruler hid
   all editor text). Set `clipsToBounds = true` / fill `dirtyRect ∩ bounds`.
+- `NSIntersectionRange`/`NSUnionRange` take unsigned values on macOS (not
+  on Linux): a negative location silently gives an empty result. Clamp by hand.
 - Line numbers are our `LineNumberRuler` (NSRulerView), not STTextView's
   gutter (`showsLineNumbers` stays off, see D24).
 - Inline diff gaps are paragraph styles in the text storage; anything that

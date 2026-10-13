@@ -712,8 +712,11 @@ final class HighlightWorker: @unchecked Sendable {
     /// offsets start at `base`.
     private func paint(_ paint: inout [UInt16], range: NSRange, tree: MutableTree, queries: LanguageQueries, text: NSString, base: Int) {
         guard let root = tree.rootNode else { return }
-        let local = NSIntersectionRange(NSRange(location: range.location - base, length: range.length), NSRange(location: 0, length: text.length))
-        guard local.length > 0 else { return }
+        // Clamped by hand: on macOS NSIntersectionRange takes unsigned values, so
+        // a range starting before the layer (negative here) came out empty.
+        let lower = max(0, range.location - base), upper = min(text.length, NSMaxRange(range) - base)
+        guard upper > lower else { return }
+        let local = NSRange(location: lower, length: upper - lower)
         let cursor = queries.highlights.execute(node: root, in: tree)
         cursor.setRange(local)
         let context = Predicate.Context(textProvider: { range, _ in
