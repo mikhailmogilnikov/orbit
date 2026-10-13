@@ -211,7 +211,8 @@ extension CodeEditor.Coordinator {
     // MARK: Formatting (⌃⇧I)
 
     func formatDocument() {
-        guard let languages, languages.canFormat(document.url) else {
+        // Always asked, even when it can't: it says why and where to set a formatter up.
+        guard let languages else {
             NSSound.beep()
             return
         }

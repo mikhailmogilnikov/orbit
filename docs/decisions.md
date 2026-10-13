@@ -882,3 +882,30 @@ Now, in order:
 
 `format` now returns why it failed instead of a Bool. Real Prettier is
 tested with the install tests (`make test-language-installs`).
+
+### D61. Formatters are data, overridable per project
+Builds on D60. Rather than code per tool, formatters Orbit recognizes are a
+table (`FormatterPreset.all`): Biome, dprint, Prettier, Ruff, Black, StyLua,
+each with the config that turns it on (files, a `[tool.x]` table in
+`pyproject.toml`, a `package.json` key), where its executable may be
+(`node_modules/.bin`, `.venv/bin`, `PATH`) and its stdin arguments. Most
+languages need no entry: their servers already run the language's own tool,
+which reads the repo's config (swift-format, clang-format, rustfmt, gofmt,
+taplo, lua-language-server with `.editorconfig`). The table only covers
+ecosystems where the server's formatter isn't what repos use.
+
+Anything else goes in `"formatters"` in `.orbit/settings.json` (the
+project's, committed with the repo) or `~/.orbit/settings.json`, keyed by
+file type (`"ts, tsx"` works): a preset name, `"server"`, `"off"`, or
+`{ "command", "arguments" }` with `{file}` for the path. The project's file
+wins, then the user's, then detection, then the server. A rule that can't
+run (unknown name, tool not installed) is an error shown to the user, never
+a silent fallback to other formatting rules.
+
+The user learns about it where it matters: ⌃⇧I always answers (an alert says
+why nothing could format and where to set a formatter up, instead of a
+beep), and Settings → Languages → Formatting lists what formats which file
+types in the open folder and why (`apps/web/.prettierrc`), flags tools that
+are configured but not installed (no `npm install` yet), and opens or
+creates the settings files with an example. Real Prettier and Ruff run in
+the install tests.

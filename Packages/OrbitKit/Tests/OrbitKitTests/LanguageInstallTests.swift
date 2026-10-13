@@ -190,13 +190,36 @@ struct LanguageInstallFormatterTests {
         try LanguageInstaller.run(npm, ["install", "--prefix", root.path, "--no-audit", "--no-fund", "--silent", "prettier@3"], environment: environment)
 
         let file = root.appendingPathComponent("src/index.ts")
-        let formatter = try #require(ProjectFormatter.find(for: file, root: root))
-        #expect(formatter.tool == .prettier)
+        let formatter = try #require(ProjectFormatter.detected(for: file, root: root, environment: environment))
+        #expect(formatter.name == "Prettier")
         let formatted = try await formatter.format("export function a(){\nreturn 1;\n}\n", file: file, environment: environment)
         #expect(formatted == "export function a() {\n   return 1\n}\n")
 
         await #expect(throws: (any Error).self) {
             try await formatter.format("export function (", file: file, environment: environment)
         }
+    }
+
+    @Test func formatsWithTheReposRuff() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let python = Shell.which("python3", in: environment) else {
+            print("skipping: no python3")
+            return
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-ruff-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "[project]\nname = \"smoke\"\n\n[tool.ruff.format]\nquote-style = \"single\"\n".write(to: root.appendingPathComponent("pyproject.toml"), atomically: true, encoding: .utf8)
+        try LanguageInstaller.run(python, ["-m", "venv", root.appendingPathComponent(".venv").path], environment: environment)
+        try LanguageInstaller.run(root.appendingPathComponent(".venv/bin/pip").path, ["install", "--quiet", "ruff"], environment: environment)
+
+        let file = root.appendingPathComponent("main.py")
+        guard case .tool(let formatter) = try ProjectFormatter.choice(for: file, root: root, environment: environment) else {
+            Issue.record("Ruff wasn't picked")
+            return
+        }
+        #expect(formatter.name == "Ruff")
+        let formatted = try await formatter.format("x = {  \"a\":1 }\n", file: file, environment: environment)
+        #expect(formatted == "x = {'a': 1}\n")
     }
 }

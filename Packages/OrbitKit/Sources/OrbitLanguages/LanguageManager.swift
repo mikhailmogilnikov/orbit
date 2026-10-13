@@ -29,6 +29,8 @@ final class LanguageManager: LanguageIntelligence {
     private(set) var isLoadingRegistry = false
     private(set) var registryError: String?
     @ObservationIgnored private var root: URL?
+    /// `environment` once resolved, for checks that can't wait for it.
+    @ObservationIgnored private var shellEnvironment: [String: String]?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var idleTasks: [String: Task<Void, Never>] = [:]
 
@@ -39,9 +41,14 @@ final class LanguageManager: LanguageIntelligence {
 
     init(workspace: Workspace) {
         self.workspace = workspace
-        environment = Task.detached { await ShellEnvironment.resolve() }
+        let environment = Task.detached { await ShellEnvironment.resolve() }
+        self.environment = environment
         root = workspace.root
         observe()
+        Task { [weak self] in
+            let resolved = await environment.value
+            self?.shellEnvironment = resolved
+        }
     }
 
     // MARK: Following the workspace
@@ -266,21 +273,34 @@ final class LanguageManager: LanguageIntelligence {
     }
 
     func canFormat(_ url: URL) -> Bool {
-        if ProjectFormatter.find(for: url, root: root) != nil { return true }
-        guard let server = runningServer(for: url), server.state == .running else { return false }
-        return server.formats
+        switch try? formatterChoice(for: url) {
+        case .tool?, nil: return true
+        case .off?: return false
+        case .server?:
+            guard let server = runningServer(for: url), server.state == .running else { return false }
+            return server.formats
+        }
     }
 
-    /// With the repo's Prettier or Biome when it has one (D60), else by the
-    /// server, indented as `.editorconfig` or the file itself says.
+    /// The repo's formatter (Prettier, Ruff… or one set in `.orbit/settings.json`)
+    /// if there is one, else the server, indented per `.editorconfig` (D60, D61).
     func format(_ url: URL) async -> String? {
-        let unformatted = "The language server couldn't format this file."
-        guard let document = workspace.documents.existingDocument(for: url) else { return unformatted }
-        if let formatter = ProjectFormatter.find(for: url, root: root) {
+        guard let document = workspace.documents.existingDocument(for: url) else { return "The file isn't open." }
+        let environment = await environment.value
+        let choice: FormatterChoice
+        do {
+            choice = try formatterChoice(for: url, environment: environment)
+        } catch {
+            return error.localizedDescription
+        }
+        switch choice {
+        case .off(let source):
+            return "Formatting .\(url.pathExtension) files is turned off in \(source)."
+        case .tool(let formatter):
             let text = document.text
             let formatted: String
             do {
-                formatted = try await formatter.format(text, file: url, environment: environment.value)
+                formatted = try await formatter.format(text, file: url, environment: environment)
             } catch {
                 return error.localizedDescription
             }
@@ -290,12 +310,41 @@ final class LanguageManager: LanguageIntelligence {
             let end = SourcePosition(offset: string.length, in: SourcePosition.lineStarts(of: string))
             let whole = SourceEdit(range: SourceRange(start: SourcePosition(line: 0, character: 0), end: end), newText: formatted)
             return apply(WorkspaceEdit(files: [url.standardizedFileURL: [whole]])) ? nil : "The file couldn't be changed."
+        case .server:
+            let nothing = "Nothing formats .\(url.pathExtension) files here: the language server can't, and the project has no formatter Orbit recognizes (\(FormatterPreset.all.map(\.name).joined(separator: ", "))). Set one for this file type in .orbit/settings.json — Settings → Languages → Formatting."
+            guard let server = await flush(url), server.formats else { return nothing }
+            let indent = Indentation.of(url, text: document.text, root: root)
+            guard let edits = await server.formatting(url.standardizedFileURL, tabSize: indent.size, insertSpaces: indent.spaces) else {
+                return "The language server couldn't format this file."
+            }
+            guard !edits.isEmpty else { return nil }
+            return apply(WorkspaceEdit(files: [url.standardizedFileURL: edits])) ? nil : "The file couldn't be changed."
         }
-        guard let server = await flush(url) else { return unformatted }
-        let indent = Indentation.of(url, text: document.text, root: root)
-        guard let edits = await server.formatting(url.standardizedFileURL, tabSize: indent.size, insertSpaces: indent.spaces) else { return unformatted }
-        guard !edits.isEmpty else { return nil }
-        return apply(WorkspaceEdit(files: [url.standardizedFileURL: edits])) ? nil : "The file couldn't be changed."
+    }
+
+    private func formatterChoice(for url: URL, environment: [String: String]? = nil) throws -> FormatterChoice {
+        try ProjectFormatter.choice(for: url, root: root, environment: environment ?? shellEnvironment ?? ProcessInfo.processInfo.environment)
+    }
+
+    var hasFolder: Bool { workspace.root != nil }
+
+    /// For Settings: what formats what in the open folder, and why.
+    func formattingOverview() async -> FormattingOverview {
+        let environment = await environment.value
+        let root = root
+        return await Task.detached(priority: .userInitiated) { FormattingOverview(root: root, environment: environment) }.value
+    }
+
+    /// Opens `.orbit/settings.json` (the project's, or the user's without a folder), creating it with an example.
+    func editFormatterSettings(project: Bool) {
+        let url = project ? root.map(FormatterSettings.projectFile) : FormatterSettings.userFile()
+        guard let url else { return }
+        let manager = FileManager.default
+        if !manager.fileExists(atPath: url.path) {
+            try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FormatterSettings.example.write(to: url, atomically: true, encoding: .utf8)
+        }
+        workspace.openFile(url)
     }
 
     var problems: [FileProblems] {

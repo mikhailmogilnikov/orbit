@@ -28,6 +28,8 @@ struct LanguagesSettingsPane: View {
                 }
             }
 
+            FormattingSection(manager: manager)
+
             Section {
                 HStack {
                     Text("Servers start with the first file of their language and stop 10 minutes after the last one closes.")
@@ -118,5 +120,62 @@ private struct LanguageRow: View {
 
     private var fileTypes: String {
         (config.languages.keys.sorted().map { ".\($0)" } + config.fileNames.keys.sorted()).joined(separator: " ")
+    }
+}
+
+/// What formats which files in the open folder, and where to change it (D61).
+private struct FormattingSection: View {
+    let manager: LanguageManager
+    @State private var overview = FormattingOverview.empty
+
+    var body: some View {
+        Section {
+            if overview.rows.isEmpty {
+                Text("No formatter configured in this folder: language servers format, indented as .editorconfig or the file itself says.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(overview.rows) { row in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(row.formatter)
+                            Text(row.fileTypes)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        Text(row.source)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let warning = row.warning {
+                            Text(warning)
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 2)
+            }
+            ForEach(overview.problems, id: \.self) { problem in
+                Text(problem)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+            }
+        } header: {
+            HStack {
+                Text("Formatting")
+                Spacer()
+                Button("Edit Project Formatters…") { manager.editFormatterSettings(project: true) }
+                    .disabled(!manager.hasFolder)
+                Button("Edit Global…") { manager.editFormatterSettings(project: false) }
+            }
+            .controlSize(.small)
+        } footer: {
+            Text("⌃⇧I and Format on Save use the formatter a project is set up with — \(FormatterPreset.all.map(\.name).joined(separator: ", ")) — found by its config, from the project's node_modules or virtualenv. Other files go to the language server. Any command that reads the file on stdin and prints it formatted can be set per file type in .orbit/settings.json (the project's wins over ~/.orbit/settings.json).")
+        }
+        .task { overview = await manager.formattingOverview() }
     }
 }

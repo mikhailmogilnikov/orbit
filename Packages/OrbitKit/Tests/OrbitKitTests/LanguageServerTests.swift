@@ -109,30 +109,116 @@ import Testing
     }
 
     @Test func findsTheRepoFormatter() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-formatter-\(UUID().uuidString)")
+        let root = try Self.scratch("formatter")
         defer { try? FileManager.default.removeItem(at: root) }
         let app = root.appendingPathComponent("apps/web")
         try FileManager.default.createDirectory(at: app.appendingPathComponent("src"), withIntermediateDirectories: true)
-        let bin = root.appendingPathComponent("node_modules/.bin")
-        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
-        for name in ["prettier", "biome"] {
-            let tool = bin.appendingPathComponent(name)
-            try "#!/bin/sh\n".write(to: tool, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
-        }
+        try Self.tool(root.appendingPathComponent("node_modules/.bin/prettier"))
+        try Self.tool(root.appendingPathComponent("node_modules/.bin/biome"))
         let file = app.appendingPathComponent("src/index.ts")
+        let none: [String: String] = ["PATH": "/nonexistent"]
         // Installed but not configured: the server formats.
-        #expect(ProjectFormatter.find(for: file, root: root) == nil)
+        #expect(try ProjectFormatter.choice(for: file, root: root, environment: none, home: root) == .server)
 
         try #"{"name": "web", "prettier": {"semi": false}}"#.write(to: app.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
-        let prettier = try #require(ProjectFormatter.find(for: file, root: root))
-        #expect(prettier.tool == .prettier)
+        let prettier = try #require(ProjectFormatter.detected(for: file, root: root, environment: none))
+        #expect(prettier.name == "Prettier")
+        #expect(prettier.source == "apps/web/package.json")
         #expect(prettier.directory.path == app.standardizedFileURL.path)
-        #expect(ProjectFormatter.find(for: app.appendingPathComponent("src/main.swift"), root: root) == nil)
+        #expect(ProjectFormatter.detected(for: app.appendingPathComponent("src/main.swift"), root: root, environment: none) == nil)
 
         try "{}".write(to: app.appendingPathComponent("biome.json"), atomically: true, encoding: .utf8)
-        #expect(ProjectFormatter.find(for: file, root: root)?.tool == .biome)
+        #expect(ProjectFormatter.detected(for: file, root: root, environment: none)?.name == "Biome")
         // Biome doesn't do Markdown; Prettier still does.
-        #expect(ProjectFormatter.find(for: app.appendingPathComponent("README.md"), root: root)?.tool == .prettier)
+        #expect(ProjectFormatter.detected(for: app.appendingPathComponent("README.md"), root: root, environment: none)?.name == "Prettier")
+    }
+
+    @Test func findsPythonFormattersInTheVirtualEnvironment() throws {
+        let root = try Self.scratch("python")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Self.tool(root.appendingPathComponent(".venv/bin/ruff"))
+        try Self.tool(root.appendingPathComponent(".venv/bin/black"))
+        let file = root.appendingPathComponent("pkg/main.py")
+        let none: [String: String] = ["PATH": "/nonexistent"]
+        try "[project]\nname = \"x\"\n\n[tool.black]\nline-length = 100\n".write(to: root.appendingPathComponent("pyproject.toml"), atomically: true, encoding: .utf8)
+        #expect(ProjectFormatter.detected(for: file, root: root, environment: none)?.name == "Black")
+        try "[project]\nname = \"x\"\n\n[tool.ruff.format]\nquote-style = \"single\"\n".write(to: root.appendingPathComponent("pyproject.toml"), atomically: true, encoding: .utf8)
+        let ruff = try #require(ProjectFormatter.detected(for: file, root: root, environment: none))
+        #expect(ruff.name == "Ruff")
+        #expect(ruff.executable.hasSuffix(".venv/bin/ruff"))
+        #expect(ruff.source == "pyproject.toml")
+    }
+
+    @Test func settingsOverrideDetection() throws {
+        let root = try Self.scratch("settings")
+        let home = try Self.scratch("home")
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: home)
+        }
+        try Self.tool(root.appendingPathComponent("node_modules/.bin/prettier"))
+        try Self.tool(root.appendingPathComponent("tools/fmt"))
+        try "{}".write(to: root.appendingPathComponent(".prettierrc"), atomically: true, encoding: .utf8)
+        let none: [String: String] = ["PATH": "/nonexistent"]
+        let ts = root.appendingPathComponent("a.ts"), md = root.appendingPathComponent("b.md"), sh = root.appendingPathComponent("c.sh")
+
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".orbit"), withIntermediateDirectories: true)
+        try #"{"formatters": {"md": "off", "sh": {"command": "tools/fmt", "arguments": ["{file}"]}}}"#
+            .write(to: FormatterSettings.userFile(home: home), atomically: true, encoding: .utf8)
+        #expect(try ProjectFormatter.choice(for: md, root: root, environment: none, home: home) == .off(source: "~/.orbit/settings.json"))
+        guard case .tool(let custom) = try ProjectFormatter.choice(for: sh, root: root, environment: none, home: home) else {
+            Issue.record("no custom formatter")
+            return
+        }
+        #expect(custom.executable == root.appendingPathComponent("tools/fmt").standardizedFileURL.path)
+        #expect(custom.source == "~/.orbit/settings.json")
+
+        // The project's settings win over the user's.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".orbit"), withIntermediateDirectories: true)
+        try #"{"formatters": {".ts, md": "server"}}"#.write(to: FormatterSettings.projectFile(root: root), atomically: true, encoding: .utf8)
+        #expect(try ProjectFormatter.choice(for: ts, root: root, environment: none, home: home) == .server)
+        #expect(try ProjectFormatter.choice(for: md, root: root, environment: none, home: home) == .server)
+
+        try #"{"formatters": {"ts": "ruff"}}"#.write(to: FormatterSettings.projectFile(root: root), atomically: true, encoding: .utf8)
+        #expect(throws: FormatterSettings.Failure.self) { try ProjectFormatter.choice(for: ts, root: root, environment: none, home: home) }
+        try #"{"formatters": "#.write(to: FormatterSettings.projectFile(root: root), atomically: true, encoding: .utf8)
+        #expect(throws: FormatterSettings.Failure.self) { try ProjectFormatter.choice(for: ts, root: root, environment: none, home: home) }
+    }
+
+    static func scratch(_ name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-\(name)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    static func tool(_ url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\ncat\n".write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+}
+
+@Suite struct LanguageServerFormattingOverviewTests {
+    @Test func listsWhatFormatsWhatAndWhatsMissing() throws {
+        let root = try LanguageServerFormattingTests.scratch("overview")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let web = root.appendingPathComponent("apps/web")
+        try FileManager.default.createDirectory(at: web, withIntermediateDirectories: true)
+        try "{}".write(to: web.appendingPathComponent(".prettierrc"), atomically: true, encoding: .utf8)
+        try "[tool.ruff]\n".write(to: root.appendingPathComponent("pyproject.toml"), atomically: true, encoding: .utf8)
+        try LanguageServerFormattingTests.tool(root.appendingPathComponent(".venv/bin/ruff"))
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".orbit"), withIntermediateDirectories: true)
+        try #"{"formatters": {"md": "off", "sh, bash": {"command": "shfmt", "arguments": ["-i", "2"]}}}"#
+            .write(to: FormatterSettings.projectFile(root: root), atomically: true, encoding: .utf8)
+
+        let overview = FormattingOverview(root: root, environment: ["PATH": "/nonexistent"], home: root.appendingPathComponent("nohome"))
+        #expect(overview.problems.isEmpty)
+        let byFormatter = Dictionary(overview.rows.map { ($0.formatter, $0) }, uniquingKeysWith: { first, _ in first })
+        #expect(byFormatter["Off"]?.fileTypes == ".md")
+        #expect(byFormatter["shfmt -i 2"]?.fileTypes == ".bash .sh")
+        #expect(byFormatter["Ruff"]?.source == "pyproject.toml")
+        #expect(byFormatter["Ruff"]?.warning == nil)
+        #expect(byFormatter["Prettier"]?.source == "apps/web/.prettierrc")
+        #expect(byFormatter["Prettier"]?.warning?.contains("isn't installed") == true)
     }
 }
