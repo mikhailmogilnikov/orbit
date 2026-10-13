@@ -13,6 +13,7 @@ final class DiagnosticsController {
     private(set) var diagnostics: [Diagnostic] = []
     private var overlays: [NSView] = []
     private var cachedLineStarts: [Int]?
+    private var isLayoutScheduled = false
 
     struct Colors: Equatable {
         var error: NSColor = .systemRed
@@ -29,7 +30,7 @@ final class DiagnosticsController {
     }
 
     var colors = Colors() {
-        didSet { if colors != oldValue { layoutOverlays() } }
+        didSet { if colors != oldValue { setNeedsLayout() } }
     }
 
     private var storage: NSTextStorage? {
@@ -41,12 +42,26 @@ final class DiagnosticsController {
         let shown = diagnostics.filter { $0.severity != .hint }.sorted { $0.severity < $1.severity }
         guard shown != self.diagnostics else { return }
         self.diagnostics = shown
-        layoutOverlays()
+        setNeedsLayout()
+    }
+
+    /// Measuring text while TextKit is laying it out (the viewport callback,
+    /// mid-edit) can throw inside TextKit: squiggles are placed right after.
+    func setNeedsLayout() {
+        guard !isLayoutScheduled else { return }
+        isLayoutScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.isLayoutScheduled = false
+            self?.layoutOverlays()
+        }
     }
 
     /// The text changed: positions are re-read on the next layout.
     func textDidChange() {
         cachedLineStarts = nil
+        // Old positions no longer match the text; the server sends new ones shortly.
+        for view in overlays { view.removeFromSuperview() }
+        overlays.removeAll()
     }
 
     var lineStarts: [Int] {
@@ -89,26 +104,24 @@ final class DiagnosticsController {
         return rects
     }
 
-    /// Rebuilds the squiggles in (or near) the viewport.
-    func layoutOverlays() {
+    /// Rebuilds the squiggles in the viewport.
+    private func layoutOverlays() {
         for view in overlays { view.removeFromSuperview() }
         overlays.removeAll()
         guard let textView, !diagnostics.isEmpty else { return }
         let visible = textView.visibleRect.insetBy(dx: 0, dy: -200)
         let starts = lineStarts, length = length
-        // Measuring a range off screen would lay it out: skip those by offset first.
+        // Only what's laid out: measuring text off screen would lay it out first.
         let manager = textView.textLayoutManager
         let contentManager = textView.textContentManager
-        var window = 0..<length
-        if let viewport = manager.textViewportLayoutController.viewportRange {
-            let start = manager.documentRange.location
-            let lower = contentManager.offset(from: start, to: viewport.location)
-            let upper = contentManager.offset(from: start, to: viewport.endLocation)
-            window = max(0, lower - 4000)..<min(length, upper + 4000) + 1
-        }
+        guard let viewport = manager.textViewportLayoutController.viewportRange else { return }
+        let start = manager.documentRange.location
+        let lower = contentManager.offset(from: start, to: viewport.location)
+        let upper = contentManager.offset(from: start, to: viewport.endLocation)
         for diagnostic in diagnostics {
-            let range = Self.visibleRange(diagnostic.range.nsRange(in: starts, length: length), in: storage)
-            guard window.overlaps(range.location..<(NSMaxRange(range) + 1)) else { continue }
+            var range = Self.visibleRange(diagnostic.range.nsRange(in: starts, length: length), in: storage)
+            range = NSIntersectionRange(range, NSRange(location: lower, length: max(0, upper - lower)))
+            guard range.length > 0 else { continue }
             for rect in rects(for: range) where rect.intersects(visible) {
                 let squiggle = SquiggleView(frame: CGRect(x: rect.minX, y: rect.maxY - 3, width: max(rect.width, 6), height: 4))
                 squiggle.color = colors.color(for: diagnostic.severity)
@@ -153,7 +166,7 @@ struct DiagnosticsPlugin: STPlugin {
     func setUp(context: any Context) {
         let controller = controller
         context.events.onDidLayoutViewport { _ in
-            MainActor.assumeIsolated { controller.layoutOverlays() }
+            MainActor.assumeIsolated { controller.setNeedsLayout() }
         }
     }
 }
