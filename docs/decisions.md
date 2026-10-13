@@ -771,9 +771,10 @@ The server side runs against real servers in `make test-languages`
 and snippet parser have unit tests.
 
 ### D57. Language servers install from the Mason registry, with our own installer
-The author installs the languages they need themselves, from Settings →
-Languages (or the "Install … Support" status-bar button on a file whose
-server is missing). The server table stays ours (`LanguageServerConfig.all`:
+The author installs the languages they need themselves: opening a file whose
+server is missing shows a banner above the editor ("Python support isn't
+installed", Install / Not Now; Not Now stops offering that language), and
+Settings → Languages and the status bar install too. The server table stays ours (`LanguageServerConfig.all`:
 file types, binary, arguments; 20 languages), because the registry says
 how to install a package but not how to launch it or for which files. Mason's
 registry (data only, Apache-2.0, the list Neovim uses) gives the package and

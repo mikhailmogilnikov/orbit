@@ -225,6 +225,30 @@ final class LanguageManager: LanguageIntelligence {
         scheduleSync()
     }
 
+    private static let declinedKey = "orbit.languages.declinedInstalls"
+    private var declined = Set(UserDefaults.standard.stringArray(forKey: LanguageManager.declinedKey) ?? [])
+
+    func installOffer(for url: URL) -> LanguageInstallOffer? {
+        guard let config = config(for: url), let install = config.install, !declined.contains(config.id) else { return nil }
+        let isInstalling = installing.contains(config.id)
+        let failure = installFailures[config.id]
+        var isMissing = false
+        if case .unavailable = unavailable[config.id] { isMissing = true }
+        guard isInstalling || failure != nil || isMissing else { return nil }
+        return LanguageInstallOffer(name: config.name, needs: install.needs, isInstalling: isInstalling, failure: failure)
+    }
+
+    func installServer(for url: URL) {
+        guard let config = config(for: url) else { return }
+        Task { await install(config.id) }
+    }
+
+    func declineInstall(for url: URL) {
+        guard let config = config(for: url) else { return }
+        declined.insert(config.id)
+        UserDefaults.standard.set(declined.sorted(), forKey: Self.declinedKey)
+    }
+
     func config(for url: URL) -> LanguageServerConfig? {
         LanguageServerConfig.config(for: url)
     }

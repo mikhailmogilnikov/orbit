@@ -252,6 +252,9 @@ struct FileEditorView: View {
             } else if document.diskConflict != nil {
                 DiskConflictBanner(document: document, isComparing: $isComparing)
             }
+            if let languages, let offer = languages.installOffer(for: url) {
+                LanguageInstallBanner(offer: offer, install: { languages.installServer(for: url) }, decline: { languages.declineInstall(for: url) })
+            }
             if let changes, !hunks.isEmpty {
                 AgentChangesBanner(url: url, hunks: hunks, changes: changes, workspace: workspace)
             }
@@ -286,6 +289,64 @@ struct FileEditorView: View {
         .onChange(of: document.diskConflict == nil) { _, resolved in
             if resolved { isComparing = false }
         }
+    }
+}
+
+/// The file's language has no server yet: one click installs it (D57).
+struct LanguageInstallBanner: View {
+    let offer: LanguageInstallOffer
+    let install: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: offer.failure == nil ? "sparkles" : "exclamationmark.triangle.fill")
+                .foregroundStyle(offer.failure == nil ? Color.accentColor : .orange)
+            if offer.isInstalling {
+                Text("Installing \(offer.name) support…")
+                    .font(.callout.weight(.medium))
+                ProgressView().controlSize(.small)
+                Spacer()
+            } else if let failure = offer.failure {
+                Text("Couldn't install \(offer.name) support")
+                    .font(.callout.weight(.medium))
+                Text(failure)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(failure)
+                Spacer()
+                Button("Not Now", action: decline)
+                    .buttonStyle(.glass)
+                Button("Try Again", action: install)
+                    .buttonStyle(.glassProminent)
+            } else {
+                Text("\(offer.name) support isn't installed")
+                    .font(.callout.weight(.medium))
+                Text(details)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+                Button("Not Now", action: decline)
+                    .buttonStyle(.glass)
+                    .help("Don't offer this again; Settings → Languages still installs it")
+                Button("Install", action: install)
+                    .buttonStyle(.glassProminent)
+            }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.accentColor.opacity(offer.failure == nil ? 0.08 : 0))
+        .background(.orange.opacity(offer.failure == nil ? 0 : 0.08))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private var details: String {
+        let what = "Errors, completion and go to definition need its language server."
+        return offer.needs.map { "\(what) Needs \($0)." } ?? what
     }
 }
 

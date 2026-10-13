@@ -141,4 +141,25 @@ public protocol LanguageIntelligence: AnyObject {
     /// The item with its documentation and auto-import edits filled in.
     func resolve(_ item: CompletionItem, in url: URL) async -> CompletionItem
     func signatureHelp(at position: SourcePosition, in url: URL, trigger: String?, isRetrigger: Bool) async -> SignatureHelp?
+    /// A server Orbit could install for this file, offered above the editor (D57); nil when there's nothing to offer.
+    func installOffer(for url: URL) -> LanguageInstallOffer?
+    func installServer(for url: URL)
+    /// "Not now": no more offers for this language (Settings still installs it).
+    func declineInstall(for url: URL)
+}
+
+public struct LanguageInstallOffer: Sendable, Hashable {
+    /// The language, e.g. "Python".
+    public var name: String
+    /// What it needs to install, e.g. "Node.js".
+    public var needs: String?
+    public var isInstalling: Bool
+    public var failure: String?
+
+    public init(name: String, needs: String?, isInstalling: Bool, failure: String?) {
+        self.name = name
+        self.needs = needs
+        self.isInstalling = isInstalling
+        self.failure = failure
+    }
 }
