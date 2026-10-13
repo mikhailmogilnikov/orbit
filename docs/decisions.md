@@ -860,3 +860,25 @@ dead. An action that can't run beeps.
 
 The real-server tests cover a fix per language (add a missing import in
 TypeScript 5/7, `var` → `let` in Swift), formatting and a cross-file rename.
+
+### D60. Formatting follows the repository
+A language server formats by its own built-in rules, which a repo with
+Prettier doesn't follow, and the indentation Orbit passed it was the file's
+smallest indent: one space in any file with a JSDoc block (` * …` lines).
+Now, in order:
+- **The repo's formatter.** The nearest Prettier config (`.prettierrc*`,
+  `prettier.config.*`, a `prettier` key in `package.json`) or `biome.json`
+  above the file, with the tool in a `node_modules/.bin` up to the folder
+  root: the file is piped through it (`--stdin-filepath`, so its ignore
+  files, overrides and plugins apply) and the result goes in as one edit,
+  reduced to changed line blocks like server edits. Only the repo's own
+  copy, never a global one: another major version formats differently. A
+  failure (a syntax error) is shown in an alert; it doesn't fall back to
+  the server, whose rules would be the wrong ones.
+- **Otherwise the server**, with `tabSize`/`insertSpaces` from
+  `.editorconfig` (nearest file wins, stops at `root = true` or the folder
+  root) or else guessed from the file: the most common step between
+  consecutive indented lines, ignoring comment continuation lines.
+
+`format` now returns why it failed instead of a Bool. Real Prettier is
+tested with the install tests (`make test-language-installs`).

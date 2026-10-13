@@ -155,8 +155,8 @@ public protocol LanguageIntelligence: AnyObject {
     /// The number of files changed, or why it failed.
     func rename(at position: SourcePosition, in url: URL, to newName: String) async -> Result<Int, RenameFailure>
     func canFormat(_ url: URL) -> Bool
-    /// Formats the whole file; false when its server can't.
-    func format(_ url: URL) async -> Bool
+    /// Formats the whole file with the repo's formatter or the server; nil when it worked, else why not.
+    func format(_ url: URL) async -> String?
     /// Problems in every open file, worst first.
     var problems: [FileProblems] { get }
 }

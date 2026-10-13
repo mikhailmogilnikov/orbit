@@ -172,3 +172,31 @@ struct SmokeCase: Sendable, CustomTestStringConvertible {
         SmokeCase(id: "terraform-ls", files: ["main.tf": "resource \"null_resource\" \"a\" {\n"], main: "main.tf", problem: "Unclosed"),
     ]
 }
+
+/// The repo's real Prettier, installed from npm, formats through Orbit (D60).
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["ORBIT_INSTALL_TESTS"] == "1"), .timeLimit(.minutes(5)))
+struct LanguageInstallFormatterTests {
+    @Test func formatsWithTheReposPrettier() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let npm = Shell.which("npm", in: environment) else {
+            print("skipping: no npm")
+            return
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-prettier-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
+        try #"{"name": "smoke", "private": true}"#.write(to: root.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try #"{"tabWidth": 3, "semi": false}"#.write(to: root.appendingPathComponent(".prettierrc"), atomically: true, encoding: .utf8)
+        try LanguageInstaller.run(npm, ["install", "--prefix", root.path, "--no-audit", "--no-fund", "--silent", "prettier@3"], environment: environment)
+
+        let file = root.appendingPathComponent("src/index.ts")
+        let formatter = try #require(ProjectFormatter.find(for: file, root: root))
+        #expect(formatter.tool == .prettier)
+        let formatted = try await formatter.format("export function a(){\nreturn 1;\n}\n", file: file, environment: environment)
+        #expect(formatted == "export function a() {\n   return 1\n}\n")
+
+        await #expect(throws: (any Error).self) {
+            try await formatter.format("export function (", file: file, environment: environment)
+        }
+    }
+}

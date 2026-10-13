@@ -59,3 +59,80 @@ import Testing
         #expect(LanguageServerConfig.config(for: URL(fileURLWithPath: "/p/Dockerfile"))?.id == "dockerfile-language-server")
     }
 }
+
+/// Formatting follows the repo: its Prettier/Biome, its `.editorconfig`, its indentation (D60).
+@Suite struct LanguageServerFormattingTests {
+    @Test func guessesIndentationFromSteps() {
+        let jsdoc = """
+        /**
+         * Greets.
+         * @param name who
+         */
+        export function greet(name: string) {
+          if (name) {
+            return `hi ${name}`;
+          }
+          return "";
+        }
+        """
+        #expect(Indentation.guess(jsdoc) == Indentation(size: 2, spaces: true))
+        #expect(Indentation.guess("func a() {\n    if b {\n        c()\n    }\n}\n") == Indentation(size: 4, spaces: true))
+        #expect(Indentation.guess("func a() {\n\tb()\n\tif c {\n\t\td()\n\t}\n}\n").spaces == false)
+        #expect(Indentation.guess("one\ntwo\n") == Indentation(size: 4, spaces: true))
+    }
+
+    @Test func matchesEditorConfigGlobs() {
+        #expect(EditorConfig.glob("*", matches: "src/a.ts"))
+        #expect(EditorConfig.glob("*.{ts,tsx}", matches: "src/app/a.tsx"))
+        #expect(!EditorConfig.glob("*.{ts,tsx}", matches: "src/a.js"))
+        #expect(EditorConfig.glob("src/**.ts", matches: "src/deep/a.ts"))
+        #expect(!EditorConfig.glob("/lib/*.ts", matches: "src/lib/a.ts"))
+        #expect(EditorConfig.glob("Makefile", matches: "tools/Makefile"))
+        #expect(EditorConfig.glob("*.[ch]", matches: "a.h"))
+    }
+
+    @Test func readsEditorConfigNearestFirst() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-editorconfig-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let nested = root.appendingPathComponent("packages/web/src")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try "root = true\n\n[*]\nindent_style = tab\nindent_size = 8\n\n[*.ts]\nindent_style = space\nindent_size = 4\n"
+            .write(to: root.appendingPathComponent(".editorconfig"), atomically: true, encoding: .utf8)
+        try "[src/*.ts]\nindent_size = 2\n".write(to: root.appendingPathComponent("packages/web/.editorconfig"), atomically: true, encoding: .utf8)
+
+        let file = nested.appendingPathComponent("app.ts")
+        #expect(Indentation.of(file, text: "a\n\tb\n", root: root) == Indentation(size: 2, spaces: true))
+        let script = root.appendingPathComponent("run.sh")
+        #expect(Indentation.of(script, text: "", root: root) == Indentation(size: 8, spaces: false))
+        // No config: the file decides.
+        #expect(Indentation.of(URL(fileURLWithPath: "/nowhere/a.ts"), text: "a {\n  b\n}\n", root: nil) == Indentation(size: 2, spaces: true))
+    }
+
+    @Test func findsTheRepoFormatter() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-formatter-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = root.appendingPathComponent("apps/web")
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("src"), withIntermediateDirectories: true)
+        let bin = root.appendingPathComponent("node_modules/.bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        for name in ["prettier", "biome"] {
+            let tool = bin.appendingPathComponent(name)
+            try "#!/bin/sh\n".write(to: tool, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
+        }
+        let file = app.appendingPathComponent("src/index.ts")
+        // Installed but not configured: the server formats.
+        #expect(ProjectFormatter.find(for: file, root: root) == nil)
+
+        try #"{"name": "web", "prettier": {"semi": false}}"#.write(to: app.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        let prettier = try #require(ProjectFormatter.find(for: file, root: root))
+        #expect(prettier.tool == .prettier)
+        #expect(prettier.directory.path == app.standardizedFileURL.path)
+        #expect(ProjectFormatter.find(for: app.appendingPathComponent("src/main.swift"), root: root) == nil)
+
+        try "{}".write(to: app.appendingPathComponent("biome.json"), atomically: true, encoding: .utf8)
+        #expect(ProjectFormatter.find(for: file, root: root)?.tool == .biome)
+        // Biome doesn't do Markdown; Prettier still does.
+        #expect(ProjectFormatter.find(for: app.appendingPathComponent("README.md"), root: root)?.tool == .prettier)
+    }
+}

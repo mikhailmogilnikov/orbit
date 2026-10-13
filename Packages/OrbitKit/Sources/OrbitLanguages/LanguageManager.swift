@@ -266,16 +266,36 @@ final class LanguageManager: LanguageIntelligence {
     }
 
     func canFormat(_ url: URL) -> Bool {
+        if ProjectFormatter.find(for: url, root: root) != nil { return true }
         guard let server = runningServer(for: url), server.state == .running else { return false }
         return server.formats
     }
 
-    func format(_ url: URL) async -> Bool {
-        guard let server = await flush(url), let document = workspace.documents.existingDocument(for: url) else { return false }
-        let indent = Self.indentation(of: document.text)
-        guard let edits = await server.formatting(url.standardizedFileURL, tabSize: indent.size, insertSpaces: indent.spaces) else { return false }
-        guard !edits.isEmpty else { return true }
-        return apply(WorkspaceEdit(files: [url.standardizedFileURL: edits]))
+    /// With the repo's Prettier or Biome when it has one (D60), else by the
+    /// server, indented as `.editorconfig` or the file itself says.
+    func format(_ url: URL) async -> String? {
+        let unformatted = "The language server couldn't format this file."
+        guard let document = workspace.documents.existingDocument(for: url) else { return unformatted }
+        if let formatter = ProjectFormatter.find(for: url, root: root) {
+            let text = document.text
+            let formatted: String
+            do {
+                formatted = try await formatter.format(text, file: url, environment: environment.value)
+            } catch {
+                return error.localizedDescription
+            }
+            // Typed into while it ran: those keystrokes win.
+            guard document.text == text, formatted != text else { return nil }
+            let string = text as NSString
+            let end = SourcePosition(offset: string.length, in: SourcePosition.lineStarts(of: string))
+            let whole = SourceEdit(range: SourceRange(start: SourcePosition(line: 0, character: 0), end: end), newText: formatted)
+            return apply(WorkspaceEdit(files: [url.standardizedFileURL: [whole]])) ? nil : "The file couldn't be changed."
+        }
+        guard let server = await flush(url) else { return unformatted }
+        let indent = Indentation.of(url, text: document.text, root: root)
+        guard let edits = await server.formatting(url.standardizedFileURL, tabSize: indent.size, insertSpaces: indent.spaces) else { return unformatted }
+        guard !edits.isEmpty else { return nil }
+        return apply(WorkspaceEdit(files: [url.standardizedFileURL: edits])) ? nil : "The file couldn't be changed."
     }
 
     var problems: [FileProblems] {
@@ -314,18 +334,6 @@ final class LanguageManager: LanguageIntelligence {
             }
         }
         return worked
-    }
-
-    /// The file's own indentation, which formatting keeps.
-    static func indentation(of text: String) -> (size: Int, spaces: Bool) {
-        var tabs = 0, smallest = Int.max
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true).prefix(500) {
-            if line.hasPrefix("\t") { tabs += 1; continue }
-            let spaces = line.prefix { $0 == " " }.count
-            if spaces > 0, spaces < line.count { smallest = min(smallest, spaces) }
-        }
-        if tabs > 0, smallest == Int.max { return (4, false) }
-        return (smallest == Int.max || smallest > 8 ? 4 : smallest, true)
     }
 
     func installOffer(for url: URL) -> LanguageInstallOffer? {

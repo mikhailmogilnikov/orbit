@@ -16,7 +16,7 @@ let package = Package(
         .target(
             name: "OrbitLanguages",
             dependencies: ["OrbitAPI", "OrbitACP"],
-            sources: ["LanguageServer.swift", "LanguageServerConfig.swift", "TextChange.swift", "LanguageInstaller.swift"]
+            sources: ["LanguageServer.swift", "LanguageServerConfig.swift", "TextChange.swift", "LanguageInstaller.swift", "ProjectFormatter.swift"]
         ),
         .testTarget(
             name: "OrbitKitTests",

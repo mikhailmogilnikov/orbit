@@ -217,7 +217,12 @@ extension CodeEditor.Coordinator {
         }
         let url = document.url
         Task {
-            if !(await languages.format(url)) { NSSound.beep() }
+            if let failure = await languages.format(url) {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't format “\(url.lastPathComponent)”"
+                alert.informativeText = failure
+                alert.runModal()
+            }
         }
     }
 }
