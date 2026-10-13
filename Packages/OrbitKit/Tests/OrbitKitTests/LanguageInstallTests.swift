@@ -244,6 +244,78 @@ extension LanguageInstallIntegrationTests {
         let hover = await tailwind.hover(at: onFlex, in: page)
         #expect(hover?.markdown.contains("display: flex") == true, "\(hover?.markdown ?? "no hover")")
     }
+
+    /// Vue (D74): tsserver with Vue's plugin answers for a component's TypeScript, Vue's
+    /// server beside it for the template, running its tsserver questions through the first.
+    @Test func vueRunsThroughTsserver() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard Shell.which("npm", in: environment) != nil else { return }
+        let root = try LanguageInstallFormatterTests.project("vue", [
+            "package.json": #"{ "dependencies": { "vue": "3" } }"#,
+            "App.vue": "<script setup lang=\"ts\">\nconst count: number = \"a\"\n</script>\n<template>\n<div>{{ count.toF }}</div>\n<sec\n</template>\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Vue's types make the template's tags and expressions: a project without them has neither.
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("node_modules"), withDestinationURL: try LanguageCase.installedPackages(["vue@3"])
+        )
+        let file = root.appendingPathComponent("App.vue")
+        #expect(LanguageServerConfig.config(for: file)?.id == "vue")
+        #expect(LanguageServerConfig.vueLanguageServer.isUsed(by: file, in: root))
+
+        for config in [LanguageServerConfig.vue, .vueLanguageServer] {
+            let install = try #require(config.install)
+            if Self.installer.receipt(for: install.package) == nil {
+                let installer = Self.installer
+                try await Task.detached {
+                    let registry = try installer.registry()
+                    try installer.install(try #require(registry[install.package]), environment: environment)
+                }.value
+            }
+        }
+        #expect(LanguageServerConfig.vue.vueTypeScriptPlugin(for: root, installer: Self.installer) != nil)
+
+        let typeScript = LanguageServer(config: .vue, root: root, installer: Self.installer)
+        try #require(await typeScript.start(environment: Task { environment }), "\(typeScript.state)")
+        defer { typeScript.shutdown() }
+        let vue = LanguageServer(config: .vueLanguageServer, root: root, installer: Self.installer)
+        vue.onTypeScriptRequest = { command, arguments in await typeScript.typeScriptRequest(command, arguments) }
+        try #require(await vue.start(environment: Task { environment }), "\(vue.state)")
+        defer { vue.shutdown() }
+        let text = try String(contentsOf: file, encoding: .utf8)
+        typeScript.sync(file, text: text)
+        vue.sync(file, text: text)
+
+        // The template's expressions are TypeScript.
+        let afterToF = try #require(LanguageServerIntegrationTests.position(of: "count.toF", in: text)).advanced(by: 9)
+        var members: [String] = []
+        for _ in 0..<60 where !members.contains("toFixed") {
+            members = (await typeScript.completions(at: afterToF, in: file, trigger: .invoked))?.items.map(\.label) ?? []
+            if !members.contains("toFixed") { try await Task.sleep(for: .milliseconds(500)) }
+        }
+        #expect(members.contains("toFixed"), "\(members.prefix(20))")
+        var problems: [Diagnostic] = []
+        let deadline = ContinuousClock.now + .seconds(60)
+        while !problems.contains(where: { $0.message.contains("not assignable") }), ContinuousClock.now < deadline {
+            problems = typeScript.diagnostics[file.standardizedFileURL] ?? []
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        #expect(problems.contains { $0.message.contains("not assignable") }, "\(problems.map(\.message))")
+
+        // Tags come from Vue's server, which waits on its tsserver questions: no answer means a hang.
+        let afterSec = try #require(LanguageServerIntegrationTests.position(of: "<sec", in: text)).advanced(by: 4)
+        var tags: [String] = []
+        for _ in 0..<40 where !tags.contains("section") {
+            tags = (await vue.completions(at: afterSec, in: file, trigger: .invoked))?.items.map(\.label) ?? []
+            if !tags.contains("section") { try await Task.sleep(for: .milliseconds(500)) }
+        }
+        #expect(tags.contains("section"), "\(tags.prefix(20))")
+
+        // tsserver leaves .vue files alone; Vue's server formats them.
+        #expect(LanguageServerConfig.vue.formatsWith == LanguageServerConfig.vueLanguageServer.id)
+        let edits = await vue.formatting(file, tabSize: 2, insertSpaces: true) ?? []
+        #expect(SourceEdit.apply(edits, to: text).contains("\n  <div>{{ count.toF }}</div>"), "\(edits)")
+    }
 }
 
 /// A tiny project per server, with something wrong in it.
@@ -270,6 +342,16 @@ struct SmokeCase: Sendable, CustomTestStringConvertible {
     var testDescription: String { id }
 
     static let all: [SmokeCase] = [
+        // Built on tsserver: starts only when told where TypeScript is (`${typescriptSdk}`);
+        // this project has none, so the copy installed with the server is used.
+        SmokeCase(
+            id: "astro",
+            files: [
+                "package.json": "{ \"name\": \"smoke\" }\n",
+                "src/pages/index.astro": "---\nconst count: number = \"a\";\n---\n<div>{count}</div>\n",
+            ],
+            main: "src/pages/index.astro", problem: "not assignable", needsTool: "node"
+        ),
         SmokeCase(
             id: "basedpyright",
             files: [

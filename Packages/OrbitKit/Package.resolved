@@ -1,5 +1,5 @@
 {
-  "originHash" : "815649e1a3a4f5e154558ed353364bf3bbb83f66982c27b5966cfe8acc96d6ff",
+  "originHash" : "2a50ffcf037f8d6314798ef46cbc11b7063b09a537489e275404e8966f88fcca",
   "pins" : [
     {
       "identity" : "coretextswift",
@@ -8,24 +8,6 @@
       "state" : {
         "revision" : "833177201d6421e6322296f39fce6ff6ae52618a",
         "version" : "0.2.0"
-      }
-    },
-    {
-      "identity" : "neon",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/kylemacomber/Neon",
-      "state" : {
-        "branch" : "ce8d252",
-        "revision" : "ce8d252c8fd53ea0b6960e02c423315eef11f141"
-      }
-    },
-    {
-      "identity" : "rearrange",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ChimeHQ/Rearrange",
-      "state" : {
-        "revision" : "5ff7f3363f7a08f77e0d761e38e6add31c2136e1",
-        "version" : "1.8.1"
       }
     },
     {
@@ -44,15 +26,6 @@
       "state" : {
         "revision" : "bbdcfd9d413ad3055dafd23a223be9bd39742f89",
         "version" : "2.4.1"
-      }
-    },
-    {
-      "identity" : "sttextview-plugin-neon",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/STTextView-Plugin-Neon",
-      "state" : {
-        "branch" : "d568bf9",
-        "revision" : "d568bf9d0dbea3f8fd35e4a060f2bbec00457b75"
       }
     },
     {

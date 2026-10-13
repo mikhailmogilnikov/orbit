@@ -121,7 +121,7 @@ public struct ColorTheme: Sendable, Identifiable, Hashable {
         return nil
     }
 
-    /// Captures our (nvim-style) highlight queries emit, mapped to the names Zed themes use.
+    /// nvim-style captures some Zed extensions' queries still emit, mapped to the names Zed themes use.
     static let captureAliases: [String: String] = [
         "include": "keyword", "conditional": "keyword", "repeat": "keyword",
         "exception": "keyword", "storageclass": "keyword", "import": "keyword",

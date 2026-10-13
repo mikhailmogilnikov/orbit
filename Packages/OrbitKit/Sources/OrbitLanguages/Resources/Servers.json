@@ -2967,7 +2967,9 @@
    "fileNames": {},
    "id": "astro",
    "initializationOptions": {
-    "typescript": []
+    "typescript": {
+     "tsdk": "${typescriptSdk}"
+    }
    },
    "install": {
     "arguments": [
@@ -9359,7 +9361,9 @@
    "fileNames": {},
    "id": "mdx_analyzer",
    "initializationOptions": {
-    "typescript": []
+    "typescript": {
+     "tsdk": "${typescriptSdk}"
+    }
    },
    "install": {
     "arguments": [

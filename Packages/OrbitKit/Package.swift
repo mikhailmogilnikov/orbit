@@ -12,7 +12,11 @@ let package = Package(
     ],
     targets: [
         .target(name: "OrbitACP"),
-        .target(name: "OrbitAPI", sources: ["LanguageIntelligence.swift", "Completion.swift", "Grammars.swift", "LanguageEdits.swift", "LineDiff.swift"]),
+        .target(
+            name: "OrbitAPI",
+            sources: ["LanguageIntelligence.swift", "Completion.swift", "Grammars.swift", "LanguageEdits.swift", "LineDiff.swift"],
+            resources: [.copy("Resources/Grammars.json")]
+        ),
         .target(
             name: "OrbitLanguages",
             dependencies: ["OrbitAPI", "OrbitACP"],
@@ -36,13 +40,12 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/krzyzanowskim/STTextView", from: "2.4.1"),
-        .package(url: "https://github.com/krzyzanowskim/STTextView-Plugin-Neon", revision: "d568bf9"),
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", from: "0.9.0"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", "1.20.0"..<"1.99.0"),
     ],
     targets: [
         .target(name: "OrbitACP"),
-        .target(name: "OrbitAPI", resources: [.copy("Resources/Extensions")]),
+        .target(name: "OrbitAPI", resources: [.copy("Resources/Extensions"), .copy("Resources/Grammars.json")]),
         .target(name: "OrbitUI", dependencies: ["OrbitAPI"], resources: [.copy("Resources/OrbitMark.svg")]),
         .target(name: "OrbitExplorer", dependencies: ["OrbitAPI", "OrbitUI"]),
         .target(
@@ -50,7 +53,6 @@ let package = Package(
             dependencies: [
                 "OrbitAPI", "OrbitUI",
                 .product(name: "STTextView", package: "STTextView"),
-                .product(name: "STTextView-Plugin-Neon", package: "STTextView-Plugin-Neon"),
                 .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter"),
             ]
         ),

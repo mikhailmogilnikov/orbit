@@ -47,6 +47,9 @@ final class LanguageServer {
     @ObservationIgnored private var actionRaw: (generation: Int, items: [JSONValue]) = (0, [])
     /// Applies an edit the server asks for (after running one of its commands).
     @ObservationIgnored var onApplyEdit: (@MainActor (WorkspaceEdit) -> Bool)?
+    /// Runs a tsserver request for a server that can't (Vue's, D74): the
+    /// response body, or nil when there's no answer.
+    @ObservationIgnored var onTypeScriptRequest: (@MainActor (_ command: String, _ arguments: JSONValue) async -> JSONValue?)?
 
     /// The folder's real path when it was opened through a symlink (macOS's
     /// /tmp, /var): servers answer with that one, or half-resolved ones.
@@ -94,7 +97,7 @@ final class LanguageServer {
         }
         var env = projectEnvironment
         env.merge(command.environment) { _, new in new }
-        let settings = config.settings(for: root)
+        let settings = config.settings(for: root, installer: installer)
         let connection = JSONRPCConnection(
             executable: URL(fileURLWithPath: command.executable),
             arguments: command.arguments.map { $0 == "${dataDir}" ? dataDirectory.path : $0 },
@@ -221,7 +224,7 @@ final class LanguageServer {
                 ],
             ],
         ]
-        if case .object(var object) = params, let options = config.initializationOptions {
+        if case .object(var object) = params, let options = config.initializationOptions(for: root, installer: installer) {
             object["initializationOptions"] = options
             params = .object(object)
         }
@@ -232,13 +235,16 @@ final class LanguageServer {
     private nonisolated static func answer(_ method: String, _ params: JSONValue, root: URL, settings: JSONValue?) throws -> JSONValue {
         switch method {
         case "workspace/configuration":
-            // The config's settings by section (dotted), else the server's defaults
-            // (an empty object; the CSS server fails on null).
+            // The config's settings by section (dotted), else the server's defaults:
+            // an empty object for a whole section (the CSS server fails on null),
+            // null for a single value (Astro iterates `html.customData ?? []`).
             let items = params["items"]?.array ?? []
             return .array(items.map { item in
-                guard var value = settings else { return .object([:]) }
-                for key in (item["section"]?.string ?? "").split(separator: ".") {
-                    guard let next = value[String(key)] else { return .object([:]) }
+                let keys = (item["section"]?.string ?? "").split(separator: ".")
+                let unset: JSONValue = keys.count > 1 ? .null : .object([:])
+                guard var value = settings else { return unset }
+                for key in keys {
+                    guard let next = value[String(key)] else { return unset }
                     value = next
                 }
                 return value
@@ -328,6 +334,10 @@ final class LanguageServer {
     }
 
     private func handleNotification(_ method: String, _ params: JSONValue) {
+        if method == "tsserver/request" {
+            answerTypeScriptRequests(params)
+            return
+        }
         guard method == "textDocument/publishDiagnostics",
               let uri = params["uri"]?.string, let url = Self.fileURL(uri).map(local) else { return }
         let raw = params["diagnostics"]?.array ?? []
@@ -379,8 +389,21 @@ final class LanguageServer {
         documents.removeAll()
         diagnostics.removeAll()
         guard !isShuttingDown else { return }
-        let lines = stderr.split(whereSeparator: \.isNewline).suffix(4).joined(separator: "\n")
+        let lines = Self.crashSummary(stderr)
         state = .failed("\(config.name) stopped (status \(status))" + (lines.isEmpty ? "" : ":\n\(lines)"))
+    }
+
+    /// A stack trace says what went wrong at its top (`TypeError: …`) and only
+    /// frames at the bottom, so its error line and first frames beat the tail.
+    nonisolated static func crashSummary(_ stderr: String) -> String {
+        let lines = stderr.split(whereSeparator: \.isNewline).map(String.init)
+        let error = lines.lastIndex { line in
+            guard let first = line.first, !first.isWhitespace else { return false }
+            let head = line.prefix { $0 != ":" }
+            return head.count < line.count && (head.hasSuffix("Error") || head.hasSuffix("Exception") || head.hasPrefix("panicked"))
+        }
+        guard let error else { return lines.suffix(4).joined(separator: "\n") }
+        return lines[error...].prefix(4).joined(separator: "\n")
     }
 
     // MARK: Documents
@@ -722,6 +745,30 @@ final class LanguageServer {
         return true
     }
 
+    // MARK: tsserver requests (D74)
+
+    /// `[[id, command, arguments]]`; each gets `[[id, body]]` back, null when it
+    /// can't be run, or the server waits on it forever.
+    private func answerTypeScriptRequests(_ params: JSONValue) {
+        for request in params.array ?? [] {
+            guard let id = request[0], let command = request[1]?.string else { continue }
+            let arguments = request[2] ?? .null
+            Task { [weak self] in
+                let body = await self?.onTypeScriptRequest?(command, arguments) ?? .null
+                self?.connection?.notify("tsserver/response", [[id, body]])
+            }
+        }
+    }
+
+    /// Runs a raw tsserver request (typescript-language-server's `typescript.tsserverRequest`).
+    func typeScriptRequest(_ command: String, _ arguments: JSONValue) async -> JSONValue? {
+        guard let connection, state == .running else { return nil }
+        let result = try? await connection.request("workspace/executeCommand", [
+            "command": "typescript.tsserverRequest", "arguments": [.string(command), arguments],
+        ])
+        return result?["body"]
+    }
+
     /// The symbol a rename at `position` would change; nil when nothing there can be renamed.
     func prepareRename(at position: SourcePosition, in url: URL) async -> RenameTarget? {
         guard let connection, renames, let text = documents[url]?.text else { return nil }
@@ -882,7 +929,7 @@ final class LanguageServer {
         diagnostics.removeAll()
         Task {
             _ = try? await withTimeout(seconds: 2) { try await connection.request("shutdown", .null) }
-            connection.notify("exit")
+            connection.notify("exit", .null)
             connection.closeInput()
             try? await Task.sleep(for: .seconds(1))
             connection.terminate()

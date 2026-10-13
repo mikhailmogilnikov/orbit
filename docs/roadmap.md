@@ -9,7 +9,7 @@
   Agents (default agent, isolated by default, installed / custom agents),
   Source Control (gutter markers, blame), Keyboard Shortcuts, Plugins
 - Explorer (lazy file tree)
-- Editor: STTextView, line numbers, tree-sitter highlighting (~20 languages), save
+- Editor: STTextView, line numbers, tree-sitter highlighting, save
 - Agents over ACP: Claude Code, Codex, Cursor, Grok Build, OpenCode (D52), custom JSON agents; parallel sessions;
   streaming transcript, thinking, tool cards with diffs/output, plans,
   permission prompts, model/mode/effort pickers from `configOptions`
@@ -130,6 +130,12 @@
 - Inlay hints from the language server (D70); embedded languages colored by
   their own grammar: HTML/Vue script and style, Markdown code blocks and
   inline text, CSS in tagged templates (D69)
+- Highlighting for ~520 languages imported from Zed and its extension catalog
+  (`make import-grammars`, D71); no built-in grammars, every language
+  compiled on first use, the open folder's languages ahead of time
+- Vue (D74): tsserver with Vue's plugin as `.vue`'s server, Vue's own server
+  beside it with its tsserver questions forwarded; a server's crash shows its
+  error line, not the tail of the stack
 
 ## Next (rough priority)
 1. Own extension registry (GitHub repo with `index.json`, PR to publish) for
@@ -194,8 +200,13 @@ Everything below is known to be missing; nothing here is in progress.
   the first Markdown file installs the inline grammar).
 - Companions (D64): ESLint and Tailwind run for real in the install tests;
   in the app (status bar names, merged completion with Tailwind's long
-  class lists, the install banner) unverified on a Mac. Vue and Astro files
-  get ESLint/Tailwind only (no language server of their own).
+  class lists, the install banner) unverified on a Mac.
+- Vue (D74): runs for real in the install tests; in the app (two install
+  offers in a row, "Vue templates" in the status bar) unverified on a Mac.
+  `.ts` files importing components don't see their props (their TypeScript
+  server has no Vue plugin; a TypeScript 7 project can't load one at all).
+  `sqlls` crashes on start (its unpinned protocol dependency); `.sql` gets
+  `sqls` first.
 - Checked by hand on a Mac on 2026-10-13 (TypeScript, Python): server install
   and the status-bar menu, Problems and References, navigation, completion,
   code actions, rename, formatting and its corner note, agent registry; the
@@ -218,8 +229,11 @@ Everything below is known to be missing; nothing here is in progress.
   redrawing painted lines (D14 addendum), unverified on a Mac.
 - The Swift cross-file rename in `make test-languages` fails now and then
   (sourcekit-lsp's index not ready yet); passes on a rerun.
-- Grammars (D58): compiling needs Xcode's command line tools and network on
-  first open; a failed build isn't retried until restart. Release builds with hardened
+- Grammars (D58, D71): compiling needs Xcode's command line tools and network on
+  first open, now for every language (TypeScript too); a failed build isn't
+  retried until restart. Unverified on a Mac: the first open's uncolored
+  second, the background installs when a folder opens, colors of Zed's
+  queries for Swift/TS/Markdown (they replaced the bundled ones). Release builds with hardened
   runtime will need `com.apple.security.cs.disable-library-validation`.
 - Language installs (D57): every server installs and reports a problem in
   the Linux tests; the Settings page and status-bar button are unverified on a

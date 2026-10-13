@@ -99,6 +99,8 @@ public protocol ProjectFileIndex: AnyObject {
     /// Best matches for `query` as project-relative paths, file names first;
     /// recently opened files when the query is empty.
     func search(_ query: String, limit: Int) -> [String]
+    /// Every project file, project-relative; waits for the index to load.
+    func allPaths() async -> [String]
 }
 
 /// Text selected in the editor, e.g. to show an agent.

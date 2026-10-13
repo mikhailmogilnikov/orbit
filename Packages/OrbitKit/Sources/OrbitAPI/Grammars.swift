@@ -5,132 +5,187 @@ import Darwin
 import Glibc
 #endif
 
-/// Syntax highlighting beyond the grammars built into the editor (D58):
-/// installed with a language's support, compiled on this Mac from the
-/// grammar's source at a pinned commit, colored by Zed's highlight queries
-/// (the capture names Zed themes style). Nothing loads until a file of that
-/// language opens, or a file embedding it (D69).
-public struct GrammarSource: Sendable, Hashable {
-    /// Also the C symbol: `tree_sitter_<name>`.
+/// Syntax highlighting comes from Zed's languages (D71): its own and its
+/// extension catalog's, converted by `make import-grammars` into
+/// `Grammars.json`. A language is a grammar (a tree-sitter parser, pinned at a
+/// commit) plus Zed's queries for it; several languages may share a grammar
+/// (JavaScript is parsed with TSX's). Nothing is bundled: a language is built
+/// on this Mac the first time a file of it, or embedding it, opens.
+public struct SyntaxLanguage: Codable, Sendable, Hashable {
     public var name: String
-    public var fileTypes: [String]
-    public var fileNames: [String]
-    public var repository: String
-    public var commit: String
-    /// The grammar's folder in a repository holding several (`tsx`).
-    public var path: String?
-    /// Folder URL with `highlights.scm` (and `injections.scm` when the language embeds others), pinned to a commit.
-    public var queries: String
+    /// Folder name under `~/.orbit/grammars` (`C++` → `cpp`), unique in the catalog.
+    public var id: String
+    /// A key of `GrammarCatalog.grammars`.
+    public var grammar: String
+    /// Extensions or whole file names (`ts`, `Gemfile`, `tsconfig.json`).
+    public var suffixes: [String]
+    /// Zed's queries, pinned to a commit: what to color, and where other languages are embedded.
+    public var highlights: String
+    public var injections: String?
+    /// A regex for the first line when no suffix matches (shebangs).
+    public var firstLine: String?
+    public var aliases: [String]?
+    /// The Zed extension it comes from; nil for Zed's own languages.
+    public var zedExtension: String?
+    /// For ⌘/ (D73): `// `, `/// `; or a block comment's start and end.
+    public var lineComments: [String]?
+    public var blockComment: [String]?
+    /// Pairs typing closes (`(` → `)`, `/*` → ` */`).
+    public var brackets: [Bracket]?
+    /// Characters a pair may be closed before, besides whitespace and the end.
+    public var autocloseBefore: String?
 
-    /// Bumped when installs gain a file (2: `injections.scm`), so older ones are redone.
-    public static let layout = 2
-
-    public init(name: String, fileTypes: [String], fileNames: [String] = [], repository: String, commit: String, path: String? = nil, queries: String) {
-        self.name = name
-        self.fileTypes = fileTypes
-        self.fileNames = fileNames
-        self.repository = repository
-        self.commit = commit
-        self.path = path
-        self.queries = queries
+    public struct Bracket: Codable, Sendable, Hashable {
+        public var start: String
+        public var end: String
     }
 
-    private static func zedExtension(_ repository: String, _ commit: String, _ language: String) -> String {
-        "https://raw.githubusercontent.com/\(repository)/\(commit)/languages/\(language)"
-    }
-
-    /// Languages Orbit has a server for but the editor has no grammar for (or a poor stand-in).
-    public static let all: [GrammarSource] = [
-        GrammarSource(
-            name: "lua", fileTypes: ["lua"],
-            repository: "https://github.com/tree-sitter-grammars/tree-sitter-lua", commit: "10fe0054734eec83049514ea2e718b2a56acd0c9",
-            queries: zedExtension("zed-extensions/lua", "ce3fde1f675b32ce2de032e32609aba18cbf8121", "lua")
-        ),
-        GrammarSource(
-            name: "zig", fileTypes: ["zig", "zon"],
-            repository: "https://github.com/tree-sitter-grammars/tree-sitter-zig", commit: "6479aa13f32f701c383083d8b28360ebd682fb7d",
-            queries: zedExtension("zed-extensions/zig", "996432e66cb5bb2eed5a30ad2afaaa90349a3817", "zig")
-        ),
-        GrammarSource(
-            name: "hcl", fileTypes: ["tf", "tfvars", "hcl"],
-            repository: "https://github.com/tree-sitter-grammars/tree-sitter-hcl", commit: "fad991865fee927dd1de5e172fb3f08ac674d914",
-            queries: zedExtension("zed-extensions/terraform", "99bcfa52db879b6f71b803307a9640e04e336623", "terraform")
-        ),
-        GrammarSource(
-            name: "dockerfile", fileTypes: ["dockerfile"], fileNames: ["Dockerfile", "Containerfile"],
-            repository: "https://github.com/camdencheek/tree-sitter-dockerfile", commit: "868e44ce378deb68aac902a9db68ff82d2299dd0",
-            queries: zedExtension("zed-extensions/dockerfile", "812fbe0e227d06e2c9e17864cd96985b064125ef", "dockerfile")
-        ),
-        GrammarSource(
-            name: "kotlin", fileTypes: ["kt", "kts"],
-            repository: "https://github.com/fwcd/tree-sitter-kotlin", commit: "1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1",
-            queries: zedExtension("zed-extensions/zed-kotlin", "861761c3813fd6497ede7b67bd6341e49571ef37", "kotlin")
-        ),
-        GrammarSource(
-            name: "svelte", fileTypes: ["svelte"],
-            repository: "https://github.com/tree-sitter-grammars/tree-sitter-svelte", commit: "3f06f705410683adb17d146b5eca28c62fe81ba6",
-            queries: zedExtension("zed-extensions/svelte", "ca6c2c6c891583a23820d9b23772e116426cc57d", "svelte")
-        ),
-        GrammarSource(
-            name: "scss", fileTypes: ["scss"],
-            repository: "https://github.com/simeonoff/tree-sitter-scss", commit: "3f918284a73a54b53e4f326b0aa8c74ccbf4ee4d",
-            queries: zedExtension("bajrangCoder/zed-scss", "18deab7712272b64a4ca24ed0950618631d77fa8", "scss")
-        ),
-        GrammarSource(
-            name: "vue", fileTypes: ["vue"],
-            repository: "https://github.com/tree-sitter-grammars/tree-sitter-vue", commit: "7e48557b903a9db9c38cea3b7839ef7e1f36c693",
-            queries: zedExtension("zed-extensions/vue", "bbd770740d10fc38c72ccbd59f8898608cb70baf", "vue")
-        ),
-        // Markdown's text (emphasis, links, code spans) is a grammar of its own,
-        // injected into the block grammar's paragraphs. Zed's fork, as Zed pins it.
-        GrammarSource(
-            name: "markdown_inline", fileTypes: [],
-            repository: "https://github.com/zed-industries/tree-sitter-markdown", commit: "b596e737286780d7bfa9fcddceaeeb754574b352",
-            path: "tree-sitter-markdown-inline",
-            queries: "https://raw.githubusercontent.com/zed-industries/zed/26363aabdb31a0c016728634202e1ad5067033aa/crates/grammars/src/markdown-inline"
-        ),
-        // The built-in TypeScript grammar can't read JSX.
-        GrammarSource(
-            name: "tsx", fileTypes: ["tsx", "jsx"],
-            repository: "https://github.com/tree-sitter/tree-sitter-typescript", commit: "f975a621f4e7f532fe322e13c4f79495e0a7b2e7", path: "tsx",
-            queries: "https://raw.githubusercontent.com/zed-industries/zed/26363aabdb31a0c016728634202e1ad5067033aa/crates/grammars/src/tsx"
-        ),
-    ]
-
-    public static func source(for url: URL) -> GrammarSource? {
-        let ext = url.pathExtension.lowercased(), name = url.lastPathComponent
-        return all.first { $0.fileTypes.contains(ext) || $0.fileNames.contains(name) }
-    }
-
-    /// For a language another one embeds: by grammar name (`markdown_inline`) or file type.
-    public static func source(named name: String) -> GrammarSource? {
-        all.first { $0.name == name } ?? all.first { $0.fileTypes.contains(name) }
+    enum CodingKeys: String, CodingKey {
+        case name, id, grammar, suffixes, highlights, injections, firstLine, aliases, lineComments, blockComment, brackets, autocloseBefore
+        case zedExtension = "extension"
     }
 }
 
-/// A compiled grammar on disk, as the editor loads it.
-public struct InstalledGrammar: Codable, Sendable, Hashable {
-    public var name: String
+/// Where a grammar's source lives and what its library exports.
+public struct GrammarRepository: Codable, Sendable, Hashable {
+    public var repository: String
+    /// A commit, or the crate's version when `archive` is set.
     public var commit: String
-    public var fileTypes: [String]
-    public var fileNames: [String]
-    /// Absolute paths.
+    /// A published crate (`.tar.gz`), for grammars whose repository lost the commit.
+    public var archive: String?
+    /// The grammar's folder in a repository holding several (`tsx`).
+    public var path: String?
+    /// `tree_sitter_<name>`.
+    public var symbol: String
+}
+
+public struct GrammarCatalog: Sendable {
+    /// Zed's own first, then extensions by popularity: ties go to the earlier one, as in Zed.
+    public let languages: [SyntaxLanguage]
+    public let grammars: [String: GrammarRepository]
+    /// Suffix → positions in `languages`.
+    private let suffixIndex: [String: [Int]]
+    /// Lowercased name or suffix, alias, grammar → position (`language(named:)` runs per injection).
+    private let nameIndex: [String: Int]
+
+    public init(languages: [SyntaxLanguage], grammars: [String: GrammarRepository]) {
+        self.languages = languages
+        self.grammars = grammars
+        var index: [String: [Int]] = [:]
+        for (position, language) in languages.enumerated() {
+            for suffix in Set(language.suffixes) { index[suffix, default: []].append(position) }
+        }
+        suffixIndex = index
+        var names: [String: Int] = [:]
+        // Later passes don't override earlier ones: name/suffix, then aliases, then grammar.
+        for (position, language) in languages.enumerated() {
+            for key in [language.name] + language.suffixes { names[key.lowercased()] = names[key.lowercased()] ?? position }
+        }
+        for (position, language) in languages.enumerated() {
+            for alias in language.aliases ?? [] { names[alias.lowercased()] = names[alias.lowercased()] ?? position }
+        }
+        for (position, language) in languages.enumerated() {
+            names[language.grammar.lowercased()] = names[language.grammar.lowercased()] ?? position
+        }
+        nameIndex = names
+    }
+
+    public static let shared = load()
+
+    private struct Table: Decodable {
+        var languages: [SyntaxLanguage]
+        var grammars: [String: GrammarRepository]
+    }
+
+    static func load(_ url: URL? = Bundle.module.url(forResource: "Grammars", withExtension: "json")) -> GrammarCatalog {
+        guard let url, let data = try? Data(contentsOf: url),
+              let table = try? JSONDecoder().decode(Table.self, from: data) else {
+            return GrammarCatalog(languages: [], grammars: [:])
+        }
+        return GrammarCatalog(languages: table.languages, grammars: table.grammars)
+    }
+
+    public func grammar(of language: SyntaxLanguage) -> GrammarRepository? {
+        grammars[language.grammar]
+    }
+
+    /// Zed's rule: the longest matching suffix wins (`tsconfig.json` over `json`);
+    /// with none, a first-line pattern.
+    public func language(for url: URL, firstLine: @autoclosure () -> String? = nil) -> SyntaxLanguage? {
+        let fileName = url.lastPathComponent
+        // `.zshrc`'s extension is `zshrc` here, unlike `pathExtension`.
+        let candidates = [fileName.split(separator: ".", omittingEmptySubsequences: false).last.map(String.init) ?? "", fileName, url.path]
+        // A suffix matches a candidate equal to it or ending in `.<suffix>`, so only
+        // the candidates and what follows each of their dots can be suffixes.
+        var best: (index: Int, length: Int)?
+        for candidate in candidates {
+            var keys = [Substring(candidate)]
+            var rest = Substring(candidate)
+            while let dot = rest.firstIndex(of: ".") {
+                rest = rest[rest.index(after: dot)...]
+                keys.append(rest)
+            }
+            for key in keys {
+                for index in suffixIndex[String(key)] ?? [] {
+                    // Zed scores a language by the first candidate one of its suffixes matches.
+                    let length = Self.matchLength(languages[index], candidates)
+                    if length > (best?.length ?? 0) || (length == best?.length && index < best!.index) { best = (index, length) }
+                }
+            }
+        }
+        if let best { return languages[best.index] }
+        guard let line = firstLine() else { return nil }
+        return languages.first { language in
+            language.firstLine.flatMap { try? NSRegularExpression(pattern: $0) }.map {
+                $0.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil
+            } ?? false
+        }
+    }
+
+    private static func matchLength(_ language: SyntaxLanguage, _ candidates: [String]) -> Int {
+        language.suffixes.reduce(0) { length, suffix in
+            let match = candidates.first { $0 == suffix || $0.hasSuffix("." + suffix) }
+            return max(length, match?.count ?? 0)
+        }
+    }
+
+    /// For a language another one embeds, as an injection query or a code fence
+    /// names it: the language's name or one of its suffixes, any case (`TypeScript`,
+    /// `ts`, `markdown-inline`); then its aliases or grammar's name, as Zed's modelines.
+    public func language(named name: String) -> SyntaxLanguage? {
+        nameIndex[name.lowercased()].map { languages[$0] }
+    }
+}
+
+/// An installed language, as the editor loads it.
+public struct InstalledGrammar: Codable, Sendable, Hashable {
+    /// `SyntaxLanguage.name`.
+    public var name: String
+    /// The grammar's commit and symbol, and the queries' URLs, it was installed from.
+    public var commit: String
+    public var symbol: String
+    public var queries: String
+    /// Absolute paths; the library may be shared with other languages.
     public var library: String
     public var highlights: String
     /// What it embeds (CSS and JS in Vue); not every language has one.
     public var injections: String?
-    /// `GrammarSource.layout` when it was installed; nil before injections.
-    public var layout: Int?
+    public var layout: Int
 
-    public var symbol: String { "tree_sitter_\(name)" }
+    /// Bumped when installs change shape, so older ones are redone (3: Zed's catalog, D71).
+    public static let layout = 3
 
-    /// Built from the source's commit, with every file today's installs have.
-    public func isCurrent(_ source: GrammarSource) -> Bool {
-        commit == source.commit && (layout ?? 1) >= GrammarSource.layout
+    public func isCurrent(_ language: SyntaxLanguage, _ grammar: GrammarRepository) -> Bool {
+        commit == grammar.commit && symbol == grammar.symbol && queries == Self.queries(of: language) && layout >= Self.layout
+    }
+
+    static func queries(of language: SyntaxLanguage) -> String {
+        [language.highlights, language.injections].compactMap(\.self).joined(separator: " ")
     }
 }
 
-/// `~/.orbit/grammars/<name>/`: the library, its queries and `grammar.json`.
+/// `~/.orbit/grammars/`: a folder per language (`<id>/`: queries and
+/// `grammar.json`) and the compiled grammars they share (`lib/`).
 public struct GrammarStore: Sendable {
     public let root: URL
 
@@ -145,24 +200,37 @@ public struct GrammarStore: Sendable {
     /// Posted when a grammar was installed or removed.
     public static let didChange = Notification.Name("OrbitGrammarsDidChange")
 
-    public func installed(_ name: String) -> InstalledGrammar? {
-        let manifest = root.appendingPathComponent(name).appendingPathComponent("grammar.json")
+    private var libraries: URL { root.appendingPathComponent("lib") }
+
+    public func installed(_ id: String) -> InstalledGrammar? {
+        let manifest = root.appendingPathComponent(id).appendingPathComponent("grammar.json")
         guard let data = try? Data(contentsOf: manifest) else { return nil }
         return try? JSONDecoder().decode(InstalledGrammar.self, from: data)
     }
 
     public func all() -> [InstalledGrammar] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
-        return names.filter { !$0.hasPrefix(".") }.compactMap(installed)
+        return names.filter { !$0.hasPrefix(".") && $0 != "lib" }.compactMap(installed)
     }
 
-    public func grammar(for url: URL, in grammars: [InstalledGrammar]) -> InstalledGrammar? {
-        let ext = url.pathExtension.lowercased(), name = url.lastPathComponent
-        return grammars.first { $0.fileTypes.contains(ext) || $0.fileNames.contains(name) }
+    /// Removes installs of an older shape and libraries no language uses any more.
+    public func pruneOutdated() {
+        let manager = FileManager.default
+        let names = (try? manager.contentsOfDirectory(atPath: root.path)) ?? []
+        for name in names where !name.hasPrefix(".") && name != "lib" && installed(name).map({ $0.layout < InstalledGrammar.layout }) ?? true {
+            try? manager.removeItem(at: root.appendingPathComponent(name))
+        }
+        let used = Set(all().map { URL(fileURLWithPath: $0.library).lastPathComponent })
+        for name in (try? manager.contentsOfDirectory(atPath: libraries.path)) ?? [] where !used.contains(name) {
+            let library = libraries.appendingPathComponent(name)
+            // One built just now may be waiting for its language's install to finish.
+            let built = (try? manager.attributesOfItem(atPath: library.path)[.modificationDate] as? Date) ?? .distantPast
+            if built < Date(timeIntervalSinceNow: -3600) { try? manager.removeItem(at: library) }
+        }
     }
 
-    public func uninstall(_ name: String) throws {
-        let directory = root.appendingPathComponent(name)
+    public func uninstall(_ id: String) throws {
+        let directory = root.appendingPathComponent(id)
         if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
     }
 
@@ -178,56 +246,81 @@ public struct GrammarStore: Sendable {
         }
     }
 
-    /// Fetches the grammar at its commit, compiles it and its queries in; blocking.
+    /// Builds the language's grammar (unless another language already did) and
+    /// fetches its queries; blocking.
     @discardableResult
-    public func install(_ source: GrammarSource, environment: [String: String] = ProcessInfo.processInfo.environment) throws -> InstalledGrammar {
+    public func install(
+        _ language: SyntaxLanguage, grammar: GrammarRepository, environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> InstalledGrammar {
         let manager = FileManager.default
-        try manager.createDirectory(at: root, withIntermediateDirectories: true)
-        let work = root.appendingPathComponent(".install-\(source.name)-\(UUID().uuidString)")
-        let checkout = work.appendingPathComponent("source")
-        try manager.createDirectory(at: checkout, withIntermediateDirectories: true)
+        try manager.createDirectory(at: libraries, withIntermediateDirectories: true)
+        let library = try buildLibrary(grammar, environment: environment)
+
+        let work = root.appendingPathComponent(".install-\(language.id)-\(UUID().uuidString)")
+        try manager.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? manager.removeItem(at: work) }
-
-        let git = try Self.tool("git", in: environment, needs: "git (Xcode Command Line Tools)")
-        try Self.run(git, ["-C", checkout.path, "init", "-q"], environment: environment)
-        try Self.run(git, ["-C", checkout.path, "fetch", "-q", "--depth", "1", source.repository, source.commit], environment: environment)
-        try Self.run(git, ["-C", checkout.path, "checkout", "-q", "FETCH_HEAD"], environment: environment)
-
-        let grammar = source.path.map { checkout.appendingPathComponent($0) } ?? checkout
-        let sources = grammar.appendingPathComponent("src")
-        var files = [sources.appendingPathComponent("parser.c").path]
-        let scanner = sources.appendingPathComponent("scanner.c").path
-        if manager.fileExists(atPath: scanner) { files.append(scanner) }
-        #if os(macOS)
-        let library = work.appendingPathComponent("lib\(source.name).dylib")
-        let (compiler, prefix) = ("/usr/bin/xcrun", ["clang", "-dynamiclib"])
-        #else
-        let library = work.appendingPathComponent("lib\(source.name).so")
-        let (compiler, prefix) = (try Self.tool("clang", in: environment, needs: "clang"), ["-shared", "-fPIC"])
-        #endif
-        try Self.run(compiler, prefix + ["-O2", "-std=c11", "-w", "-I", sources.path] + files + ["-o", library.path], environment: environment)
-
         let highlights = work.appendingPathComponent("highlights.scm")
-        try Self.run("/usr/bin/curl", ["-fsSL", "--retry", "2", "-o", highlights.path, source.queries + "/highlights.scm"], environment: environment)
-        // Optional: a 404 means the language embeds nothing.
-        let injections = work.appendingPathComponent("injections.scm")
-        let embeds = (try? Self.run("/usr/bin/curl", ["-fsSL", "--retry", "2", "-o", injections.path, source.queries + "/injections.scm"], environment: environment)) != nil
-        try? manager.removeItem(at: checkout)
+        try Self.run("/usr/bin/curl", ["-fsSL", "--retry", "2", "-o", highlights.path, language.highlights], environment: environment)
+        if let injections = language.injections {
+            let file = work.appendingPathComponent("injections.scm")
+            try Self.run("/usr/bin/curl", ["-fsSL", "--retry", "2", "-o", file.path, injections], environment: environment)
+        }
 
-        let destination = root.appendingPathComponent(source.name)
+        let destination = root.appendingPathComponent(language.id)
         let installed = InstalledGrammar(
-            name: source.name, commit: source.commit, fileTypes: source.fileTypes, fileNames: source.fileNames,
-            library: destination.appendingPathComponent(library.lastPathComponent).path,
+            name: language.name, commit: grammar.commit, symbol: grammar.symbol, queries: InstalledGrammar.queries(of: language),
+            library: library.path,
             highlights: destination.appendingPathComponent("highlights.scm").path,
-            injections: embeds ? destination.appendingPathComponent("injections.scm").path : nil,
-            layout: GrammarSource.layout
+            injections: language.injections == nil ? nil : destination.appendingPathComponent("injections.scm").path,
+            layout: InstalledGrammar.layout
         )
         try JSONEncoder().encode(installed).write(to: work.appendingPathComponent("grammar.json"))
-        let old = root.appendingPathComponent(".old-\(source.name)-\(UUID().uuidString)")
+        let old = root.appendingPathComponent(".old-\(language.id)-\(UUID().uuidString)")
         if manager.fileExists(atPath: destination.path) { try manager.moveItem(at: destination, to: old) }
         try manager.moveItem(at: work, to: destination)
         try? manager.removeItem(at: old)
         return installed
+    }
+
+    /// `lib/<symbol>-<commit>.dylib`, compiled from the grammar's source at its commit.
+    private func buildLibrary(_ grammar: GrammarRepository, environment: [String: String]) throws -> URL {
+        let manager = FileManager.default
+        #if os(macOS)
+        let suffix = "dylib"
+        let (compiler, prefix) = ("/usr/bin/xcrun", ["clang", "-dynamiclib"])
+        #else
+        let suffix = "so"
+        let (compiler, prefix) = (try Self.tool("clang", in: environment, needs: "clang"), ["-shared", "-fPIC"])
+        #endif
+        let library = libraries.appendingPathComponent("\(grammar.symbol)-\(grammar.commit.prefix(12)).\(suffix)")
+        if manager.fileExists(atPath: library.path) { return library }
+
+        let work = root.appendingPathComponent(".build-\(grammar.symbol)-\(UUID().uuidString)")
+        let checkout = work.appendingPathComponent("source")
+        try manager.createDirectory(at: checkout, withIntermediateDirectories: true)
+        defer { try? manager.removeItem(at: work) }
+        if let archive = grammar.archive {
+            let file = work.appendingPathComponent("source.tar.gz")
+            try Self.run("/usr/bin/curl", ["-fsSL", "--retry", "2", "-o", file.path, archive], environment: environment)
+            try Self.run("/usr/bin/tar", ["-xzf", file.path, "-C", checkout.path, "--strip-components", "1"], environment: environment)
+        } else {
+            let git = try Self.tool("git", in: environment, needs: "git (Xcode Command Line Tools)")
+            try Self.run(git, ["-C", checkout.path, "init", "-q"], environment: environment)
+            try Self.run(git, ["-C", checkout.path, "fetch", "-q", "--depth", "1", grammar.repository, grammar.commit], environment: environment)
+            // Some repositories keep test fixtures in Git LFS; the parser's source never is.
+            try Self.run(git, ["-C", checkout.path, "-c", "filter.lfs.smudge=", "-c", "filter.lfs.process=", "-c", "filter.lfs.required=false",
+                               "checkout", "-q", "FETCH_HEAD"], environment: environment)
+        }
+
+        let sources = (grammar.path.map { checkout.appendingPathComponent($0) } ?? checkout).appendingPathComponent("src")
+        var files = [sources.appendingPathComponent("parser.c").path]
+        let scanner = sources.appendingPathComponent("scanner.c").path
+        if manager.fileExists(atPath: scanner) { files.append(scanner) }
+        let built = work.appendingPathComponent(library.lastPathComponent)
+        try Self.run(compiler, prefix + ["-O2", "-std=c11", "-w", "-I", sources.path] + files + ["-o", built.path], environment: environment)
+        // Another language sharing it may have finished first; either copy is the same.
+        do { try manager.moveItem(at: built, to: library) } catch where manager.fileExists(atPath: library.path) {}
+        return library
     }
 
     private static func tool(_ name: String, in environment: [String: String], needs: String) throws -> String {

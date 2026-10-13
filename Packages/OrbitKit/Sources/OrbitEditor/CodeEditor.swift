@@ -1,10 +1,8 @@
 import AppKit
 import OrbitAPI
 import OrbitUI
-import STPluginNeon
 @_spi(Plugins) import STTextView
 import SwiftUI
-import TreeSitterResource
 
 /// SwiftUI bridge around STTextView, bound to a `TextDocument`, with
 /// agent changes shown inline.
@@ -47,7 +45,10 @@ struct CodeEditor: NSViewRepresentable {
 
         let coordinator = context.coordinator
         coordinator.updateGrammar(revision: grammarRevision, in: textView)
-        GrammarRegistry.shared.ensureInstalled(for: document.url)
+        (textView as? OrbitTextView)?.syntaxLanguage = GrammarCatalog.shared.language(
+            for: document.url, firstLine: StaticHighlighter.firstLine(of: document.text)
+        )
+        GrammarRegistry.shared.ensureInstalled(for: document.url, firstLine: StaticHighlighter.firstLine(of: document.text))
         coordinator.inlineDiff.textView = textView
         textView.addPlugin(InlineDiffPlugin(controller: coordinator.inlineDiff))
         coordinator.diagnosticsController.textView = textView
@@ -290,10 +291,15 @@ struct CodeEditor: NSViewRepresentable {
         func updateGrammar(revision: Int, in textView: STTextView) {
             guard grammarRevision != revision else { return }
             grammarRevision = revision
-            let grammar = Grammar.matching(document.url)
+            let grammar = Grammar.matching(document.url, firstLine: StaticHighlighter.firstLine(of: document.text))
             guard grammar?.key != highlighter?.key else { return }
             if let highlighter { textView.removePlugin(highlighter.id) }
             highlighter = grammar.map { (textView.addPlugin(SyntaxHighlightPlugin(palette: palette, grammar: $0)), $0.key) }
+        }
+
+        func toggleComment() {
+            guard let textView = textView as? OrbitTextView, let language = textView.syntaxLanguage else { return }
+            EditingRules.toggleComment(in: textView, language: language)
         }
 
         func closePopups() {
@@ -580,7 +586,24 @@ final class OrbitTextView: STTextView {
     var onCommand: ((Selector) -> Bool)?
     var onResignFocus: (() -> Void)?
     var onModifiersChanged: ((NSEvent.ModifierFlags) -> Void)?
+    /// The file's language: comments and bracket pairs (D73).
+    var syntaxLanguage: SyntaxLanguage?
     private var hoverArea: NSTrackingArea?
+
+    /// Typing (no replacement range; marked text from an input method passes through).
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        if replacementRange.location == NSNotFound, !hasMarkedText(), let language = syntaxLanguage,
+           let typed = (string as? String) ?? (string as? NSAttributedString)?.string, typed.count == 1,
+           EditingRules.type(typed, in: self, language: language) {
+            return
+        }
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        if let language = syntaxLanguage, EditingRules.deleteBackward(in: self, language: language) { return }
+        super.deleteBackward(sender)
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -777,33 +800,5 @@ final class EditorSelectionService: EditorSelectionProviding {
         let first = line(at: range.location)
         let last = max(first, line(at: NSMaxRange(range) - 1))
         return EditorSelection(url: coordinator.document.url, text: selected, lines: first...last)
-    }
-}
-
-enum Language {
-    static func treeSitter(for url: URL) -> TreeSitterLanguage? {
-        switch url.pathExtension.lowercased() {
-        case "swift": .swift
-        case "js", "mjs", "cjs", "jsx": .javascript
-        case "ts", "mts", "cts", "tsx": .typescript
-        case "json", "jsonc": .json
-        case "py": .python
-        case "rb": .ruby
-        case "rs": .rust
-        case "go": .go
-        case "c", "h": .c
-        case "cpp", "cc", "cxx", "hpp", "mm", "m": .cpp
-        case "cs": .csharp
-        case "java", "kt": .java
-        case "php": .php
-        case "html", "htm": .html
-        case "css", "scss": .css
-        case "md", "markdown": .markdown
-        case "sh", "bash", "zsh": .bash
-        case "sql": .sql
-        case "toml": .toml
-        case "yml", "yaml": .yaml
-        default: nil
-        }
     }
 }

@@ -30,10 +30,16 @@ struct LanguageServerConfig: Sendable, Hashable, Codable {
     /// For a companion's install offer: why this project wants it.
     var purpose: String?
     /// The answer to `workspace/configuration`, looked up by section. Strings
-    /// `${rootUri}` and `${rootName}` become the server's root. Nil answers `{}`.
+    /// `${rootUri}` and `${rootName}` become the server's root, `${typescriptSdk}`
+    /// a TypeScript `lib` folder (`typeScriptSDK`). Nil answers `{}`.
     var settings: JSONValue?
-    /// Sent with `initialize`.
+    /// Sent with `initialize`, with the same substitutions.
     var initializationOptions: JSONValue?
+    /// The file's server (by id) whose formatting its files get, when it isn't this one.
+    var formatsWith: String?
+    /// For a server that asks its client to run tsserver requests (`tsserver/request`,
+    /// Vue's), the server of the same root that runs them.
+    var typeScriptServer: String?
 
     enum Launch: Sendable, Hashable, Codable {
         /// `node_modules/.bin/<binary>` in the project, nearest to the file; with
@@ -77,10 +83,11 @@ struct LanguageServerConfig: Sendable, Hashable, Codable {
 
     // MARK: Lookup
 
-    /// Ours: the main languages (tested, D55) and the companions.
+    /// Ours: only where we know more than nvim-lspconfig's data (Xcode's
+    /// tools, roots it writes as Lua, hints, VS Code's settings) and the
+    /// companions; every other server is the imported entry (D72).
     static let curated: [LanguageServerConfig] = [
-        swift, typescript, python, rust, go, clang, json, css, html, yaml, bash, markdown, toml, lua, docker, php, zig,
-        svelte, terraform, ruby, java, csharp, eslint, tailwind,
+        swift, typescript, vue, python, rust, go, clang, lua, ruby, java, csharp, eslint, tailwind, vueLanguageServer,
     ]
 
     /// Ours, then every server imported from nvim-lspconfig that ours don't replace (D65).
@@ -206,18 +213,64 @@ struct LanguageServerConfig: Sendable, Hashable, Codable {
     }
 
     /// `settings` for a server running in `root`.
-    func settings(for root: URL) -> JSONValue? {
-        settings.map { Self.substitute($0, root: root) }
+    func settings(for root: URL, installer: LanguageInstaller = .shared) -> JSONValue? {
+        settings.map { substitute($0, root: root, installer: installer) }
     }
 
-    private static func substitute(_ value: JSONValue, root: URL) -> JSONValue {
+    /// `initializationOptions` for a server running in `root`.
+    func initializationOptions(for root: URL, installer: LanguageInstaller = .shared) -> JSONValue? {
+        initializationOptions.map { substitute($0, root: root, installer: installer) }
+    }
+
+    private func substitute(_ value: JSONValue, root: URL, installer: LanguageInstaller) -> JSONValue {
         switch value {
         case .string("${rootUri}"): .string(root.absoluteString)
         case .string("${rootName}"): .string(root.lastPathComponent)
-        case .array(let items): .array(items.map { substitute($0, root: root) })
-        case .object(let object): .object(object.mapValues { substitute($0, root: root) })
+        case .string("${typescriptSdk}"): .string(typeScriptSDK(for: root, installer: installer) ?? "")
+        case .string("${vueTypeScriptPlugin}"): .string(vueTypeScriptPlugin(for: root, installer: installer) ?? "")
+        case .array(let items): .array(items.map { substitute($0, root: root, installer: installer) })
+        case .object(let object): .object(object.mapValues { substitute($0, root: root, installer: installer) })
         default: value
         }
+    }
+
+    /// Where tsserver finds `@vue/typescript-plugin`: beside Orbit's Vue server,
+    /// whose protocol it has to match, else the project's.
+    func vueTypeScriptPlugin(for root: URL, installer: LanguageInstaller) -> String? {
+        let manager = FileManager.default
+        func has(_ folder: URL) -> Bool {
+            manager.fileExists(atPath: folder.appendingPathComponent("node_modules/@vue/typescript-plugin/package.json").path)
+        }
+        let installed = installer.directory(for: LanguageServerConfig.vueLanguageServer.install?.package ?? "")
+        if has(installed) { return installed.path }
+        var components = root.standardizedFileURL.pathComponents
+        while !components.isEmpty {
+            let folder = URL(fileURLWithPath: NSString.path(withComponents: components))
+            if has(folder) { return folder.path }
+            components.removeLast()
+        }
+        return nil
+    }
+
+    /// For servers built on tsserver (Astro, MDX): a TypeScript `lib` folder it
+    /// can load — the project's, found from the root up as Node finds it, else
+    /// the one installed with the server, else the one with Orbit's
+    /// typescript-language-server. TypeScript 7 has no tsserver library, so
+    /// a project on it falls through to a copy that does.
+    func typeScriptSDK(for root: URL, installer: LanguageInstaller) -> String? {
+        let manager = FileManager.default
+        func usable(_ lib: URL) -> Bool {
+            ["tsserverlibrary.js", "typescript.js"].contains { manager.fileExists(atPath: lib.appendingPathComponent($0).path) }
+        }
+        // By path components: `deletingLastPathComponent()` of `/` is `/..`, never `/`.
+        var components = root.standardizedFileURL.pathComponents
+        while !components.isEmpty {
+            let lib = URL(fileURLWithPath: NSString.path(withComponents: components + ["node_modules", "typescript", "lib"]))
+            if usable(lib) { return lib.path }
+            components.removeLast()
+        }
+        let packages = [install?.package, LanguageServerConfig.typescript.install?.package].compactMap(\.self)
+        return packages.lazy.map { installer.directory(for: $0).appendingPathComponent("node_modules/typescript/lib") }.first(where: usable)?.path
     }
 }
 
@@ -279,6 +332,26 @@ extension LanguageServerConfig {
         ]]
     )
 
+    /// Vue 3 splits the work (D74): tsserver with Vue's plugin answers for the
+    /// TypeScript in a component (script and template expressions), and Vue's
+    /// own server, beside it, for the template and styles, running its
+    /// TypeScript questions through this one.
+    static let vue = LanguageServerConfig(
+        id: "vue", name: "Vue", lspconfig: "vue_ls", languages: ["vue": "vue"], roots: javaScriptRoots,
+        launch: [
+            .project(package: "typescript-language-server", binary: "typescript-language-server", arguments: ["--stdio"]),
+            .installed,
+            .path(binary: "typescript-language-server", arguments: ["--stdio"]),
+        ],
+        install: typescript.install,
+        settings: typescript.settings,
+        initializationOptions: [
+            "plugins": [["name": "@vue/typescript-plugin", "location": "${vueTypeScriptPlugin}", "languages": ["vue"]]],
+            "preferences": typescript.initializationOptions?["preferences"] ?? .null,
+        ],
+        formatsWith: "vue-language-server"
+    )
+
     /// TypeScript has every inlay hint off unless asked: names for literal
     /// arguments and inferred return types, not every variable's type (noisy in TS).
     static let typeScriptHints: JSONValue = [
@@ -322,66 +395,11 @@ extension LanguageServerConfig {
         install: Install(package: "clangd", binary: "clangd", arguments: [])
     )
 
-    static let json = standard(
-        id: "json-lsp", name: "JSON", lspconfig: "jsonls", languages: ["json": "json", "jsonc": "jsonc"],
-        binary: "vscode-json-language-server", arguments: ["--stdio"], needs: "Node.js"
-    )
-
-    static let css = standard(
-        id: "css-lsp", name: "CSS", lspconfig: "cssls", languages: ["css": "css", "scss": "scss", "less": "less"],
-        binary: "vscode-css-language-server", arguments: ["--stdio"], needs: "Node.js"
-    )
-
-    static let html = standard(
-        id: "html-lsp", name: "HTML", lspconfig: "html", languages: ["html": "html", "htm": "html"],
-        binary: "vscode-html-language-server", arguments: ["--stdio"], needs: "Node.js"
-    )
-
-    static let yaml = standard(
-        id: "yaml-language-server", name: "YAML", lspconfig: "yamlls", languages: ["yml": "yaml", "yaml": "yaml"],
-        binary: "yaml-language-server", arguments: ["--stdio"], needs: "Node.js"
-    )
-
-    static let bash = standard(
-        id: "bash-language-server", name: "Shell", lspconfig: "bashls", languages: ["sh": "shellscript", "bash": "shellscript", "zsh": "shellscript"],
-        binary: "bash-language-server", arguments: ["start"], needs: "Node.js"
-    )
-
-    static let markdown = standard(
-        id: "marksman", name: "Markdown", lspconfig: "marksman", languages: ["md": "markdown", "markdown": "markdown"],
-        binary: "marksman", arguments: ["server"]
-    )
-
-    static let toml = standard(id: "taplo", name: "TOML", lspconfig: "taplo", languages: ["toml": "toml"], binary: "taplo", arguments: ["lsp", "stdio"])
-
     static let lua = {
         var lua = standard(id: "lua-language-server", name: "Lua", lspconfig: "lua_ls", languages: ["lua": "lua"], binary: "lua-language-server")
         lua.settings = ["Lua": ["hint": ["enable": true]]]
         return lua
     }()
-
-    static let docker = standard(
-        id: "dockerfile-language-server", name: "Dockerfile", lspconfig: "dockerls", languages: ["dockerfile": "dockerfile"],
-        fileNames: ["Dockerfile": "dockerfile", "Containerfile": "dockerfile"],
-        binary: "docker-langserver", arguments: ["--stdio"], needs: "Node.js"
-    )
-
-    static let php = standard(
-        id: "intelephense", name: "PHP", lspconfig: "intelephense", languages: ["php": "php"], roots: [["composer.json"]],
-        binary: "intelephense", arguments: ["--stdio"], needs: "Node.js"
-    )
-
-    static let zig = standard(id: "zls", name: "Zig", lspconfig: "zls", languages: ["zig": "zig"], binary: "zls")
-
-    static let svelte = standard(
-        id: "svelte-language-server", name: "Svelte", lspconfig: "svelte", languages: ["svelte": "svelte"], roots: javaScriptRoots,
-        binary: "svelteserver", arguments: ["--stdio"], needs: "Node.js"
-    )
-
-    static let terraform = standard(
-        id: "terraform-ls", name: "Terraform", lspconfig: "terraformls", languages: ["tf": "terraform", "tfvars": "terraform-vars"],
-        binary: "terraform-ls", arguments: ["serve"]
-    )
 
     /// Mason installs it with RubyGems, which Orbit doesn't drive: found on PATH only.
     static let ruby = LanguageServerConfig(
@@ -442,6 +460,17 @@ extension LanguageServerConfig {
             // Read without a check, so it must be there; empty lets ESLint (8.57+) pick flat or legacy config itself.
             "experimental": [:],
         ]
+    )
+
+    /// Vue's template, styles and checks beside the Vue tsserver (D74); a component's
+    /// formatting too (tsserver leaves `.vue` files as they are).
+    static let vueLanguageServer = LanguageServerConfig(
+        id: "vue-language-server", name: "Vue templates", languages: ["vue": "vue"], roots: javaScriptRoots,
+        launch: [.installed, .path(binary: "vue-language-server", arguments: ["--stdio"])],
+        install: Install(package: "vue-language-server", binary: "vue-language-server", arguments: ["--stdio"], needs: "Node.js"),
+        usedWith: ["vue", "nuxt"],
+        purpose: "This project uses Vue: template completion, Vue's checks and formatting.",
+        typeScriptServer: "vue"
     )
 
     /// Class completion, hover and lint; the server finds the project's Tailwind (v3 config or v4 CSS) itself.

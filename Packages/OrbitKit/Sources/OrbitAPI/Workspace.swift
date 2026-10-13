@@ -205,16 +205,10 @@ public final class Workspace {
     }
 }
 
+/// The symbol for a file when the icon theme has nothing; files' real icons come
+/// from the icon theme (`FileIconView`).
 public enum FileIcon {
     public static func systemImage(for url: URL) -> String {
-        switch url.pathExtension.lowercased() {
-        case "swift": "swift"
-        case "md", "markdown", "txt": "doc.plaintext"
-        case "json", "yml", "yaml", "toml", "plist": "curlybraces"
-        case "png", "jpg", "jpeg", "gif", "svg", "webp", "heic": "photo"
-        case "sh", "zsh", "bash": "terminal"
-        case "html", "css": "globe"
-        default: "doc.text"
-        }
+        "doc.text"
     }
 }

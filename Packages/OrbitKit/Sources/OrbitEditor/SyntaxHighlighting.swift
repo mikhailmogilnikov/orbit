@@ -5,7 +5,6 @@ import OrbitUI
 import STTextView
 import SwiftTreeSitter
 import Synchronization
-import TreeSitterResource
 
 /// Tree-sitter highlighting for STTextView. Parsing and queries run on a
 /// background queue (`HighlightWorker`), embedded languages included (D69);
@@ -129,6 +128,9 @@ final class SyntaxHighlightCoordinator {
         weak var coordinator: SyntaxHighlightCoordinator?
     }
 
+    /// Embedded languages this file found missing; their install reloads its layers.
+    private var awaitedGrammars: Set<String> = []
+
     init?(textView: STTextView, palette: SyntaxPalette, grammar: Grammar) {
         guard textView.textContentManager.length <= Self.maxLength else { return nil }
         let link = Link()
@@ -141,8 +143,13 @@ final class SyntaxHighlightCoordinator {
         link.coordinator = self
 
         palette.onThemeChange = { [weak self] theme in self?.worker.setTheme(theme) }
-        grammarObserver = NotificationCenter.default.addObserver(forName: GrammarStore.didChange, object: nil, queue: .main) { [weak worker] _ in
-            worker?.reloadLayers()
+        grammarObserver = NotificationCenter.default.addObserver(forName: GrammarStore.didChange, object: nil, queue: .main) { [weak self] note in
+            // Background installs (a folder's languages) don't concern files that didn't ask for them.
+            let name = note.object as? String
+            MainActor.assumeIsolated {
+                guard let self, let name, self.awaitedGrammars.remove(name) != nil else { return }
+                self.worker.reloadLayers()
+            }
         }
         palette.onChange = { [weak self] in self?.restyle() }
 
@@ -199,7 +206,10 @@ final class SyntaxHighlightCoordinator {
     }
 
     private func drain() {
-        for name in worker.takeMissingGrammars() { GrammarRegistry.shared.ensureInstalled(named: name) }
+        for name in worker.takeMissingGrammars() {
+            awaitedGrammars.insert(name)
+            GrammarRegistry.shared.ensureInstalled(named: name)
+        }
         let patches = worker.takePatches()
         guard !patches.isEmpty else { return }
         let touched = cache.apply(patches)
@@ -379,8 +389,8 @@ enum HighlightQueries {
     private static let cache = Mutex<[String: LanguageQueries?]>([:])
 
     static func queries(for grammar: Grammar) -> LanguageQueries? {
-        // Compiling under the lock lets a file open wait for an in-flight prewarm
-        // of the same language instead of compiling it twice.
+        // Compiling under the lock lets a second editor of the same language
+        // wait for the first one's compile instead of doing it twice.
         cache.withLock { cache in
             if let queries = cache[grammar.key] { return queries }
             let queries = compile(grammar)
@@ -390,30 +400,13 @@ enum HighlightQueries {
     }
 
     private static func compile(_ grammar: Grammar) -> LanguageQueries? {
-        guard let language = grammar.language else { return nil }
-        // The combined query names JavaScript nodes; should a grammar version not
-        // have one, TypeScript's own patterns still beat no colors at all.
-        guard let highlights = grammar.querySources().lazy.compactMap({ try? Query(language: language, data: Data($0.utf8)) }).first
-        else { return nil }
+        guard let language = grammar.language, let source = grammar.highlightsQuery,
+              let highlights = try? Query(language: language, data: Data(source.utf8)) else { return nil }
         return LanguageQueries(grammar: grammar, language: language, highlights: highlights, injections: injections(for: grammar, language: language))
     }
 
-    /// Patterns naming nodes this grammar version lacks are left out rather
-    /// than losing all of them.
     private static func injections(for grammar: Grammar, language: SwiftTreeSitter.Language) -> Query? {
-        let patterns = grammar.injectionPatterns()
-        guard !patterns.isEmpty else { return nil }
-        func compile(_ source: String) -> Query? { try? Query(language: language, data: Data(source.utf8)) }
-        if let query = compile(patterns.joined(separator: "\n")) { return query }
-        let fitting = patterns.filter { compile($0) != nil }
-        return fitting.isEmpty ? nil : compile(fitting.joined(separator: "\n"))
-    }
-
-    /// Compiles every built-in language off the main thread so the first open is instant too.
-    static func prewarm() {
-        DispatchQueue.global(qos: .utility).async {
-            for language in TreeSitterLanguage.allCases { _ = queries(for: .builtin(language)) }
-        }
+        grammar.injectionsQuery.flatMap { try? Query(language: language, data: Data($0.utf8)) }
     }
 }
 
@@ -445,10 +438,14 @@ final class StaticHighlighter: SyntaxHighlighting {
 
     /// Capture names and ranges, less specific first (later ones win).
     nonisolated private static func captures(in text: String, url: URL) -> [(String, NSRange)] {
-        guard let grammar = Grammar.matching(url), let queries = HighlightQueries.queries(for: grammar) else { return [] }
+        guard let grammar = Grammar.matching(url, firstLine: Self.firstLine(of: text)), let queries = HighlightQueries.queries(for: grammar) else { return [] }
         let parser = Parser()
         guard (try? parser.setLanguage(queries.language)) != nil,
               let tree = parser.parse(text) else { return [] }
         return queries.highlights.execute(in: tree).resolve(with: .init(string: text)).highlights().map { ($0.name, $0.range) }
+    }
+
+    nonisolated static func firstLine(of text: String) -> String {
+        String(text.prefix(256).prefix { !$0.isNewline })
     }
 }

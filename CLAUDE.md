@@ -37,6 +37,7 @@ make test    # swift test in Packages/OrbitKit
 make test-languages   # LSP client against real servers (D55); runs on Linux too
 make test-language-installs   # every server installed from Mason and run (D57); slow once
 make import-lspconfig   # regenerate the imported server table from nvim-lspconfig (D65)
+make import-grammars    # regenerate the grammar table from Zed and its extension catalog (D71)
 make clean
 cd Packages/OrbitKit && swift build   # fast compile check of all modules
 ```
@@ -49,7 +50,7 @@ The last opened folder is stored in `defaults read dev.orbit.app orbit.lastWorks
 ```
 App/                      shell (window, tabs, inspector, palette, menus, settings)
 Packages/OrbitKit/
-  Sources/OrbitAPI        kernel: OrbitPlugin, registries, Workspace, DocumentStore, LineDiff, ChangeTracking
+  Sources/OrbitAPI        kernel: OrbitPlugin, registries, Workspace, DocumentStore, LineDiff, ChangeTracking, GrammarCatalog
   Sources/OrbitUI         Theme tokens, DiffView, MarkdownText, components
   Sources/OrbitACP        JSON-RPC + ACP client + ShellEnvironment
   Sources/OrbitExplorer   plugin: file tree
@@ -125,7 +126,9 @@ examples/extensions/      sample extensions (theme, icon theme)
   the split view item to no max on each drag; `SidebarWidthLimit` re-applies
   the limits. Without a max the detail column (it runs under the sidebar, so
   its min width grows with it) outgrew the screen and AppKit crashed.
-- Syntax highlighting is our `SyntaxHighlightPlugin`, not upstream `NeonPlugin`:
+- Syntax highlighting is our `SyntaxHighlightPlugin` with Zed's languages
+  (`Grammars.json`, D71); no grammar is built in. Never add one by hand:
+  bump the pins and rerun `make import-grammars`. Highlighting is not upstream `NeonPlugin`:
   TextKit 2 throws on rendering attributes for empty ranges (see D14).
 - Since macOS 14 NSViews don't clip to bounds by default: a custom `draw(_:)`
   that fills `dirtyRect` can paint over siblings (the line-number ruler hid

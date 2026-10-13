@@ -67,6 +67,10 @@ final class SearchFileIndex: ProjectFileIndex {
         let bonus = Dictionary(recent.enumerated().map { ($0.element, $0.offset < 10 ? 15 : 5) }, uniquingKeysWith: max)
         return QuickOpen.rank(query, entries: files.entries, recentBonus: bonus, limit: limit).map(\.path)
     }
+
+    func allPaths() async -> [String] {
+        await files.current()?.paths ?? []
+    }
 }
 
 /// ⌘P: fuzzy file finder over the project index.

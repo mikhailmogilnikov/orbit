@@ -67,7 +67,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D55. Language servers are tested end to end against the real servers — TS setup → D65
 - D56. Completion and signature help: one request per word, filtered locally
 - D57. Language servers install from the Mason registry, with our own installer — table → D65
-- D58. Extra grammars are compiled lazily, with Zed's highlight queries
+- D58. Extra grammars are compiled lazily, with Zed's highlight queries — list → D71
 - D59. Code actions, rename, formatting, Problems
 - D60. Formatting follows the repository
 - D61. Formatters are data, overridable per project
@@ -78,8 +78,12 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D66. Fixes in the hover card; ⌥Esc opens completion
 - D67. Features are found in a right-click menu, and their shortcuts are taught
 - D68. The hover card sits over the line, as in VS Code
-- D69. Embedded languages are layers parsed by the highlight worker
+- D69. Embedded languages are layers parsed by the highlight worker — lookup → D71
 - D70. Inlay hints are room in the text plus labels over it
+- D71. Syntax highlighting is Zed's languages, imported; nothing built in
+- D72. Our server entries only where we know more than nvim-lspconfig
+- D73. ⌘/ and bracket pairs come from Zed's language configs
+- D74. Vue: tsserver with Vue's plugin, Vue's server beside it
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -882,6 +886,9 @@ nvim-treesitter's queries: their capture names are Neovim's.
 loads it and checks its sample parses without errors and gets comment,
 keyword, string… captures.
 
+Note: the hand-written list and the built-in grammars are gone (D71): every
+language comes from Zed's catalog, installed the same lazy way.
+
 ### D59. Code actions, rename, formatting, Problems
 - **Code actions** (⇧⌘A, Xcode's Show Code Actions; ⌘. stays Stop Agent): a
   menu at the caret, fixes first (the server's preferred one on top), then
@@ -1316,6 +1323,9 @@ main-thread highlight cache and painting didn't change.
   Linux (HTML, JS, CSS and Markdown grammars from upstream standing in for
   the bundled ones, plus Vue and Markdown inline); unverified on a Mac.
 
+Note: `BuiltinInjections` and the alias table are gone (D71): every language
+has Zed's `injections.scm`, and an embedded language is found as Zed finds it.
+
 ### D70. Inlay hints are room in the text plus labels over it
 
 Types and parameter names from the server (`textDocument/inlayHint`) are
@@ -1334,3 +1344,137 @@ room, on a capsule in the theme's hint colors, made only for the viewport.
 - The server side runs in `make test-languages` (Swift, TypeScript); the
   drawing is unverified on a Mac.
 
+### D71. Syntax highlighting is Zed's languages, imported; nothing built in
+
+Context: highlighting had three hand-made layers — 20 grammars linked into
+the app (STTextView-Plugin-Neon's, with their nvim-style queries), a list of
+10 grammars installed on demand (D58), and our own injection patterns and
+language aliases (D69). Language servers covered ~230 file types (D65); about
+190 of them had no colors (Astro, Elixir, Nix, Haskell, Scala, Dart…).
+Adding grammars by hand doesn't scale, and every built-in one was a second
+source of truth next to Zed's queries, which already set the capture names
+our themes (D48) style.
+
+Decision — Zed's languages are the only source, converted like
+nvim-lspconfig's servers (D65): `make import-grammars` runs
+`scripts/import-grammars.py` on pinned commits of Zed (its own languages:
+`crates/grammars/src/*/config.toml`, grammar versions from Cargo.toml /
+Cargo.lock) and of its extension catalog (each language extension's
+`extension.toml` and `languages/*/config.toml` at the catalog's submodule
+commit; Zed's API only says which extensions have languages and their
+downloads). It writes `OrbitAPI/Resources/Grammars.json`: ~520 languages and
+the grammars they use. Nothing of theirs is bundled, only where to fetch it.
+
+- A *language* is a name, file suffixes, a first-line pattern and URLs of
+  Zed's `highlights.scm` / `injections.scm`; a *grammar* is a repository at a
+  commit, a folder and the exported symbol. Languages may share one (JS is
+  parsed with TSX's grammar, JSONC with JSON's, `.env` with Bash's); compiled
+  grammars live in `~/.orbit/grammars/lib/` and are shared.
+- A file's language is picked as Zed picks it: the longest matching suffix
+  (`tsconfig.json` → JSONC over `.json`), ties to the earlier language (Zed's
+  own, then extensions by popularity), else the first line (shebangs). So
+  `.mdx` is Markdown, as in Zed. An embedded language (injection, code fence)
+  is found by name or suffix, any case, then modeline aliases.
+- Every language installs lazily (D58's mechanism): the first open of a
+  TypeScript file now compiles TSX's grammar (a second or two, once). When a
+  folder opens, the languages of its files are installed one by one in the
+  background, from the Search plugin's file list (`ProjectFileIndex.allPaths`).
+  Old installs (layout < 3) and unused libraries are pruned at launch.
+- The importer checks what the app will fetch: each grammar's commit (crates
+  sometimes name a commit never pushed — then the release tag's; if the
+  repository is gone, the published crate archive, as for Diff), each query
+  URL (symlinked query files are resolved: raw GitHub serves a link's target
+  path, not the file). Left out: repositories that vanished (Jai), queries
+  that can't be fetched (FSharp, SysML), and two extensions whose queries
+  don't fit their own grammar (`BROKEN_LANGUAGES`).
+- Git LFS smudging is off when fetching a grammar (some repositories keep
+  fixtures there; the parser never is).
+
+Rejected: keeping the built-in grammars for instant first open (two sources
+of truth, nvim capture names, a dependency); nvim-treesitter or Helix as the
+source (capture names differ from our Zed themes; Zed covers what our
+servers need); Zed's wasm grammars (a wasm runtime in the editor, D58).
+
+Cost: the first file of each language opens uncolored for a second or two,
+and a Mac without network or Xcode's command line tools gets no colors at
+all. `make test` installs Swift, Markdown, JS, CSS and HTML into the temp
+folder on its first run (network). `make test-language-installs` installs
+all ~520 languages, loads each grammar and compiles its queries (~5 min);
+all pass.
+
+### D72. Our server entries only where we know more than nvim-lspconfig
+
+JSON, CSS, HTML, YAML, Shell, Markdown, TOML, Dockerfile, PHP, Zig, Svelte
+and Terraform had entries of ours that said what the imported ones (D65)
+already do: the same server ranked first for their files, the same Mason
+package, `node_modules/.bin` first where lspconfig has it. They are removed;
+those files get the imported entries. Kept: Swift and C (Xcode's tools), TS
+(the project's TypeScript 7, tsserver preferences), Python and Rust (root
+markers lspconfig writes as Lua), Go and Lua (inlay hints on), Ruby, Java,
+C# (installs Orbit can't do, `-data`), and the companions.
+
+Lost on the way: `.zsh` and `.tfvars` have no server (lspconfig doesn't map
+them); Settings → Languages shows the removed ones only once installed or
+found, like every imported server. Server ids changed to lspconfig's names
+(`cssls`, not `css-lsp`): a `languageServers` rule naming an old id needs
+the new one.
+
+Also (D65's import): servers built on tsserver (Astro, MDX) whose lspconfig
+entry finds TypeScript in a `before_init` get `typescript.tsdk =
+${typescriptSdk}`: the project's `node_modules/typescript/lib` from the root
+up (skipping TypeScript 7, which has no tsserver library), else the one
+installed with the server, else typescript-language-server's.
+
+### D73. ⌘/ and bracket pairs come from Zed's language configs
+
+The grammar import (D71) also takes each language's `line_comments`,
+`block_comment`, `brackets` (those with `close`) and `autoclose_before` into
+`Grammars.json`, so editing rules exist for every language with nothing
+written per language (`EditingRules`).
+
+- ⌘/ (Code → Toggle Comment, also in the editor menu): the selected lines get
+  the first line comment at their common indent, or lose any of the
+  language's markers (longest first: `///` before `//`) when all have one.
+  Without a line comment (HTML, CSS) the lines are wrapped in a block comment.
+- Typing an opening bracket or quote adds the closing one, as Zed does: only
+  before whitespace, the end or an `autoclose_before` character; not a quote
+  right after a letter or digit (apostrophes). Multi-character openers (`/*`,
+  `"""`, `f"`) close on their last character. With a selection, the pair
+  wraps it. Typing a closing character in front of the same one steps over
+  it; Backspace inside an empty pair removes both.
+- Zed's `not_in` (no pairs inside strings and comments) isn't followed yet:
+  it needs the capture under the caret.
+
+Also: file icons come from the icon theme everywhere (the chat's attachment
+chip was the last SF Symbol by extension); `FileIcon.systemImage` is only the
+fallback symbol.
+
+### D74. Vue: tsserver with Vue's plugin, Vue's server beside it
+
+Vue's server (3.x) no longer answers for TypeScript: it sends
+`tsserver/request` notifications and waits for `tsserver/response` from its
+client, which runs them on a tsserver that loads `@vue/typescript-plugin`.
+The imported `vue_ls` entry ran it alone, so every request in a `.vue` file
+hung.
+
+- `.vue`'s language server is `vue`: typescript-language-server (the project's,
+  else Orbit's) with the plugin from beside Orbit's Vue server (versions must
+  match), else the project's. It answers the component's TypeScript, in the
+  script and the template's expressions: completion, hover, navigation,
+  problems.
+- `vue-language-server` is a companion (D64) for projects depending on `vue`
+  or `nuxt`: tags, directives, Vue's checks. Its `tsserver/request`s go to the
+  `vue` server of the same root (`typeScriptServer`) through
+  `typescript.tsserverRequest`; with none running each gets a null body, never
+  silence.
+- tsserver leaves `.vue` files unformatted, so server formatting goes to the
+  companion (`formatsWith`).
+- Installing a package restarts every server using it (TypeScript and Vue
+  share typescript-language-server) and the tsserver loading a plugin from it.
+
+Also: `workspace/configuration` answers null, not `{}`, for an unset dotted
+section (Astro iterated `html.customData`'s `{}` and crashed); a whole
+section still gets `{}` (the CSS server fails on null). `shutdown` and `exit`
+go without `params` (TypeScript 7 rejected `"params": null` and kept running).
+A crashed server's message shows the stack's error line instead of its last
+frames.

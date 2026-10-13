@@ -2,7 +2,6 @@ import Foundation
 import OrbitAPI
 import SwiftTreeSitter
 import Synchronization
-import TreeSitterResource
 
 /// An immutable copy of the document for the parser thread. Bridging
 /// `NSTextStorage.string` already copies the mutable backing store, so this is
@@ -348,7 +347,7 @@ final class HighlightWorker: @unchecked Sendable {
         }
     }
 
-    /// Embedded languages that need a grammar installed (`GrammarSource` names).
+    /// Embedded languages that need installing (`SyntaxLanguage` names).
     func takeMissingGrammars() -> Set<String> {
         missing.withLock { names in
             defer { names.removeAll() }
@@ -566,8 +565,8 @@ final class HighlightWorker: @unchecked Sendable {
             for injection in found where kept.count + added.count < Self.maxLayers {
                 let range = injection.range
                 refound.append((depth, range))
-                if let source = Grammar.sourceToInstall(named: injection.name) {
-                    _ = missing.withLock { $0.insert(source.name) }
+                if let language = Grammar.languageToInstall(named: injection.name) {
+                    _ = missing.withLock { $0.insert(language.name) }
                 }
                 guard let grammar = Grammar.named(injection.name) else { continue }
                 let key = "\(grammar.key)@\(range.location)"

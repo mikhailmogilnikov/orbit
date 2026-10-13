@@ -10,7 +10,7 @@ Core idea: **the kernel knows almost nothing; everything else is a plugin.**
 | Language | Swift 6 (strict concurrency), UI types are `@MainActor` |
 | Build | XcodeGen (`project.yml`) + local SwiftPM package `Packages/OrbitKit` |
 | Agents | ACP — Agent Client Protocol, newline-delimited JSON-RPC over stdio |
-| Editor | STTextView (TextKit 2) + tree-sitter highlighting via STTextView-Plugin-Neon |
+| Editor | STTextView (TextKit 2) + tree-sitter highlighting with Zed's languages, compiled on demand (D71) |
 | Diffs | `CollectionDifference` (Myers) over lines → change blocks |
 | Change tracking | Shadow git repo per workspace (checkpoints) |
 

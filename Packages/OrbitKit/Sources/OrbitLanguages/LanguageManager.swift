@@ -125,6 +125,12 @@ final class LanguageManager: LanguageIntelligence {
             } else {
                 server = LanguageServer(config: config, root: key.root, origin: documents.first?.url, folder: root)
                 server.onApplyEdit = { [weak self] edit in self?.apply(edit) ?? false }
+                if let typeScript = config.typeScriptServer {
+                    let typeScriptKey = ServerKey(id: typeScript, root: key.root)
+                    server.onTypeScriptRequest = { [weak self] command, arguments in
+                        await self?.servers[typeScriptKey]?.typeScriptRequest(command, arguments)
+                    }
+                }
                 servers[key] = server
             }
             guard await server.start(environment: environment) else {
@@ -423,9 +429,17 @@ final class LanguageManager: LanguageIntelligence {
     }
 
     /// A new or removed copy takes over from the running one; open files start it again.
+    /// So do the servers sharing its package (TypeScript and Vue's tsserver) and the
+    /// tsserver that loads Vue's plugin from it (D74).
     private func restartServer(_ id: String) {
-        for key in servers.keys where key.id == id { servers.removeValue(forKey: key)?.shutdown() }
-        unavailable = unavailable.filter { $0.key.id != id }
+        let config = LanguageServerConfig.config(id: id)
+        var ids: Set<String> = [id]
+        if let package = config?.install?.package {
+            ids.formUnion(LanguageServerConfig.all.filter { $0.install?.package == package }.map(\.id))
+        }
+        if let typeScript = config?.typeScriptServer { ids.insert(typeScript) }
+        for key in servers.keys where ids.contains(key.id) { servers.removeValue(forKey: key)?.shutdown() }
+        unavailable = unavailable.filter { !ids.contains($0.key.id) }
         placements.removeAll()
         scheduleSync()
     }
@@ -481,7 +495,7 @@ final class LanguageManager: LanguageIntelligence {
         case .tool?, nil: return true
         case .off?: return false
         case .server?:
-            guard let server = runningServer(for: url), server.state == .running else { return false }
+            guard let server = formatter(for: url), server.state == .running else { return false }
             return server.formats
         }
     }
@@ -517,7 +531,7 @@ final class LanguageManager: LanguageIntelligence {
             return FormatOutcome(formatter: formatter.name, changed: true)
         case .server:
             let nothing = "Nothing formats .\(url.pathExtension) files here: the language server can't, and the project has no formatter Orbit recognizes (\(FormatterPreset.all.map(\.name).joined(separator: ", "))). Set one for this file type in .orbit/settings.json — Settings → Languages → Formatting."
-            guard let server = await flush(url) else { return .failed(nothing) }
+            guard let server = await formattingServer(url) else { return .failed(nothing) }
             if server.state == .starting {
                 return .failed("The \(server.config.name) language server is still starting. Try again in a moment.")
             }
@@ -531,6 +545,20 @@ final class LanguageManager: LanguageIntelligence {
             guard apply(WorkspaceEdit(files: [url.standardizedFileURL: edits])) else { return .failed("The file couldn't be changed.", formatter: name) }
             return FormatOutcome(formatter: name, changed: true)
         }
+    }
+
+    /// The language server, or the one of the file's servers it leaves formatting to (Vue's, D74).
+    private func formatter(for url: URL) -> LanguageServer? {
+        guard let key = languageKey(for: url) else { return nil }
+        if let other = serverConfig(id: key.id)?.formatsWith { return server(id: other, for: url) }
+        return servers[key]
+    }
+
+    /// `formatter(for:)` with the file's latest text.
+    private func formattingServer(_ url: URL) async -> LanguageServer? {
+        guard let server = formatter(for: url) else { return nil }
+        if let document = workspace.documents.existingDocument(for: url) { server.sync(document.url, text: document.text) }
+        return server
     }
 
     private func formatterChoice(for url: URL, environment: [String: String]? = nil) throws -> FormatterChoice {

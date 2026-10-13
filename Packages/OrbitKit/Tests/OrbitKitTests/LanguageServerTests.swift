@@ -5,6 +5,25 @@ import Foundation
 import Testing
 
 @Suite struct LanguageServerTests {
+    /// A Node crash names its error above the frames; the tail alone hid it.
+    @Test func crashShowsTheError() {
+        let node = """
+        file:///x/lib/features/provideCompletionItems.js:120
+                    throw err;
+                    ^
+
+        TypeError: Cannot read properties of undefined (reading 'length')
+            at worker (/x/provideCompletionItems.js:120:30)
+            at async Object.getCompletionItems (/x/provideCompletionItems.js:187:25)
+            at async /x/languageFeatures.js:345:34
+            at async Immediate.<anonymous> (/x/languageFeatures.js:745:32)
+
+        Node.js v24.21.0
+        """
+        #expect(LanguageServer.crashSummary(node).hasPrefix("TypeError: Cannot read properties of undefined (reading 'length')\n    at worker"))
+        #expect(LanguageServer.crashSummary("a\nb\nc\nd\ne") == "b\nc\nd\ne")
+    }
+
     /// D65: one TypeScript server per monorepo (its lockfile), the project's own
     /// TypeScript nearest to the file, companions by dependency, its tools first on PATH.
     @Test func launchesFromTheProject() throws {
@@ -171,6 +190,33 @@ import Testing
         #expect(settings?["workspaceFolder"]?["name"]?.string == "web")
     }
 
+    /// `${typescriptSdk}` (Astro, MDX): the project's TypeScript from the root
+    /// up, skipping one without tsserver's library (TypeScript 7), else the
+    /// copy installed with the server.
+    @Test func typeScriptSDKPrefersTheProjects() throws {
+        let manager = FileManager.default
+        let base = manager.temporaryDirectory.appendingPathComponent("orbit-tsdk-\(UUID().uuidString)")
+        defer { try? manager.removeItem(at: base) }
+        func lib(_ path: String, _ file: String?) throws -> URL {
+            let lib = base.appendingPathComponent(path).appendingPathComponent("node_modules/typescript/lib")
+            try manager.createDirectory(at: lib, withIntermediateDirectories: true)
+            if let file { try Data().write(to: lib.appendingPathComponent(file)) }
+            return lib
+        }
+        let installer = LanguageInstaller(root: base.appendingPathComponent("installs"))
+        let config = try #require(LanguageServerConfig.config(id: "astro"))
+        let app = base.appendingPathComponent("repo/apps/docs")
+        try manager.createDirectory(at: app, withIntermediateDirectories: true)
+
+        let own = try lib("installs/astro-language-server", "tsserverlibrary.js")
+        #expect(config.typeScriptSDK(for: app, installer: installer) == own.path)
+        _ = try lib("repo/apps/docs", nil) // TypeScript 7: no library
+        let hoisted = try lib("repo", "typescript.js")
+        #expect(config.typeScriptSDK(for: app, installer: installer) == hoisted.path)
+        let options = config.initializationOptions(for: app, installer: installer)
+        #expect(options?["typescript"]?["tsdk"]?.string == hoisted.path)
+    }
+
     /// Servers without hierarchical symbols send a flat list; nesting comes from which range holds which.
     @Test func flatSymbolsNestByRange() throws {
         func symbol(_ name: String, _ kind: Int, _ lines: ClosedRange<Int>) -> JSONValue {
@@ -240,7 +286,7 @@ import Testing
         #expect(LanguageServerConfig.config(for: URL(fileURLWithPath: "/p/App.swift"))?.id == "sourcekit-lsp")
         #expect(LanguageServerConfig.config(for: URL(fileURLWithPath: "/p/a.tsx"))?.languageID(for: URL(fileURLWithPath: "/p/a.tsx")) == "typescriptreact")
         #expect(LanguageServerConfig.config(for: URL(fileURLWithPath: "/p/notes.txt")) == nil)
-        #expect(LanguageServerConfig.config(for: URL(fileURLWithPath: "/p/Dockerfile"))?.id == "dockerfile-language-server")
+        #expect(LanguageServerConfig.config(for: URL(fileURLWithPath: "/p/Dockerfile"))?.id == "dockerls")
     }
 }
 

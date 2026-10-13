@@ -1048,6 +1048,9 @@ private struct AttachmentChip: View {
                     .scaledToFill()
                     .frame(width: 16, height: 16)
                     .clipShape(.rect(cornerRadius: 3))
+            } else if case .file(let url) = attachment {
+                FileIconView(url: url, size: 12)
+                    .foregroundStyle(.secondary)
             } else {
                 Image(systemName: attachment.systemImage)
                     .font(.system(size: 10))

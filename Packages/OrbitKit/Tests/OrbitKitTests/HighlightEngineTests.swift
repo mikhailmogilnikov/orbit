@@ -59,8 +59,9 @@ import Testing
             .appendingPathComponent("../../Sources/OrbitEditor/HighlightEngine.swift")
         var text = String(try String(contentsOf: source, encoding: .utf8).prefix(6000))
         let theme = Extensions.shared.colorTheme(dark: false)
+        let swift = try TestGrammars.grammar("Swift")
 
-        let worker = try #require(Self.worker(theme))
+        let worker = try #require(Self.worker(swift, theme))
         var cache = HighlightCache()
         worker.reset(TextSnapshot(string: text as NSString), version: cache.version)
         worker.waitUntilIdle()
@@ -79,7 +80,7 @@ import Testing
         worker.waitUntilIdle()
         _ = cache.apply(worker.takePatches())
 
-        let fresh = try #require(Self.worker(theme))
+        let fresh = try #require(Self.worker(swift, theme))
         var freshCache = HighlightCache()
         fresh.reset(TextSnapshot(string: text as NSString), version: 0)
         fresh.waitUntilIdle()
@@ -94,9 +95,10 @@ import Testing
     @MainActor
     @Test func embeddedLanguagesFollowEdits() throws {
         let theme = Extensions.shared.colorTheme(dark: false)
+        let markdown = try TestGrammars.grammar("Markdown", "Markdown-Inline", "JavaScript", "CSS", "HTML")
         func make() throws -> HighlightWorker {
             // Outside #require: its expansion can't take the non-Sendable closure literal.
-            let worker = HighlightWorker(grammar: .builtin(.markdown), theme: theme, notify: {})
+            let worker = HighlightWorker(grammar: markdown, theme: theme, notify: {})
             return try #require(worker)
         }
         func fresh(_ text: String) throws -> HighlightCache {
@@ -120,7 +122,7 @@ import Testing
             "\((text as NSString).substring(with: NSRange(location: $0.start, length: $0.end - $0.start))) \(names()[Int($0.capture)])"
         }
         #expect(colored.contains { $0.hasPrefix("const keyword") }, """
-            \(colored); markdown injections: \(HighlightQueries.queries(for: .builtin(.markdown))?.injections != nil), \
+            \(colored); markdown injections: \(HighlightQueries.queries(for: markdown)?.injections != nil), \
             js: \(Grammar.named("js")?.key ?? "nil"), keyword styled: \(theme.style(forCapture: "keyword")?.color != nil), \
             layers: \(layers)
             """)
@@ -163,8 +165,8 @@ import Testing
         return result
     }
 
-    static func worker(_ theme: ColorTheme) -> HighlightWorker? {
-        HighlightWorker(grammar: .builtin(.swift), theme: theme, notify: {})
+    static func worker(_ grammar: Grammar, _ theme: ColorTheme) -> HighlightWorker? {
+        HighlightWorker(grammar: grammar, theme: theme, notify: {})
     }
 
     static func randomEdit(of text: String, using generator: inout SeededGenerator) -> (TextEdit, String) {

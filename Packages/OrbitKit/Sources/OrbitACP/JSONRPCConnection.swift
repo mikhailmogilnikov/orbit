@@ -190,15 +190,23 @@ public final class JSONRPCConnection: @unchecked Sendable {
                 self.nextID += 1
                 state?.id = id
                 self.pending[id] = continuation
-                self.write(["jsonrpc": "2.0", "id": .number(Double(id)), "method": .string(method), "params": params])
+                self.write(Self.message(["jsonrpc": "2.0", "id": .number(Double(id)), "method": .string(method)], params))
             }
         }
     }
 
     public func notify(_ method: String, _ params: JSONValue = .object([:])) {
         queue.async {
-            self.write(["jsonrpc": "2.0", "method": .string(method), "params": params])
+            self.write(Self.message(["jsonrpc": "2.0", "method": .string(method)], params))
         }
+    }
+
+    /// `.null` leaves `params` out: `shutdown` and `exit` take none, and
+    /// TypeScript 7's server rejects even `"params": null`.
+    static func message(_ fields: [String: JSONValue], _ params: JSONValue) -> JSONValue {
+        var fields = fields
+        if params != .null { fields["params"] = params }
+        return .object(fields)
     }
 
     /// Must be called on `queue`.

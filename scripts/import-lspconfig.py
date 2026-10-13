@@ -474,6 +474,14 @@ def convert(name, source, types, packages):
                     entry[key] = value
             except NotData:
                 pass
+    # Servers built on tsserver (Astro, MDX) are told where TypeScript is, from
+    # the project or a copy Orbit has (`${typescriptSdk}`).
+    if any(text == "get_typescript_server_path" for _, text in fields.get("before_init", [])):
+        options = entry.get("initializationOptions")
+        options = options if isinstance(options, dict) else {}
+        typescript = options.get("typescript")
+        options["typescript"] = {**(typescript if isinstance(typescript, dict) else {}), "tsdk": "${typescriptSdk}"}
+        entry["initializationOptions"] = options
     entry["kinds"] = kinds
     return entry
 

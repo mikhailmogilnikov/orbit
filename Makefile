@@ -2,7 +2,7 @@ DERIVED := .build/xcode
 CONFIG ?= Debug
 APP := $(DERIVED)/Build/Products/$(CONFIG)/Orbit.app
 
-.PHONY: project build run test test-languages test-language-installs import-lspconfig release clean
+.PHONY: project build run test test-languages test-language-installs import-lspconfig import-grammars release clean
 
 project:
 	xcodegen generate --quiet
@@ -47,6 +47,24 @@ import-lspconfig:
 	unzip -q -o $$tmp/registry.zip -d $$tmp && \
 	python3 -I scripts/import-lspconfig.py $$tmp/lspconfig $$tmp/filetype.lua $$tmp/languages.yml $$tmp/registry.json \
 		$(LSPCONFIG_COMMIT) Packages/OrbitKit/Sources/OrbitLanguages/Resources/Servers.json; \
+	status=$$?; rm -rf $$tmp; exit $$status
+
+# Regenerates OrbitAPI/Resources/Grammars.json from Zed's own languages and
+# its extension catalog (D71). Bump the pins to pick up new languages; read the
+# diff before committing it.
+ZED_COMMIT := 36682547bea1c3d4fa60c08d341cf60081853941
+ZED_EXTENSIONS_COMMIT := c63c15ce892e8ea02d0be53ae5d2526105e03519
+import-grammars:
+	@tmp=$$(mktemp -d) && \
+	git init -q $$tmp/zed && \
+	git -C $$tmp/zed sparse-checkout set --no-cone /Cargo.toml /Cargo.lock /crates/grammars/ && \
+	git -C $$tmp/zed fetch -q --depth 1 --filter=blob:none https://github.com/zed-industries/zed.git $(ZED_COMMIT) && \
+	git -C $$tmp/zed checkout -q FETCH_HEAD && \
+	git init -q $$tmp/catalog && \
+	git -C $$tmp/catalog fetch -q --depth 1 --filter=blob:none https://github.com/zed-industries/extensions.git $(ZED_EXTENSIONS_COMMIT) && \
+	git -C $$tmp/catalog checkout -q FETCH_HEAD && \
+	python3 -I scripts/import-grammars.py $$tmp/zed $(ZED_COMMIT) $$tmp/catalog $(ZED_EXTENSIONS_COMMIT) $$tmp/work \
+		Packages/OrbitKit/Sources/OrbitAPI/Resources/Grammars.json; \
 	status=$$?; rm -rf $$tmp; exit $$status
 
 release:

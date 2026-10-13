@@ -15,10 +15,25 @@ public final class EditorPlugin: OrbitPlugin {
 
     public init() {}
 
+    /// The open folder's languages get their grammars before their files open (D71).
+    private static func prefetchGrammars(_ workspace: Workspace, services: ServiceRegistry) {
+        let root = withObservationTracking { workspace.root } onChange: {
+            Task { @MainActor in prefetchGrammars(workspace, services: services) }
+        }
+        guard root != nil else { return }
+        Task { @MainActor in
+            guard let index = services.resolve(ProjectFileIndex.self) else { return }
+            let paths = await index.allPaths()
+            guard workspace.root == root else { return }
+            GrammarRegistry.shared.prefetch(paths)
+        }
+    }
+
     public func activate(_ context: PluginContext) {
-        HighlightQueries.prewarm()
         let workspace = context.workspace
         let services = context.services
+        Task.detached(priority: .background) { GrammarStore.shared.pruneOutdated() }
+        Self.prefetchGrammars(workspace, services: services)
         let options = EditorOptions(settings: context.settings)
 
         context.ui.addSettingsPane(SettingsPane(
@@ -149,6 +164,16 @@ public final class EditorPlugin: OrbitPlugin {
             editorMenu: EditorMenuPlacement(.edit, isVisible: hasServer)
         ) {
             ActiveEditor.shared.coordinator?.startRename()
+        })
+        context.commands.register(OrbitCommand(
+            id: "editor.toggleComment",
+            title: "Toggle Comment",
+            category: "Code",
+            systemImage: "number",
+            shortcut: KeyboardShortcut("/", modifiers: .command),
+            editorMenu: EditorMenuPlacement(.edit)
+        ) {
+            ActiveEditor.shared.coordinator?.toggleComment()
         })
         context.commands.register(OrbitCommand(
             id: "editor.format",
