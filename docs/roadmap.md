@@ -92,6 +92,8 @@
   agent inline-diff overlays use the theme's version-control colors
 - Theme selector ⌃⌘T with live preview over installed and catalog themes;
   catalog thumbnails; light/dark partner picked together (D49)
+- Language-server tests against real servers (D55): Swift, TypeScript 7 / 5 /
+  npx; `make test-languages`, also on Linux (`scripts/linux-swift.sh`)
 
 ## Next (rough priority)
 1. Agent changes tracking improvements: separate changed files view from the composer,
@@ -105,7 +107,8 @@
 5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
-- LSP (D54): unverified on a Mac. sourcekit-lsp understands SwiftPM packages
+- LSP (D54): the client is tested against real servers on Linux (D55); the
+  editor side (squiggles, hover card, ⌘-click) only by hand. sourcekit-lsp understands SwiftPM packages
   fully; Xcode projects (App/) get single-file results only (no build server).
   Squiggle positions lag edits until the server republishes. Servers that
   fail stay off until Restart Language Servers or reopening the folder.

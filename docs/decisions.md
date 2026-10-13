@@ -705,3 +705,35 @@ TypeScript gets `npx -p typescript tsc --lsp --stdio`. TypeScript 7 doesn't
 push diagnostics; it answers LSP 3.17's `textDocument/diagnostic`. The client
 pulls after every open/change when a server advertises `diagnosticProvider`
 (dropping answers for older versions) and again on `workspace/diagnostic/refresh`.
+
+### D55. Language servers are tested end to end against the real servers
+Unit tests of the LSP client checked our own helpers, but what broke in
+practice was the meeting with a real server: how it is launched (TypeScript 7
+has no `tsserver.js`), what it expects (pull diagnostics), what it answers
+with (SourceKit-LSP returns the folder's real path, not the symlink it was
+opened through). So each supported language has a fixture project in
+`Tests/OrbitKitTests/Fixtures/Languages` and one scenario,
+`LanguageServerIntegrationTests`, drives the real `LanguageServer` the way the
+editor does: the error arrives at the right UTF-16 spot (after an emoji and
+Cyrillic), moves with an edit above it (incremental sync), goes away when
+fixed; hover and go to definition answer across files; after shutdown no
+process is left, including what npx spawned. The fixture is opened through a
+symlink, like macOS's /var → /private/var. TypeScript runs three ways: the
+project's TypeScript 7, TypeScript 5 with typescript-language-server (npm
+installs are cached in the temp folder) and npx with no project install. A
+server that isn't installed skips its test. A new language is a fixture folder
+and a `LanguageCase`.
+
+The client (OrbitACP, the language-intelligence types and OrbitLanguages'
+server code) is Foundation-only, so on Linux `Package.swift` declares just
+those targets and these tests; cloud sessions install Swift with
+`scripts/linux-swift.sh` and run `make test-languages` against the Linux
+builds of the same servers before pushing. Only the editor's drawing of the
+results needs a look on the Mac.
+
+They found three bugs right away: writing to a server that had died killed
+Orbit with SIGPIPE (the pipe is now `F_SETNOSIGPIPE`); a server launched
+through npx outlived Orbit's shutdown, because npm doesn't pass `exit` or
+SIGTERM on (the connection now closes the server's input, which ends the whole
+chain); and go to definition in a folder opened through a symlink pointed at
+the real path (server paths are mapped back under the folder as opened).

@@ -1,5 +1,14 @@
 import Foundation
+#if canImport(os)
 import os
+#else
+/// Linux builds (the language-server tests) have no unified logging.
+private struct Logger {
+    init(subsystem: String, category: String) {}
+    func error(_ message: @autoclosure () -> String) {}
+    func debug(_ message: @autoclosure () -> String) {}
+}
+#endif
 
 public struct JSONRPCError: Error, Sendable, LocalizedError {
     public var code: Int
@@ -52,6 +61,7 @@ public final class JSONRPCConnection: @unchecked Sendable {
     private var readBuffer = Data()
     private var stderrTail = ""
     private var exited = false
+    private var inputClosed = false
 
     private let onNotification: NotificationHandler
     private let onRequest: RequestHandler
@@ -113,10 +123,27 @@ public final class JSONRPCConnection: @unchecked Sendable {
                 self.onExit(process.terminationStatus, self.stderrTail)
             }
         }
+        // Writing to a process that already died must fail, not kill Orbit with SIGPIPE.
+        #if canImport(Darwin)
+        _ = fcntl(stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        #else
+        signal(SIGPIPE, SIG_IGN)
+        #endif
         try process.run()
     }
 
+    /// End of input. Servers launched through npx (npm → sh → server) exit on
+    /// it, where a signal reaches only npm and leaves the server running.
+    public func closeInput() {
+        queue.async {
+            guard !self.inputClosed else { return }
+            self.inputClosed = true
+            try? self.stdinPipe.fileHandleForWriting.close()
+        }
+    }
+
     public func terminate() {
+        closeInput()
         guard process.isRunning else { return }
         process.terminate()
     }
@@ -148,7 +175,7 @@ public final class JSONRPCConnection: @unchecked Sendable {
 
     /// Must be called on `queue`.
     private func write(_ message: JSONValue) {
-        guard !exited, var data = try? JSONEncoder().encode(message) else { return }
+        guard !exited, !inputClosed, var data = try? JSONEncoder().encode(message) else { return }
         switch framing {
         case .newlineDelimited: data.append(0x0A)
         case .contentLength: data = Data("Content-Length: \(data.count)\r\n\r\n".utf8) + data

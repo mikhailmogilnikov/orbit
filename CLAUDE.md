@@ -21,7 +21,9 @@ Read before significant work:
   (no feature branches or PRs), authored as
   `Mikhail Mogilnikov <mikhail.mogilnikov02@gmail.com>`, without
   `Co-Authored-By` / `Claude-Session` trailers. The cloud container is Linux:
-  nothing here builds, so say what wasn't verified and expect screenshots back.
+  the app doesn't build, so say what wasn't verified and expect screenshots back.
+  The language-server client does: `scripts/linux-swift.sh`, then
+  `make test-languages` before pushing LSP changes.
 
 ## Commands
 
@@ -29,6 +31,7 @@ Read before significant work:
 make build   # xcodegen + xcodebuild (Debug) → .build/xcode/Build/Products/Debug/Orbit.app
 make run     # build, kill running Orbit, open the app
 make test    # swift test in Packages/OrbitKit
+make test-languages   # LSP client against real servers (D55); runs on Linux too
 make clean
 cd Packages/OrbitKit && swift build   # fast compile check of all modules
 ```

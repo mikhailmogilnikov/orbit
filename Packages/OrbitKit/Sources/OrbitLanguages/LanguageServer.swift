@@ -23,12 +23,23 @@ final class LanguageServer {
     @ObservationIgnored private var pullsDiagnostics = false
     @ObservationIgnored private var isShuttingDown = false
 
+    /// The folder's real path when it was opened through a symlink (macOS's
+    /// /tmp, /var): some servers (SourceKit-LSP) answer with that one.
+    @ObservationIgnored private let realRoot: String?
+
     init(config: LanguageServerConfig, root: URL) {
         self.config = config
         self.root = root
+        let real = realpath(root.path, nil).map { pointer in
+            defer { free(pointer) }
+            return String(cString: pointer)
+        }
+        realRoot = real == root.standardizedFileURL.path ? nil : real
     }
 
     var openDocuments: Set<URL> { Set(documents.keys) }
+
+    var processIdentifier: Int32? { connection?.processIdentifier }
 
     /// Starts the process and the LSP handshake once; true when it's usable.
     func start(environment: Task<[String: String], Never>) async -> Bool {
@@ -127,7 +138,7 @@ final class LanguageServer {
 
     private func handleNotification(_ method: String, _ params: JSONValue) {
         guard method == "textDocument/publishDiagnostics",
-              let uri = params["uri"]?.string, let url = Self.fileURL(uri) else { return }
+              let uri = params["uri"]?.string, let url = Self.fileURL(uri).map(local) else { return }
         let parsed = (params["diagnostics"]?.array ?? []).compactMap(Self.diagnostic)
         if diagnostics[url] != parsed { diagnostics[url] = parsed }
     }
@@ -136,6 +147,12 @@ final class LanguageServer {
     nonisolated static func fileURL(_ uri: String) -> URL? {
         guard let url = URL(string: uri), url.isFileURL else { return nil }
         return URL(fileURLWithPath: url.path).standardizedFileURL
+    }
+
+    /// A server's path as the editor knows the file: under the folder as opened.
+    func local(_ url: URL) -> URL {
+        guard let realRoot, url.path.hasPrefix(realRoot + "/") else { return url }
+        return URL(fileURLWithPath: root.standardizedFileURL.path + url.path.dropFirst(realRoot.count)).standardizedFileURL
     }
 
     nonisolated static func diagnostic(_ value: JSONValue) -> Diagnostic? {
@@ -238,7 +255,7 @@ final class LanguageServer {
         let items = result.array ?? (result.isNull ? [] : [result])
         return items.compactMap { item in
             // Location, or LocationLink (targetUri / targetSelectionRange).
-            guard let uri = item["uri"]?.string ?? item["targetUri"]?.string, let target = Self.fileURL(uri),
+            guard let uri = item["uri"]?.string ?? item["targetUri"]?.string, let target = Self.fileURL(uri).map(local),
                   let range = Self.range(item["range"] ?? item["targetSelectionRange"] ?? item["targetRange"]) else { return nil }
             return SourceLocation(url: target, range: range)
         }
@@ -271,7 +288,7 @@ final class LanguageServer {
 
     // MARK: Shutdown
 
-    /// Polite `shutdown` + `exit`, then the process is ended if it lingers.
+    /// Polite `shutdown` + `exit` and end of input, then the process is ended if it lingers.
     func shutdown() {
         isShuttingDown = true
         started?.cancel()
@@ -282,6 +299,7 @@ final class LanguageServer {
         Task {
             _ = try? await withTimeout(seconds: 2) { try await connection.request("shutdown", .null) }
             connection.notify("exit")
+            connection.closeInput()
             try? await Task.sleep(for: .seconds(1))
             connection.terminate()
         }

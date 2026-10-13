@@ -1,6 +1,28 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
+#if os(Linux)
+/// Linux (CI, cloud sessions) builds only the language-server client, so its
+/// integration tests run against real servers there too (D55).
+let package = Package(
+    name: "OrbitKit",
+    targets: [
+        .target(name: "OrbitACP"),
+        .target(name: "OrbitAPI", sources: ["LanguageIntelligence.swift"]),
+        .target(
+            name: "OrbitLanguages",
+            dependencies: ["OrbitAPI", "OrbitACP"],
+            sources: ["LanguageServer.swift", "LanguageServerConfig.swift", "TextChange.swift"]
+        ),
+        .testTarget(
+            name: "OrbitKitTests",
+            dependencies: ["OrbitAPI", "OrbitACP", "OrbitLanguages"],
+            exclude: ["Fixtures"],
+            sources: ["LanguageServerTests.swift", "LanguageServerIntegrationTests.swift"]
+        ),
+    ]
+)
+#else
 let package = Package(
     name: "OrbitKit",
     platforms: [.macOS(.v26)],
@@ -42,6 +64,11 @@ let package = Package(
             name: "OrbitKit",
             dependencies: ["OrbitAPI", "OrbitUI", "OrbitExplorer", "OrbitEditor", "OrbitReview", "OrbitSearch", "OrbitGit", "OrbitTerminal", "OrbitAgents", "OrbitLanguages"]
         ),
-        .testTarget(name: "OrbitKitTests", dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI", "OrbitEditor", "OrbitLanguages"]),
+        .testTarget(
+            name: "OrbitKitTests",
+            dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI", "OrbitEditor", "OrbitLanguages"],
+            exclude: ["Fixtures"]
+        ),
     ]
 )
+#endif
