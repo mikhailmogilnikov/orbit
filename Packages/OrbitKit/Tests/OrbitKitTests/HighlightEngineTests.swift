@@ -111,9 +111,14 @@ import Testing
         var text = "# Title\n\nSome *text*.\n\n```js\nconst answer = 42\n```\n\n<style>\na { color: red; }\n</style>\n"
         let names = { CaptureTable.names(from: 0) }
         let first = try fresh(text)
-        let constant = (text as NSString).range(of: "const")
-        let captures = first.spans.spans.filter { $0.start <= constant.location && $0.end > constant.location }.map { names()[Int($0.capture)] }
-        #expect(captures.contains { $0.hasPrefix("keyword") }, "\(captures)")
+        let fence = (text as NSString).range(of: "const answer = 42")
+        let colored = first.spans.spans.filter { $0.end > fence.location && $0.start < NSMaxRange(fence) }.map {
+            "\((text as NSString).substring(with: NSRange(location: $0.start, length: $0.end - $0.start))) \(names()[Int($0.capture)])"
+        }
+        #expect(colored.contains { $0.hasPrefix("const keyword") }, """
+            \(colored); markdown injections: \(HighlightQueries.queries(for: .builtin(.markdown))?.injections != nil), \
+            js: \(Grammar.named("js")?.key ?? "nil"), keyword styled: \(theme.style(forCapture: "keyword")?.color != nil)
+            """)
 
         let worker = try make()
         var cache = HighlightCache()
