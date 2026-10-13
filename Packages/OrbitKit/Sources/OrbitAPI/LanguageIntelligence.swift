@@ -146,6 +146,24 @@ public protocol LanguageIntelligence: AnyObject {
     func installServer(for url: URL)
     /// "Not now": no more offers for this language (Settings still installs it).
     func declineInstall(for url: URL)
+
+    // Fixes, rename, formatting (D59); edits land through `SourceEditing` when the file is open.
+    func codeActions(for range: SourceRange, in url: URL) async -> [CodeAction]
+    /// nil when it worked, else why not.
+    func perform(_ action: CodeAction, in url: URL) async -> String?
+    func prepareRename(at position: SourcePosition, in url: URL) async -> RenameTarget?
+    /// The number of files changed, or why it failed.
+    func rename(at position: SourcePosition, in url: URL, to newName: String) async -> Result<Int, RenameFailure>
+    func canFormat(_ url: URL) -> Bool
+    /// Formats the whole file; false when its server can't.
+    func format(_ url: URL) async -> Bool
+    /// Problems in every open file, worst first.
+    var problems: [FileProblems] { get }
+}
+
+public struct RenameFailure: Error, Sendable, Hashable {
+    public var message: String
+    public init(_ message: String) { self.message = message }
 }
 
 public struct LanguageInstallOffer: Sendable, Hashable {

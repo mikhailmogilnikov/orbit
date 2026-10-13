@@ -5,3 +5,7 @@ export class Greeter {
     return `Hello, ${this.name}`;
   }
 }
+
+export function shout(text: string): string {
+  return text.toUpperCase();
+}

@@ -151,6 +151,56 @@ struct LanguageServerIntegrationTests {
             let parameter = try #require(signature.parameters.first)
             #expect((signature.label as NSString).substring(with: parameter).contains("name"), "\(signature)")
             #expect((signature.activeParameter ?? help.activeParameter) == 0)
+            // The unfinished call would break what follows.
+            text = text.replacingOccurrences(of: "\n" + language.call, with: "")
+            server.sync(main, text: text)
+        }
+
+        // A quick fix, applied like the editor does.
+        text += "\n" + language.typo.line
+        server.sync(main, text: text)
+        let typoAt = try #require(Self.position(of: language.typo.line, in: text))
+        var typoRange: SourceRange?
+        try await eventually(language.timeout, "a problem about \(language.typo.problem)") {
+            typoRange = server.diagnostics[main.standardizedFileURL]?.first {
+                $0.range.start.line == typoAt.line && $0.message.localizedCaseInsensitiveContains(language.typo.problem)
+            }?.range
+            return typoRange != nil
+        }
+        let actions = await server.codeActions(for: try #require(typoRange), in: main)
+        let fix = try #require(actions.first { $0.title.localizedCaseInsensitiveContains(language.typo.fixMentions) }, "\(actions.map(\.title))")
+        // TypeScript's fixes run a command that sends the edit back (`workspace/applyEdit`).
+        var applyToMain: (WorkspaceEdit) -> Bool = { _ in false }
+        applyToMain = { edit in
+            guard let edits = edit.files[main.standardizedFileURL] else { return false }
+            text = SourceEdit.apply(edits, to: text)
+            return true
+        }
+        server.onApplyEdit = { applyToMain($0) }
+        let applied = await server.perform(fix) { applyToMain($0) }
+        #expect(applied)
+        #expect(text.contains(language.typo.fixed), "\(text)")
+        server.sync(main, text: text)
+
+        // Formatting tidies a badly spaced line.
+        if language.formats {
+            text += "\n" + language.messy.line
+            server.sync(main, text: text)
+            let edits = try #require(await server.formatting(main, tabSize: 4, insertSpaces: true))
+            text = SourceEdit.apply(edits, to: text)
+            #expect(text.contains(language.messy.tidy), "\(text)")
+            server.sync(main, text: text)
+        }
+
+        // Renaming the method changes its declaration in the other file and the call here.
+        let callSite = try #require(Self.position(of: language.callAt, in: text, inside: true))
+        let renameTarget = try #require(await server.prepareRename(at: callSite, in: main))
+        #expect(renameTarget.placeholder == "greet")
+        let renamed = try await server.rename(at: callSite, in: main, to: "salute")
+        #expect(renamed.files[main.standardizedFileURL]?.isEmpty == false, "\(renamed)")
+        if language.renamesAcrossFiles {
+            let declaration = try #require(renamed.files[target.standardizedFileURL], "\(renamed.files.keys)")
+            #expect(SourceEdit.apply(declaration, to: targetText).contains("salute"))
         }
 
         // Nothing keeps running after shutdown, including what npx started.
@@ -235,6 +285,11 @@ struct LanguageCase: Sendable {
     var memberAccess = "greeter.gre"
     var call: String
     var requiresSignatureHelp = true
+    var typo: (line: String, problem: String, fixMentions: String, fixed: String)
+    var formats = true
+    var messy: (line: String, tidy: String)
+    /// SourceKit-LSP needs an index of the package for that.
+    var renamesAcrossFiles = true
     /// Cold servers index the project first (SourceKit-LSP builds the package).
     var timeout: Duration = .seconds(60)
 
@@ -249,6 +304,8 @@ struct LanguageCase: Sendable {
         fix: ("let count: Int", "let count: String"),
         call: "_ = Greeter(",
         requiresSignatureHelp: false,
+        typo: ("func later() -> Int { var later = 1; return later }", "never mutated", "let", "let later = 1"),
+        messy: ("let   spaced=1", "let spaced = 1"),
         timeout: .seconds(180)
     )
 
@@ -261,7 +318,9 @@ struct LanguageCase: Sendable {
         hoverContains: "greet(): string",
         definitionFile: "src/greeter.ts", definitionAt: "greet()",
         fix: ("count: number", "count: string"),
-        call: "new Greeter("
+        call: "new Greeter(",
+        typo: ("shout(\"hi\");", "shout", "import", "shout } from"),
+        messy: ("const   spaced=1", "const spaced = 1")
     )
 
     static let typeScript7 = with(typeScript) { $0.name = "TypeScript 7"; $0.npmPackages = ["typescript@7"] }

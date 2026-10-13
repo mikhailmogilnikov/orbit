@@ -29,6 +29,17 @@ final class LanguageServer {
     /// The latest completion response as the server sent it, for `completionItem/resolve`.
     @ObservationIgnored private var completionGeneration = 0
     @ObservationIgnored private var completionRaw: (generation: Int, items: [JSONValue]) = (0, [])
+    /// Diagnostics as the server sent them: code actions need them back verbatim.
+    @ObservationIgnored private var rawDiagnostics: [URL: [JSONValue]] = [:]
+    @ObservationIgnored private var hasCodeActions = false
+    @ObservationIgnored private var resolvesCodeActions = false
+    @ObservationIgnored private var renames = false
+    @ObservationIgnored private var preparesRename = false
+    @ObservationIgnored private(set) var formats = false
+    @ObservationIgnored private var actionGeneration = 0
+    @ObservationIgnored private var actionRaw: (generation: Int, items: [JSONValue]) = (0, [])
+    /// Applies an edit the server asks for (after running one of its commands).
+    @ObservationIgnored var onApplyEdit: (@MainActor (WorkspaceEdit) -> Bool)?
 
     /// The folder's real path when it was opened through a symlink (macOS's
     /// /tmp, /var): servers answer with that one, or half-resolved ones.
@@ -82,6 +93,10 @@ final class LanguageServer {
                     Task { @MainActor in self?.pullAllDiagnostics() }
                     return .null
                 }
+                if method == "workspace/applyEdit" {
+                    let applied = await self?.applyFromServer(params) ?? false
+                    return ["applied": .bool(applied)]
+                }
                 if method == "client/registerCapability" {
                     Task { @MainActor in self?.register(params["registrations"]?.array ?? []) }
                     return .null
@@ -125,7 +140,8 @@ final class LanguageServer {
                 "general": ["positionEncodings": ["utf-16"]],
                 "textDocument": [
                     "synchronization": ["dynamicRegistration": false],
-                    "publishDiagnostics": ["relatedInformation": false],
+                    // `codeActionsInline`: SourceKit-LSP's fix-its ride on its diagnostics.
+                    "publishDiagnostics": ["relatedInformation": false, "codeActionsInline": true],
                     "diagnostic": ["dynamicRegistration": false, "relatedDocumentSupport": false],
                     "hover": ["contentFormat": ["markdown", "plaintext"]],
                     "completion": [
@@ -142,6 +158,18 @@ final class LanguageServer {
                         ],
                         "completionList": ["itemDefaults": ["editRange", "insertTextFormat", "data"]],
                     ],
+                    "codeAction": [
+                        "codeActionLiteralSupport": ["codeActionKind": ["valueSet": [
+                            "", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite",
+                            "source", "source.organizeImports", "source.fixAll",
+                        ]]],
+                        "isPreferredSupport": true,
+                        "disabledSupport": true,
+                        "dataSupport": true,
+                        "resolveSupport": ["properties": ["edit"]],
+                    ],
+                    "rename": ["prepareSupport": true],
+                    "formatting": ["dynamicRegistration": false],
                     "signatureHelp": [
                         "contextSupport": true,
                         "signatureInformation": [
@@ -152,7 +180,10 @@ final class LanguageServer {
                     ],
                     "definition": ["linkSupport": true],
                 ],
-                "workspace": ["workspaceFolders": true, "configuration": true],
+                "workspace": [
+                    "workspaceFolders": true, "configuration": true, "applyEdit": true,
+                    "workspaceEdit": ["documentChanges": true],
+                ],
             ],
         ]
     }
@@ -181,6 +212,14 @@ final class LanguageServer {
         completes = completion.map { !$0.isNull } ?? false
         resolvesCompletions = completion?["resolveProvider"]?.bool ?? false
         helpsWithSignatures = signature.map { !$0.isNull } ?? false
+        func enabled(_ value: JSONValue?) -> Bool { value.map { !$0.isNull && $0.bool != false } ?? false }
+        let actions = capabilities?["codeActionProvider"]
+        hasCodeActions = enabled(actions)
+        resolvesCodeActions = actions?["resolveProvider"]?.bool ?? false
+        let rename = capabilities?["renameProvider"]
+        renames = enabled(rename)
+        preparesRename = rename?["prepareProvider"]?.bool ?? false
+        formats = enabled(capabilities?["documentFormattingProvider"])
         triggers = LanguageTriggers(
             completion: strings(completion?["triggerCharacters"]),
             signatureHelp: strings(signature?["triggerCharacters"]),
@@ -201,6 +240,14 @@ final class LanguageServer {
                 completes = true
                 resolvesCompletions = options?["resolveProvider"]?.bool ?? resolvesCompletions
                 triggers.completion.formUnion(strings(options?["triggerCharacters"]))
+            case "textDocument/codeAction":
+                hasCodeActions = true
+                resolvesCodeActions = options?["resolveProvider"]?.bool ?? resolvesCodeActions
+            case "textDocument/rename":
+                renames = true
+                preparesRename = options?["prepareProvider"]?.bool ?? preparesRename
+            case "textDocument/formatting":
+                formats = true
             case "textDocument/signatureHelp":
                 helpsWithSignatures = true
                 triggers.signatureHelp.formUnion(strings(options?["triggerCharacters"]))
@@ -214,7 +261,9 @@ final class LanguageServer {
     private func handleNotification(_ method: String, _ params: JSONValue) {
         guard method == "textDocument/publishDiagnostics",
               let uri = params["uri"]?.string, let url = Self.fileURL(uri).map(local) else { return }
-        let parsed = (params["diagnostics"]?.array ?? []).compactMap(Self.diagnostic)
+        let raw = params["diagnostics"]?.array ?? []
+        rawDiagnostics[url] = raw
+        let parsed = raw.compactMap(Self.diagnostic)
         if diagnostics[url] != parsed { diagnostics[url] = parsed }
     }
 
@@ -303,7 +352,9 @@ final class LanguageServer {
                   let self, documents[url]?.version == version else { return }
             // "unchanged" keeps what we have.
             guard result["kind"]?.string == "full" else { return }
-            let parsed = (result["items"]?.array ?? []).compactMap(Self.diagnostic)
+            let raw = result["items"]?.array ?? []
+            rawDiagnostics[url] = raw
+            let parsed = raw.compactMap(Self.diagnostic)
             if diagnostics[url] != parsed { diagnostics[url] = parsed }
         }
     }
@@ -317,6 +368,7 @@ final class LanguageServer {
         guard documents.removeValue(forKey: url) != nil else { return }
         connection?.notify("textDocument/didClose", ["textDocument": ["uri": .string(url.absoluteString)]])
         diagnostics[url] = nil
+        rawDiagnostics[url] = nil
     }
 
     // MARK: Queries
@@ -438,6 +490,142 @@ final class LanguageServer {
         item.detail = resolved.detail ?? item.detail
         if !resolved.additionalEdits.isEmpty { item.additionalEdits = resolved.additionalEdits }
         return item
+    }
+
+    // MARK: Code actions, rename, formatting (D59)
+
+    /// Fixes and refactorings for a range, with the problems there as context.
+    func codeActions(for range: SourceRange, in url: URL) async -> [CodeAction] {
+        guard let connection, hasCodeActions, documents[url] != nil else { return [] }
+        let overlapping = (rawDiagnostics[url.standardizedFileURL] ?? []).filter { raw in
+            guard let problem = Self.range(raw["range"]) else { return false }
+            return problem.start <= range.end && range.start <= problem.end
+        }
+        let params: JSONValue = [
+            "textDocument": ["uri": .string(url.absoluteString)],
+            "range": Self.json(range),
+            "context": ["diagnostics": .array(overlapping), "triggerKind": 1],
+        ]
+        actionGeneration += 1
+        let generation = actionGeneration
+        guard let result = try? await connection.request("textDocument/codeAction", params), generation == actionGeneration else { return [] }
+        let items = result.array ?? []
+        actionRaw = (generation, items)
+        return items.enumerated().compactMap { index, item in
+            guard let title = item["title"]?.string else { return nil }
+            return CodeAction(
+                token: generation << 20 | index, title: title, kind: item["kind"]?.string,
+                isPreferred: item["isPreferred"]?.bool ?? false, disabledReason: item["disabled"]?["reason"]?.string
+            )
+        }
+    }
+
+    /// Applies the action's edit through `apply`, then runs its command (which
+    /// may send more edits through `workspace/applyEdit`).
+    func perform(_ action: CodeAction, apply: (WorkspaceEdit) -> Bool) async -> Bool {
+        let index = action.token & (1 << 20 - 1)
+        guard let connection, actionRaw.generation == action.token >> 20, index < actionRaw.items.count else { return false }
+        var item = actionRaw.items[index]
+        // A bare Command: just run it.
+        if let command = item["command"]?.string {
+            return (try? await connection.request("workspace/executeCommand", [
+                "command": .string(command), "arguments": item["arguments"] ?? .array([]),
+            ])) != nil
+        }
+        if item["edit"] == nil, resolvesCodeActions, let resolved = try? await connection.request("codeAction/resolve", item) {
+            item = resolved
+        }
+        if let edit = item["edit"] {
+            guard apply(workspaceEdit(edit)) else { return false }
+        }
+        if let command = item["command"], let name = command["command"]?.string {
+            _ = try? await connection.request("workspace/executeCommand", [
+                "command": .string(name), "arguments": command["arguments"] ?? .array([]),
+            ])
+        }
+        return true
+    }
+
+    /// The symbol a rename at `position` would change; nil when nothing there can be renamed.
+    func prepareRename(at position: SourcePosition, in url: URL) async -> RenameTarget? {
+        guard let connection, renames, let text = documents[url]?.text else { return nil }
+        if preparesRename {
+            guard let result = try? await connection.request("textDocument/prepareRename", Self.positionParams(url, position)),
+                  !result.isNull else { return nil }
+            if let range = Self.range(result) ?? Self.range(result["range"]) {
+                return RenameTarget(range: range, placeholder: result["placeholder"]?.string ?? Self.text(in: range, of: text))
+            }
+            // `defaultBehavior`: the word at the position.
+        }
+        return Self.word(at: position, in: text)
+    }
+
+    func rename(at position: SourcePosition, in url: URL, to newName: String) async throws -> WorkspaceEdit {
+        guard let connection, renames, documents[url] != nil else { throw JSONRPCError(code: -32601, message: "This language can't rename.") }
+        var params = Self.positionParams(url, position).object ?? [:]
+        params["newName"] = .string(newName)
+        let result = try await connection.request("textDocument/rename", .object(params))
+        return workspaceEdit(result)
+    }
+
+    /// The whole document's formatting edits; nil when the server doesn't format.
+    func formatting(_ url: URL, tabSize: Int, insertSpaces: Bool) async -> [SourceEdit]? {
+        guard let connection, formats, documents[url] != nil else { return nil }
+        let params: JSONValue = [
+            "textDocument": ["uri": .string(url.absoluteString)],
+            "options": ["tabSize": .number(Double(tabSize)), "insertSpaces": .bool(insertSpaces), "trimTrailingWhitespace": true, "insertFinalNewline": true],
+        ]
+        guard let result = try? await connection.request("textDocument/formatting", params) else { return nil }
+        return (result.array ?? []).compactMap(Self.textEdit)
+    }
+
+    private func applyFromServer(_ params: JSONValue) -> Bool {
+        guard let edit = params["edit"] else { return false }
+        return onApplyEdit?(workspaceEdit(edit)) ?? false
+    }
+
+    /// `changes` or `documentChanges`, under the folder as opened.
+    func workspaceEdit(_ value: JSONValue) -> WorkspaceEdit {
+        var files: [URL: [SourceEdit]] = [:]
+        var hasFileOperations = false
+        for (uri, edits) in value["changes"]?.object ?? [:] {
+            guard let url = Self.fileURL(uri).map(local) else { continue }
+            files[url, default: []] += (edits.array ?? []).compactMap(Self.textEdit)
+        }
+        for change in value["documentChanges"]?.array ?? [] {
+            if change["kind"] != nil {
+                hasFileOperations = true
+                continue
+            }
+            guard let uri = change["textDocument"]?["uri"]?.string, let url = Self.fileURL(uri).map(local) else { continue }
+            files[url, default: []] += (change["edits"]?.array ?? []).compactMap(Self.textEdit)
+        }
+        return WorkspaceEdit(files: files, hasFileOperations: hasFileOperations)
+    }
+
+    nonisolated static func text(in range: SourceRange, of text: String) -> String {
+        let string = text as NSString
+        return string.substring(with: range.nsRange(in: SourcePosition.lineStarts(of: string), length: string.length))
+    }
+
+    /// The identifier around a position, for servers without `prepareRename`.
+    nonisolated static func word(at position: SourcePosition, in text: String) -> RenameTarget? {
+        let string = text as NSString
+        let starts = SourcePosition.lineStarts(of: string)
+        let offset = position.offset(in: starts, length: string.length)
+        func isWord(_ index: Int) -> Bool {
+            guard index >= 0, index < string.length else { return false }
+            let unit = string.character(at: index)
+            if unit == 0x5F || unit == 0x24 { return true }
+            guard let scalar = Unicode.Scalar(unit) else { return false }
+            return scalar.properties.isAlphabetic || ("0"..."9").contains(scalar)
+        }
+        var start = offset, end = offset
+        while isWord(start - 1) { start -= 1 }
+        while isWord(end) { end += 1 }
+        guard end > start else { return nil }
+        let range = SourceRange(start: SourcePosition(offset: start, in: starts), end: SourcePosition(offset: end, in: starts))
+        return RenameTarget(range: range, placeholder: string.substring(with: NSRange(location: start, length: end - start)))
     }
 
     // MARK: Signature help

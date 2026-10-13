@@ -7,6 +7,7 @@ import SwiftUI
 final class EditorOptions {
     var wrapsLines: Bool { didSet { settings.set(wrapsLines, for: "wrapsLines") } }
     var highlightsCurrentLine: Bool { didSet { settings.set(highlightsCurrentLine, for: "highlightsCurrentLine") } }
+    var formatsOnSave: Bool { didSet { settings.set(formatsOnSave, for: "formatsOnSave") } }
 
     @ObservationIgnored private let settings: PluginSettings
 
@@ -14,6 +15,7 @@ final class EditorOptions {
         self.settings = settings
         wrapsLines = settings.bool("wrapsLines")
         highlightsCurrentLine = settings.bool("highlightsCurrentLine", default: true)
+        formatsOnSave = settings.bool("formatsOnSave")
     }
 }
 
@@ -48,6 +50,12 @@ struct EditorSettingsPane: View {
             Section("Display") {
                 Toggle("Wrap long lines", isOn: $options.wrapsLines)
                 Toggle("Highlight the current line", isOn: $options.highlightsCurrentLine)
+            }
+            Section {
+                Toggle(isOn: $options.formatsOnSave) {
+                    Text("Format on save")
+                    Text("With the file's language server (Prettier or Biome settings in TypeScript projects, swift-format, ruff…). ⇧⌥F formats any time.")
+                }
             }
         }
         .formStyle(.grouped)

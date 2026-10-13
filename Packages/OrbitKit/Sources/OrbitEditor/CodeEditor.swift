@@ -70,6 +70,7 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.applyTheme()
         (textView as? OrbitTextView)?.onAppearanceChange = { [weak coordinator] in coordinator?.applyTheme() }
         ActiveEditor.shared.coordinator = coordinator
+        OpenEditors.shared.register(coordinator)
         DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         return scrollView
     }
@@ -134,6 +135,7 @@ struct CodeEditor: NSViewRepresentable {
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
         if ActiveEditor.shared.coordinator === coordinator { ActiveEditor.shared.coordinator = nil }
         coordinator.closePopups()
+        OpenEditors.shared.unregister(coordinator)
     }
 
     @MainActor

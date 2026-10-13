@@ -818,3 +818,26 @@ nvim-treesitter's queries: their capture names are Neovim's.
 `make test-language-installs` also builds every grammar from its commit,
 loads it and checks its sample parses without errors and gets comment,
 keyword, string… captures.
+
+### D59. Code actions, rename, formatting, Problems
+- **Code actions** (⇧⌘A, Xcode's Show Code Actions; ⌘. stays Stop Agent): a
+  menu at the caret, fixes first (the server's preferred one on top), then
+  refactorings. The problems under the caret go back to the server verbatim
+  (`code`, `data`), which is what TypeScript's fixes key on; SourceKit-LSP's
+  fix-its ride on its diagnostics, so the client advertises
+  `codeActionsInline`. Actions are resolved lazily; command-only actions run
+  through `workspace/executeCommand` and their edits come back as
+  `workspace/applyEdit`, which the client now answers.
+- **Rename** (⌃⌘E): a field over the symbol (`prepareRename`, or the word
+  when the server has none); Return renames across the project.
+- **Formatting** (⇧⌥F) with the file's own indentation; "Format on save" in
+  Settings → Editor (off by default; a server slower than 2 s doesn't hold
+  the save).
+- Edits from any of these go through `SourceEditing`: files open in an
+  editor change in the text view as one undo step with the caret kept;
+  other files are edited and saved on disk.
+- **Problems** (⇧⌘M): a bottom panel with every open file's errors and
+  warnings, worst files first; a click opens the spot.
+
+The real-server tests cover a fix per language (add a missing import in
+TypeScript 5/7, `var` → `let` in Swift), formatting and a cross-file rename.

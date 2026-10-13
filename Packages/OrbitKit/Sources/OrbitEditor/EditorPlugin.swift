@@ -52,7 +52,8 @@ public final class EditorPlugin: OrbitPlugin {
             shortcut: KeyboardShortcut("s", modifiers: .command),
             isEnabled: { Self.activeDocument(workspace)?.isDirty == true }
         ) {
-            if let document = Self.activeDocument(workspace) { Self.save(document) }
+            guard let document = Self.activeDocument(workspace) else { return }
+            Self.formatThenSave(document, options: options, languages: services.resolve(LanguageIntelligence.self))
         })
 
         context.commands.register(OrbitCommand(
@@ -63,7 +64,9 @@ public final class EditorPlugin: OrbitPlugin {
         ) {
             // Conflicted files wait for the user's pick in their banner.
             workspace.documents.syncWithDisk()
-            for document in workspace.documents.dirtyDocuments where document.diskConflict == nil { try? document.save() }
+            for document in workspace.documents.dirtyDocuments where document.diskConflict == nil {
+                Self.formatThenSave(document, options: options, languages: services.resolve(LanguageIntelligence.self), quietly: true)
+            }
         })
 
         context.commands.register(OrbitCommand(
@@ -108,6 +111,41 @@ public final class EditorPlugin: OrbitPlugin {
         ) {
             ActiveEditor.shared.coordinator?.revealNextProblem()
         })
+        // Language-server actions (D59). ⌘. is Stop Agent, so code actions take Xcode's ⇧⌘A.
+        context.commands.register(OrbitCommand(
+            id: "editor.codeActions",
+            title: "Show Code Actions",
+            category: "Editor",
+            systemImage: "wand.and.sparkles",
+            shortcut: KeyboardShortcut("a", modifiers: [.command, .shift]),
+            isEnabled: { ActiveEditor.shared.coordinator?.languages != nil }
+        ) {
+            ActiveEditor.shared.coordinator?.showCodeActions()
+        })
+        context.commands.register(OrbitCommand(
+            id: "editor.rename",
+            title: "Rename Symbol…",
+            category: "Editor",
+            systemImage: "pencil",
+            shortcut: KeyboardShortcut("e", modifiers: [.command, .control]),
+            isEnabled: { ActiveEditor.shared.coordinator?.languages != nil }
+        ) {
+            ActiveEditor.shared.coordinator?.startRename()
+        })
+        context.commands.register(OrbitCommand(
+            id: "editor.format",
+            title: "Format Document",
+            category: "Editor",
+            systemImage: "text.alignleft",
+            shortcut: KeyboardShortcut("f", modifiers: [.option, .shift]),
+            isEnabled: {
+                guard let coordinator = ActiveEditor.shared.coordinator else { return false }
+                return coordinator.languages?.canFormat(coordinator.document.url) == true
+            }
+        ) {
+            ActiveEditor.shared.coordinator?.formatDocument()
+        })
+        context.services.register(SourceEditing.self, OpenEditors.shared)
         context.services.register(EditorSelectionProviding.self, EditorSelectionService.shared)
         context.services.register(SyntaxHighlighting.self, StaticHighlighter())
     }
@@ -206,6 +244,27 @@ public final class EditorPlugin: OrbitPlugin {
 
     public func deactivate() {
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+    }
+
+    /// Formats first when that's on and the server can; a slow server doesn't hold the save up.
+    static func formatThenSave(_ document: TextDocument, options: EditorOptions, languages: LanguageIntelligence?, quietly: Bool = false) {
+        func save() {
+            if quietly { try? document.save() } else { Self.save(document) }
+        }
+        guard options.formatsOnSave, let languages, languages.canFormat(document.url) else {
+            save()
+            return
+        }
+        Task {
+            let formatting = Task { await languages.format(document.url) }
+            let timeout = Task {
+                try? await Task.sleep(for: .seconds(2))
+                formatting.cancel()
+            }
+            _ = await formatting.value
+            timeout.cancel()
+            save()
+        }
     }
 
     /// Saving over a change made on disk since the file was loaded needs a confirmation.

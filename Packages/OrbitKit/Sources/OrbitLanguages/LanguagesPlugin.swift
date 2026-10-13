@@ -21,6 +21,8 @@ public final class LanguagesPlugin: OrbitPlugin {
         let manager = LanguageManager(workspace: workspace)
         self.manager = manager
         context.services.register(LanguageIntelligence.self, manager)
+        let services = context.services
+        manager.editing = { services.resolve(SourceEditing.self) }
 
         context.ui.addStatusItem(StatusItem(
             id: "languages.status", placement: .trailing, order: 10,
@@ -34,6 +36,25 @@ public final class LanguagesPlugin: OrbitPlugin {
             keywords: ["lsp", "language server", "install", "mason", "python", "rust", "go", "completion", "errors"]
         ) {
             LanguagesSettingsPane(manager: manager)
+        })
+
+        let ui = context.ui
+        ui.addBottomPanel(PanelContribution(id: "problems", title: "Problems", systemImage: "exclamationmark.triangle", order: 50) {
+            ProblemsPanel(manager: manager, workspace: workspace)
+        })
+        context.commands.register(OrbitCommand(
+            id: "languages.problems",
+            title: "Show Problems",
+            category: "Languages",
+            systemImage: "exclamationmark.triangle",
+            shortcut: KeyboardShortcut("m", modifiers: [.command, .shift])
+        ) {
+            if ui.isBottomPanelVisible, ui.selectedBottomPanel == "problems" {
+                ui.isBottomPanelVisible = false
+            } else {
+                ui.selectedBottomPanel = "problems"
+                ui.isBottomPanelVisible = true
+            }
         })
 
         context.commands.register(OrbitCommand(

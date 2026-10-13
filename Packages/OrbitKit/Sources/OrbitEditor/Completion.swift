@@ -127,6 +127,16 @@ final class CompletionController: NSObject {
         }
     }
 
+    /// Edits that aren't typing (a rename, formatting) don't open the list.
+    func whileApplying(_ body: () -> Void) {
+        close()
+        signatures.close()
+        let wasApplying = isApplying
+        isApplying = true
+        body()
+        isApplying = wasApplying
+    }
+
     /// The view scrolled (typing at the bottom does): the list moves with its word.
     func reposition() {
         guard isVisible else { return }

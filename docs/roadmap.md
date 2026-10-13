@@ -96,6 +96,7 @@
   Languages and an Install button in the status bar; 20 languages (Python,
   Rust, Go, C/C++/ObjC, JSON, CSS, HTML, YAML, Shell, Markdown, TOML, Lua,
   Dockerfile, PHP, Zig, Svelte, Terraform, Ruby + Swift, TypeScript)
+- Code actions ⇧⌘A, rename ⌃⌘E, format ⇧⌥F / on save, Problems panel ⇧⌘M (D59)
 - Lazy syntax highlighting (D58): grammars for Lua, Zig, Terraform/HCL,
   Dockerfile, Kotlin, Svelte, SCSS and TSX/JSX compiled on first open from
   pinned commits, colored by Zed's queries
@@ -107,13 +108,18 @@
 ## Next (rough priority)
 1. Agent changes tracking improvements: separate changed files view from the composer,
    better visual integration with inline diffs
-2. LSP, next steps (D54): rename, format, code actions (⌘.), find references, symbols; a Problems list
+2. LSP, next steps (D54): find references, document/workspace symbols,
+   inlay hints; injections for embedded languages; several servers per file
+   (ESLint, Tailwind)
 3. Own extension registry (GitHub repo with `index.json`, PR to publish) for
    extensions Zed's catalog can't carry (languages, agents, code plugins)
 4. Code plugins in TypeScript via JavaScriptCore, same package format
 5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
+- Code actions / rename / formatting (D59): editor side unverified on a Mac
+  (menu placement, rename field, undo). File operations in edits (create,
+  rename files) are skipped.
 - Grammars (D58): compiling needs Xcode's command line tools and network on
   first open; a failed build isn't retried until restart. No injections
   (CSS/JS inside Svelte/HTML stay plain). Release builds with hardened

@@ -98,6 +98,7 @@ final class LanguageManager: LanguageIntelligence {
                 server = running
             } else {
                 server = LanguageServer(config: config, root: root)
+                server.onApplyEdit = { [weak self] edit in self?.apply(edit) ?? false }
                 servers[id] = server
             }
             guard await server.start(environment: environment) else {
@@ -227,6 +228,105 @@ final class LanguageManager: LanguageIntelligence {
 
     private static let declinedKey = "orbit.languages.declinedInstalls"
     private var declined = Set(UserDefaults.standard.stringArray(forKey: LanguageManager.declinedKey) ?? [])
+
+    // MARK: Fixes, rename, formatting (D59)
+
+    /// The editor's way to apply edits to open files; the editor plugin starts after this one.
+    @ObservationIgnored var editing: () -> SourceEditing? = { nil }
+
+    private func runningServer(for url: URL) -> LanguageServer? {
+        config(for: url).flatMap { servers[$0.id] }
+    }
+
+    func codeActions(for range: SourceRange, in url: URL) async -> [CodeAction] {
+        await flush(url)?.codeActions(for: range, in: url.standardizedFileURL) ?? []
+    }
+
+    func perform(_ action: CodeAction, in url: URL) async -> String? {
+        guard let server = runningServer(for: url) else { return "The language server isn't running." }
+        if let reason = action.disabledReason { return reason }
+        let worked = await server.perform(action) { [weak self] edit in self?.apply(edit) ?? false }
+        return worked ? nil : "The language server couldn't apply “\(action.title)”."
+    }
+
+    func prepareRename(at position: SourcePosition, in url: URL) async -> RenameTarget? {
+        await flush(url)?.prepareRename(at: position, in: url.standardizedFileURL)
+    }
+
+    func rename(at position: SourcePosition, in url: URL, to newName: String) async -> Result<Int, RenameFailure> {
+        guard let server = await flush(url) else { return .failure(RenameFailure("The language server isn't running.")) }
+        do {
+            let edit = try await server.rename(at: position, in: url.standardizedFileURL, to: newName)
+            guard !edit.isEmpty else { return .failure(RenameFailure("Nothing to rename here.")) }
+            guard apply(edit) else { return .failure(RenameFailure("Some files couldn't be changed.")) }
+            return .success(edit.files.filter { !$0.value.isEmpty }.count)
+        } catch {
+            return .failure(RenameFailure(error.localizedDescription))
+        }
+    }
+
+    func canFormat(_ url: URL) -> Bool {
+        guard let server = runningServer(for: url), server.state == .running else { return false }
+        return server.formats
+    }
+
+    func format(_ url: URL) async -> Bool {
+        guard let server = await flush(url), let document = workspace.documents.existingDocument(for: url) else { return false }
+        let indent = Self.indentation(of: document.text)
+        guard let edits = await server.formatting(url.standardizedFileURL, tabSize: indent.size, insertSpaces: indent.spaces) else { return false }
+        guard !edits.isEmpty else { return true }
+        return apply(WorkspaceEdit(files: [url.standardizedFileURL: edits]))
+    }
+
+    var problems: [FileProblems] {
+        servers.values.flatMap { server in
+            server.diagnostics.compactMap { url, diagnostics in
+                diagnostics.isEmpty ? nil : FileProblems(url: url, diagnostics: diagnostics.sorted { $0.range.start < $1.range.start })
+            }
+        }
+        .sorted { lhs, rhs in
+            let left = lhs.diagnostics.map(\.severity).max() ?? .hint, right = rhs.diagnostics.map(\.severity).max() ?? .hint
+            return left != right ? left > right : lhs.url.path < rhs.url.path
+        }
+    }
+
+    /// Open files change through the editor (one undo step each); others are edited on disk.
+    @discardableResult
+    func apply(_ edit: WorkspaceEdit) -> Bool {
+        var worked = true
+        for (url, edits) in edit.files where !edits.isEmpty {
+            if editing()?.apply(edits, to: url) == true { continue }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                worked = false
+                continue
+            }
+            let wasOpen = workspace.documents.existingDocument(for: url) != nil
+            let document = workspace.documents.document(for: url)
+            let text = SourceEdit.apply(edits, to: document.text)
+            do {
+                if wasOpen, document.isDirty {
+                    document.text = text
+                } else {
+                    try document.replaceAndSave(text)
+                }
+            } catch {
+                worked = false
+            }
+        }
+        return worked
+    }
+
+    /// The file's own indentation, which formatting keeps.
+    static func indentation(of text: String) -> (size: Int, spaces: Bool) {
+        var tabs = 0, smallest = Int.max
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true).prefix(500) {
+            if line.hasPrefix("\t") { tabs += 1; continue }
+            let spaces = line.prefix { $0 == " " }.count
+            if spaces > 0, spaces < line.count { smallest = min(smallest, spaces) }
+        }
+        if tabs > 0, smallest == Int.max { return (4, false) }
+        return (smallest == Int.max || smallest > 8 ? 4 : smallest, true)
+    }
 
     func installOffer(for url: URL) -> LanguageInstallOffer? {
         guard let config = config(for: url), let install = config.install, !declined.contains(config.id) else { return nil }
