@@ -356,6 +356,11 @@ final class HighlightWorker: @unchecked Sendable {
         }
     }
 
+    /// The embedded-language layers, described (tests).
+    func layerDescriptions() -> [String] {
+        queue.sync { layers.map { "\($0.depth) \($0.queries.grammar.key) \($0.range) tree: \($0.tree != nil)" } }
+    }
+
     /// Blocks until all queued work is done (tests).
     func waitUntilIdle() {
         repeat { queue.sync {} } while inbox.withLock { $0.isScheduled }

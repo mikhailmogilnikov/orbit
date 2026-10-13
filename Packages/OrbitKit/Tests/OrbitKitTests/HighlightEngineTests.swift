@@ -1,4 +1,5 @@
 import Foundation
+import SwiftTreeSitter
 import Testing
 @testable import OrbitAPI
 @testable import OrbitEditor
@@ -111,13 +112,25 @@ import Testing
         var text = "# Title\n\nSome *text*.\n\n```js\nconst answer = 42\n```\n\n<style>\na { color: red; }\n</style>\n"
         let names = { CaptureTable.names(from: 0) }
         let first = try fresh(text)
+        let probe = try make()
+        probe.reset(TextSnapshot(string: text as NSString), version: 0)
+        probe.waitUntilIdle()
+        let layers = probe.layerDescriptions()
+        let markdownQueries = HighlightQueries.queries(for: .builtin(.markdown))
+        let injectionMatches = markdownQueries.flatMap { queries -> [String]? in
+            let parser = Parser()
+            guard (try? parser.setLanguage(queries.language)) != nil, let tree = parser.parse(text), let query = queries.injections else { return nil }
+            return query.execute(in: tree).map { match in match.captures.map { "\($0.name ?? "?")=\($0.range)" }.joined(separator: " ") }
+        }
         let fence = (text as NSString).range(of: "const answer = 42")
         let colored = first.spans.spans.filter { $0.end > fence.location && $0.start < NSMaxRange(fence) }.map {
             "\((text as NSString).substring(with: NSRange(location: $0.start, length: $0.end - $0.start))) \(names()[Int($0.capture)])"
         }
         #expect(colored.contains { $0.hasPrefix("const keyword") }, """
             \(colored); markdown injections: \(HighlightQueries.queries(for: .builtin(.markdown))?.injections != nil), \
-            js: \(Grammar.named("js")?.key ?? "nil"), keyword styled: \(theme.style(forCapture: "keyword")?.color != nil)
+            js: \(Grammar.named("js")?.key ?? "nil"), keyword styled: \(theme.style(forCapture: "keyword")?.color != nil), \
+            js queries: \(HighlightQueries.queries(for: .builtin(.javascript)) != nil), layers: \(layers), \
+            injection matches: \(injectionMatches ?? ["no query"]), patterns: \(markdownQueries?.injections?.patternCount ?? -1)
             """)
 
         let worker = try make()
