@@ -21,7 +21,7 @@ struct LanguagesSettingsPane: View {
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Servers Orbit installs come from the Mason registry and live in ~/.orbit/languages. Ones already on your Mac (Xcode's SourceKit-LSP and clangd, rust-analyzer from rustup…) are used as they are.")
+                    Text("Servers Orbit installs come from the Mason registry and live in ~/.orbit/languages. Ones already on your Mac (Xcode's SourceKit-LSP and clangd, rust-analyzer from rustup…) are used as they are. Highlighting for languages the editor doesn't have built in (Lua, Zig, Kotlin, TSX…) is compiled on the first open of such a file, into ~/.orbit/grammars.")
                     if let error = manager.registryError {
                         Text("Couldn't load the registry: \(error)").foregroundStyle(.orange)
                     }

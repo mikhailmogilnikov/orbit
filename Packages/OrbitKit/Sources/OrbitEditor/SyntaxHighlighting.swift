@@ -12,7 +12,7 @@ import TreeSitterResource
 /// cache for the whole document and paints the visible part from it (D48).
 struct SyntaxHighlightPlugin: STPlugin {
     let palette: SyntaxPalette
-    let language: TreeSitterLanguage
+    let grammar: Grammar
 
     func setUp(context: any Context) {
         context.events.onWillChangeText { affectedRange, _ in
@@ -29,7 +29,7 @@ struct SyntaxHighlightPlugin: STPlugin {
     }
 
     func makeCoordinator(context: CoordinatorContext) -> SyntaxHighlightCoordinator? {
-        SyntaxHighlightCoordinator(textView: context.textView, palette: palette, language: language)
+        SyntaxHighlightCoordinator(textView: context.textView, palette: palette, grammar: grammar)
     }
 }
 
@@ -126,10 +126,10 @@ final class SyntaxHighlightCoordinator {
         weak var coordinator: SyntaxHighlightCoordinator?
     }
 
-    init?(textView: STTextView, palette: SyntaxPalette, language: TreeSitterLanguage) {
+    init?(textView: STTextView, palette: SyntaxPalette, grammar: Grammar) {
         guard textView.textContentManager.length <= Self.maxLength else { return nil }
         let link = Link()
-        guard let worker = HighlightWorker(language: language, theme: palette.theme, notify: {
+        guard let worker = HighlightWorker(grammar: grammar, theme: palette.theme, notify: {
             DispatchQueue.main.async { MainActor.assumeIsolated { link.coordinator?.drain() } }
         }) else { return nil }
         self.textView = textView
@@ -340,36 +340,25 @@ final class SyntaxHighlightCoordinator {
 enum HighlightQueries {
     private static let cache = Mutex<[String: Query]>([:])
 
-    static func query(for language: TreeSitterLanguage) -> Query? {
-        let key = String(describing: language)
+    static func query(for grammar: Grammar) -> Query? {
         // Compiling under the lock lets a file open wait for an in-flight prewarm
         // of the same language instead of compiling it twice.
         return cache.withLock { cache in
-            if let query = cache[key] { return query }
-            let parser = SwiftTreeSitter.Language(language: language.parser)
+            if let query = cache[grammar.key] { return query }
+            guard let language = grammar.language else { return nil }
             // The combined query names JavaScript nodes; should a grammar version not
             // have one, TypeScript's own patterns still beat no colors at all.
-            guard let query = querySources(for: language).lazy.compactMap({ try? Query(language: parser, data: Data($0.utf8)) }).first
+            guard let query = grammar.querySources().lazy.compactMap({ try? Query(language: language, data: Data($0.utf8)) }).first
             else { return nil }
-            cache[key] = query
+            cache[grammar.key] = query
             return query
         }
     }
 
-    /// TypeScript's query only adds what JavaScript lacks (types, `private`…);
-    /// like Neovim and Helix, it's read after JavaScript's, which colors
-    /// keywords, strings and comments. Later patterns win.
-    private static func querySources(for language: TreeSitterLanguage) -> [String] {
-        func read(_ url: URL?) -> String? { url.flatMap { try? String(contentsOf: $0, encoding: .utf8) } }
-        guard let own = read(language.highlightQueryURL) else { return [] }
-        guard language == .typescript, let base = read(TreeSitterLanguage.javascript.highlightQueryURL) else { return [own] }
-        return [base + "\n" + own, own]
-    }
-
-    /// Compiles every language off the main thread so the first open is instant too.
+    /// Compiles every built-in language off the main thread so the first open is instant too.
     static func prewarm() {
         DispatchQueue.global(qos: .utility).async {
-            for language in TreeSitterLanguage.allCases { _ = query(for: language) }
+            for language in TreeSitterLanguage.allCases { _ = query(for: .builtin(language)) }
         }
     }
 }
@@ -402,9 +391,9 @@ final class StaticHighlighter: SyntaxHighlighting {
 
     /// Capture names and ranges, less specific first (later ones win).
     nonisolated private static func captures(in text: String, url: URL) -> [(String, NSRange)] {
-        guard let language = Language.treeSitter(for: url), let query = HighlightQueries.query(for: language) else { return [] }
+        guard let grammar = Grammar.matching(url), let query = HighlightQueries.query(for: grammar), let language = grammar.language else { return [] }
         let parser = Parser()
-        guard (try? parser.setLanguage(SwiftTreeSitter.Language(language: language.parser))) != nil,
+        guard (try? parser.setLanguage(language)) != nil,
               let tree = parser.parse(text) else { return [] }
         return query.execute(in: tree).resolve(with: .init(string: text)).highlights().map { ($0.name, $0.range) }
     }

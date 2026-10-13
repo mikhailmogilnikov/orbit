@@ -797,3 +797,24 @@ server's diagnostic (or a completion). On its first run it found that the
 vscode-langservers (CSS, HTML, JSON) register pull diagnostics dynamically
 (`client/registerCapability` is now honored) and that the CSS server crashes
 when `workspace/configuration` is answered with null (we answer `{}`).
+
+### D58. Extra grammars are compiled lazily, with Zed's highlight queries
+The 20 grammars built into the editor (STTextView-Plugin-Neon's, linked in)
+stay: they cost nothing until used. Languages Orbit has servers for but no
+grammar (Lua, Zig, Terraform/HCL, Dockerfile, Svelte), or only a stand-in
+(Kotlin read as Java, SCSS as CSS, `.tsx`/`.jsx` as TypeScript, which can't
+read JSX), get one the first time such a file opens: no prompt, since it's a
+small library built in a second or two. `GrammarSource.all` pins each
+grammar repository at a commit (the one Zed's extension for that language
+uses) and the highlight query from that extension (or Zed's own TSX), so
+the capture names are exactly what Zed themes style. Installing is `git
+fetch` at the commit, `xcrun clang -dynamiclib` of `parser.c` (+ `scanner.c`),
+and the query, into `~/.orbit/grammars/<name>` with a `grammar.json`; the
+editor `dlopen`s it on first use and open editors switch to it
+(`GrammarRegistry.revision`). Not Zed's wasm grammars: those need a wasm
+runtime inside the editor; a native library is smaller and faster. Not
+nvim-treesitter's queries: their capture names are Neovim's.
+
+`make test-language-installs` also builds every grammar from its commit,
+loads it and checks its sample parses without errors and gets comment,
+keyword, string… captures.

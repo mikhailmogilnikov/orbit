@@ -96,6 +96,9 @@
   Languages and an Install button in the status bar; 20 languages (Python,
   Rust, Go, C/C++/ObjC, JSON, CSS, HTML, YAML, Shell, Markdown, TOML, Lua,
   Dockerfile, PHP, Zig, Svelte, Terraform, Ruby + Swift, TypeScript)
+- Lazy syntax highlighting (D58): grammars for Lua, Zig, Terraform/HCL,
+  Dockerfile, Kotlin, Svelte, SCSS and TSX/JSX compiled on first open from
+  pinned commits, colored by Zed's queries
 - Completion while typing and signature help (D56): local fuzzy filtering,
   snippets with placeholders, auto-imports, docs for the selected item
 - Language-server tests against real servers (D55): Swift, TypeScript 7 / 5 /
@@ -111,6 +114,10 @@
 5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
+- Grammars (D58): compiling needs Xcode's command line tools and network on
+  first open; a failed build isn't retried until restart. No injections
+  (CSS/JS inside Svelte/HTML stay plain). Release builds with hardened
+  runtime will need `com.apple.security.cs.disable-library-validation`.
 - Language installs (D57): every server installs and reports a problem in
   the Linux tests; the Settings page and status-bar button are unverified on a
   Mac. RubyGems/NuGet/opam packages aren't installable (Ruby is found on PATH

@@ -207,9 +207,9 @@ final class HighlightWorker: @unchecked Sendable {
     private static let chunkLength = 8 * 1024
 
     /// `notify` is called on any thread whenever patches are ready.
-    init?(language: TreeSitterLanguage, theme: ColorTheme, notify: @escaping @Sendable () -> Void) {
-        guard let query = HighlightQueries.query(for: language),
-              (try? parser.setLanguage(SwiftTreeSitter.Language(language: language.parser))) != nil
+    init?(grammar: Grammar, theme: ColorTheme, notify: @escaping @Sendable () -> Void) {
+        guard let query = HighlightQueries.query(for: grammar), let language = grammar.language,
+              (try? parser.setLanguage(language)) != nil
         else { return nil }
         self.query = query
         self.notify = notify

@@ -276,7 +276,8 @@ struct FileEditorView: View {
                     languages: languages,
                     onOpenLocation: { location in
                         workspace.openFile(location.url, line: location.range.start.line)
-                    }
+                    },
+                    grammarRevision: GrammarRegistry.shared.revision
                 )
             }
         }

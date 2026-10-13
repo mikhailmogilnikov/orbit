@@ -25,6 +25,8 @@ struct CodeEditor: NSViewRepresentable {
     var diagnostics: [Diagnostic] = []
     var languages: LanguageIntelligence?
     var onOpenLocation: (SourceLocation) -> Void = { _ in }
+    /// `GrammarRegistry.revision`: a grammar was installed, re-pick this file's.
+    var grammarRevision = 0
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document) }
 
@@ -41,9 +43,8 @@ struct CodeEditor: NSViewRepresentable {
         textView.textDelegate = context.coordinator
 
         let coordinator = context.coordinator
-        if let language = Language.treeSitter(for: document.url) {
-            textView.addPlugin(SyntaxHighlightPlugin(palette: coordinator.palette, language: language))
-        }
+        coordinator.updateGrammar(revision: grammarRevision, in: textView)
+        GrammarRegistry.shared.ensureInstalled(for: document.url)
         coordinator.inlineDiff.textView = textView
         textView.addPlugin(InlineDiffPlugin(controller: coordinator.inlineDiff))
         coordinator.diagnosticsController.textView = textView
@@ -100,6 +101,7 @@ struct CodeEditor: NSViewRepresentable {
         }
         if textView.isHorizontallyResizable == wrapsLines { textView.isHorizontallyResizable = !wrapsLines }
         if textView.highlightSelectedLine != highlightsCurrentLine { textView.highlightSelectedLine = highlightsCurrentLine }
+        coordinator.updateGrammar(revision: grammarRevision, in: textView)
         coordinator.setGitBaseline(gitBaseline)
         coordinator.inlineDiff.onKeep = onKeep
         coordinator.inlineDiff.onRevert = onRevert
@@ -154,6 +156,8 @@ struct CodeEditor: NSViewRepresentable {
         private var systemInsertionPoint: NSColor?
         /// Completion and signature help (D56).
         lazy var completion = CompletionController(editor: self)
+        private var highlighter: (id: STPluginIdentifier, key: String)?
+        private var grammarRevision: Int?
         /// The edit being made, from `willChangeTextIn`, for completion after it lands.
         private var pendingEdit: (location: Int, length: Int, replacement: String)?
 
@@ -234,6 +238,16 @@ struct CodeEditor: NSViewRepresentable {
             document.text = textView.text ?? ""
             syncedRevision = document.revision
             if let edit { completion.textDidChange(location: edit.location, oldLength: edit.length, replacement: edit.replacement) }
+        }
+
+        /// Highlights with the file's grammar, switching when a better one got installed.
+        func updateGrammar(revision: Int, in textView: STTextView) {
+            guard grammarRevision != revision else { return }
+            grammarRevision = revision
+            let grammar = Grammar.matching(document.url)
+            guard grammar?.key != highlighter?.key else { return }
+            if let highlighter { textView.removePlugin(highlighter.id) }
+            highlighter = grammar.map { (textView.addPlugin(SyntaxHighlightPlugin(palette: palette, grammar: $0)), $0.key) }
         }
 
         func closePopups() {

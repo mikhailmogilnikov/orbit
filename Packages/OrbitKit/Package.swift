@@ -6,9 +6,13 @@ import PackageDescription
 /// integration tests run against real servers there too (D55).
 let package = Package(
     name: "OrbitKit",
+    dependencies: [
+        // Same as the macOS build; the grammar tests parse with it.
+        .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter", from: "0.9.0"),
+    ],
     targets: [
         .target(name: "OrbitACP"),
-        .target(name: "OrbitAPI", sources: ["LanguageIntelligence.swift", "Completion.swift"]),
+        .target(name: "OrbitAPI", sources: ["LanguageIntelligence.swift", "Completion.swift", "Grammars.swift"]),
         .target(
             name: "OrbitLanguages",
             dependencies: ["OrbitAPI", "OrbitACP"],
@@ -16,9 +20,9 @@ let package = Package(
         ),
         .testTarget(
             name: "OrbitKitTests",
-            dependencies: ["OrbitAPI", "OrbitACP", "OrbitLanguages"],
+            dependencies: ["OrbitAPI", "OrbitACP", "OrbitLanguages", .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter")],
             exclude: ["Fixtures"],
-            sources: ["LanguageServerTests.swift", "LanguageServerIntegrationTests.swift", "CompletionTests.swift", "LanguageInstallTests.swift"]
+            sources: ["LanguageServerTests.swift", "LanguageServerIntegrationTests.swift", "CompletionTests.swift", "LanguageInstallTests.swift", "GrammarTests.swift"]
         ),
     ]
 )
@@ -64,7 +68,8 @@ let package = Package(
         ),
         .testTarget(
             name: "OrbitKitTests",
-            dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI", "OrbitEditor", "OrbitLanguages"],
+            dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI", "OrbitEditor", "OrbitLanguages",
+                           .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter")],
             exclude: ["Fixtures"]
         ),
     ]

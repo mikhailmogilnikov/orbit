@@ -27,7 +27,7 @@ test-languages:
 # Installs every server Orbit offers from the Mason registry and runs each on a
 # file with a problem (D57). Downloads a lot once; cached in the temp folder.
 test-language-installs:
-	cd Packages/OrbitKit && ORBIT_INSTALL_TESTS=1 PATH="/opt/swift/usr/bin:$$PATH" swift test --filter LanguageInstall; \
+	cd Packages/OrbitKit && ORBIT_INSTALL_TESTS=1 PATH="/opt/swift/usr/bin:$$PATH" swift test --filter "LanguageInstall|Grammar"; \
 		status=$$?; [ "$$(uname)" = Linux ] && git checkout -q -- Package.resolved; exit $$status
 
 release:
