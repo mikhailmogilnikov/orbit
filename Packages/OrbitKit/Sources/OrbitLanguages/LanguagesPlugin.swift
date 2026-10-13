@@ -45,7 +45,7 @@ public final class LanguagesPlugin: OrbitPlugin {
         context.commands.register(OrbitCommand(
             id: "languages.problems",
             title: "Show Problems",
-            category: "Languages",
+            category: "Code",
             systemImage: "exclamationmark.triangle",
             shortcut: KeyboardShortcut("m", modifiers: [.command, .shift])
         ) {

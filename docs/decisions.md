@@ -840,5 +840,11 @@ keyword, string… captures.
 - **Problems** (⇧⌘M): a bottom panel with every open file's errors and
   warnings, worst files first; a click opens the spot.
 
+They live in a **Code** menu (with Go to Definition and Next Problem) and are
+always enabled: SwiftUI menus re-check `isEnabled` only when something they
+observe changes, and neither the active editor nor a server's features are
+observable, so an item disabled at launch stayed disabled with its shortcut
+dead. An action that can't run beeps.
+
 The real-server tests cover a fix per language (add a missing import in
 TypeScript 5/7, `var` → `let` in Swift), formatting and a cross-file rename.

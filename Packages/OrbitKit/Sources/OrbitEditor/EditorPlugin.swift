@@ -92,56 +92,53 @@ public final class EditorPlugin: OrbitPlugin {
         context.commands.register(OrbitCommand(
             id: "editor.goToDefinition",
             title: "Go to Definition",
-            category: "Navigate",
+            category: "Code",
             systemImage: "arrow.right.circle",
             shortcut: KeyboardShortcut("j", modifiers: [.command, .control]),
-            isEnabled: { ActiveEditor.shared.coordinator?.languages != nil }
         ) {
-            guard let coordinator = ActiveEditor.shared.coordinator, let textView = coordinator.textView else { return }
+            guard let coordinator = ActiveEditor.shared.coordinator, let textView = coordinator.textView else {
+                NSSound.beep()
+                return
+            }
             coordinator.goToDefinition(at: textView.textSelection.location)
         })
 
         context.commands.register(OrbitCommand(
             id: "editor.nextProblem",
             title: "Next Problem",
-            category: "Navigate",
+            category: "Code",
             systemImage: "exclamationmark.triangle",
             shortcut: KeyboardShortcut("'", modifiers: .command),
-            isEnabled: { ActiveEditor.shared.coordinator?.diagnosticsController.diagnostics.isEmpty == false }
         ) {
             ActiveEditor.shared.coordinator?.revealNextProblem()
         })
         // Language-server actions (D59). ⌘. is Stop Agent, so code actions take Xcode's ⇧⌘A.
+        // Always enabled: menus can't observe the active editor or its server,
+        // so a disabled item would stay disabled (the action beeps instead).
         context.commands.register(OrbitCommand(
             id: "editor.codeActions",
             title: "Show Code Actions",
-            category: "Editor",
+            category: "Code",
             systemImage: "wand.and.sparkles",
             shortcut: KeyboardShortcut("a", modifiers: [.command, .shift]),
-            isEnabled: { ActiveEditor.shared.coordinator?.languages != nil }
         ) {
             ActiveEditor.shared.coordinator?.showCodeActions()
         })
         context.commands.register(OrbitCommand(
             id: "editor.rename",
             title: "Rename Symbol…",
-            category: "Editor",
+            category: "Code",
             systemImage: "pencil",
             shortcut: KeyboardShortcut("e", modifiers: [.command, .control]),
-            isEnabled: { ActiveEditor.shared.coordinator?.languages != nil }
         ) {
             ActiveEditor.shared.coordinator?.startRename()
         })
         context.commands.register(OrbitCommand(
             id: "editor.format",
             title: "Format Document",
-            category: "Editor",
+            category: "Code",
             systemImage: "text.alignleft",
             shortcut: KeyboardShortcut("i", modifiers: [.control, .shift]),
-            isEnabled: {
-                guard let coordinator = ActiveEditor.shared.coordinator else { return false }
-                return coordinator.languages?.canFormat(coordinator.document.url) == true
-            }
         ) {
             ActiveEditor.shared.coordinator?.formatDocument()
         })

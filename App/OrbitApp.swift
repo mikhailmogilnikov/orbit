@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// real menu items and shortcuts for free.
 struct OrbitMenus: Commands {
     let host: PluginHost
-    private static let builtInCategories: Set<String> = ["File", "Agents", "Review", "Git", "Terminal", "Appearance"]
+    private static let builtInCategories: Set<String> = ["File", "Code", "Agents", "Review", "Git", "Terminal", "Appearance"]
 
     var body: some Commands {
         // Settings open inside the main window (see SettingsScreen), not as a separate one.
@@ -78,6 +78,8 @@ struct OrbitMenus: Commands {
             items(ids: ["shell.selectTheme"])
             Divider()
         }
+        // Language features (D59): navigation, fixes, rename, formatting, problems.
+        CommandMenu("Code") { items(in: "Code") }
         CommandMenu("Agents") { items(in: "Agents") }
         CommandMenu("Review") { items(in: "Review") }
         CommandMenu("Git") { items(in: "Git") }

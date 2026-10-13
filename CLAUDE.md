@@ -89,7 +89,9 @@ examples/extensions/      sample extensions (theme, icon theme)
   services). Plugins never import each other; share functionality through a
   protocol in `OrbitAPI/Services.swift` registered in `ServiceRegistry`.
 - Commands registered via `commands.register` automatically get menu items
-  (by category: File, Agents, Review; others → "Plugins" menu) and palette entries.
+  (by category: File, Code, Agents, Review, Git, Terminal; others → "Plugins"
+  menu) and palette entries. `isEnabled` is only re-checked when something
+  observable it reads changes: don't gate on unobservable state (it sticks).
 - Swift 6 strict concurrency. UI/model classes are `@MainActor @Observable`;
   their `Identifiable.id` must be `nonisolated`. `OrbitACP` is nonisolated
   (state confined to a serial queue).
