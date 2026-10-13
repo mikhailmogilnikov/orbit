@@ -70,7 +70,9 @@ final class LanguageServer {
             state = .running
             return true
         } catch {
-            state = .failed(error.localizedDescription)
+            // A server that dies during the handshake says why on stderr; `didExit` reports it.
+            try? await Task.sleep(for: .milliseconds(300))
+            if state == .starting { state = .failed("\(config.name) didn't start: \(error.localizedDescription)") }
             connection.terminate()
             self.connection = nil
             return false
@@ -151,8 +153,8 @@ final class LanguageServer {
         documents.removeAll()
         diagnostics.removeAll()
         guard !isShuttingDown else { return }
-        let reason = stderr.split(whereSeparator: \.isNewline).last.map(String.init) ?? "exited with status \(status)"
-        state = .failed("\(config.name) stopped: \(reason)")
+        let lines = stderr.split(whereSeparator: \.isNewline).suffix(4).joined(separator: "\n")
+        state = .failed("\(config.name) stopped (status \(status))" + (lines.isEmpty ? "" : ":\n\(lines)"))
     }
 
     // MARK: Documents

@@ -1,3 +1,4 @@
+import AppKit
 import OrbitAPI
 import OrbitUI
 import SwiftUI
@@ -60,7 +61,12 @@ struct LanguageStatus: View {
             let errors = diagnostics.count { $0.severity == .error }
             let warnings = diagnostics.count { $0.severity == .warning }
             Button {
-                commands.run("editor.nextProblem")
+                switch server.state {
+                case .failed(let message), .unavailable(let message):
+                    explain(server.name, message)
+                default:
+                    commands.run("editor.nextProblem")
+                }
             } label: {
                 HStack(spacing: 8) {
                     switch server.state {
@@ -95,6 +101,16 @@ struct LanguageStatus: View {
             .buttonStyle(.plain)
             .help(help(server.state, errors: errors, warnings: warnings))
         }
+    }
+
+    /// Why the server isn't running, with a way to try again.
+    private func explain(_ name: String, _ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "The \(name) language server isn't running"
+        alert.informativeText = message
+        alert.addButton(withTitle: "Restart")
+        alert.addButton(withTitle: "OK")
+        if alert.runModal() == .alertFirstButtonReturn { commands.run("languages.restart") }
     }
 
     private func help(_ state: LanguageServerState, errors: Int, warnings: Int) -> String {

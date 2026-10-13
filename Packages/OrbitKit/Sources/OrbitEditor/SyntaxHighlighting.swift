@@ -346,12 +346,24 @@ enum HighlightQueries {
         // of the same language instead of compiling it twice.
         return cache.withLock { cache in
             if let query = cache[key] { return query }
-            guard let url = language.highlightQueryURL,
-                  let query = try? SwiftTreeSitter.Language(language: language.parser).query(contentsOf: url)
+            let parser = SwiftTreeSitter.Language(language: language.parser)
+            // The combined query names JavaScript nodes; should a grammar version not
+            // have one, TypeScript's own patterns still beat no colors at all.
+            guard let query = querySources(for: language).lazy.compactMap({ try? Query(language: parser, data: Data($0.utf8)) }).first
             else { return nil }
             cache[key] = query
             return query
         }
+    }
+
+    /// TypeScript's query only adds what JavaScript lacks (types, `private`…);
+    /// like Neovim and Helix, it's read after JavaScript's, which colors
+    /// keywords, strings and comments. Later patterns win.
+    private static func querySources(for language: TreeSitterLanguage) -> [String] {
+        func read(_ url: URL?) -> String? { url.flatMap { try? String(contentsOf: $0, encoding: .utf8) } }
+        guard let own = read(language.highlightQueryURL) else { return [] }
+        guard language == .typescript, let base = read(TreeSitterLanguage.javascript.highlightQueryURL) else { return [own] }
+        return [base + "\n" + own, own]
     }
 
     /// Compiles every language off the main thread so the first open is instant too.

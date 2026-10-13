@@ -18,7 +18,7 @@ public struct JSONRPCError: Error, Sendable, LocalizedError {
         JSONRPCError(code: -32601, message: "Method not found: \(method)")
     }
 
-    public static let processExited = JSONRPCError(code: -32000, message: "Agent process exited")
+    public static let processExited = JSONRPCError(code: -32000, message: "The process exited")
 }
 
 /// JSON-RPC 2.0 over a child process' stdio: newline-delimited (ACP agents) or
