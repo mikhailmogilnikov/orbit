@@ -830,7 +830,8 @@ keyword, string… captures.
   `workspace/applyEdit`, which the client now answers.
 - **Rename** (⌃⌘E): a field over the symbol (`prepareRename`, or the word
   when the server has none); Return renames across the project.
-- **Formatting** (⇧⌥F) with the file's own indentation; "Format on save" in
+- **Formatting** (⌃⇧I, Xcode's Format File; Option-only shortcuts never
+  reach the menu in a text view, they type a character) with the file's own indentation; "Format on save" in
   Settings → Editor (off by default; a server slower than 2 s doesn't hold
   the save).
 - Edits from any of these go through `SourceEditing`: files open in an

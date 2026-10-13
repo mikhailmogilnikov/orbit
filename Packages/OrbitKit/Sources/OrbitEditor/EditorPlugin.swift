@@ -137,7 +137,7 @@ public final class EditorPlugin: OrbitPlugin {
             title: "Format Document",
             category: "Editor",
             systemImage: "text.alignleft",
-            shortcut: KeyboardShortcut("f", modifiers: [.option, .shift]),
+            shortcut: KeyboardShortcut("i", modifiers: [.control, .shift]),
             isEnabled: {
                 guard let coordinator = ActiveEditor.shared.coordinator else { return false }
                 return coordinator.languages?.canFormat(coordinator.document.url) == true

@@ -96,7 +96,7 @@
   Languages and an Install button in the status bar; 20 languages (Python,
   Rust, Go, C/C++/ObjC, JSON, CSS, HTML, YAML, Shell, Markdown, TOML, Lua,
   Dockerfile, PHP, Zig, Svelte, Terraform, Ruby + Swift, TypeScript)
-- Code actions ⇧⌘A, rename ⌃⌘E, format ⇧⌥F / on save, Problems panel ⇧⌘M (D59)
+- Code actions ⇧⌘A, rename ⌃⌘E, format ⌃⇧I / on save, Problems panel ⇧⌘M (D59)
 - Lazy syntax highlighting (D58): grammars for Lua, Zig, Terraform/HCL,
   Dockerfile, Kotlin, Svelte, SCSS and TSX/JSX compiled on first open from
   pinned commits, colored by Zed's queries

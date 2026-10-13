@@ -198,7 +198,7 @@ extension CodeEditor.Coordinator {
         popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
     }
 
-    // MARK: Formatting (⇧⌥F)
+    // MARK: Formatting (⌃⇧I)
 
     func formatDocument() {
         guard let languages, languages.canFormat(document.url) else {

@@ -54,7 +54,7 @@ struct EditorSettingsPane: View {
             Section {
                 Toggle(isOn: $options.formatsOnSave) {
                     Text("Format on save")
-                    Text("With the file's language server (Prettier or Biome settings in TypeScript projects, swift-format, ruff…). ⇧⌥F formats any time.")
+                    Text("With the file's language server (Prettier or Biome settings in TypeScript projects, swift-format, ruff…). ⌃⇧I formats any time.")
                 }
             }
         }
