@@ -909,3 +909,10 @@ types in the open folder and why (`apps/web/.prettierrc`), flags tools that
 are configured but not installed (no `npm install` yet), and opens or
 creates the settings files with an example. Real Prettier and Ruff run in
 the install tests.
+
+Addendum: ⌃⇧I always shows what happened. A note in the editor's corner
+says "Formatted · Prettier" or "Already formatted · TypeScript language
+server" (and "Formatting…" if it takes over 250 ms); a failure is an alert
+naming the formatter. `format` returns a `FormatOutcome` for it. External
+formatters run with their pipes read on dispatch threads (not blocking
+Swift's cooperative pool) and are killed after 15 s.

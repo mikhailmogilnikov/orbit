@@ -212,18 +212,104 @@ extension CodeEditor.Coordinator {
 
     func formatDocument() {
         // Always asked, even when it can't: it says why and where to set a formatter up.
-        guard let languages else {
+        guard let languages, let scrollView = textView?.enclosingScrollView else {
             NSSound.beep()
             return
         }
         let url = document.url
+        // Only slow formatters (a cold Node start) say they're working.
+        let working = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            EditorToast.show("Formatting…", busy: true, over: scrollView, hideAfter: nil)
+        }
         Task {
-            if let failure = await languages.format(url) {
+            let outcome = await languages.format(url)
+            working.cancel()
+            if let failure = outcome.failure {
+                EditorToast.hide()
                 let alert = NSAlert()
-                alert.messageText = "Couldn't format “\(url.lastPathComponent)”"
+                alert.messageText = outcome.formatter.map { "\($0) couldn't format “\(url.lastPathComponent)”" } ?? "Couldn't format “\(url.lastPathComponent)”"
                 alert.informativeText = failure
                 alert.runModal()
+                return
             }
+            let name = outcome.formatter ?? "Formatter"
+            EditorToast.show(outcome.changed ? "Formatted · \(name)" : "Already formatted · \(name)", over: scrollView)
+        }
+    }
+}
+
+/// A short note in the editor's top right corner: what just ran ("Formatted · Prettier").
+@MainActor
+enum EditorToast {
+    private static weak var shown: NSView?
+    private static var hiding: Task<Void, Never>?
+
+    static func show(_ text: String, busy: Bool = false, over scrollView: NSScrollView, hideAfter delay: Duration? = .milliseconds(1800)) {
+        hiding?.cancel()
+        shown?.removeFromSuperview()
+
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        var views: [NSView] = [label]
+        if busy {
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.startAnimation(nil)
+            views.insert(spinner, at: 0)
+        }
+        let stack = NSStackView(views: views)
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let toast = NSVisualEffectView()
+        toast.material = .popover
+        toast.blendingMode = .withinWindow
+        toast.state = .active
+        toast.wantsLayer = true
+        toast.layer?.cornerRadius = 8
+        toast.layer?.masksToBounds = true
+        toast.translatesAutoresizingMaskIntoConstraints = false
+        toast.addSubview(stack)
+        scrollView.addSubview(toast, positioned: .above, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: toast.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: toast.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: toast.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: toast.bottomAnchor),
+            toast.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 8),
+            toast.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -18),
+        ])
+        shown = toast
+        toast.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.12
+            toast.animator().alphaValue = 1
+        }
+        if let delay {
+            hiding = Task {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                hide()
+            }
+        }
+    }
+
+    static func hide() {
+        hiding?.cancel()
+        guard let toast = shown else { return }
+        shown = nil
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            toast.animator().alphaValue = 0
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            toast.removeFromSuperview()
         }
     }
 }

@@ -284,41 +284,48 @@ final class LanguageManager: LanguageIntelligence {
 
     /// The repo's formatter (Prettier, Ruff… or one set in `.orbit/settings.json`)
     /// if there is one, else the server, indented per `.editorconfig` (D60, D61).
-    func format(_ url: URL) async -> String? {
-        guard let document = workspace.documents.existingDocument(for: url) else { return "The file isn't open." }
+    func format(_ url: URL) async -> FormatOutcome {
+        guard let document = workspace.documents.existingDocument(for: url) else { return .failed("The file isn't open.") }
         let environment = await environment.value
         let choice: FormatterChoice
         do {
             choice = try formatterChoice(for: url, environment: environment)
         } catch {
-            return error.localizedDescription
+            return .failed(error.localizedDescription)
         }
         switch choice {
         case .off(let source):
-            return "Formatting .\(url.pathExtension) files is turned off in \(source)."
+            return .failed("Formatting .\(url.pathExtension) files is turned off in \(source).")
         case .tool(let formatter):
             let text = document.text
             let formatted: String
             do {
                 formatted = try await formatter.format(text, file: url, environment: environment)
             } catch {
-                return error.localizedDescription
+                return .failed(error.localizedDescription, formatter: formatter.name)
             }
             // Typed into while it ran: those keystrokes win.
-            guard document.text == text, formatted != text else { return nil }
+            guard document.text == text, formatted != text else { return FormatOutcome(formatter: formatter.name) }
             let string = text as NSString
             let end = SourcePosition(offset: string.length, in: SourcePosition.lineStarts(of: string))
             let whole = SourceEdit(range: SourceRange(start: SourcePosition(line: 0, character: 0), end: end), newText: formatted)
-            return apply(WorkspaceEdit(files: [url.standardizedFileURL: [whole]])) ? nil : "The file couldn't be changed."
+            guard apply(WorkspaceEdit(files: [url.standardizedFileURL: [whole]])) else { return .failed("The file couldn't be changed.", formatter: formatter.name) }
+            return FormatOutcome(formatter: formatter.name, changed: true)
         case .server:
             let nothing = "Nothing formats .\(url.pathExtension) files here: the language server can't, and the project has no formatter Orbit recognizes (\(FormatterPreset.all.map(\.name).joined(separator: ", "))). Set one for this file type in .orbit/settings.json — Settings → Languages → Formatting."
-            guard let server = await flush(url), server.formats else { return nothing }
+            guard let server = await flush(url) else { return .failed(nothing) }
+            if server.state == .starting {
+                return .failed("The \(server.config.name) language server is still starting. Try again in a moment.")
+            }
+            guard server.state == .running, server.formats else { return .failed(nothing) }
+            let name = "\(server.config.name) language server"
             let indent = Indentation.of(url, text: document.text, root: root)
             guard let edits = await server.formatting(url.standardizedFileURL, tabSize: indent.size, insertSpaces: indent.spaces) else {
-                return "The language server couldn't format this file."
+                return .failed("It couldn't format this file.", formatter: name)
             }
-            guard !edits.isEmpty else { return nil }
-            return apply(WorkspaceEdit(files: [url.standardizedFileURL: edits])) ? nil : "The file couldn't be changed."
+            guard !edits.isEmpty else { return FormatOutcome(formatter: name) }
+            guard apply(WorkspaceEdit(files: [url.standardizedFileURL: edits])) else { return .failed("The file couldn't be changed.", formatter: name) }
+            return FormatOutcome(formatter: name, changed: true)
         }
     }
 

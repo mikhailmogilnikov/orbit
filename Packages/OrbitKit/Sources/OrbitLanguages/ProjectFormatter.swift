@@ -157,7 +157,11 @@ struct ProjectFormatter: Sendable, Equatable {
         return nil
     }
 
-    /// The file's whole new text.
+    /// Longer than any formatter takes on a source file; past it, it's stuck.
+    static let timeout: DispatchTimeInterval = .seconds(15)
+
+    /// The file's whole new text. The pipes are read on threads of their own:
+    /// blocking reads on Swift's few cooperative threads can starve the app.
     func format(_ text: String, file: URL, environment: [String: String]) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -168,36 +172,69 @@ struct ProjectFormatter: Sendable, Equatable {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
-        let box = ProcessBox(process)
+        let run = Run(process)
         let name = name
         return try await withTaskCancellationHandler {
-            try await Task.detached {
-                try process.run()
-                let stdin = input.fileHandleForWriting
-                Task.detached {
-                    stdin.write(Data(text.utf8))
-                    try? stdin.close()
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        try process.run()
+                    } catch {
+                        continuation.resume(throwing: LanguageInstaller.Failure.failed("Couldn't run \(name): \(error.localizedDescription)"))
+                        return
+                    }
+                    DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Self.timeout) { run.terminate(timedOut: true) }
+                    let stdin = input.fileHandleForWriting
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        stdin.write(Data(text.utf8))
+                        try? stdin.close()
+                    }
+                    let group = DispatchGroup()
+                    group.enter()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        run.errors = errors.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+                    let data = output.fileHandleForReading.readDataToEndOfFile()
+                    group.wait()
+                    let failure = run.errors
+                    process.waitUntilExit()
+                    if run.timedOut {
+                        continuation.resume(throwing: LanguageInstaller.Failure.failed("\(name) didn't finish in 15 seconds."))
+                    } else if process.terminationStatus != 0 {
+                        let tail = String(decoding: failure, as: UTF8.self).split(whereSeparator: \.isNewline).prefix(8).joined(separator: "\n")
+                        continuation.resume(throwing: LanguageInstaller.Failure.failed("\(name) failed (\(process.terminationStatus))" + (tail.isEmpty ? "." : ":\n\(tail)")))
+                    } else {
+                        continuation.resume(returning: String(decoding: data, as: UTF8.self))
+                    }
                 }
-                // Both pipes drain at once: a big file's errors mustn't block its output.
-                let errorData = Task.detached { errors.fileHandleForReading.readDataToEndOfFile() }
-                let data = output.fileHandleForReading.readDataToEndOfFile()
-                let failure = await errorData.value
-                process.waitUntilExit()
-                guard process.terminationStatus == 0 else {
-                    let tail = String(decoding: failure, as: UTF8.self).split(whereSeparator: \.isNewline).prefix(6).joined(separator: "\n")
-                    throw LanguageInstaller.Failure.failed("\(name) failed" + (tail.isEmpty ? "" : ":\n\(tail)"))
-                }
-                return String(decoding: data, as: UTF8.self)
-            }.value
+            }
         } onCancel: {
-            box.terminate()
+            run.terminate(timedOut: false)
         }
     }
 
-    private final class ProcessBox: @unchecked Sendable {
+    private final class Run: @unchecked Sendable {
         let process: Process
+        private let lock = NSLock()
+        private var didTimeOut = false
+        private var stderr = Data()
         init(_ process: Process) { self.process = process }
-        func terminate() { if process.isRunning { process.terminate() } }
+
+        var errors: Data {
+            get { lock.withLock { stderr } }
+            set { lock.withLock { stderr = newValue } }
+        }
+
+        var timedOut: Bool { lock.withLock { didTimeOut } }
+
+        func terminate(timedOut: Bool) {
+            lock.withLock {
+                guard process.isRunning else { return }
+                if timedOut { didTimeOut = true }
+                process.terminate()
+            }
+        }
     }
 
     static func executable(_ name: String, locations: [FormatterPreset.Location], from directory: URL, root: URL?, environment: [String: String]) -> String? {

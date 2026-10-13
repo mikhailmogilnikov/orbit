@@ -155,8 +155,8 @@ public protocol LanguageIntelligence: AnyObject {
     /// The number of files changed, or why it failed.
     func rename(at position: SourcePosition, in url: URL, to newName: String) async -> Result<Int, RenameFailure>
     func canFormat(_ url: URL) -> Bool
-    /// Formats the whole file with the repo's formatter or the server; nil when it worked, else why not.
-    func format(_ url: URL) async -> String?
+    /// Formats the whole file with the repo's formatter or the server.
+    func format(_ url: URL) async -> FormatOutcome
     /// Problems in every open file, worst first.
     var problems: [FileProblems] { get }
 }
@@ -179,5 +179,24 @@ public struct LanguageInstallOffer: Sendable, Hashable {
         self.needs = needs
         self.isInstalling = isInstalling
         self.failure = failure
+    }
+}
+
+/// What formatting a file did, for the editor to say so.
+public struct FormatOutcome: Sendable, Equatable {
+    /// "Prettier", "TypeScript language server"…; nil when nothing could run.
+    public var formatter: String?
+    public var changed: Bool
+    /// Why it couldn't format.
+    public var failure: String?
+
+    public init(formatter: String?, changed: Bool = false, failure: String? = nil) {
+        self.formatter = formatter
+        self.changed = changed
+        self.failure = failure
+    }
+
+    public static func failed(_ message: String, formatter: String? = nil) -> FormatOutcome {
+        FormatOutcome(formatter: formatter, failure: message)
     }
 }
