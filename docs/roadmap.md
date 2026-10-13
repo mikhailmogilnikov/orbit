@@ -83,7 +83,7 @@
   Catalog (search, try on, install, update, uninstall); try-on bar over the editor
 - LSP (D54): Languages plugin runs sourcekit-lsp (Swift) and
   typescript-language-server (TS/JS) lazily per project; squiggles, hover
-  (⌥-free: rest the pointer), ⌘-click / ⌃⌘J go to definition, ⌘' next problem,
+  (rest the pointer), ⌘-click / ⌃⌘J go to definition, ⌘' next problem,
   status-bar problem counts; idle servers stop after 10 min
 - Agents from the ACP registry (D52): install / update / uninstall in Settings →
   Agents, downloads checked by sha256, no built-in presets; old Claude Code /
