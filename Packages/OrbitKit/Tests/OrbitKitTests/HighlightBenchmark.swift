@@ -88,7 +88,7 @@ final class HighlightBenchmark: XCTestCase {
         window.contentView = scrollView
         textView.text = text
         let palette = SyntaxPalette(theme: Extensions.shared.colorTheme(dark: false))
-        textView.addPlugin(SyntaxHighlightPlugin(palette: palette, language: .swift))
+        textView.addPlugin(SyntaxHighlightPlugin(palette: palette, grammar: .builtin(.swift)))
         textView.layoutSubtreeIfNeeded()
         return (window, textView)
     }

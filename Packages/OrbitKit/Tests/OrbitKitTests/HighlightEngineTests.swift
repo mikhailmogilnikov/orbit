@@ -103,7 +103,7 @@ import Testing
     }
 
     static func worker(_ theme: ColorTheme) -> HighlightWorker? {
-        HighlightWorker(language: .swift, theme: theme, notify: {})
+        HighlightWorker(grammar: .builtin(.swift), theme: theme, notify: {})
     }
 
     static func randomEdit(of text: String, using generator: inout SeededGenerator) -> (TextEdit, String) {
