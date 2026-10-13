@@ -12,13 +12,13 @@ let package = Package(
         .target(
             name: "OrbitLanguages",
             dependencies: ["OrbitAPI", "OrbitACP"],
-            sources: ["LanguageServer.swift", "LanguageServerConfig.swift", "TextChange.swift"]
+            sources: ["LanguageServer.swift", "LanguageServerConfig.swift", "TextChange.swift", "LanguageInstaller.swift"]
         ),
         .testTarget(
             name: "OrbitKitTests",
             dependencies: ["OrbitAPI", "OrbitACP", "OrbitLanguages"],
             exclude: ["Fixtures"],
-            sources: ["LanguageServerTests.swift", "LanguageServerIntegrationTests.swift", "CompletionTests.swift"]
+            sources: ["LanguageServerTests.swift", "LanguageServerIntegrationTests.swift", "CompletionTests.swift", "LanguageInstallTests.swift"]
         ),
     ]
 )

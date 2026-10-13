@@ -23,7 +23,8 @@ Read before significant work:
   `Co-Authored-By` / `Claude-Session` trailers. The cloud container is Linux:
   the app doesn't build, so say what wasn't verified and expect screenshots back.
   The language-server client does: `scripts/linux-swift.sh`, then
-  `make test-languages` before pushing LSP changes.
+  `make test-languages` (and `make test-language-installs` for server
+  install/config changes) before pushing LSP changes.
 
 ## Commands
 
@@ -32,6 +33,7 @@ make build   # xcodegen + xcodebuild (Debug) → .build/xcode/Build/Products/Deb
 make run     # build, kill running Orbit, open the app
 make test    # swift test in Packages/OrbitKit
 make test-languages   # LSP client against real servers (D55); runs on Linux too
+make test-language-installs   # every server installed from Mason and run (D57); slow once
 make clean
 cd Packages/OrbitKit && swift build   # fast compile check of all modules
 ```
@@ -54,7 +56,7 @@ Packages/OrbitKit/
   Sources/OrbitTerminal   plugin: SwiftTerm terminals in the bottom panel
   Sources/OrbitGit        plugin: Source Control panel (GitRepository runs /usr/bin/git)
   Sources/OrbitAgents     plugin: providers, AgentSession, transcript & chat UI
-  Sources/OrbitLanguages  plugin: LSP client (sourcekit-lsp, typescript-language-server)
+  Sources/OrbitLanguages  plugin: LSP client, server table, Mason installer (Settings → Languages)
   Sources/OrbitKit        BuiltinPlugins list
   Tests/OrbitKitTests     Swift Testing
 docs/                     product & architecture docs (extensions.md: authoring guide)

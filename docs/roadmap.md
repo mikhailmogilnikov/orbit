@@ -92,6 +92,10 @@
   agent inline-diff overlays use the theme's version-control colors
 - Theme selector ⌃⌘T with live preview over installed and catalog themes;
   catalog thumbnails; light/dark partner picked together (D49)
+- Language servers installed from the Mason registry (D57): Settings →
+  Languages and an Install button in the status bar; 20 languages (Python,
+  Rust, Go, C/C++/ObjC, JSON, CSS, HTML, YAML, Shell, Markdown, TOML, Lua,
+  Dockerfile, PHP, Zig, Svelte, Terraform, Ruby + Swift, TypeScript)
 - Completion while typing and signature help (D56): local fuzzy filtering,
   snippets with placeholders, auto-imports, docs for the selected item
 - Language-server tests against real servers (D55): Swift, TypeScript 7 / 5 /
@@ -100,15 +104,17 @@
 ## Next (rough priority)
 1. Agent changes tracking improvements: separate changed files view from the composer,
    better visual integration with inline diffs
-2. LSP, next steps (D54): install missing servers from the Mason registry
-   (ask on first file of a language); more languages (Python, Rust, Go, C);
-   rename, format, code actions (⌘.), find references, symbols; a Problems list
+2. LSP, next steps (D54): rename, format, code actions (⌘.), find references, symbols; a Problems list
 3. Own extension registry (GitHub repo with `index.json`, PR to publish) for
    extensions Zed's catalog can't carry (languages, agents, code plugins)
 4. Code plugins in TypeScript via JavaScriptCore, same package format
 5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
+- Language installs (D57): every server installs and reports a problem in
+  the Linux tests; the Settings page and status-bar button are unverified on a
+  Mac. RubyGems/NuGet/opam packages aren't installable (Ruby is found on PATH
+  only). One server per file type.
 - Completion (D56): unverified on a Mac (popup look, keys, placement near
   screen edges, IME). Placeholders aren't drawn as tokens, only selected.
 - LSP (D54): the client is tested against real servers on Linux (D55); the

@@ -2,7 +2,7 @@ DERIVED := .build/xcode
 CONFIG ?= Debug
 APP := $(DERIVED)/Build/Products/$(CONFIG)/Orbit.app
 
-.PHONY: project build run test test-languages release clean
+.PHONY: project build run test test-languages test-language-installs release clean
 
 project:
 	xcodegen generate --quiet
@@ -22,6 +22,12 @@ test:
 # (scripts/linux-swift.sh), where SwiftPM drops the macOS-only pins.
 test-languages:
 	cd Packages/OrbitKit && PATH="/opt/swift/usr/bin:$$PATH" swift test --filter "LanguageServer|Completion"; \
+		status=$$?; [ "$$(uname)" = Linux ] && git checkout -q -- Package.resolved; exit $$status
+
+# Installs every server Orbit offers from the Mason registry and runs each on a
+# file with a problem (D57). Downloads a lot once; cached in the temp folder.
+test-language-installs:
+	cd Packages/OrbitKit && ORBIT_INSTALL_TESTS=1 PATH="/opt/swift/usr/bin:$$PATH" swift test --filter LanguageInstall; \
 		status=$$?; [ "$$(uname)" = Linux ] && git checkout -q -- Package.resolved; exit $$status
 
 release:

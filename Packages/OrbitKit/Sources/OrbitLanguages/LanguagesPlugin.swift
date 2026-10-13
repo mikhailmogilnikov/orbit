@@ -8,7 +8,7 @@ public final class LanguagesPlugin: OrbitPlugin {
     public static let manifest = PluginManifest(
         id: "orbit.languages",
         name: "Languages",
-        summary: "Errors, hover and go to definition from language servers (Swift, TypeScript).",
+        summary: "Errors, completion, hover and go to definition from language servers; installs them from the Mason registry.",
         systemImage: "curlybraces"
     )
 
@@ -26,7 +26,14 @@ public final class LanguagesPlugin: OrbitPlugin {
             id: "languages.status", placement: .trailing, order: 10,
             isVisible: { Self.activeFile(workspace).flatMap(manager.server(for:)) != nil }
         ) {
-            LanguageStatus(manager: manager, workspace: workspace, commands: context.commands)
+            LanguageStatus(manager: manager, workspace: workspace, commands: context.commands, ui: context.ui)
+        })
+
+        context.ui.addSettingsPane(SettingsPane(
+            id: "languages", title: "Languages", systemImage: "curlybraces", order: 15,
+            keywords: ["lsp", "language server", "install", "mason", "python", "rust", "go", "completion", "errors"]
+        ) {
+            LanguagesSettingsPane(manager: manager)
         })
 
         context.commands.register(OrbitCommand(
@@ -54,13 +61,26 @@ struct LanguageStatus: View {
     let manager: LanguageManager
     let workspace: Workspace
     let commands: CommandRegistry
+    let ui: UIRegistry
 
     var body: some View {
         if let url = LanguagesPlugin.activeFile(workspace), let server = manager.server(for: url) {
             let diagnostics = manager.diagnostics(for: url)
             let errors = diagnostics.count { $0.severity == .error }
             let warnings = diagnostics.count { $0.severity == .warning }
+            let config = manager.config(for: url)
+            let installing = config.map { manager.installing.contains($0.id) } ?? false
+            let failure = config.flatMap { manager.installFailures[$0.id] }
+            let canInstall = config?.install != nil && Self.isUnavailable(server.state)
             Button {
+                if canInstall, let config {
+                    if let failure {
+                        explainInstallFailure(server.name, failure, config: config)
+                    } else if !installing {
+                        Task { await manager.install(config.id) }
+                    }
+                    return
+                }
                 switch server.state {
                 case .failed(let message), .unavailable(let message):
                     explain(server.name, message)
@@ -69,28 +89,19 @@ struct LanguageStatus: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    switch server.state {
-                    case .starting:
-                        ProgressView().controlSize(.mini)
-                        Text(server.name)
-                    case .running:
-                        if errors == 0, warnings == 0 {
-                            Image(systemName: "checkmark.circle")
-                                .foregroundStyle(.secondary)
+                    if canInstall {
+                        if installing {
+                            ProgressView().controlSize(.mini)
+                            Text("Installing \(server.name)…")
+                        } else if failure != nil {
+                            Image(systemName: "exclamationmark.circle").foregroundStyle(.orange)
+                            Text("\(server.name) install failed")
+                        } else {
+                            Image(systemName: "arrow.down.circle")
+                            Text("Install \(server.name) Support")
                         }
-                        if errors > 0 {
-                            Label("\(errors)", systemImage: "xmark.octagon.fill")
-                                .foregroundStyle(.red)
-                        }
-                        if warnings > 0 {
-                            Label("\(warnings)", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                        }
-                        Text(server.name)
-                    case .failed, .unavailable:
-                        Image(systemName: "exclamationmark.circle")
-                            .foregroundStyle(.secondary)
-                        Text(server.name)
+                    } else {
+                        stateLabel(server, errors: errors, warnings: warnings)
                     }
                 }
                 .labelStyle(.titleAndIcon)
@@ -99,7 +110,53 @@ struct LanguageStatus: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .help(help(server.state, errors: errors, warnings: warnings))
+            .help(canInstall ? "Download its language server from the Mason registry" : help(server.state, errors: errors, warnings: warnings))
+        }
+    }
+
+    private static func isUnavailable(_ state: LanguageServerState) -> Bool {
+        if case .unavailable = state { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private func stateLabel(_ server: (name: String, state: LanguageServerState), errors: Int, warnings: Int) -> some View {
+        switch server.state {
+        case .starting:
+            ProgressView().controlSize(.mini)
+            Text(server.name)
+        case .running:
+            if errors == 0, warnings == 0 {
+                Image(systemName: "checkmark.circle")
+                    .foregroundStyle(.secondary)
+            }
+            if errors > 0 {
+                Label("\(errors)", systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+            }
+            if warnings > 0 {
+                Label("\(warnings)", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+            Text(server.name)
+        case .failed, .unavailable:
+            Image(systemName: "exclamationmark.circle")
+                .foregroundStyle(.secondary)
+            Text(server.name)
+        }
+    }
+
+    private func explainInstallFailure(_ name: String, _ message: String, config: LanguageServerConfig) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't install the \(name) language server"
+        alert.informativeText = message
+        alert.addButton(withTitle: "Try Again")
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: Task { await manager.install(config.id) }
+        case .alertSecondButtonReturn: ui.showSettings("languages")
+        default: break
         }
     }
 

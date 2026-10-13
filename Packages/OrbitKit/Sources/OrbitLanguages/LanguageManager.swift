@@ -14,7 +14,20 @@ final class LanguageManager: LanguageIntelligence {
     /// Servers that couldn't start, so files of their language say why without retrying on every keystroke.
     private(set) var unavailable: [String: LanguageServerState] = [:]
 
-    private let environment: Task<[String: String], Never>
+    let environment: Task<[String: String], Never>
+    @ObservationIgnored let installer = LanguageInstaller.shared
+
+    // Installing (D57), by config id unless noted.
+    private(set) var installing: Set<String> = []
+    private(set) var installFailures: [String: String] = [:]
+    /// By Mason package.
+    private(set) var receipts: [String: LanguageInstaller.Receipt] = [:]
+    /// By Mason package, from the registry.
+    private(set) var latestVersions: [String: String] = [:]
+    /// Servers already on the machine (not Orbit's copy): config id → executable.
+    private(set) var foundOnMachine: [String: String] = [:]
+    private(set) var isLoadingRegistry = false
+    private(set) var registryError: String?
     @ObservationIgnored private var root: URL?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var idleTasks: [String: Task<Void, Never>] = [:]
@@ -128,6 +141,92 @@ final class LanguageManager: LanguageIntelligence {
         for task in idleTasks.values { task.cancel() }
         for server in servers.values { server.shutdown() }
         servers.removeAll()
+    }
+
+    // MARK: Installing
+
+    /// Installed versions, the registry's latest, and what's already on the machine.
+    func refreshInstalls() async {
+        guard !isLoadingRegistry else { return }
+        isLoadingRegistry = true
+        defer { isLoadingRegistry = false }
+        let installer = installer
+        let environment = await environment.value
+        let root = workspace.root ?? FileManager.default.homeDirectoryForCurrentUser
+        let (receipts, found) = await Task.detached(priority: .utility) {
+            var receipts: [String: LanguageInstaller.Receipt] = [:]
+            var found: [String: String] = [:]
+            for config in LanguageServerConfig.all {
+                if let install = config.install, let receipt = installer.receipt(for: install.package) {
+                    receipts[install.package] = receipt
+                }
+                if let command = config.resolve(root, environment) { found[config.id] = command.executable }
+            }
+            return (receipts, found)
+        }.value
+        self.receipts = receipts
+        foundOnMachine = found
+        do {
+            let versions = try await Task.detached(priority: .utility) {
+                let registry = try installer.registry()
+                var versions: [String: String] = [:]
+                for config in LanguageServerConfig.all {
+                    guard let package = config.install?.package, let id = registry[package]?["source"]?["id"]?.string,
+                          let url = PackageURL(id) else { continue }
+                    versions[package] = url.version
+                }
+                return versions
+            }.value
+            latestVersions = versions
+            registryError = nil
+        } catch {
+            registryError = error.localizedDescription
+        }
+    }
+
+    func install(_ id: String) async {
+        guard let config = LanguageServerConfig.config(id: id), let install = config.install, !installing.contains(id) else { return }
+        installing.insert(id)
+        installFailures[id] = nil
+        defer { installing.remove(id) }
+        let installer = installer
+        let environment = await environment.value
+        do {
+            let receipt = try await Task.detached(priority: .userInitiated) {
+                let registry = try installer.registry(maxAge: 3600)
+                guard let package = registry[install.package] else {
+                    throw LanguageInstaller.Failure.failed("\(install.package) isn't in the Mason registry.")
+                }
+                return try installer.install(package, environment: environment)
+            }.value
+            receipts[install.package] = receipt
+            latestVersions[install.package] = latestVersions[install.package] ?? receipt.version
+            restartServer(id)
+        } catch {
+            installFailures[id] = error.localizedDescription
+        }
+    }
+
+    func uninstall(_ id: String) {
+        guard let install = LanguageServerConfig.config(id: id)?.install else { return }
+        do {
+            try installer.uninstall(install.package)
+            receipts[install.package] = nil
+            restartServer(id)
+        } catch {
+            installFailures[id] = error.localizedDescription
+        }
+    }
+
+    /// A new or removed copy takes over from the running one; open files start it again.
+    private func restartServer(_ id: String) {
+        servers.removeValue(forKey: id)?.shutdown()
+        unavailable[id] = nil
+        scheduleSync()
+    }
+
+    func config(for url: URL) -> LanguageServerConfig? {
+        LanguageServerConfig.config(for: url)
     }
 
     // MARK: LanguageIntelligence

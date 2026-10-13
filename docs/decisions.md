@@ -769,3 +769,30 @@ instead, as in Xcode.
 The server side runs against real servers in `make test-languages`
 (completion after a dot, resolve, signature help, cancellation); the matcher
 and snippet parser have unit tests.
+
+### D57. Language servers install from the Mason registry, with our own installer
+The author installs the languages they need themselves, from Settings →
+Languages (or the "Install … Support" status-bar button on a file whose
+server is missing). The server table stays ours (`LanguageServerConfig.all`:
+file types, binary, arguments; 20 languages), because the registry says
+how to install a package but not how to launch it or for which files. Mason's
+registry (data only, Apache-2.0, the list Neovim uses) gives the package and
+version: `registry.json.zip` from its GitHub releases, cached a day in
+`~/.orbit/languages`. Installing is our code, not Mason's Lua: npm (`npm
+install --prefix`), PyPI (a venv; binaries run through the venv's python so
+the folder can be moved into place), Go (`go install` with `GOBIN`), Cargo
+(`cargo install --root`), GitHub release assets and plain downloads (curl,
+tar, unzip, gunzip), with Mason's `{{ … | strip_prefix }}` templates and
+per-platform targets. A package installs into a temporary folder and is
+swapped in only when complete, with a receipt (`orbit-receipt.json`) saying
+how to run its binaries. Orbit's copy wins over one found on the machine;
+servers already there (Xcode's SourceKit-LSP and clangd, rustup's
+rust-analyzer…) need no install. RubyGems and other package managers aren't
+driven: Ruby's server is found on PATH only.
+
+`make test-language-installs` installs every server from the real registry
+and runs each on a small project with a problem in it, expecting the
+server's diagnostic (or a completion). On its first run it found that the
+vscode-langservers (CSS, HTML, JSON) register pull diagnostics dynamically
+(`client/registerCapability` is now honored) and that the CSS server crashes
+when `workspace/configuration` is answered with null (we answer `{}`).

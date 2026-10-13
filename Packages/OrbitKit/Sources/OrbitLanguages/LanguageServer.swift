@@ -34,9 +34,12 @@ final class LanguageServer {
     /// /tmp, /var): servers answer with that one, or half-resolved ones.
     @ObservationIgnored private let realRoot: String?
 
-    init(config: LanguageServerConfig, root: URL) {
+    let installer: LanguageInstaller
+
+    init(config: LanguageServerConfig, root: URL, installer: LanguageInstaller = .shared) {
         self.config = config
         self.root = root
+        self.installer = installer
         let real = Self.realPath(root.path)
         realRoot = real == root.standardizedFileURL.path ? nil : real
     }
@@ -55,7 +58,10 @@ final class LanguageServer {
 
     private func launch(environment: [String: String]) async -> Bool {
         let config = config, root = root
-        let command = await Task.detached(priority: .userInitiated) { config.resolve(root, environment) }.value
+        let installer = installer
+        let command = await Task.detached(priority: .userInitiated) {
+            config.command(root: root, environment: environment, installer: installer)
+        }.value
         guard let command else {
             state = .unavailable(config.missing)
             return false
@@ -74,6 +80,10 @@ final class LanguageServer {
             onRequest: { [weak self] method, params in
                 if method == "workspace/diagnostic/refresh" {
                     Task { @MainActor in self?.pullAllDiagnostics() }
+                    return .null
+                }
+                if method == "client/registerCapability" {
+                    Task { @MainActor in self?.register(params["registrations"]?.array ?? []) }
                     return .null
                 }
                 return try Self.answer(method, params, root: root)
@@ -151,8 +161,9 @@ final class LanguageServer {
     private nonisolated static func answer(_ method: String, _ params: JSONValue, root: URL) throws -> JSONValue {
         switch method {
         case "workspace/configuration":
-            // No settings of our own: the server's defaults for each asked section.
-            return .array(Array(repeating: .null, count: params["items"]?.array?.count ?? 0))
+            // No settings of our own: the server's defaults for each asked section
+            // (an empty object; the CSS server fails on null).
+            return .array(Array(repeating: .object([:]), count: params["items"]?.array?.count ?? 0))
         case "workspace/workspaceFolders":
             return [["uri": .string(root.absoluteString), "name": .string(root.lastPathComponent)]]
         case "window/workDoneProgress/create", "client/registerCapability", "client/unregisterCapability",
@@ -175,6 +186,29 @@ final class LanguageServer {
             signatureHelp: strings(signature?["triggerCharacters"]),
             signatureHelpRetrigger: strings(signature?["retriggerCharacters"])
         )
+    }
+
+    /// Features some servers turn on only after starting (the vscode-langservers' diagnostics).
+    private func register(_ registrations: [JSONValue]) {
+        for registration in registrations {
+            let options = registration["registerOptions"]
+            func strings(_ value: JSONValue?) -> Set<String> { Set(value?.array?.compactMap(\.string) ?? []) }
+            switch registration["method"]?.string {
+            case "textDocument/diagnostic":
+                pullsDiagnostics = true
+                pullAllDiagnostics()
+            case "textDocument/completion":
+                completes = true
+                resolvesCompletions = options?["resolveProvider"]?.bool ?? resolvesCompletions
+                triggers.completion.formUnion(strings(options?["triggerCharacters"]))
+            case "textDocument/signatureHelp":
+                helpsWithSignatures = true
+                triggers.signatureHelp.formUnion(strings(options?["triggerCharacters"]))
+                triggers.signatureHelpRetrigger.formUnion(strings(options?["retriggerCharacters"]))
+            default:
+                break
+            }
+        }
     }
 
     private func handleNotification(_ method: String, _ params: JSONValue) {
