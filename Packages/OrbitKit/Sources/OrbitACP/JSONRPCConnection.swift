@@ -21,7 +21,8 @@ public struct JSONRPCError: Error, Sendable, LocalizedError {
     public static let processExited = JSONRPCError(code: -32000, message: "Agent process exited")
 }
 
-/// Newline-delimited JSON-RPC 2.0 over a child process' stdio.
+/// JSON-RPC 2.0 over a child process' stdio: newline-delimited (ACP agents) or
+/// with `Content-Length` headers (language servers).
 ///
 /// All mutable state is confined to `queue`; that is what makes the
 /// `@unchecked Sendable` sound.
@@ -29,6 +30,15 @@ public final class JSONRPCConnection: @unchecked Sendable {
     public typealias NotificationHandler = @Sendable (_ method: String, _ params: JSONValue) -> Void
     public typealias RequestHandler = @Sendable (_ method: String, _ params: JSONValue) async throws -> JSONValue
     public typealias ExitHandler = @Sendable (_ status: Int32, _ stderrTail: String) -> Void
+
+    public enum Framing: Sendable {
+        /// One message per line (ACP).
+        case newlineDelimited
+        /// `Content-Length: N\r\n\r\n` before each message (LSP).
+        case contentLength
+    }
+
+    private let framing: Framing
 
     private let logger = Logger(subsystem: "dev.orbit", category: "jsonrpc")
     private let process = Process()
@@ -52,6 +62,7 @@ public final class JSONRPCConnection: @unchecked Sendable {
         arguments: [String],
         environment: [String: String],
         currentDirectory: URL,
+        framing: Framing = .newlineDelimited,
         onNotification: @escaping NotificationHandler,
         onRequest: @escaping RequestHandler,
         onExit: @escaping ExitHandler
@@ -59,6 +70,7 @@ public final class JSONRPCConnection: @unchecked Sendable {
         self.onNotification = onNotification
         self.onRequest = onRequest
         self.onExit = onExit
+        self.framing = framing
         process.executableURL = executable
         process.arguments = arguments
         process.environment = environment
@@ -137,7 +149,10 @@ public final class JSONRPCConnection: @unchecked Sendable {
     /// Must be called on `queue`.
     private func write(_ message: JSONValue) {
         guard !exited, var data = try? JSONEncoder().encode(message) else { return }
-        data.append(0x0A)
+        switch framing {
+        case .newlineDelimited: data.append(0x0A)
+        case .contentLength: data = Data("Content-Length: \(data.count)\r\n\r\n".utf8) + data
+        }
         do {
             try stdinPipe.fileHandleForWriting.write(contentsOf: data)
         } catch {
@@ -150,6 +165,10 @@ public final class JSONRPCConnection: @unchecked Sendable {
     /// Must be called on `queue`.
     private func consume(_ data: Data) {
         readBuffer.append(data)
+        if framing == .contentLength {
+            consumeFramed()
+            return
+        }
         while let newline = readBuffer.firstIndex(of: 0x0A) {
             let line = readBuffer[readBuffer.startIndex..<newline]
             readBuffer.removeSubrange(readBuffer.startIndex...newline)
@@ -159,6 +178,34 @@ public final class JSONRPCConnection: @unchecked Sendable {
                 continue
             }
             handle(message)
+        }
+    }
+
+    private static let headerEnd = Data("\r\n\r\n".utf8)
+
+    /// Must be called on `queue`.
+    private func consumeFramed() {
+        while let separator = readBuffer.range(of: Self.headerEnd) {
+            let header = String(decoding: readBuffer[readBuffer.startIndex..<separator.lowerBound], as: UTF8.self)
+            let length = header.split(separator: "\r\n").lazy.compactMap { line -> Int? in
+                let parts = line.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "content-length" else { return nil }
+                return Int(parts[1].trimmingCharacters(in: .whitespaces))
+            }.first
+            guard let length else {
+                // Not a header we understand: drop it rather than stall the stream.
+                readBuffer.removeSubrange(readBuffer.startIndex..<separator.upperBound)
+                continue
+            }
+            guard readBuffer.distance(from: separator.upperBound, to: readBuffer.endIndex) >= length else { return }
+            let end = readBuffer.index(separator.upperBound, offsetBy: length)
+            let body = readBuffer[separator.upperBound..<end]
+            if let message = try? JSONDecoder().decode(JSONValue.self, from: body) {
+                handle(message)
+            } else {
+                logger.debug("non-JSON message from server")
+            }
+            readBuffer.removeSubrange(readBuffer.startIndex..<end)
         }
     }
 

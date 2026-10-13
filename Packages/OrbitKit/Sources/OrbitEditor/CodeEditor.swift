@@ -21,6 +21,10 @@ struct CodeEditor: NSViewRepresentable {
     var fontSize = Preferences.defaultCodeFontSize
     var wrapsLines = false
     var highlightsCurrentLine = true
+    /// From the language server (D54); hover, ⌘-click and the squiggles use them.
+    var diagnostics: [Diagnostic] = []
+    var languages: LanguageIntelligence?
+    var onOpenLocation: (SourceLocation) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document) }
 
@@ -42,6 +46,14 @@ struct CodeEditor: NSViewRepresentable {
         }
         coordinator.inlineDiff.textView = textView
         textView.addPlugin(InlineDiffPlugin(controller: coordinator.inlineDiff))
+        coordinator.diagnosticsController.textView = textView
+        textView.addPlugin(DiagnosticsPlugin(controller: coordinator.diagnosticsController))
+        if let orbitView = textView as? OrbitTextView {
+            orbitView.onMouseMoved = { [weak coordinator] point in coordinator?.mouseMoved(to: point) }
+            orbitView.onMouseExited = { [weak coordinator] in coordinator?.mouseExited() }
+            orbitView.onCommandClick = { [weak coordinator] point in coordinator?.commandClick(at: point) ?? false }
+        }
+        coordinator.observeScrolling(of: scrollView)
 
         let ruler = LineNumberRuler(textView: textView, scrollView: scrollView)
         scrollView.verticalRulerView = ruler
@@ -75,6 +87,7 @@ struct CodeEditor: NSViewRepresentable {
                 coordinator.isApplyingExternalChange = false
                 textView.textSelection = NSRange(location: location, length: 0)
                 coordinator.inlineDiff.invalidate()
+                coordinator.diagnosticsController.textDidChange()
             }
         }
 
@@ -89,6 +102,9 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.inlineDiff.onKeep = onKeep
         coordinator.inlineDiff.onRevert = onRevert
         coordinator.inlineDiff.update(hunks: hunks, revision: document.revision)
+        coordinator.languages = languages
+        coordinator.onOpenLocation = onOpenLocation
+        coordinator.diagnosticsController.update(diagnostics)
 
         if let revealLine {
             DispatchQueue.main.async {
@@ -119,6 +135,13 @@ struct CodeEditor: NSViewRepresentable {
     final class Coordinator: NSObject, @preconcurrency STTextViewDelegate {
         let document: TextDocument
         let inlineDiff = InlineDiffController()
+        let diagnosticsController = DiagnosticsController()
+        var languages: LanguageIntelligence?
+        var onOpenLocation: (SourceLocation) -> Void = { _ in }
+        private var hoverTask: Task<Void, Never>?
+        private var popover: NSPopover?
+        private var hoverRect: CGRect?
+        private var scrollObserver: NSObjectProtocol?
         let palette = SyntaxPalette(theme: .system(dark: false))
         weak var textView: STTextView?
         weak var ruler: LineNumberRuler?
@@ -137,6 +160,8 @@ struct CodeEditor: NSViewRepresentable {
 
         isolated deinit {
             if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
+            if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+            popover?.close()
         }
 
         /// Colors for the view's current appearance; called again on every theme
@@ -169,6 +194,11 @@ struct CodeEditor: NSViewRepresentable {
                 added: theme.added?.nsColor ?? .systemGreen,
                 deleted: theme.deleted?.nsColor ?? .systemRed
             )
+            diagnosticsController.colors = DiagnosticsController.Colors(
+                error: theme.error?.nsColor ?? .systemRed,
+                warning: theme.warning?.nsColor ?? .systemYellow,
+                info: theme.info?.nsColor ?? .systemBlue
+            )
             ruler?.colors = LineNumberRuler.Colors(
                 background: background ?? .textBackgroundColor,
                 number: theme.lineNumber?.nsColor ?? .tertiaryLabelColor,
@@ -181,6 +211,8 @@ struct CodeEditor: NSViewRepresentable {
 
         func textViewDidChangeText(_ notification: Notification) {
             scheduleGitMarkers()
+            diagnosticsController.textDidChange()
+            closeHover()
             guard !isApplyingExternalChange, let textView else { return }
             document.text = textView.text ?? ""
             syncedRevision = document.revision
@@ -246,6 +278,135 @@ struct CodeEditor: NSViewRepresentable {
             textView.window?.makeFirstResponder(textView)
         }
 
+        // MARK: Language server: hover, definition, problems
+
+        func observeScrolling(of scrollView: NSScrollView) {
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.closeHover() }
+            }
+        }
+
+        /// The pointer rested: after a pause, the problems and symbol info under it.
+        func mouseMoved(to point: NSPoint) {
+            if popover?.isShown == true, let hoverRect {
+                if hoverRect.insetBy(dx: -6, dy: -6).contains(point) { return }
+                closeHover()
+            }
+            hoverTask?.cancel()
+            hoverTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                await self?.showHover(at: point)
+            }
+        }
+
+        /// Leaving for the popover keeps it, so its text can be selected.
+        func mouseExited() {
+            hoverTask?.cancel()
+            guard popover != nil else { return }
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let self, let window = popover?.contentViewController?.view.window else { return }
+                if !window.frame.contains(NSEvent.mouseLocation) { closeHover() }
+            }
+        }
+
+        func closeHover() {
+            hoverTask?.cancel()
+            popover?.close()
+            popover = nil
+            hoverRect = nil
+        }
+
+        private func showHover(at point: NSPoint) async {
+            guard let textView, let offset = characterOffset(at: point) else { return }
+            let controller = diagnosticsController
+            let problems = controller.diagnostics(at: offset)
+            let position = SourcePosition(offset: offset, in: controller.lineStarts)
+            let info = await languages?.hover(at: position, in: document.url)
+            guard !Task.isCancelled, !problems.isEmpty || info != nil else { return }
+
+            let starts = controller.lineStarts, length = controller.length
+            let anchor = info?.range.map { $0.nsRange(in: starts, length: length) }
+                ?? problems.first.map { $0.range.nsRange(in: starts, length: length) }
+                ?? NSRange(location: offset, length: 1)
+            let rects = controller.rects(for: anchor.length > 0 ? anchor : NSRange(location: offset, length: 1))
+            guard let first = rects.first else { return }
+            let rect = rects.dropFirst().reduce(first) { $0.union($1) }
+
+            let host = NSHostingController(rootView: HoverCard(diagnostics: problems, markdown: info?.markdown, colors: controller.colors))
+            host.sizingOptions = [.preferredContentSize]
+            let popover = NSPopover()
+            popover.behavior = .semitransient
+            popover.animates = false
+            popover.contentViewController = host
+            closeHover()
+            popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
+            self.popover = popover
+            hoverRect = rect
+        }
+
+        /// The character under a point; nil past the end of a line or between lines.
+        func characterOffset(at point: NSPoint) -> Int? {
+            guard let textView else { return nil }
+            let manager = textView.textLayoutManager
+            let content = textView.contentFrame
+            let local = CGPoint(x: point.x - content.minX, y: point.y - content.minY)
+            guard let fragment = manager.textLayoutFragment(for: local),
+                  let location = manager.location(interactingAt: local, inContainerAt: fragment.rangeInElement.location) else { return nil }
+            let offset = textView.textContentManager.offset(from: manager.documentRange.location, to: location)
+            // The location snaps to the nearest caret spot: take the character actually under the point.
+            for candidate in [offset, offset - 1] where candidate >= 0 && candidate < diagnosticsController.length {
+                if diagnosticsController.rects(for: NSRange(location: candidate, length: 1)).contains(where: { $0.contains(point) }) {
+                    return candidate
+                }
+            }
+            return nil
+        }
+
+        /// ⌘-click: jump to the definition of what's under the pointer.
+        func commandClick(at point: NSPoint) -> Bool {
+            guard languages?.server(for: document.url) != nil, let offset = characterOffset(at: point) else { return false }
+            closeHover()
+            goToDefinition(at: offset)
+            return true
+        }
+
+        func goToDefinition(at offset: Int) {
+            guard let languages else {
+                NSSound.beep()
+                return
+            }
+            let position = SourcePosition(offset: offset, in: diagnosticsController.lineStarts)
+            let url = document.url
+            Task { [weak self] in
+                guard let location = await languages.definition(at: position, in: url).first else {
+                    NSSound.beep()
+                    return
+                }
+                self?.onOpenLocation(location)
+            }
+        }
+
+        /// Moves the caret to the next squiggle, wrapping around.
+        func revealNextProblem() {
+            guard let textView else { return }
+            let starts = diagnosticsController.lineStarts, length = diagnosticsController.length
+            let offsets = diagnosticsController.diagnostics.map { $0.range.nsRange(in: starts, length: length).location }.sorted()
+            guard let wrapped = offsets.first else {
+                NSSound.beep()
+                return
+            }
+            let caret = textView.textSelection.location
+            let target = offsets.first { $0 > caret } ?? wrapped
+            textView.textSelection = NSRange(location: target, length: 0)
+            textView.scrollRangeToVisible(NSRange(location: target, length: 0))
+            textView.window?.makeFirstResponder(textView)
+        }
+
         func revealHunk(after line: Int, forward: Bool) {
             let hunks = inlineDiff.hunks
             guard !hunks.isEmpty else { return }
@@ -261,6 +422,35 @@ struct CodeEditor: NSViewRepresentable {
 /// (VoiceOver, automation): out-of-range selections crash the stock view.
 final class OrbitTextView: STTextView {
     var onAppearanceChange: (() -> Void)?
+    /// Pointer moves (text-view coordinates), for hover info.
+    var onMouseMoved: ((NSPoint) -> Void)?
+    var onMouseExited: (() -> Void)?
+    /// ⌘-click; returns whether it was handled (go to definition).
+    var onCommandClick: ((NSPoint) -> Bool)?
+    private var hoverArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        onMouseMoved?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onMouseExited?()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command), onCommandClick?(convert(event.locationInWindow, from: nil)) == true { return }
+        super.mouseDown(with: event)
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

@@ -81,6 +81,10 @@
 - Composer usage ring (D46): context fill; popover with plan limits (Claude), cost and tokens
 - Extensions catalog (D48): Zed's themes and icon themes in Settings → Extensions →
   Catalog (search, try on, install, update, uninstall); try-on bar over the editor
+- LSP (D54): Languages plugin runs sourcekit-lsp (Swift) and
+  typescript-language-server (TS/JS) lazily per project; squiggles, hover
+  (⌥-free: rest the pointer), ⌘-click / ⌃⌘J go to definition, ⌘' next problem,
+  status-bar problem counts; idle servers stop after 10 min
 - Agents from the ACP registry (D52): install / update / uninstall in Settings →
   Agents, downloads checked by sha256, no built-in presets; old Claude Code /
   Codex chats migrate to the registry ids
@@ -92,14 +96,19 @@
 ## Next (rough priority)
 1. Agent changes tracking improvements: separate changed files view from the composer,
    better visual integration with inline diffs
-2. Minimal LSP as a built-in plugin (diagnostics, go to definition, hover);
-   language extensions declare and download their language servers
+2. LSP, next steps (D54): install missing servers from the Mason registry
+   (ask on first file of a language); more languages (Python, Rust, Go, C);
+   completion, rename, format, code actions; a Problems list
 3. Own extension registry (GitHub repo with `index.json`, PR to publish) for
    extensions Zed's catalog can't carry (languages, agents, code plugins)
 4. Code plugins in TypeScript via JavaScriptCore, same package format
 5. Release build, notarization, Sparkle updates
 
 ## Known gaps / to verify
+- LSP (D54): unverified on a Mac. sourcekit-lsp understands SwiftPM packages
+  fully; Xcode projects (App/) get single-file results only (no build server).
+  Squiggle positions lag edits until the server republishes. Servers that
+  fail stay off until Restart Language Servers or reopening the folder.
 - Agent registry (D52): unverified on a Mac (the cloud container can't reach
   the registry CDN): install of npx and binary agents, the first-launch
   migration of Claude Code / Codex, icons. Agents installed while Orbit runs

@@ -37,10 +37,11 @@ let package = Package(
             dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP", .product(name: "SwiftTerm", package: "SwiftTerm")]
         ),
         .target(name: "OrbitAgents", dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP"]),
+        .target(name: "OrbitLanguages", dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP"]),
         .target(
             name: "OrbitKit",
-            dependencies: ["OrbitAPI", "OrbitUI", "OrbitExplorer", "OrbitEditor", "OrbitReview", "OrbitSearch", "OrbitGit", "OrbitTerminal", "OrbitAgents"]
+            dependencies: ["OrbitAPI", "OrbitUI", "OrbitExplorer", "OrbitEditor", "OrbitReview", "OrbitSearch", "OrbitGit", "OrbitTerminal", "OrbitAgents", "OrbitLanguages"]
         ),
-        .testTarget(name: "OrbitKitTests", dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI", "OrbitEditor"]),
+        .testTarget(name: "OrbitKitTests", dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI", "OrbitEditor", "OrbitLanguages"]),
     ]
 )

@@ -38,6 +38,7 @@ public final class EditorPlugin: OrbitPlugin {
                 workspace: workspace,
                 changes: services.resolve(ChangeTracking.self),
                 versionControl: services.resolve(VersionControlBaseline.self),
+                languages: services.resolve(LanguageIntelligence.self),
                 options: options
             )
             .id(tab.id)
@@ -83,6 +84,30 @@ public final class EditorPlugin: OrbitPlugin {
         }
 
         registerChangeCommands(context)
+
+        // Xcode's keys: Jump to Definition ⌃⌘J, Jump to Next Issue ⌘'.
+        context.commands.register(OrbitCommand(
+            id: "editor.goToDefinition",
+            title: "Go to Definition",
+            category: "Navigate",
+            systemImage: "arrow.right.circle",
+            shortcut: KeyboardShortcut("j", modifiers: [.command, .control]),
+            isEnabled: { ActiveEditor.shared.coordinator?.languages != nil }
+        ) {
+            guard let coordinator = ActiveEditor.shared.coordinator, let textView = coordinator.textView else { return }
+            coordinator.goToDefinition(at: textView.textSelection.location)
+        })
+
+        context.commands.register(OrbitCommand(
+            id: "editor.nextProblem",
+            title: "Next Problem",
+            category: "Navigate",
+            systemImage: "exclamationmark.triangle",
+            shortcut: KeyboardShortcut("'", modifiers: .command),
+            isEnabled: { ActiveEditor.shared.coordinator?.diagnosticsController.diagnostics.isEmpty == false }
+        ) {
+            ActiveEditor.shared.coordinator?.revealNextProblem()
+        })
         context.services.register(EditorSelectionProviding.self, EditorSelectionService.shared)
         context.services.register(SyntaxHighlighting.self, StaticHighlighter())
     }
@@ -212,6 +237,7 @@ struct FileEditorView: View {
     let workspace: Workspace
     let changes: ChangeTracking?
     let versionControl: VersionControlBaseline?
+    let languages: LanguageIntelligence?
     let options: EditorOptions
     /// What the gutter's change markers compare against.
     @State private var gitBaseline: String?
@@ -242,7 +268,12 @@ struct FileEditorView: View {
                     gitBaseline: gitBaseline,
                     fontSize: Preferences.shared.codeFontSize,
                     wrapsLines: options.wrapsLines,
-                    highlightsCurrentLine: options.highlightsCurrentLine
+                    highlightsCurrentLine: options.highlightsCurrentLine,
+                    diagnostics: languages?.diagnostics(for: url) ?? [],
+                    languages: languages,
+                    onOpenLocation: { location in
+                        workspace.openFile(location.url, line: location.range.start.line)
+                    }
                 )
             }
         }

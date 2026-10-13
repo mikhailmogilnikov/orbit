@@ -51,6 +51,7 @@ Packages/OrbitKit/
   Sources/OrbitTerminal   plugin: SwiftTerm terminals in the bottom panel
   Sources/OrbitGit        plugin: Source Control panel (GitRepository runs /usr/bin/git)
   Sources/OrbitAgents     plugin: providers, AgentSession, transcript & chat UI
+  Sources/OrbitLanguages  plugin: LSP client (sourcekit-lsp, typescript-language-server)
   Sources/OrbitKit        BuiltinPlugins list
   Tests/OrbitKitTests     Swift Testing
 docs/                     product & architecture docs (extensions.md: authoring guide)

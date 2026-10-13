@@ -667,3 +667,31 @@ try-on or a reload rehighlights them; light/dark needs nothing, the colors
 are dynamic. The editor's agent-change overlays (added background, removed
 lines) take `version_control.added` / `deleted` from the theme like the
 gutter does, set from the same `applyTheme` that runs on every switch.
+
+### D54. LSP: our own small client, our own server table, Mason for installs
+Zed's language support can't be reused: its built-in languages are Rust code
+in Zed, and extension languages are WASM that decides what to download and
+how to launch it. The Languages plugin (`OrbitLanguages`) is a plain LSP
+client over the existing JSON-RPC connection (now with `Content-Length`
+framing next to ACP's newline framing). Which servers exist and how to launch
+them is a small table of our own (`LanguageServerConfig`): Swift uses
+`xcrun --find sourcekit-lsp`; TypeScript/JavaScript use the project's
+`node_modules/.bin/typescript-language-server`, then a global one, then
+`npx -p typescript-language-server -p typescript`. Installing missing servers
+will come from the Mason registry (data-only, Apache-2.0, 500+ packages with
+per-platform downloads), the same way agents come from the ACP registry.
+
+Cost control, since servers own most of the memory: a server starts with the
+first open file of its language (never for diff views), one per language per
+project, and stops 10 minutes after its last file closes or when the folder
+changes. Typing is coalesced (120 ms) and sent as one incremental change
+(common prefix/suffix, UTF-16 positions like `NSString`). Hover waits for the
+pointer to rest 450 ms. Semantic tokens are not used: tree-sitter colors code.
+
+The editor gets everything through the `LanguageIntelligence` service (plugins
+don't import each other): diagnostics are drawn as small squiggle views only
+for the viewport (no text-storage attributes, no relayout), colored by the
+theme's `error` / `warning` / `info`; hover is an `NSPopover` with the
+problems and the server's markdown; ⌘-click and ⌃⌘J (Xcode's Jump to
+Definition) open the definition; ⌘' (Xcode's Next Issue) walks problems. The
+status bar shows the active file's server and its error/warning counts.

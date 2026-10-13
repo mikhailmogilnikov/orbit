@@ -70,6 +70,11 @@ public struct ColorTheme: Sendable, Identifiable, Hashable {
     public var renamed: ThemeColor?
     public var conflict: ThemeColor?
 
+    /// Diagnostics: squiggles and problem counts.
+    public var error: ThemeColor?
+    public var warning: ThemeColor?
+    public var info: ThemeColor?
+
     public var terminalBackground: ThemeColor?
     public var terminalForeground: ThemeColor?
     /// The 16 ANSI colors: black…white, then the bright ones.
@@ -216,6 +221,9 @@ enum ThemeFile {
             theme.deleted = color("version_control.deleted", "deleted")
             theme.renamed = color("version_control.renamed", "renamed")
             theme.conflict = color("version_control.conflict", "conflict")
+            theme.error = color("error")
+            theme.warning = color("warning")
+            theme.info = color("info", "hint")
 
             theme.terminalBackground = color("terminal.background")?.composited(over: theme.editorBackground ?? surface)
             theme.terminalForeground = color("terminal.foreground")
