@@ -2,7 +2,7 @@ import AppKit
 import OrbitAPI
 import OrbitUI
 import STPluginNeon
-import STTextView
+@_spi(Plugins) import STTextView
 import SwiftUI
 import TreeSitterResource
 

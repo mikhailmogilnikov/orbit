@@ -1,7 +1,7 @@
 import AppKit
 import OrbitAPI
 import OrbitUI
-import STTextView
+@_spi(Plugins) import STTextView
 import SwiftUI
 
 /// Squiggles under errors and warnings from the language server (D54). Like the

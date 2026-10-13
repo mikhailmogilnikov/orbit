@@ -14,7 +14,7 @@ final class LanguageManager: LanguageIntelligence {
     /// Servers that couldn't start, so files of their language say why without retrying on every keystroke.
     private(set) var unavailable: [String: LanguageServerState] = [:]
 
-    @ObservationIgnored private let environment: Task<[String: String], Never>
+    private let environment: Task<[String: String], Never>
     @ObservationIgnored private var root: URL?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var idleTasks: [String: Task<Void, Never>] = [:]
