@@ -1327,7 +1327,10 @@ struct KeyCaps: View {
     let keys: [String]
 
     init(_ shortcut: String) {
-        keys = shortcut.map(String.init)
+        // Modifiers one cap each, the key ("Space", "↩", "K") one cap.
+        let modifiers = shortcut.prefix { "⌃⌥⇧⌘".contains($0) }
+        let key = shortcut.dropFirst(modifiers.count)
+        keys = modifiers.map(String.init) + (key.isEmpty ? [] : [String(key)])
     }
 
     var body: some View {
@@ -1337,6 +1340,7 @@ struct KeyCaps: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 18, minHeight: 18)
+                    .padding(.horizontal, key.count > 1 ? 4 : 0)
                     .background(Theme.subtleFill.opacity(2), in: .rect(cornerRadius: 5))
             }
         }

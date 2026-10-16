@@ -116,6 +116,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D104. The editor column cancels the sidebar's inherited safe-area inset
 - D105. Text editing basics: line moves, multiple carets, Go to Line, bracket match, zoom
 - D106. Files keep their encoding and line endings; binary and huge files aren't opened
+- D107. Shortcuts can be reassigned in Settings → Keyboard Shortcuts
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2303,3 +2304,26 @@ couldn't open, and nothing protected a 500 MB log or a binary from the editor.
   line endings, Save with Encoding, Remove BOM, Reopen with Encoding.
   Characters the encoding can't store fail the save with a message instead
   of being dropped.
+
+### D107. Shortcuts can be reassigned in Settings → Keyboard Shortcuts
+
+Each row's key caps are a recorder: click, press the new keys (⌫ removes
+the shortcut, Esc or a click elsewhere cancels); a reset arrow shows on
+changed rows, Reset All in the header.
+
+- **Only changes are stored**, app-wide in `orbit.keyBindings` as readable
+  names (`"shift+cmd+k"`, `""` for removed); `KeyBindings.shared` is read by
+  `OrbitCommand.shortcut` / `editorShortcut`, so every window's menus,
+  palette, tooltips and editor keys follow at once. Plugins keep declaring
+  defaults (`defaultShortcut`).
+- **A user's key** replaces the menu shortcut, or the editor-only one when
+  that's all the command had (D105); a command without any gets a menu one.
+- **Taking a key another command has** moves it: the other loses it and a
+  note under the row says so (Xcode's way of not leaving two commands on
+  one key). ⇧⌘P and ⌘, belong to the shell and can't be taken.
+- A recorded key needs ⌘, ⌃ or ⌥: without one it would stop typing that
+  character. Keys are recorded as the layout types them when it types Latin
+  letters (QWERTY, Dvorak), else by ANSI key position (Russian: ⌘В is ⌘D),
+  and editor keys are matched the same way (`KeyPositions`).
+- The editor's own ⌃⇧I by key position (format, menus can't see it in a
+  Russian layout) only applies while Format Document keeps its default.

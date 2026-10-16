@@ -95,19 +95,6 @@ enum EditorKeys {
         if shortcut.modifiers.contains(.shift) { modifiers.insert(.shift) }
         // Arrow keys carry .function and .numericPad; only these four count.
         guard event.modifierFlags.intersection([.command, .control, .option, .shift]) == modifiers else { return false }
-        switch shortcut.key {
-        case .upArrow: return event.specialKey == .upArrow
-        case .downArrow: return event.specialKey == .downArrow
-        case .leftArrow: return event.specialKey == .leftArrow
-        case .rightArrow: return event.specialKey == .rightArrow
-        default:
-            let character = String(shortcut.key.character).lowercased()
-            // By key position too, so ⌘D works in a Russian layout.
-            if let code = letterKeyCodes[character], event.keyCode == code { return true }
-            return event.charactersIgnoringModifiers?.lowercased() == character
-        }
+        return KeyPositions.key(keyCode: event.keyCode, characters: event.characters(byApplyingModifiers: [])) == shortcut.key
     }
-
-    /// ANSI key codes of the letters editor shortcuts use.
-    private static let letterKeyCodes: [String: UInt16] = ["d": 2, "l": 37]
 }

@@ -172,6 +172,7 @@
 - A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
+- Reassignable shortcuts (D107): recorder in Settings → Keyboard Shortcuts, conflicts move the key, reset per row / all
 - Encodings and line endings (D106): file encodings, CRLF, BOM, binary and large-file refusal, status bar menu
 - Text editing basics (D105): move / copy lines ⌥↑↓ ⇧⌥↑↓, multiple carets (⌘D, ⇧⌘L, ⌥-click, ⌃⇧↑↓), Go to Line ⌃G, matching bracket outline, font zoom ⌘= ⌘- ⌘0
 
@@ -369,6 +370,10 @@ Everything below is known to be missing; nothing here is in progress.
 - Git: diff tabs are unified (no side-by-side); History shows only the
   current branch, without search or a graph; blame is only the caret's line
   (no per-line annotations).
+- Shortcuts (D107): unverified on a Mac (the recorder taking keys before
+  Settings' own Esc, menus updating at once, a reassigned key in a second
+  window). Function keys and keys without ⌘⌃⌥ can't be recorded; a command
+  has one user key (Move Line keeps ⌥↑ beside a reassigned menu key).
 - File formats (D106): unverified on a Mac (the status-bar menu, "Reopen
   with Encoding" in the Can't Open state, a CRLF file's inline agent review).
 - Text editing basics (D105): unverified on a Mac (keys reaching the editor

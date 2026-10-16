@@ -263,10 +263,11 @@ public struct OrbitCommand: Identifiable {
     public let title: String
     public let category: String
     public let systemImage: String?
-    public let shortcut: KeyboardShortcut?
+    /// The plugin's keys; the user's own (Settings → Keyboard Shortcuts) win.
+    public let defaultShortcut: KeyboardShortcut?
     /// A key only the focused editor answers, not a menu shortcut: keys like
     /// ⌥↑ or ⌘D mean something else in text fields (the agent composer).
-    public let editorShortcut: KeyboardShortcut?
+    public let defaultEditorShortcut: KeyboardShortcut?
     public let isEnabled: @MainActor () -> Bool
     /// In the editor's right-click menu too, when set.
     public let editorMenu: EditorMenuPlacement?
@@ -287,15 +288,29 @@ public struct OrbitCommand: Identifiable {
         self.title = title
         self.category = category
         self.systemImage = systemImage
-        self.shortcut = shortcut
-        self.editorShortcut = editorShortcut
+        self.defaultShortcut = shortcut
+        self.defaultEditorShortcut = editorShortcut
         self.isEnabled = isEnabled
         self.editorMenu = editorMenu
         self.run = run
     }
 
+    /// A user's key replaces the editor-only one when that's all the command
+    /// had, else the menu one (so a key given to a command without one is global).
+    private var bindsEditorKey: Bool { defaultShortcut == nil && defaultEditorShortcut != nil }
+
+    @MainActor public var shortcut: KeyboardShortcut? {
+        bindsEditorKey ? nil : KeyBindings.shared.binding(for: id) ?? defaultShortcut
+    }
+
+    @MainActor public var editorShortcut: KeyboardShortcut? {
+        bindsEditorKey ? KeyBindings.shared.binding(for: id) ?? defaultEditorShortcut : defaultEditorShortcut
+    }
+
     /// The key to show in lists, tooltips and hints.
-    public var displayShortcut: KeyboardShortcut? { shortcut ?? editorShortcut }
+    @MainActor public var displayShortcut: KeyboardShortcut? { shortcut ?? editorShortcut }
+
+    @MainActor public var defaultDisplayShortcut: KeyboardShortcut? { defaultShortcut ?? defaultEditorShortcut }
 }
 
 /// Where a command sits in the editor's right-click menu (above Cut, Copy,
@@ -426,6 +441,7 @@ extension KeyboardShortcut {
         case .downArrow: result += "↓"
         case .leftArrow: result += "←"
         case .rightArrow: result += "→"
+        case .space: result += "Space"
         default: result += String(key.character).uppercased()
         }
         return result

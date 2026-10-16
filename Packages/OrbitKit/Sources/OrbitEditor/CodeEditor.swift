@@ -886,7 +886,7 @@ final class OrbitTextView: STTextView {
             complete(nil)
             return
         }
-        if modifiers == [.control, .shift], event.keyCode == 34 {
+        if modifiers == [.control, .shift], event.keyCode == 34, KeyBindings.shared.binding(for: "editor.format") == nil {
             ActiveEditor.shared.coordinator?.formatDocument()
             return
         }
