@@ -160,7 +160,8 @@ final class ChangeTracker: ChangeTracking {
     func recordBaseline(_ text: String?, for url: URL) {
         let url = url.standardizedFileURL
         guard baselines[url] == nil else { return }
-        baselines[url] = .some(text)
+        // Git has the bytes; buffers have `\n` line breaks (TextFile).
+        baselines[url] = .some(text.map(TextFile.normalized))
         order.append(url)
     }
 

@@ -280,14 +280,13 @@ struct ProjectFormatter: Sendable, Equatable {
             let lines = errors.split(whereSeparator: \.isNewline).filter { $0.contains(syntaxError) }.prefix(3).joined(separator: "\n")
             throw LanguageInstaller.Failure.failed("The file doesn't parse:\n\(lines)")
         }
-        switch mode {
-        case .stdin:
-            return String(decoding: result.output, as: UTF8.self)
-        case .temporaryFile:
-            return try String(contentsOf: target, encoding: .utf8)
-        case .eslintReport:
-            return try Self.eslintOutput(result.output, original: text)
+        // A tool set to CRLF (Prettier's endOfLine) still gives the buffer `\n`; saving restores the file's endings.
+        let formatted: String = switch mode {
+        case .stdin: String(decoding: result.output, as: UTF8.self)
+        case .temporaryFile: try String(contentsOf: target, encoding: .utf8)
+        case .eslintReport: try Self.eslintOutput(result.output, original: text)
         }
+        return TextFile.normalized(formatted)
     }
 
     /// The real path of a file that may not exist yet (an unsaved one): its nearest existing folder resolved.

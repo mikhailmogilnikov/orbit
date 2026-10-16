@@ -157,6 +157,13 @@ public final class EditorPlugin: OrbitPlugin {
             IndentationStatus(workspace: workspace)
         })
 
+        context.ui.addStatusItem(StatusItem(
+            id: "editor.fileFormat", placement: .trailing, order: 19,
+            isVisible: { Self.activeDocument(workspace)?.format.isDefault == false }
+        ) {
+            FileFormatStatus(workspace: workspace)
+        })
+
         context.commands.register(OrbitCommand(
             id: "editor.toggleInlayHints",
             title: "Toggle Inlay Hints",
@@ -498,7 +505,19 @@ struct FileEditorView: View {
                 AgentChangesBanner(url: url, hunks: hunks, changes: changes, workspace: workspace)
             }
             if let error = document.loadError {
-                EmptyStateView("Can't Open File", systemImage: "doc.questionmark", message: error)
+                VStack(spacing: 12) {
+                    EmptyStateView("Can't Open File", systemImage: "doc.questionmark", message: error)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if document.canReopenWithEncoding {
+                        Menu("Reopen with Encoding") {
+                            ForEach(TextFile.encodings, id: \.name) { entry in
+                                Button(entry.name) { document.reopen(as: entry.encoding) }
+                            }
+                        }
+                            .fixedSize()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 let actions = ui.editorActions.filter { $0.isVisible(url) }
                 if options.showsBreadcrumbs {

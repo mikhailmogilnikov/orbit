@@ -172,6 +172,7 @@
 - A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
+- Encodings and line endings (D106): file encodings, CRLF, BOM, binary and large-file refusal, status bar menu
 - Text editing basics (D105): move / copy lines ⌥↑↓ ⇧⌥↑↓, multiple carets (⌘D, ⇧⌘L, ⌥-click, ⌃⇧↑↓), Go to Line ⌃G, matching bracket outline, font zoom ⌘= ⌘- ⌘0
 
 ## Next (rough priority)
@@ -226,7 +227,7 @@ Everything below is known to be missing; nothing here is in progress.
 - Multiple carets: no column (box) selection by ⌥-drag; indentation rules,
   bracket pairs and completion work only with one caret (D105); bracket
   match counts brackets in strings and comments
-- Files are read and written as UTF-8 only; no CRLF handling, no guard for very large files
+- Large files (under the 50 MB limit, D106) open without any lighter mode: highlighting and LSP run as usual
 
 **Git and terminal**
 - Side-by-side diffs, branch graph and history search, other branches'
@@ -368,6 +369,8 @@ Everything below is known to be missing; nothing here is in progress.
 - Git: diff tabs are unified (no side-by-side); History shows only the
   current branch, without search or a graph; blame is only the caret's line
   (no per-line annotations).
+- File formats (D106): unverified on a Mac (the status-bar menu, "Reopen
+  with Encoding" in the Can't Open state, a CRLF file's inline agent review).
 - Text editing basics (D105): unverified on a Mac (keys reaching the editor
   before STTextView's own ⌥↑ / ⌃⇧↑ bindings, the caret drawing for several
   carets, ⌥-click, the Go to Line popover's placement, the bracket outline).

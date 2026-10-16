@@ -115,6 +115,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D103. Tab rows measure their width outside the scroll view
 - D104. The editor column cancels the sidebar's inherited safe-area inset
 - D105. Text editing basics: line moves, multiple carets, Go to Line, bracket match, zoom
+- D106. Files keep their encoding and line endings; binary and huge files aren't opened
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2277,3 +2278,28 @@ What any editor has and Orbit didn't (bracket autoclose was already there, D73):
   the same setting as Settings → Editor.
 
 Logic in `LineEditing` (pure, `LineEditingTests`); commands in `LineCommands.swift`.
+
+### D106. Files keep their encoding and line endings; binary and huge files aren't opened
+
+Every file was read and written as UTF-8: a Windows-1251 or UTF-16 file
+couldn't open, and nothing protected a 500 MB log or a binary from the editor.
+
+- **Inside Orbit text is a Swift string with `\n` breaks**; `TextFileFormat`
+  (encoding, BOM, line ending) is kept per document and applied on save
+  (`TextFile.decode` / `encode`). Normalizing at the edge, not in the editor,
+  keeps everything that counts lines (inline diffs, LSP, folding, search)
+  as it was. Where text comes in some other way it's normalized too: review
+  baselines from the shadow git, isolated copies, formatter output.
+- **Detection**: a BOM, else strict UTF-8, else Foundation's detector with
+  Cyrillic, Western, Japanese and Mac encodings suggested; NUL bytes in the
+  first 8 KB and no BOM mean binary. The line ending is the majority one; in
+  a mostly-LF file a stray CRLF line stays as it is.
+- **Writing a file that isn't open** (`DocumentStore.write`: agents' reverts,
+  replace in files) keeps the format of the file already on disk.
+- Files over 50 MB, binary files and undecodable ones show "Can't Open File";
+  binary and undecodable offer **Reopen with Encoding** (UTF-16 without a BOM
+  looks binary).
+- The status bar shows the format only when it isn't UTF-8 + LF, as a menu:
+  line endings, Save with Encoding, Remove BOM, Reopen with Encoding.
+  Characters the encoding can't store fail the save with a message instead
+  of being dropped.

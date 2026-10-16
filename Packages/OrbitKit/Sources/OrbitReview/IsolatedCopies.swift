@@ -56,10 +56,11 @@ final class IsolatedCopies: AgentIsolation {
             guard !isApplied(change, to: target) else { continue }
             let current = workspace.documents.currentText(of: target)
             do {
-                if let data = change.contents, let theirs = String(data: data, encoding: .utf8) {
+                if let data = change.contents, let theirs = String(data: data, encoding: .utf8).map(TextFile.normalized) {
                     // The project may have moved on since the copy was made: merge when it's on other lines.
-                    let merged: String? = current == change.baseline ? theirs
-                        : change.baseline.flatMap { base in current.flatMap { LineDiff.merge(base: base, mine: $0, theirs: theirs) } }
+                    let baseline = change.baseline.map(TextFile.normalized)
+                    let merged: String? = current == baseline ? theirs
+                        : baseline.flatMap { base in current.flatMap { LineDiff.merge(base: base, mine: $0, theirs: theirs) } }
                     guard let merged else {
                         result.conflicts.append(target)
                         continue
@@ -71,7 +72,7 @@ final class IsolatedCopies: AgentIsolation {
                     try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try data.write(to: target, options: .atomic)
                 } else {
-                    guard current == change.baseline else {
+                    guard current == change.baseline.map(TextFile.normalized) else {
                         result.conflicts.append(target)
                         continue
                     }
@@ -139,11 +140,11 @@ final class IsolatedCopies: AgentIsolation {
     /// possibly merged with the user's own edits, or made the same way).
     private func isApplied(_ change: Change, to target: URL) -> Bool {
         guard let data = change.contents else { return !FileManager.default.fileExists(atPath: target.path) }
-        guard let text = String(data: data, encoding: .utf8) else { return (try? Data(contentsOf: target)) == data }
+        guard let text = String(data: data, encoding: .utf8).map(TextFile.normalized) else { return (try? Data(contentsOf: target)) == data }
         guard let current = workspace.documents.currentText(of: target) else { return false }
         if current == text { return true }
         // Merging again would add nothing.
-        guard let base = change.baseline else { return false }
+        guard let base = change.baseline.map(TextFile.normalized) else { return false }
         return LineDiff.merge(base: base, mine: current, theirs: text) == current
     }
 }

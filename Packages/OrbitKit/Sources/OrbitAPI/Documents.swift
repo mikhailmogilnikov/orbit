@@ -14,29 +14,52 @@ public final class TextDocument: Identifiable {
     /// Increments on every change; views use it to detect external edits cheaply.
     public private(set) var revision = 0
     public private(set) var loadError: String?
+    /// The load failed in a way another encoding might fix.
+    public private(set) var canReopenWithEncoding = false
+    /// Encoding and line endings on disk; changing it makes the buffer dirty.
+    public var format: TextFileFormat = .default
+    private var savedFormat: TextFileFormat = .default
 
     public nonisolated var id: URL { url }
-    public var isDirty: Bool { text != savedText }
+    public var isDirty: Bool { text != savedText || format != savedFormat }
 
     init(url: URL) {
         self.url = url
+        text = ""
+        savedText = ""
+        load()
+    }
+
+    private func load(as encoding: String.Encoding? = nil) {
         do {
-            let contents = try String(contentsOf: url, encoding: .utf8)
+            let (contents, format) = encoding == nil
+                ? try TextFile.read(url)
+                : try TextFile.decode(Data(contentsOf: url), as: encoding)
             text = contents
             savedText = contents
+            self.format = format
+            savedFormat = format
             existsOnDisk = true
+            loadError = nil
         } catch {
-            text = ""
-            savedText = ""
-            loadError = FileManager.default.fileExists(atPath: url.path)
-                ? "This file can't be shown as UTF-8 text."
-                : nil
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            existsOnDisk = true
+            loadError = TextFile.message(for: error)
+            // UTF-16 without a BOM looks binary; a legacy encoding may be a wrong guess.
+            canReopenWithEncoding = error as? TextFile.ReadError == .binary || error as? TextFile.ReadError == .undecodable
         }
     }
 
+    /// The file read again as another encoding (when the guess was wrong); unsaved edits are dropped.
+    public func reopen(as encoding: String.Encoding) {
+        load(as: encoding)
+        diskConflict = nil
+    }
+
     public func save() throws {
-        try text.write(to: url, atomically: true, encoding: .utf8)
+        try TextFile.encode(text, as: format).write(to: url, options: .atomic)
         savedText = text
+        savedFormat = format
         diskConflict = nil
         existsOnDisk = true
         isDeletedOnDisk = false
@@ -44,7 +67,7 @@ public final class TextDocument: Identifiable {
 
     /// Replaces both buffer and disk contents (used by agents and review actions).
     public func replaceAndSave(_ newText: String) throws {
-        text = newText
+        text = TextFile.normalized(newText)
         try save()
     }
 
@@ -68,7 +91,7 @@ public final class TextDocument: Identifiable {
         }
         isDeletedOnDisk = false
         existsOnDisk = true
-        guard let disk = try? String(contentsOf: url, encoding: .utf8) else { return }
+        guard let disk = try? TextFile.decode(Data(contentsOf: url), as: savedFormat.encoding).text else { return }
         guard disk != savedText else {
             diskConflict = nil
             return
@@ -131,7 +154,7 @@ public final class DocumentStore {
     /// Buffer contents if open (including unsaved edits), otherwise disk.
     public func currentText(of url: URL) -> String? {
         if let document = open[url.standardizedFileURL] { return document.text }
-        return try? String(contentsOf: url, encoding: .utf8)
+        return try? TextFile.read(url).text
     }
 
     /// Writes through the open buffer when there is one so views stay in sync.
@@ -141,7 +164,8 @@ public final class DocumentStore {
             try document.replaceAndSave(text)
         } else {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            // A file that's there keeps its encoding and line endings.
+            try TextFile.encode(text, as: TextFile.format(of: url) ?? .default).write(to: url, options: .atomic)
         }
     }
 
