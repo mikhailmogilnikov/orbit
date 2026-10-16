@@ -228,7 +228,7 @@ struct ShortcutsSettings: View {
             Row(id: "shell.settings", title: "Settings", systemImage: "gearshape", category: "General", shortcut: "⌘,"),
         ]
         let commands = host.commands.all.map {
-            Row(id: $0.id, title: $0.title, systemImage: $0.systemImage ?? "command", category: $0.category, shortcut: $0.shortcut?.displayString)
+            Row(id: $0.id, title: $0.title, systemImage: $0.systemImage ?? "command", category: $0.category, shortcut: $0.displayShortcut?.displayString)
         }
         let query = filter.trimmingCharacters(in: .whitespaces).lowercased()
         return (shell + commands).filter {

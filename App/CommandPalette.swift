@@ -32,7 +32,7 @@ enum CommandPalette {
             id: command.id,
             title: title,
             systemImage: command.systemImage ?? "command",
-            trailing: command.shortcut?.displayString
+            trailing: command.displayShortcut?.displayString
         ) {
             commands.teach(command)
             command.run()

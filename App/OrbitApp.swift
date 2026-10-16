@@ -120,6 +120,7 @@ struct OrbitMenus: Commands {
             Button("Command Palette…") { if let host { CommandPalette.toggle(in: host) } }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             items(ids: ["shell.toggleSidebar", "shell.toggleAgents", "shell.selectTheme"])
+            items(ids: ["editor.zoomIn", "editor.zoomOut", "editor.zoomReset"])
             Divider()
             items(ids: ["shell.splitEditor", "shell.moveTabToOtherSide", "shell.focusOtherSide", "shell.joinEditors"])
             Divider()

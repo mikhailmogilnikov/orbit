@@ -83,6 +83,8 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.definitionLink.url = document.url
         coordinator.definitionLink.characterOffset = { [weak coordinator] point in coordinator?.characterOffset(at: point) }
         textView.addPlugin(SymbolHighlightPlugin(controller: coordinator.symbolHighlights))
+        coordinator.bracketMatch.textView = textView
+        textView.addPlugin(BracketMatchPlugin(controller: coordinator.bracketMatch))
         coordinator.inlayHints.textView = textView
         coordinator.inlayHints.url = document.url
         textView.addPlugin(InlayHintPlugin(controller: coordinator.inlayHints))
@@ -245,6 +247,7 @@ struct CodeEditor: NSViewRepresentable {
         let inlineDiff = InlineDiffController()
         let diagnosticsController = DiagnosticsController()
         lazy var symbolHighlights = SymbolHighlightController(geometry: diagnosticsController)
+        lazy var bracketMatch = BracketMatchController(geometry: diagnosticsController)
         lazy var definitionLink = DefinitionLinkController(geometry: diagnosticsController)
         lazy var inlayHints = InlayHintController(geometry: diagnosticsController)
         lazy var folding = FoldingController(geometry: diagnosticsController)
@@ -325,6 +328,7 @@ struct CodeEditor: NSViewRepresentable {
                 read: theme.symbolHighlight?.nsColor ?? ink.withAlphaComponent(isDark ? 0.1 : 0.07),
                 write: theme.symbolHighlightWrite?.nsColor ?? ink.withAlphaComponent(isDark ? 0.17 : 0.12)
             )
+            bracketMatch.color = foreground.withAlphaComponent(isDark ? 0.5 : 0.4)
             inlayHints.colors = InlayHintController.Colors(
                 text: theme.hint?.nsColor ?? ink.withAlphaComponent(0.5),
                 background: theme.hintBackground?.nsColor ?? ink.withAlphaComponent(isDark ? 0.08 : 0.05)
@@ -422,7 +426,12 @@ struct CodeEditor: NSViewRepresentable {
             }
             document.text = textView.text ?? ""
             syncedRevision = document.revision
-            if let edit { completion.textDidChange(location: edit.location, oldLength: edit.length, replacement: edit.replacement) }
+            // Completion inserts at one caret: with several it would leave the others behind.
+            if textView.hasMultipleSelections {
+                closePopups()
+            } else if let edit {
+                completion.textDidChange(location: edit.location, oldLength: edit.length, replacement: edit.replacement)
+            }
         }
 
         /// Highlights with the file's grammar, switching when a better one got installed.
@@ -496,6 +505,7 @@ struct CodeEditor: NSViewRepresentable {
             completion.selectionDidChange()
             closeHover()
             if let textView { symbolHighlights.caretMoved(to: textView.textSelection) }
+            bracketMatch.caretMoved()
             folding.revealCaret()
             ActiveEditor.shared.coordinator = self
             ruler?.needsDisplay = true
@@ -768,7 +778,7 @@ final class OrbitTextView: STTextView {
 
     /// Typing (no replacement range; marked text from an input method passes through).
     override func insertText(_ string: Any, replacementRange: NSRange) {
-        if replacementRange.location == NSNotFound, !hasMarkedText(), let language = syntaxLanguage,
+        if replacementRange.location == NSNotFound, !hasMarkedText(), !hasMultipleSelections, let language = syntaxLanguage,
            let typed = (string as? String) ?? (string as? NSAttributedString)?.string, typed.count == 1,
            EditingRules.type(typed, in: self, language: language) {
             return
@@ -776,19 +786,26 @@ final class OrbitTextView: STTextView {
         super.insertText(string, replacementRange: replacementRange)
     }
 
+    // The indentation and bracket rules know one caret; with several, plain edits at each.
     override func insertTab(_ sender: Any?) {
+        guard !hasMultipleSelections else {
+            return insertText(indentation.spaces ? String(repeating: " ", count: indentation.size) : "\t", replacementRange: .notFound)
+        }
         IndentEditing.insertTab(in: self, indentation: indentation)
     }
 
     override func insertBacktab(_ sender: Any?) {
+        guard !hasMultipleSelections else { return }
         IndentEditing.insertBacktab(in: self, indentation: indentation)
     }
 
     override func insertNewline(_ sender: Any?) {
+        guard !hasMultipleSelections else { return super.insertNewline(sender) }
         IndentEditing.insertNewline(in: self, indentation: indentation)
     }
 
     override func deleteBackward(_ sender: Any?) {
+        guard !hasMultipleSelections else { return super.deleteBackward(sender) }
         if IndentEditing.deleteBackward(in: self, indentation: indentation) { return }
         if let language = syntaxLanguage, EditingRules.deleteBackward(in: self, language: language) { return }
         super.deleteBackward(sender)
@@ -814,7 +831,32 @@ final class OrbitTextView: STTextView {
 
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.command), onCommandClick?(convert(event.locationInWindow, from: nil)) == true { return }
+        // ⌥-click as in VS Code and Cursor, ⌃⇧-click as in Xcode: add a caret, or remove one.
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if event.clickCount == 1, modifiers == .option || modifiers == [.control, .shift], toggleCaret(at: event) { return }
         super.mouseDown(with: event)
+    }
+
+    private func toggleCaret(at event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+        let content = contentFrame
+        let local = CGPoint(x: point.x - content.minX, y: point.y - content.minY)
+        let manager = textLayoutManager
+        guard let location = manager.textSelectionNavigation.textSelections(
+            interactingAt: local, inContainerAt: manager.documentRange.location, anchors: [], modifiers: [],
+            selecting: false, bounds: manager.usageBoundsForTextContainer
+        ).first?.textRanges.first?.location else { return false }
+        let offset = textContentManager.offset(from: manager.documentRange.location, to: location)
+        var ranges = selectionRanges
+        if let index = ranges.firstIndex(where: { $0.location <= offset && offset <= NSMaxRange($0) }) {
+            guard ranges.count > 1 else { return true }
+            ranges.remove(at: index)
+        } else {
+            ranges.append(NSRange(location: offset, length: 0))
+        }
+        window?.makeFirstResponder(self)
+        selectionRanges = ranges
+        return true
     }
 
     override func doCommand(by selector: Selector) {
@@ -830,7 +872,9 @@ final class OrbitTextView: STTextView {
 
     /// Esc only closes things (handled before this); STTextView would open
     /// completion here, as Xcode does, which surprised (D66 addendum).
-    override func cancelOperation(_ sender: Any?) {}
+    override func cancelOperation(_ sender: Any?) {
+        if hasMultipleSelections, let primary = selectionRanges.last { selectionRanges = [primary] }
+    }
 
     /// ⌃Space isn't a key binding AppKit knows. macOS takes it for switching
     /// input sources when there are several; Esc works then.
@@ -844,6 +888,11 @@ final class OrbitTextView: STTextView {
         }
         if modifiers == [.control, .shift], event.keyCode == 34 {
             ActiveEditor.shared.coordinator?.formatDocument()
+            return
+        }
+        if let commands = ActiveEditor.shared.commands,
+           let command = commands.all.first(where: { $0.editorShortcut.map { EditorKeys.matches(event, $0) } == true }) {
+            commands.run(command.id)
             return
         }
         super.keyDown(with: event)
@@ -868,7 +917,7 @@ final class OrbitTextView: STTextView {
             item.representedObject = command.id
             item.isEnabled = command.isEnabled()
             if let symbol = command.systemImage { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
-            if let shortcut = command.shortcut { EditorMenuTarget.setKeyEquivalent(of: item, to: shortcut) }
+            if let shortcut = command.displayShortcut { EditorMenuTarget.setKeyEquivalent(of: item, to: shortcut) }
             menu.insertItem(item, at: index)
             index += 1
         }

@@ -114,6 +114,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D102. Close Folder; folders from Finder and the Dock
 - D103. Tab rows measure their width outside the scroll view
 - D104. The editor column cancels the sidebar's inherited safe-area inset
+- D105. Text editing basics: line moves, multiple carets, Go to Line, bracket match, zoom
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2246,3 +2247,33 @@ ignoring the safe area in SwiftUI (the inset comes from AppKit),
 `NSSplitViewItem.automaticallyAdjustsSafeAreaInsets = false` (no effect),
 `.inspector` on the whole `NavigationSplitView` (then the inspector is
 counted twice).
+
+### D105. Text editing basics: line moves, multiple carets, Go to Line, bracket match, zoom
+
+What any editor has and Orbit didn't (bracket autoclose was already there, D73):
+
+- **Keys from VS Code / Cursor** where the author's hands are: ⌥↑ ⌥↓ move
+  lines, ⇧⌥↑ ⇧⌥↓ copy them, ⌘D adds the next match, ⇧⌘L selects all
+  matches, ⌥-click adds or removes a caret, Esc goes back to one. Where
+  VS Code's key is taken here, Xcode's: ⌃⇧↑ ⌃⇧↓ add a caret above / below
+  (⌥⌘↑ ↓ walk agent changes, D45), ⌃⇧-click adds one too, ⌃G is Go to Line
+  (⌘L attaches the selection to the agent chat), and the menu's Move Line
+  Up / Down are ⌥⌘[ ⌥⌘].
+- **`OrbitCommand.editorShortcut`**: a key only the focused editor answers,
+  matched in `OrbitTextView.keyDown`. ⌥↑, ⌃⇧↑ or ⌘D as menu shortcuts would
+  fire from any text field (the agent composer) and edit the editor behind
+  it. Lists, tooltips and hints show `displayShortcut` (the menu one first);
+  the menu bar can't show an editor-only key.
+- **Multiple carets** are STTextView's (`textLayoutManager.textSelections`):
+  typing, deleting and moving already apply to each. Our single-caret rules
+  (indentation on Return/Tab/Backspace, bracket pairs, completion) step aside
+  while there are several: Return is a plain newline, Tab inserts one indent,
+  completion closes.
+- **Bracket match**: the bracket after the caret (else before it) and its
+  partner get a thin outline in the text color. Plain text scan of the
+  language's single-character pairs within 50k characters; brackets inside
+  strings and comments count too (no syntax tree lookup, as Zed's).
+- **Zoom** ⌘= ⌘- ⌘0 change the shared code font (editor, terminal, diffs),
+  the same setting as Settings → Editor.
+
+Logic in `LineEditing` (pure, `LineEditingTests`); commands in `LineCommands.swift`.

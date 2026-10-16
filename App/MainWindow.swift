@@ -1290,7 +1290,7 @@ struct WelcomeActionRow: View {
         self.init(
             title: command?.title ?? "",
             systemImage: command?.systemImage ?? "command",
-            shortcut: command?.shortcut?.displayString,
+            shortcut: command?.displayShortcut?.displayString,
             isEnabled: command?.isEnabled() ?? false,
             action: { command?.run() }
         )

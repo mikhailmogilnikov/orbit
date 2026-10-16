@@ -86,7 +86,7 @@ struct ShortcutCheatSheet: View {
         for category in commands.categories {
             let entries = commands.all
                 .filter { $0.category == category }
-                .compactMap { command in command.shortcut.map { Entry(id: command.id, title: command.title, keys: $0.displayString) } }
+                .compactMap { command in command.displayShortcut.map { Entry(id: command.id, title: command.title, keys: $0.displayString) } }
             if entries.isEmpty { continue }
             if let index = result.firstIndex(where: { $0.0 == category }) {
                 result[index].1 += entries

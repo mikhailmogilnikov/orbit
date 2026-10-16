@@ -208,6 +208,8 @@ public final class EditorPlugin: OrbitPlugin {
         ) {
             ActiveEditor.shared.coordinator?.toggleComment()
         })
+        registerLineCommands(context)
+
         context.commands.register(OrbitCommand(
             id: "editor.format",
             title: "Format Document",
@@ -242,6 +244,81 @@ public final class EditorPlugin: OrbitPlugin {
         context.services.register(SourceEditing.self, OpenEditors.shared)
         context.services.register(EditorSelectionProviding.self, EditorSelectionService.shared)
         context.services.register(SyntaxHighlighting.self, StaticHighlighter())
+    }
+
+    /// Text editing as in VS Code and Cursor; keys that mean something else in
+    /// text fields are the editor's own (`editorShortcut`).
+    private func registerLineCommands(_ context: PluginContext) {
+        func editor(_ run: @escaping @MainActor (CodeEditor.Coordinator) -> Void) -> @MainActor () -> Void {
+            {
+                guard let coordinator = ActiveEditor.shared.coordinator else { return NSSound.beep() }
+                run(coordinator)
+            }
+        }
+        let commands: [OrbitCommand] = [
+            OrbitCommand(
+                id: "editor.goToLine", title: "Go to Line…", category: "Code", systemImage: "arrow.right.to.line",
+                shortcut: KeyboardShortcut("g", modifiers: .control), run: editor { $0.showGoToLine() }
+            ),
+            // ⌥⌘[ ⌥⌘] are Xcode's, safe in the menu; ⌥↑ ⌥↓ are VS Code's, in the editor only.
+            OrbitCommand(
+                id: "editor.moveLineUp", title: "Move Line Up", category: "Code", systemImage: "arrow.up.to.line",
+                shortcut: KeyboardShortcut("[", modifiers: [.command, .option]),
+                editorShortcut: KeyboardShortcut(.upArrow, modifiers: .option), run: editor { $0.moveLines(up: true) }
+            ),
+            OrbitCommand(
+                id: "editor.moveLineDown", title: "Move Line Down", category: "Code", systemImage: "arrow.down.to.line",
+                shortcut: KeyboardShortcut("]", modifiers: [.command, .option]),
+                editorShortcut: KeyboardShortcut(.downArrow, modifiers: .option), run: editor { $0.moveLines(up: false) }
+            ),
+            OrbitCommand(
+                id: "editor.copyLineUp", title: "Copy Line Up", category: "Code", systemImage: "plus.square.on.square",
+                editorShortcut: KeyboardShortcut(.upArrow, modifiers: [.option, .shift]), run: editor { $0.copyLines(down: false) }
+            ),
+            OrbitCommand(
+                id: "editor.copyLineDown", title: "Copy Line Down", category: "Code", systemImage: "plus.square.on.square",
+                editorShortcut: KeyboardShortcut(.downArrow, modifiers: [.option, .shift]), run: editor { $0.copyLines(down: true) }
+            ),
+            OrbitCommand(
+                id: "editor.addNextOccurrence", title: "Add Selection to Next Match", category: "Code", systemImage: "character.cursor.ibeam",
+                editorShortcut: KeyboardShortcut("d", modifiers: .command), run: editor { $0.addNextOccurrence() }
+            ),
+            OrbitCommand(
+                id: "editor.selectAllOccurrences", title: "Select All Matches", category: "Code", systemImage: "text.cursor",
+                editorShortcut: KeyboardShortcut("l", modifiers: [.command, .shift]), run: editor { $0.selectAllOccurrences() }
+            ),
+            // ⌥⌘↑ ⌥⌘↓ walk agent changes here (D45), so Xcode's ⌃⇧↑ ⌃⇧↓.
+            OrbitCommand(
+                id: "editor.addCaretAbove", title: "Add Cursor Above", category: "Code", systemImage: "arrow.up",
+                editorShortcut: KeyboardShortcut(.upArrow, modifiers: [.control, .shift]), run: editor { $0.addCaret(up: true) }
+            ),
+            OrbitCommand(
+                id: "editor.addCaretBelow", title: "Add Cursor Below", category: "Code", systemImage: "arrow.down",
+                editorShortcut: KeyboardShortcut(.downArrow, modifiers: [.control, .shift]), run: editor { $0.addCaret(up: false) }
+            ),
+        ]
+        for command in commands { context.commands.register(command) }
+
+        // The code font is shared with the terminal and diffs, so zoom is app-wide.
+        let preferences = Preferences.shared
+        func zoom(_ size: @escaping @MainActor (Double) -> Double) -> @MainActor () -> Void {
+            {
+                let range = Preferences.codeFontSizes
+                preferences.codeFontSize = min(range.upperBound, max(range.lowerBound, size(preferences.codeFontSize)))
+            }
+        }
+        context.commands.register(OrbitCommand(
+            id: "editor.zoomIn", title: "Increase Font Size", category: "View", systemImage: "textformat.size.larger",
+            shortcut: KeyboardShortcut("=", modifiers: .command), run: zoom { ($0 + 1).rounded(.down) }
+        ))
+        context.commands.register(OrbitCommand(
+            id: "editor.zoomOut", title: "Decrease Font Size", category: "View", systemImage: "textformat.size.smaller",
+            shortcut: KeyboardShortcut("-", modifiers: .command), run: zoom { ($0 - 1).rounded(.up) }
+        ))
+        context.commands.register(OrbitCommand(
+            id: "editor.zoomReset", title: "Actual Font Size", category: "View", systemImage: "textformat.size",
+            shortcut: KeyboardShortcut("0", modifiers: .command), run: zoom { _ in Preferences.defaultCodeFontSize }
+        ))
     }
 
     private func registerChangeCommands(_ context: PluginContext) {

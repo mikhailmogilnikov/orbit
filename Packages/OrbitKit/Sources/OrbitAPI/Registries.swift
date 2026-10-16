@@ -264,6 +264,9 @@ public struct OrbitCommand: Identifiable {
     public let category: String
     public let systemImage: String?
     public let shortcut: KeyboardShortcut?
+    /// A key only the focused editor answers, not a menu shortcut: keys like
+    /// ⌥↑ or ⌘D mean something else in text fields (the agent composer).
+    public let editorShortcut: KeyboardShortcut?
     public let isEnabled: @MainActor () -> Bool
     /// In the editor's right-click menu too, when set.
     public let editorMenu: EditorMenuPlacement?
@@ -275,6 +278,7 @@ public struct OrbitCommand: Identifiable {
         category: String,
         systemImage: String? = nil,
         shortcut: KeyboardShortcut? = nil,
+        editorShortcut: KeyboardShortcut? = nil,
         isEnabled: @escaping @MainActor () -> Bool = { true },
         editorMenu: EditorMenuPlacement? = nil,
         run: @escaping @MainActor () -> Void
@@ -284,10 +288,14 @@ public struct OrbitCommand: Identifiable {
         self.category = category
         self.systemImage = systemImage
         self.shortcut = shortcut
+        self.editorShortcut = editorShortcut
         self.isEnabled = isEnabled
         self.editorMenu = editorMenu
         self.run = run
     }
+
+    /// The key to show in lists, tooltips and hints.
+    public var displayShortcut: KeyboardShortcut? { shortcut ?? editorShortcut }
 }
 
 /// Where a command sits in the editor's right-click menu (above Cut, Copy,
@@ -357,12 +365,12 @@ public final class CommandRegistry {
     public func help(_ id: String, _ text: String? = nil) -> String {
         let command = all.first { $0.id == id }
         let title = text ?? command?.title ?? ""
-        guard let shortcut = command?.shortcut else { return title }
+        guard let shortcut = command?.displayShortcut else { return title }
         return "\(title) (\(shortcut.displayString))"
     }
 
     public func teach(_ command: OrbitCommand) {
-        guard let shortcut = command.shortcut else { return }
+        guard let shortcut = command.displayShortcut else { return }
         hint = CommandHint(title: command.title, shortcut: shortcut)
     }
 
