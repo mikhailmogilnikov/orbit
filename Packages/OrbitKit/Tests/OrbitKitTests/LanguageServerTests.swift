@@ -6,6 +6,35 @@ import Testing
 
 @Suite struct LanguageServerTests {
     /// A Node crash names its error above the frames; the tail alone hid it.
+    /// LSP globs as servers register them for `didChangeWatchedFiles` (D77).
+    @Test func watchersMatchLikeVSCode() throws {
+        let root = "/p"
+        func watcher(_ glob: JSONValue, kind: Int? = nil) throws -> FileWatcher {
+            var options: [String: JSONValue] = ["globPattern": glob]
+            if let kind { options["kind"] = .number(Double(kind)) }
+            return try #require(FileWatcher.parse(["watchers": [.object(options)]]).first)
+        }
+        let swift = try watcher("**/*.swift")
+        #expect(swift.matches("/p/Sources/A.swift", .created, root: root))
+        #expect(swift.matches("/p/A.swift", .changed, root: root))
+        #expect(!swift.matches("/p/A.swiftinterface", .created, root: root))
+        let go = try watcher("**/*.{go,mod,sum}")
+        #expect(go.matches("/p/x/go.mod", .changed, root: root) && go.matches("/p/main.go", .deleted, root: root))
+        #expect(!go.matches("/p/main.rs", .changed, root: root))
+        let manifest = try watcher("Package.swift")
+        #expect(manifest.matches("/p/Package.swift", .changed, root: root))
+        #expect(!manifest.matches("/p/sub/Package.swift", .changed, root: root))
+        let eslint = try watcher("**/{eslint.config.*,.eslintr[c]*}")
+        #expect(eslint.matches("/p/eslint.config.mjs", .changed, root: root) && eslint.matches("/p/a/.eslintrc.json", .created, root: root))
+        let relative = try watcher(["baseUri": "file:///p/src", "pattern": "**/*.py"])
+        #expect(relative.matches("/p/src/a/b.py", .created, root: root))
+        #expect(!relative.matches("/p/test/b.py", .created, root: root))
+        let createOnly = try watcher("**/*.c", kind: 1)
+        #expect(createOnly.matches("/p/a.c", .created, root: root) && !createOnly.matches("/p/a.c", .deleted, root: root))
+        let absolute = try watcher("/p/**/compile_commands.json")
+        #expect(absolute.matches("/p/build/compile_commands.json", .changed, root: root))
+    }
+
     @Test func crashShowsTheError() {
         let node = """
         file:///x/lib/features/provideCompletionItems.js:120

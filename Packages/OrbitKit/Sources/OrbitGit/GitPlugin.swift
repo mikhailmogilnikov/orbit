@@ -124,6 +124,7 @@ public final class GitPlugin: OrbitPlugin {
             _ = workspace.fileSystemGeneration
         } onChange: {
             Task { @MainActor in
+                guard !workspace.isClosed else { return }
                 onChange()
                 observe(workspace, onChange: onChange)
             }

@@ -64,14 +64,15 @@ let package = Package(
             dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP", .product(name: "SwiftTerm", package: "SwiftTerm")]
         ),
         .target(name: "OrbitAgents", dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP"]),
+        .target(name: "OrbitPreview", dependencies: ["OrbitAPI", "OrbitUI"]),
         .target(name: "OrbitLanguages", dependencies: ["OrbitAPI", "OrbitUI", "OrbitACP"], resources: [.copy("Resources/Servers.json")]),
         .target(
             name: "OrbitKit",
-            dependencies: ["OrbitAPI", "OrbitUI", "OrbitExplorer", "OrbitEditor", "OrbitReview", "OrbitSearch", "OrbitGit", "OrbitTerminal", "OrbitAgents", "OrbitLanguages"]
+            dependencies: ["OrbitAPI", "OrbitUI", "OrbitExplorer", "OrbitEditor", "OrbitReview", "OrbitSearch", "OrbitGit", "OrbitTerminal", "OrbitAgents", "OrbitLanguages", "OrbitPreview"]
         ),
         .testTarget(
             name: "OrbitKitTests",
-            dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI", "OrbitEditor", "OrbitLanguages",
+            dependencies: ["OrbitAPI", "OrbitACP", "OrbitReview", "OrbitSearch", "OrbitTerminal", "OrbitGit", "OrbitAgents", "OrbitUI", "OrbitEditor", "OrbitLanguages", "OrbitPreview", "OrbitKit",
                            .product(name: "SwiftTreeSitter", package: "SwiftTreeSitter")],
             exclude: ["Fixtures"]
         ),

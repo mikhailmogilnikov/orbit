@@ -20,6 +20,7 @@ public final class TerminalPlugin: OrbitPlugin {
         let store = TerminalStore(workspace: context.workspace, ui: ui)
         self.store = store
         context.services.register(AgentTerminalHosting.self, store)
+        context.services.register(TerminalOpening.self, store)
 
         ui.addBottomPanel(PanelContribution(id: TerminalStore.panelID, title: "Terminal", systemImage: "terminal") {
             TerminalPanel(store: store)
@@ -63,7 +64,9 @@ public final class TerminalPlugin: OrbitPlugin {
 
 @MainActor
 @Observable
-final class TerminalStore {
+final class TerminalStore: TerminalOpening {
+    func openTerminal(in directory: URL) { newSession(in: directory) }
+
     static let panelID = "terminal"
 
     private let workspace: Workspace
@@ -94,8 +97,8 @@ final class TerminalStore {
     /// Agent command tabs don't count: toggling the terminal should give the user a shell.
     var hasShell: Bool { sessions.contains { !$0.isAgent } }
 
-    func newSession() {
-        let session = TerminalSession(directory: workspace.root ?? URL(fileURLWithPath: NSHomeDirectory()))
+    func newSession(in directory: URL? = nil) {
+        let session = TerminalSession(directory: directory ?? workspace.root ?? URL(fileURLWithPath: NSHomeDirectory()))
         session.onExit = { [weak self] session in self?.remove(session) }
         sessions.append(session)
         selectedID = session.id

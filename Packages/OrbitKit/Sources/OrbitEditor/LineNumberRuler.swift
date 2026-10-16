@@ -16,6 +16,14 @@ final class LineNumberRuler: NSRulerView {
     var changeMarkers = LineMarkers() {
         didSet { if changeMarkers != oldValue { needsDisplay = true } }
     }
+    /// Header lines of foldable regions, true when folded (D79). Open ones show
+    /// their chevron only while the pointer is over the gutter, as in VS Code.
+    var folds: [Int: Bool] = [:] {
+        didSet { if folds != oldValue { needsDisplay = true } }
+    }
+    var onToggleFold: ((Int) -> Void)?
+    private var isPointerInside = false
+    private var trackingArea: NSTrackingArea?
 
     struct Colors {
         var background: NSColor = .textBackgroundColor
@@ -30,9 +38,12 @@ final class LineNumberRuler: NSRulerView {
         didSet { needsDisplay = true }
     }
 
-    private let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+    let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
     private let leadingPadding: CGFloat = 12
-    private let trailingPadding: CGFloat = 10
+    private let trailingPadding: CGFloat = 4
+    private static let foldColumn: CGFloat = 14
+    /// Where numbers end on the right; sticky headers draw theirs there too.
+    var numberTrailingEdge: CGFloat { ruleThickness - Self.foldColumn - trailingPadding }
 
     init(textView: STTextView, scrollView: NSScrollView) {
         self.textView = textView
@@ -80,7 +91,7 @@ final class LineNumberRuler: NSRulerView {
         lineStarts = InlineDiffController.lineStarts(of: storage.string as NSString)
         let digits = max(3, String(lineStarts.count).count)
         let digitWidth = ("8" as NSString).size(withAttributes: [.font: font]).width
-        let thickness = ceil(CGFloat(digits) * digitWidth + leadingPadding + trailingPadding)
+        let thickness = ceil(CGFloat(digits) * digitWidth + leadingPadding + trailingPadding + Self.foldColumn)
         if abs(ruleThickness - thickness) > 0.5 { ruleThickness = thickness }
         needsDisplay = true
     }
@@ -115,7 +126,10 @@ final class LineNumberRuler: NSRulerView {
             let label = "\(index + 1)" as NSString
             let style = index == currentLine ? currentAttributes : attributes
             let width = label.size(withAttributes: style).width
-            label.draw(at: NSPoint(x: ruleThickness - trailingPadding - width, y: point.y - font.ascender), withAttributes: style)
+            label.draw(at: NSPoint(x: ruleThickness - Self.foldColumn - trailingPadding - width, y: point.y - font.ascender), withAttributes: style)
+            if let folded = folds[index], folded || isPointerInside {
+                drawChevron(folded: folded, centerY: point.y - font.ascender + font.capHeight / 2 + (font.ascender - font.capHeight))
+            }
         }
 
         manager.enumerateTextLayoutFragments(from: viewport.location, options: []) { fragment in
@@ -145,6 +159,67 @@ final class LineNumberRuler: NSRulerView {
             }
             return true
         }
+    }
+
+    private func drawChevron(folded: Bool, centerY: CGFloat) {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+            .applying(.init(paletteColors: [folded ? colors.currentNumber : colors.number]))
+        guard let image = NSImage(systemSymbolName: folded ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else { return }
+        let size = image.size
+        let x = ruleThickness - Self.foldColumn + (Self.foldColumn - size.width) / 2 - 2
+        image.draw(in: NSRect(x: x, y: centerY - size.height / 2, width: size.width, height: size.height))
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isPointerInside = true
+        if !folds.isEmpty { needsDisplay = true }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isPointerInside = false
+        if !folds.isEmpty { needsDisplay = true }
+    }
+
+    /// A click on a line with a chevron folds or unfolds its region.
+    override func mouseDown(with event: NSEvent) {
+        guard let line = line(atRulerY: convert(event.locationInWindow, from: nil).y), folds[line] != nil else {
+            super.mouseDown(with: event)
+            return
+        }
+        onToggleFold?(line)
+    }
+
+    /// The line drawn at a height in the ruler, among those laid out.
+    private func line(atRulerY y: CGFloat) -> Int? {
+        guard let textView else { return nil }
+        let manager = textView.textLayoutManager
+        let contentManager = textView.textContentManager
+        guard let viewport = manager.textViewportLayoutController.viewportRange else { return nil }
+        let documentStart = manager.documentRange.location
+        let content = textView.contentFrame
+        var found: Int?
+        manager.enumerateTextLayoutFragments(from: viewport.location, options: []) { fragment in
+            guard fragment.rangeInElement.location.compare(viewport.endLocation) == .orderedAscending else { return false }
+            guard let first = fragment.textLineFragments.first else { return true }
+            let frame = fragment.layoutFragmentFrame
+            let top = convert(NSPoint(x: 0, y: content.minY + frame.minY + first.typographicBounds.minY), from: textView).y
+            let bottom = convert(NSPoint(x: 0, y: content.minY + frame.maxY), from: textView).y
+            if y >= top - 1, y < bottom {
+                found = line(at: contentManager.offset(from: documentStart, to: fragment.rangeInElement.location))
+                return false
+            }
+            return true
+        }
+        return found
     }
 
     private static let markerX: CGFloat = 3

@@ -112,7 +112,6 @@ public enum FuzzyMatch {
             var piece = AttributedString(String(character))
             if matched.contains(offset) {
                 piece.inlinePresentationIntent = .stronglyEmphasized
-                piece.foregroundColor = .accentColor
             }
             result += piece
         }

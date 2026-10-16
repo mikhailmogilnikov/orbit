@@ -1,11 +1,29 @@
+import OrbitAPI
 import SwiftUI
 
 /// Lightweight Markdown renderer for agent output: fenced code blocks become
 /// monospaced cards, everything else uses SwiftUI's inline Markdown.
 public struct MarkdownText: View {
-    let text: String
+    public enum CodeStyle: Sendable {
+        /// A card with the language and a copy button (agent output).
+        case card
+        /// Just the code in code type, as in the editor's popups.
+        case plain
+    }
 
-    public init(_ text: String) { self.text = text }
+    let text: String
+    let codeStyle: CodeStyle
+    /// Colors for a plain code block: its text and the language its fence names.
+    let highlight: (@MainActor (_ code: String, _ language: String) async -> [SyntaxSpan])?
+
+    public init(
+        _ text: String, codeStyle: CodeStyle = .card,
+        highlight: (@MainActor (_ code: String, _ language: String) async -> [SyntaxSpan])? = nil
+    ) {
+        self.text = text
+        self.codeStyle = codeStyle
+        self.highlight = highlight
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -16,7 +34,12 @@ public struct MarkdownText: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 case .code(let language, let code):
-                    CodeBlockView(language: language, code: code)
+                    switch codeStyle {
+                    case .card:
+                        CodeBlockView(language: language, code: code)
+                    case .plain:
+                        PlainCodeView(code: code, language: language, highlight: highlight)
+                    }
                 }
             }
         }
@@ -75,6 +98,33 @@ public struct MarkdownText: View {
         }.joined(separator: "\n")
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: normalized, options: options)) ?? AttributedString(prose)
+    }
+}
+
+/// Code in code type, colored once the highlighter answers.
+private struct PlainCodeView: View {
+    let code: String
+    let language: String
+    let highlight: (@MainActor (_ code: String, _ language: String) async -> [SyntaxSpan])?
+    @State private var spans: [SyntaxSpan] = []
+
+    var body: some View {
+        Text(colored)
+            .font(.system(size: 11.5, design: .monospaced))
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .task(id: code) {
+                spans = await highlight?(code, language) ?? []
+            }
+    }
+
+    private var colored: AttributedString {
+        var result = AttributedString(code)
+        for span in spans {
+            guard let range = Range(span.range, in: code), let attributed = Range(range, in: result) else { continue }
+            result[attributed].foregroundColor = span.color
+        }
+        return result
     }
 }
 

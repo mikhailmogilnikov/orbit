@@ -20,6 +20,17 @@ public enum Theme {
     @MainActor public static var addedGutter: Color { added.opacity(0.22) }
     @MainActor public static var removedGutter: Color { removed.opacity(0.2) }
 
+    /// The app's tint (D97): the color theme's accent, else the text color,
+    /// never the system blue. The window sets it as `.tint`, so `.tint` and
+    /// prominent buttons follow; use it instead of `Color.accentColor`.
+    @MainActor public static var accent: Color { Color(nsColor: accentNSColor) }
+    @MainActor public static var accentNSColor: NSColor {
+        let extensions = Extensions.shared
+        let light = extensions.colorTheme(dark: false).accent?.nsColor ?? .labelColor
+        let dark = extensions.colorTheme(dark: true).accent?.nsColor ?? .labelColor
+        return .dynamic(light: light, dark: dark)
+    }
+
     public static let subtleFill = Color.primary.opacity(0.045)
     public static let hairline = Color.primary.opacity(0.08)
 

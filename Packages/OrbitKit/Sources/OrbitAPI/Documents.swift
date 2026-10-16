@@ -147,7 +147,19 @@ public final class DocumentStore {
 
     public var dirtyDocuments: [TextDocument] { open.values.filter(\.isDirty) }
 
+    /// Files moved on disk: their buffers open under the new paths, unsaved
+    /// edits carried over (a document's URL is fixed, so it's a new one).
+    func relocate(_ target: (URL) -> URL?) {
+        for (url, old) in open {
+            guard let moved = target(url) else { continue }
+            open[url] = nil
+            guard old.isDirty else { continue }
+            document(for: moved).text = old.text
+        }
+    }
+
     func close(_ url: URL) { open[url.standardizedFileURL] = nil }
+    func close(where isClosed: (URL) -> Bool) { open = open.filter { !isClosed($0.key) } }
     func closeAll() { open.removeAll() }
 
     public func syncWithDisk() {

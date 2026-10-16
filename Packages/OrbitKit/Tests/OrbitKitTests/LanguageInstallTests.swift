@@ -227,6 +227,14 @@ extension LanguageInstallIntegrationTests {
         let applied = await eslint.perform(fix, apply: apply)
         #expect(applied && fixed.hasPrefix("const count"), "\(fixed)")
 
+        // On save (D81): every fix at once, asked for by kind over the whole file.
+        let lines = SourcePosition.lineStarts(of: script as NSString)
+        let whole = SourceRange(start: SourcePosition(line: 0, character: 0), end: SourcePosition(offset: (script as NSString).length, in: lines))
+        let onSave = await eslint.codeActions(for: whole, in: main, only: ["source.fixAll.eslint"])
+        let fixAll = try #require(onSave.first { $0.kind == "source.fixAll.eslint" }, "\(onSave.map { "\($0.kind ?? "") \($0.title)" })")
+        fixed = script
+        #expect(await eslint.perform(fixAll, apply: apply) && fixed.hasPrefix("const count"), "\(fixed)")
+
         // Tailwind: class completion and the CSS behind a class.
         let tailwind = LanguageServer(config: .tailwind, root: root, installer: Self.installer)
         try #require(await tailwind.start(environment: Task { environment }), "\(tailwind.state)")

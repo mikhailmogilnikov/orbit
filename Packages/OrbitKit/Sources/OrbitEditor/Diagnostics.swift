@@ -11,6 +11,11 @@ import SwiftUI
 final class DiagnosticsController {
     weak var textView: STTextView?
     private(set) var diagnostics: [Diagnostic] = []
+    /// Tagged unnecessary or deprecated (D78), hints included: faded or struck
+    /// through, and their messages show on hover.
+    private var tagged: [Diagnostic] = []
+    /// The unnecessary code's text, for the highlighter to fade.
+    var onFadedChange: ((IndexSet) -> Void)?
     private var overlays: [NSView] = []
     private var cachedLineStarts: [Int]?
     private var isLayoutScheduled = false
@@ -19,6 +24,8 @@ final class DiagnosticsController {
         var error: NSColor = .systemRed
         var warning: NSColor = .systemYellow
         var info: NSColor = .systemBlue
+        /// The strike through deprecated code.
+        var strike: NSColor = .secondaryLabelColor
 
         func color(for severity: Diagnostic.Severity) -> NSColor {
             switch severity {
@@ -40,8 +47,16 @@ final class DiagnosticsController {
     /// Hints are suggestions ("unused"), not problems: no squiggle.
     func update(_ diagnostics: [Diagnostic]) {
         let shown = diagnostics.filter { $0.severity != .hint }.sorted { $0.severity < $1.severity }
-        guard shown != self.diagnostics else { return }
+        let tagged = diagnostics.filter { !$0.tags.isEmpty }
+        guard shown != self.diagnostics || tagged != self.tagged else { return }
         self.diagnostics = shown
+        self.tagged = tagged
+        let starts = lineStarts, length = length
+        var faded = IndexSet()
+        for diagnostic in tagged where diagnostic.tags.contains(.unnecessary) {
+            if let range = Range(diagnostic.range.nsRange(in: starts, length: length)) { faded.insert(integersIn: range) }
+        }
+        onFadedChange?(faded)
         setNeedsLayout()
     }
 
@@ -79,15 +94,23 @@ final class DiagnosticsController {
     /// The diagnostics at a UTF-16 offset, most severe first.
     func diagnostics(at offset: Int) -> [Diagnostic] {
         let starts = lineStarts, length = length
-        return diagnostics.reversed().filter {
+        let hints = tagged.filter { $0.severity == .hint }
+        return (hints + diagnostics.reversed()).filter {
             let range = Self.visibleRange($0.range.nsRange(in: starts, length: length), in: storage)
             return range.location <= offset && offset <= NSMaxRange(range)
         }
     }
 
-    /// An empty range (a missing `;`) still needs something to underline.
+    /// An empty range (a missing `;`) still needs something to underline, and so
+    /// does one holding just a line break (Python's missing `:` runs from the end of
+    /// the line to the start of the next: nothing visible in it, as Zed found).
     static func visibleRange(_ range: NSRange, in storage: NSTextStorage?) -> NSRange {
-        guard range.length == 0, let string = storage?.string as NSString? else { return range }
+        guard let string = storage?.string as NSString? else { return range }
+        if range.length > 0, NSMaxRange(range) <= string.length,
+           string.substring(with: range).allSatisfy(\.isNewline) {
+            return visibleRange(NSRange(location: range.location, length: 0), in: storage)
+        }
+        guard range.length == 0 else { return range }
         if range.location < string.length, string.character(at: range.location) != 0x0A {
             return NSRange(location: range.location, length: 1)
         }
@@ -111,7 +134,8 @@ final class DiagnosticsController {
     private func layoutOverlays() {
         for view in overlays { view.removeFromSuperview() }
         overlays.removeAll()
-        guard let textView, !diagnostics.isEmpty else { return }
+        let struck = tagged.filter { $0.tags.contains(.deprecated) }
+        guard let textView, !diagnostics.isEmpty || !struck.isEmpty else { return }
         let visible = textView.visibleRect.insetBy(dx: 0, dy: -200)
         let starts = lineStarts, length = length
         // Only what's laid out: measuring text off screen would lay it out first.
@@ -121,6 +145,17 @@ final class DiagnosticsController {
         let start = manager.documentRange.location
         let lower = contentManager.offset(from: start, to: viewport.location)
         let upper = contentManager.offset(from: start, to: viewport.endLocation)
+        let window = NSRange(location: lower, length: max(0, upper - lower))
+        for diagnostic in struck {
+            let range = NSIntersectionRange(diagnostic.range.nsRange(in: starts, length: length), window)
+            guard range.length > 0 else { continue }
+            for rect in rects(for: range) where rect.intersects(visible) && rect.width > 0 {
+                let line = StrikeView(frame: CGRect(x: rect.minX, y: rect.midY.rounded(), width: rect.width, height: 1))
+                line.layer?.backgroundColor = colors.strike.cgColor
+                textView.addSubview(line)
+                overlays.append(line)
+            }
+        }
         for diagnostic in diagnostics {
             var range = Self.visibleRange(diagnostic.range.nsRange(in: starts, length: length), in: storage)
             range = NSIntersectionRange(range, NSRange(location: lower, length: max(0, upper - lower)))
@@ -133,6 +168,18 @@ final class DiagnosticsController {
             }
         }
     }
+}
+
+/// The line through deprecated code; clicks go to the text under it.
+final class StrikeView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// A wavy underline.
@@ -185,6 +232,7 @@ struct HoverCard: View {
     var showsSymbolKeys = false
     var onFix: (CodeAction) -> Void = { _ in }
     var onMoreActions: () -> Void = {}
+    var highlight: (@MainActor (_ code: String, _ language: String) async -> [SyntaxSpan])?
 
     /// Laid out like VS Code's: the problems, a bar of fixes under them, then
     /// what the server says about the symbol, sections split by lines (D68).
@@ -196,7 +244,7 @@ struct HoverCard: View {
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
                             Image(systemName: Self.symbol(for: diagnostic.severity))
                                 .foregroundStyle(Color(nsColor: colors.color(for: diagnostic.severity)))
-                            (Text(diagnostic.message)
+                            (Text(Self.styled(diagnostic.message))
                                 + Text(diagnostic.source.map { "  \($0)" } ?? "").foregroundStyle(.tertiary))
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -231,7 +279,7 @@ struct HoverCard: View {
             }
             if let markdown {
                 if !diagnostics.isEmpty { Divider() }
-                MarkdownText(markdown)
+                MarkdownText(markdown, codeStyle: .plain, highlight: highlight)
                     .padding(10)
             }
             if showsSymbolKeys {
@@ -256,6 +304,27 @@ struct HoverCard: View {
                 configuration.title.multilineTextAlignment(.leading)
             }
         }
+    }
+
+    /// Names and types in a message set in code type, as Zed does: `'x'` (TypeScript,
+    /// Swift, Svelte) and `` `x` `` (Rust). Apostrophes inside words don't count.
+    static func styled(_ message: String) -> AttributedString {
+        let pattern = #"(?<![\p{L}\p{N}])'([^'\n]+)'(?![\p{L}\p{N}])|`([^`\n]+)`"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return AttributedString(message) }
+        let text = message as NSString
+        var result = AttributedString()
+        var last = 0
+        for match in regex.matches(in: message, range: NSRange(location: 0, length: text.length)) {
+            let inner = match.range(at: 1).location != NSNotFound ? match.range(at: 1) : match.range(at: 2)
+            result += AttributedString(text.substring(with: NSRange(location: last, length: match.range.location - last)))
+            var code = AttributedString(text.substring(with: inner))
+            code.font = .system(size: 11.5, design: .monospaced)
+            code.backgroundColor = Theme.subtleFill
+            result += code
+            last = match.range.location + match.range.length
+        }
+        result += AttributedString(text.substring(from: last))
+        return result
     }
 
     private static func symbol(for severity: Diagnostic.Severity) -> String {

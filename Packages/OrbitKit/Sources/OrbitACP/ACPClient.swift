@@ -59,20 +59,20 @@ public final class ACPClient: Sendable {
         ])
     }
 
-    public func newSession(cwd: URL) async throws -> JSONValue {
+    public func newSession(cwd: URL, mcpServers: [JSONValue] = []) async throws -> JSONValue {
         try await connection.request("session/new", [
             "cwd": .string(cwd.path),
-            "mcpServers": [],
+            "mcpServers": .array(mcpServers),
         ])
     }
 
     /// Reopens an earlier conversation. The agent replays its history as
     /// `session/update` notifications before it answers.
-    public func loadSession(sessionID: String, cwd: URL) async throws -> JSONValue {
+    public func loadSession(sessionID: String, cwd: URL, mcpServers: [JSONValue] = []) async throws -> JSONValue {
         try await connection.request("session/load", [
             "sessionId": .string(sessionID),
             "cwd": .string(cwd.path),
-            "mcpServers": [],
+            "mcpServers": .array(mcpServers),
         ])
     }
 

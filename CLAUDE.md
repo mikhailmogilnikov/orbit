@@ -43,7 +43,7 @@ cd Packages/OrbitKit && swift build   # fast compile check of all modules
 ```
 
 `Orbit.xcodeproj` is generated — edit `project.yml`, never the project.
-The last opened folder is stored in `defaults read dev.orbit.app orbit.lastWorkspaceRoot`.
+The folders open at quit (one per window, D101) are in `defaults read dev.orbit.app orbit.openFolders`.
 
 ## Layout
 
@@ -61,6 +61,7 @@ Packages/OrbitKit/
   Sources/OrbitGit        plugin: Source Control panel (GitRepository runs /usr/bin/git)
   Sources/OrbitAgents     plugin: providers, AgentSession, transcript & chat UI
   Sources/OrbitLanguages  plugin: LSP client, server table, Mason installer (Settings → Languages)
+  Sources/OrbitPreview    plugin: image / PDF viewer, Markdown preview (WKWebView)
   Sources/OrbitKit        BuiltinPlugins list
   Tests/OrbitKitTests     Swift Testing
 docs/                     product & architecture docs (extensions.md: authoring guide)
@@ -88,6 +89,10 @@ examples/extensions/      sample extensions (theme, icon theme)
 
 ## Rules of the codebase
 
+- One `PluginHost` per window (D101): plugin state goes in the plugin
+  instance, never in a static/singleton shared by windows. A closed window
+  must free everything: an observer that re-arms itself on the workspace
+  stops once `workspace.isClosed` (`WindowLifetimeTests`).
 - **Everything is a plugin.** New features go into a plugin using only the
   public `OrbitAPI` (panels, editor providers, status items, commands,
   services). Plugins never import each other; share functionality through a
@@ -122,6 +127,8 @@ examples/extensions/      sample extensions (theme, icon theme)
 - Split-view columns (sidebar, editor area, inspector) must not propagate min
   sizes into the split view (constraint-loop crash on tab switch); keep
   `minWidth/minHeight: 0` on `SidebarHost`, `EditorArea`, `InspectorHost`.
+  `EditorArea` clears the sidebar with its own padding: the inherited inset
+  is cancelled (`SidebarInsetCanceller`, D104) or a narrow window crashes.
 - SwiftUI ignores `navigationSplitViewColumnWidth` for the sidebar and resets
   the split view item to no max on each drag; `SidebarWidthLimit` re-applies
   the limits. Without a max the detail column (it runs under the sidebar, so
@@ -130,6 +137,10 @@ examples/extensions/      sample extensions (theme, icon theme)
   (`Grammars.json`, D71); no grammar is built in. Never add one by hand:
   bump the pins and rerun `make import-grammars`. Highlighting is not upstream `NeonPlugin`:
   TextKit 2 throws on rendering attributes for empty ranges (see D14).
+- Never feed a view's measured size back into its own content (e.g.
+  `onGeometryChange` on a scroll view setting its content's `minWidth`):
+  in a tight window the layout cycles and AppKit throws (D103). Measure
+  from a `GeometryReader` outside instead.
 - Since macOS 14 NSViews don't clip to bounds by default: a custom `draw(_:)`
   that fills `dirtyRect` can paint over siblings (the line-number ruler hid
   all editor text). Set `clipsToBounds = true` / fill `dirtyRect ∩ bounds`.

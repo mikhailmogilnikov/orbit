@@ -89,19 +89,55 @@ final class ChangeTracker: ChangeTracking {
     private var checkpointRoot: URL?
     private var activeTurns = 0
 
-    func beginAgentTurn() async {
+    func beginAgentTurn() async -> String? {
         activeTurns += 1
-        // Parallel sessions share one snapshot so a running turn's baseline isn't lost.
-        guard activeTurns == 1 || turnTree == nil, let root = workspace.root else { return }
+        // Parallel sessions share one baseline so a running turn's isn't lost;
+        // each turn still gets its own restore point.
+        let isFirstTurn = activeTurns == 1 || turnTree == nil
+        guard let root = workspace.root else { return nil }
         let checkpoints = Checkpoints(root: root)
         do {
             let tree = try await Task.detached(priority: .userInitiated) { try checkpoints.snapshot() }.value
-            turnTree = tree
-            checkpointRoot = root
+            if isFirstTurn {
+                turnTree = tree
+                checkpointRoot = root
+            }
             lastError = nil
+            return tree
         } catch {
             lastError = "Couldn't snapshot workspace: \(error.localizedDescription)"
+            return nil
         }
+    }
+
+    func restore(_ checkpoint: String) async throws -> [URL] {
+        guard activeTurns == 0 else {
+            throw CocoaError(.userCancelled, userInfo: [NSLocalizedDescriptionKey: "An agent is working; wait for it to finish."])
+        }
+        guard let root = workspace.root else { return [] }
+        let checkpoints = Checkpoints(root: root)
+        let files = try await Task.detached(priority: .userInitiated) { try checkpoints.snapshotContents(since: checkpoint) }.value
+        let fm = FileManager.default
+        for (url, contents) in files {
+            let current = current(for: url)
+            let exists = fm.fileExists(atPath: url.path)
+            let text = contents.flatMap { $0.contains(0) ? nil : String(data: $0, encoding: .utf8) }
+            // Binary files can't be reviewed inline: they're just put back.
+            let isReviewable = (contents == nil || text != nil) && (!exists || current != nil)
+            if isReviewable { recordBaseline(exists ? current : nil, for: url) }
+            if let text {
+                try workspace.documents.write(text, to: url)
+            } else if let contents {
+                try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try contents.write(to: url, options: .atomic)
+            } else {
+                try fm.trashItem(at: url, resultingItemURL: nil)
+                workspace.close("file:\(url.path)")
+            }
+            if isReviewable { cleanUp(url) }
+        }
+        workspace.fileSystemDidChange()
+        return files.map(\.url)
     }
 
     func endAgentTurn() async {

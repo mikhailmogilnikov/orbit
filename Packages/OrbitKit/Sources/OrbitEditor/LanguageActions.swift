@@ -17,6 +17,8 @@ final class OpenEditors: SourceEditing {
 
     private var entries: [URL: Entry] = [:]
 
+    var coordinators: [CodeEditor.Coordinator] { entries.values.compactMap(\.coordinator) }
+
     func register(_ coordinator: CodeEditor.Coordinator) {
         entries[coordinator.document.url.standardizedFileURL] = Entry(coordinator)
     }

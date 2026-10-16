@@ -7,8 +7,15 @@ public protocol ChangeTracking: AnyObject {
     /// Files with unreviewed changes, in the order they were first touched.
     var changedFiles: [URL] { get }
 
-    /// Call before an agent turn starts: snapshots the workspace.
-    func beginAgentTurn() async
+    /// Call before an agent turn starts: snapshots the workspace. Returns the
+    /// snapshot as a restore point for `restore(_:)`.
+    @discardableResult
+    func beginAgentTurn() async -> String?
+
+    /// Brings the project's files back to a restore point from `beginAgentTurn`.
+    /// What it changes shows as unreviewed changes, so it can be undone block
+    /// by block. Returns the files it changed.
+    func restore(_ checkpoint: String) async throws -> [URL]
 
     /// Call while/after an agent works: picks up every file changed since the
     /// snapshot, however the agent changed it (tools, shell, scripts).
@@ -60,6 +67,16 @@ public protocol AgentCompletion: AnyObject {
 @MainActor
 public protocol AgentTasks: AnyObject {
     func draftTask(_ prompt: String) -> Bool
+    /// Attaches a file to the message being written in the current chat (a tab dropped on it).
+    func attachFile(_ url: URL)
+    /// Attaches a file (or folder) to a new chat's message (the explorer's menu).
+    func attachFileToNewChat(_ url: URL)
+}
+
+/// Opens a shell in a folder, implemented by the Terminal plugin.
+@MainActor
+public protocol TerminalOpening: AnyObject {
+    func openTerminal(in directory: URL)
 }
 
 /// How a file differs from version control, for decorations (explorer colors, badges).

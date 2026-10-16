@@ -3,11 +3,16 @@ import SwiftUI
 
 struct MainWindow: View {
     let host: PluginHost
-    @State private var sidebarPanelID: String?
-    @State private var inspectorPanelID: String?
-    @State private var showsInspector = true
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
-    @Environment(\.openWindow) private var openWindow
+    // The window's layout comes back on launch (D80). Each window has its own
+    // (D101); the last one changed is what a new window starts with.
+    @State private var sidebarPanelID = UserDefaults.standard.string(forKey: "orbit.sidebarPanel")
+    @State private var inspectorPanelID = UserDefaults.standard.string(forKey: "orbit.inspectorPanel")
+    @State private var showsInspector = UserDefaults.standard.object(forKey: "orbit.showsInspector") as? Bool ?? true
+    @State private var columnVisibility = UserDefaults.standard.bool(forKey: "orbit.sidebarHidden")
+        ? NavigationSplitViewVisibility.detailOnly : .all
+    @State private var tabDrag = TabDrag()
+    /// The part of the detail column under the floating sidebar.
+    @State private var sidebarInset: CGFloat = 0
 
     private var workspace: Workspace { host.workspace }
     private var ui: UIRegistry { host.ui }
@@ -17,6 +22,8 @@ struct MainWindow: View {
         Group {
             if ui.isSettingsVisible {
                 SettingsScreen(host: host)
+            } else if workspace.root == nil {
+                ProjectPicker(host: host)
             } else {
                 workspaceView
             }
@@ -32,10 +39,18 @@ struct MainWindow: View {
             CommandHintOverlay(commands: host.commands)
                 .padding(.bottom, 44)
         }
+        // A tab being dragged follows the pointer over the whole window (D91).
+        .overlay { TabDragOverlay(workspace: workspace) }
+        .overlay { TabSwitcherOverlay(workspace: workspace) }
+        .environment(tabDrag)
         .onAppear {
-            AppDelegate.reopenMainWindow = { openWindow(id: "main") }
             registerLayoutCommands()
+            let services = host.services
+            tabDrag.agent = { services.resolve(AgentTasks.self) }
         }
+        .onChange(of: sidebarPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.sidebarPanel") }
+        .onChange(of: inspectorPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.inspectorPanel") }
+        .onChange(of: showsInspector) { _, shows in UserDefaults.standard.set(shows, forKey: "orbit.showsInspector") }
         // A theme being tried on brings its own mode (it only draws in that one).
         .onChange(of: appearance, initial: true) { _, appearance in
             NSApp.appearance = switch appearance {
@@ -43,6 +58,9 @@ struct MainWindow: View {
             case .light: NSAppearance(named: .aqua)
             case .dark: NSAppearance(named: .darkAqua)
             }
+        }
+        .onChange(of: columnVisibility) { _, visibility in
+            UserDefaults.standard.set(visibility == .detailOnly, forKey: "orbit.sidebarHidden")
         }
         .onChange(of: ui.requestedInspectorPanel) { _, id in
             guard let id else { return }
@@ -76,6 +94,70 @@ struct MainWindow: View {
         ) {
             inspector.wrappedValue.toggle()
         })
+        // Split editor (D90); ⌘\ as in VS Code and Zed.
+        let workspace = workspace
+        host.commands.register(OrbitCommand(
+            id: "shell.splitEditor", title: "Split Editor", category: "View", systemImage: "rectangle.split.2x1",
+            shortcut: KeyboardShortcut("\\", modifiers: .command),
+            isEnabled: { workspace.activeTab != nil }
+        ) { workspace.splitEditor() })
+        host.commands.register(OrbitCommand(
+            id: "shell.moveTabToOtherSide", title: "Move Tab to Other Side", category: "View", systemImage: "arrow.left.arrow.right",
+            shortcut: KeyboardShortcut("\\", modifiers: [.command, .option]),
+            isEnabled: { workspace.activeTab != nil && (workspace.isSplit || workspace.tabs.count > 1) }
+        ) { workspace.moveActiveTabToOtherGroup() })
+        host.commands.register(OrbitCommand(
+            id: "shell.focusOtherSide", title: "Focus Other Side", category: "View", systemImage: "rectangle.righthalf.inset.filled",
+            shortcut: KeyboardShortcut("\\", modifiers: [.command, .control]),
+            isEnabled: { workspace.isSplit }
+        ) { workspace.focusGroup(workspace.focusedGroup == 0 ? 1 : 0) })
+        host.commands.register(OrbitCommand(
+            id: "shell.joinEditors", title: "Join Editors", category: "View", systemImage: "rectangle",
+            isEnabled: { workspace.isSplit }
+        ) { workspace.joinGroups() })
+        // Getting around by keyboard (D98): VS Code's and Cursor's keys on a Mac.
+        host.commands.register(OrbitCommand(
+            id: "shell.focusEditor", title: "Focus Editor", category: "View", systemImage: "character.cursor.ibeam",
+            shortcut: KeyboardShortcut("1", modifiers: .command),
+            isEnabled: { workspace.activeTab != nil }
+        ) { workspace.focusEditor(group: 0) })
+        host.commands.register(OrbitCommand(
+            id: "shell.focusSecondSide", title: "Focus Right Side", category: "View", systemImage: "rectangle.righthalf.inset.filled",
+            shortcut: KeyboardShortcut("2", modifiers: .command),
+            isEnabled: { workspace.isSplit }
+        ) { workspace.focusEditor(group: 1) })
+        host.commands.register(OrbitCommand(
+            id: "shell.nextTab", title: "Show Next Tab", category: "View", systemImage: "chevron.right",
+            shortcut: KeyboardShortcut("]", modifiers: [.command, .shift]),
+            isEnabled: { workspace.tabs.count > 1 }
+        ) { workspace.showAdjacentTab(1) })
+        host.commands.register(OrbitCommand(
+            id: "shell.previousTab", title: "Show Previous Tab", category: "View", systemImage: "chevron.left",
+            shortcut: KeyboardShortcut("[", modifiers: [.command, .shift]),
+            isEnabled: { workspace.tabs.count > 1 }
+        ) { workspace.showAdjacentTab(-1) })
+        host.commands.register(OrbitCommand(
+            id: "shell.reopenClosedTab", title: "Reopen Closed Tab", category: "View", systemImage: "arrow.uturn.backward",
+            shortcut: KeyboardShortcut("t", modifiers: [.command, .shift]),
+            isEnabled: { !workspace.closedFiles.isEmpty }
+        ) { workspace.reopenClosedTab() })
+        // Location history and recent tabs (D99): VS Code's keys on a Mac.
+        TabSwitcher.shared.install()
+        host.commands.register(OrbitCommand(
+            id: "shell.goBack", title: "Go Back", category: "View", systemImage: "chevron.backward",
+            shortcut: KeyboardShortcut("-", modifiers: .control),
+            isEnabled: { !workspace.backLocations.isEmpty }
+        ) { workspace.goBack() })
+        host.commands.register(OrbitCommand(
+            id: "shell.goForward", title: "Go Forward", category: "View", systemImage: "chevron.forward",
+            shortcut: KeyboardShortcut("-", modifiers: [.control, .shift]),
+            isEnabled: { !workspace.forwardLocations.isEmpty }
+        ) { workspace.goForward() })
+        host.commands.register(OrbitCommand(
+            id: "shell.recentTab", title: "Show Recent Tab", category: "View", systemImage: "clock.arrow.circlepath",
+            shortcut: KeyboardShortcut(.tab, modifiers: .control),
+            isEnabled: { workspace.allTabs.count > 1 }
+        ) { if let tab = workspace.recentTabs.dropFirst().first { workspace.open(tab) } })
     }
 
     private var appearance: Preferences.Appearance {
@@ -95,11 +177,12 @@ struct MainWindow: View {
                 // Our own toggle is in the tab row; the system one floated over the sidebar.
                 .toolbar(removing: .sidebarToggle)
         } detail: {
-            EditorArea(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector)
+            EditorArea(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector, sidebarInset: sidebarInset)
                 .inspector(isPresented: $showsInspector) {
                     InspectorHost(panels: ui.inspectorPanels, selection: $inspectorPanelID)
                         .inspectorColumnWidth(min: 340, ideal: 420, max: 720)
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.leading } action: { sidebarInset = $0 }
         }
         .navigationTitle(workspace.name)
         .navigationSubtitle(subtitle)
@@ -168,13 +251,14 @@ struct PanelTabButton: View {
 /// A panel button's tooltip: its name, and the shortcut of the command showing it.
 @MainActor
 func panelHelp(_ panel: PanelContribution, _ text: String? = nil) -> String {
-    guard let id = panel.commandID, let commands = AppDelegate.host?.commands else { return text ?? panel.title }
+    guard let id = panel.commandID, let commands = ProjectWindows.shared.activeHost?.commands else { return text ?? panel.title }
     return commands.help(id, text ?? panel.title)
 }
 
 struct InspectorHost: View {
     let panels: [PanelContribution]
     @Binding var selection: String?
+    @Environment(TabDrag.self) private var drag
 
     var body: some View {
         let current = panels.first { $0.id == selection } ?? panels.first
@@ -191,6 +275,11 @@ struct InspectorHost: View {
             }
             if let current {
                 current.makeView()
+                    // A tab dropped on the agent chat attaches its file (D91).
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                        drag.chatFrame = current.id == "agents" ? frame : nil
+                    }
+                    .onDisappear { drag.chatFrame = nil }
             } else {
                 EmptyStateView("No Panels", systemImage: "puzzlepiece.extension")
             }
@@ -210,24 +299,33 @@ struct EditorArea: View {
     let host: PluginHost
     @Binding var columnVisibility: NavigationSplitViewVisibility
     @Binding var showsInspector: Bool
+    let sidebarInset: CGFloat
+    @State private var width: CGFloat = 0
+    @State private var dropZone: EditorDropZone?
+    @Environment(TabDrag.self) private var drag
+
+    private var draggedTabZone: EditorDropZone? {
+        if case .editor(let zone) = drag.target { zone } else { nil }
+    }
 
     var body: some View {
         let workspace = host.workspace
         VStack(spacing: 0) {
-            WindowTopBar(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector)
+            WindowTopBar(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector, areaWidth: width)
             Divider()
             Group {
-                if let tab = workspace.activeTab {
-                    if let provider = host.ui.provider(for: tab) {
-                        provider.makeView(tab)
-                    } else {
-                        EmptyStateView("No Editor", systemImage: "questionmark.square.dashed", message: "No plugin can open \(tab.title).")
-                    }
-                } else {
+                if workspace.allTabs.isEmpty {
                     WelcomeView(host: host)
+                } else if workspace.isSplit {
+                    EditorGroups(host: host, width: width)
+                } else {
+                    GroupEditor(host: host, group: workspace.groups[0])
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { EditorDropHighlight(zone: dropZone ?? draggedTabZone, workspace: workspace) }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { drag.editorFrame = $0 }
+            .overlay { EditorDropCatcher(workspace: workspace, zone: $dropZone) }
             .overlay(alignment: .bottom) { TryOnBar(host: host) }
             // SwiftUI scroll views draw into the safe area under the floating glass
             // sidebar and inspector, which then pick up their colors (green diff rows).
@@ -237,22 +335,114 @@ struct EditorArea: View {
             }
             let statusItems = host.ui.statusItems.filter { $0.isVisible() }
             if !statusItems.isEmpty || !host.ui.bottomPanels.isEmpty {
-                StatusBar(items: statusItems, ui: host.ui)
+                StatusBar(items: statusItems, ui: host.ui, commands: host.commands)
             }
         }
         // Up into the hidden title bar, so the tab row lines up with the traffic lights.
         .ignoresSafeArea(.container, edges: .top)
+        // The split line runs through the tab row too: both measure from here.
+        .coordinateSpace(.named(EditorGroups.space))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        // Clears the floating sidebar by hand: its safe-area inset is cancelled
+        // for this column (see SidebarInsetCanceller).
+        .padding(.leading, sidebarInset)
         // Switching tabs swaps the editor view; its min size must not reach the
         // split view (constraint-loop crash, same as InspectorHost).
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         .nativeSurface(.background)
+        .background(SidebarInsetCanceller(inset: sidebarInset))
+    }
+}
+
+/// The shown tab of one group.
+struct GroupEditor: View {
+    let host: PluginHost
+    let group: EditorGroup
+
+    var body: some View {
+        if let tab = group.activeTab {
+            if let provider = host.ui.provider(for: tab) {
+                provider.makeView(tab)
+            } else {
+                EmptyStateView("No Editor", systemImage: "questionmark.square.dashed", message: "No plugin can open \(tab.title).")
+            }
+        } else {
+            Color.clear
+        }
+    }
+}
+
+/// Two groups side by side with a draggable line between them (D90). A click
+/// into a group focuses it: AppKit text views swallow SwiftUI's tap gestures,
+/// so mouse-downs are watched instead.
+struct EditorGroups: View {
+    nonisolated static let space = "editorArea"
+    let host: PluginHost
+    let width: CGFloat
+    @State private var dragStart: Double?
+    @State private var frame: CGRect = .zero
+    @State private var monitor: Any?
+
+    var body: some View {
+        let workspace = host.workspace
+        let left = (width * workspace.splitFraction).rounded()
+        HStack(spacing: 0) {
+            GroupEditor(host: host, group: workspace.groups[0])
+                .frame(width: max(0, left))
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: 1)
+                .overlay {
+                    Color.clear
+                        .frame(width: 7)
+                        .contentShape(.rect)
+                        .pointerStyle(.columnResize)
+                        .gesture(resize)
+                }
+                .zIndex(1)
+            GroupEditor(host: host, group: workspace.groups[1])
+                .frame(maxWidth: .infinity)
+        }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
+        .onAppear(perform: watchClicks)
+        .onDisappear {
+            monitor.map(NSEvent.removeMonitor)
+            monitor = nil
+        }
+    }
+
+    private var resize: some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.space))
+            .onChanged { value in
+                let workspace = host.workspace
+                let start = dragStart ?? workspace.splitFraction
+                dragStart = start
+                guard width > 0 else { return }
+                workspace.splitFraction = min(0.85, max(0.15, start + value.translation.width / width))
+            }
+            .onEnded { _ in dragStart = nil }
+    }
+
+    private func watchClicks() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            MainActor.assumeIsolated {
+                guard let window = event.window, let content = window.contentView,
+                      ProjectWindows.shared.host(for: window) === host else { return }
+                // SwiftUI's global frame is the window's content, top-left origin.
+                let point = CGPoint(x: event.locationInWindow.x, y: content.bounds.height - event.locationInWindow.y)
+                guard frame.contains(point) else { return }
+                host.workspace.focusGroup(point.x < frame.minX + frame.width * host.workspace.splitFraction ? 0 : 1)
+            }
+            return event
+        }
     }
 }
 
 /// The area under the editor (terminal, …) with a draggable top edge.
 struct BottomPanelHost: View {
     let ui: UIRegistry
-    @AppStorage("orbit.bottomPanelHeight") private var height: Double = 260
+    @State private var height = UserDefaults.standard.object(forKey: "orbit.bottomPanelHeight") as? Double ?? 260
     @State private var dragStartHeight: Double?
 
     var body: some View {
@@ -288,7 +478,10 @@ struct BottomPanelHost: View {
                 dragStartHeight = start
                 height = min(max(start - value.translation.height, 90), 900)
             }
-            .onEnded { _ in dragStartHeight = nil }
+            .onEnded { _ in
+                dragStartHeight = nil
+                UserDefaults.standard.set(height, forKey: "orbit.bottomPanelHeight")
+            }
     }
 }
 
@@ -298,6 +491,9 @@ struct WindowTopBar: View {
     let host: PluginHost
     @Binding var columnVisibility: NavigationSplitViewVisibility
     @Binding var showsInspector: Bool
+    /// The editor area's width: a split puts each group's tabs over its editor.
+    let areaWidth: CGFloat
+    @State private var tabsMinX: CGFloat = 0
     @State private var isFullScreen = false
 
     /// With the sidebar hidden, the traffic lights sit over the start of this
@@ -311,10 +507,23 @@ struct WindowTopBar: View {
             TopBarButton("sidebar.left", help: host.commands.help("shell.toggleSidebar", sidebarHidden ? "Show Sidebar" : "Hide Sidebar")) {
                 withAnimation { columnVisibility = sidebarHidden ? .all : .detailOnly }
             }
-            if host.workspace.tabs.isEmpty {
+            let workspace = host.workspace
+            if workspace.allTabs.isEmpty {
                 Spacer(minLength: 0)
+            } else if workspace.isSplit {
+                // The left group's tabs end where its editor does.
+                let leftWidth = max(60, (areaWidth * workspace.splitFraction).rounded() - tabsMinX)
+                HStack(spacing: 0) {
+                    TabBar(workspace: workspace, group: workspace.groups[0])
+                        .frame(width: leftWidth)
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor))
+                        .frame(width: 1, height: 16)
+                    TabBar(workspace: workspace, group: workspace.groups[1])
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(EditorGroups.space)).minX } action: { tabsMinX = $0 }
             } else {
-                TabBar(workspace: host.workspace)
+                TabBar(workspace: workspace, group: workspace.groups[0])
             }
             TopBarButton("command", help: "Command Palette (⇧⌘P)") {
                 CommandPalette.toggle(in: host)
@@ -393,6 +602,48 @@ private struct SidebarWidthLimit: NSViewRepresentable {
     }
 }
 
+/// The inspector's split view runs under the floating sidebar and inherits its
+/// safe-area inset. SwiftUI counts that inset into the editor column's min width,
+/// and the outer split view adds it again: with the sidebar and inspector open, a
+/// window narrower than 2 × sidebar + inspector looped and crashed (D104). The
+/// inherited inset is cancelled here; `EditorArea` pads itself instead.
+private struct SidebarInsetCanceller: NSViewRepresentable {
+    let inset: CGFloat
+
+    func makeNSView(context: Context) -> CancellerView { CancellerView() }
+
+    func updateNSView(_ view: CancellerView, context: Context) {
+        view.inset = inset
+        DispatchQueue.main.async { [weak view] in view?.apply() }
+    }
+
+    final class CancellerView: NSView {
+        var inset: CGFloat = 0
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            DispatchQueue.main.async { [weak self] in self?.apply() }
+        }
+
+        func apply() {
+            var view = superview
+            while let current = view {
+                if let split = current as? NSSplitView,
+                   let controller = split.delegate as? NSSplitViewController,
+                   controller.splitViewItems.contains(where: { $0.behavior == .inspector }) {
+                    var insets = controller.view.additionalSafeAreaInsets
+                    // Only on a real change: each write re-lays out the split view.
+                    guard insets.left != -inset else { return }
+                    insets.left = -inset
+                    controller.view.additionalSafeAreaInsets = insets
+                    return
+                }
+                view = current.superview
+            }
+        }
+    }
+}
+
 /// Hiding the window toolbar also hides the title bar container, and the
 /// traffic lights with it. The container is transparent anyway (hidden title
 /// bar), so it is shown again, and again whenever AppKit hides it.
@@ -411,10 +662,15 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
         private var observations: [NSKeyValueObservation] = []
         private var observers: [NSObjectProtocol] = []
         private var buttonObservers: [NSObjectProtocol] = []
+        private var layerObservations: [NSKeyValueObservation] = []
+        private var isAligningLayer = false
         private weak var container: NSView?
         private weak var titlebar: NSView?
-        /// The y we last moved each button to; anything else is AppKit's own layout.
-        private var shiftedY: [ObjectIdentifier: CGFloat] = [:]
+        /// AppKit's own y for each button, kept on the button itself: a new
+        /// keeper (Close Folder rebuilds the view) must not take an already
+        /// moved button for AppKit's position.
+        nonisolated(unsafe) private static var baselineKey: UInt8 = 0
+        private var clickMonitor: Any?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -433,6 +689,40 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
             }
             // After SwiftUI has configured the window.
             DispatchQueue.main.async { [weak self] in self?.attach() }
+            watchFullScreenClicks()
+        }
+
+        /// In full screen the revealed traffic lights ignored clicks: with the
+        /// toolbar hidden (D42) AppKit treats its strip as empty and lets clicks
+        /// through to the window below. Clicks on the buttons' spots are
+        /// caught here and do what the buttons would.
+        private func watchFullScreenClicks() {
+            if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+            clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                let handled = MainActor.assumeIsolated { self?.handleFullScreenClick() ?? false }
+                return handled ? nil : event
+            }
+        }
+
+        private func handleFullScreenClick() -> Bool {
+            guard isFullScreen, let window else { return false }
+            let point = NSEvent.mouseLocation
+            for button in buttons where !button.isHidden && button.isEnabled {
+                guard let host = button.window, host.isVisible, host.alphaValue > 0.01,
+                      let screen = host.screen ?? window.screen else { continue }
+                let rect = host.convertToScreen(button.convert(button.bounds, to: nil))
+                // Hidden (slid up past the screen's top) until the menu bar is revealed.
+                guard rect.contains(point), screen.frame.contains(rect) else { continue }
+                if button == window.standardWindowButton(.closeButton) {
+                    window.performClose(nil)
+                } else if button == window.standardWindowButton(.zoomButton) {
+                    window.toggleFullScreen(nil)
+                } else {
+                    continue
+                }
+                return true
+            }
+            return false
         }
 
         private var isFullScreen: Bool {
@@ -453,13 +743,29 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
                 },
             ]
             // AppKit puts the buttons back on every titlebar layout (resize,
-            // focus, full screen): move them again after each one.
+            // focus, full screen, `isMovable` flipping while tabs are dragged):
+            // move them again right away. Deferred, they showed at AppKit's
+            // spot for a frame and jumped up and down.
             buttonObservers.forEach(NotificationCenter.default.removeObserver)
             buttonObservers = buttons.map { button in
                 button.postsFrameChangedNotifications = true
-                return NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: button, queue: .main) { [weak self] _ in
+                return NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: button, queue: nil) { [weak self] _ in
                     MainActor.assumeIsolated {
+                        self?.shiftButtons()
+                        // AppKit may still set the frame it was in the middle of.
                         DispatchQueue.main.async { self?.shiftButtons() }
+                    }
+                }
+            }
+            // While the window is dragged, AppKit re-places the zoom button on
+            // every step but posts its frame change only after drawing: it showed
+            // at AppKit's spot for the whole drag. Its layer moves synchronously,
+            // so the layer is put right before the frame catches up.
+            layerObservations = buttons.compactMap { button in
+                button.layer?.observe(\.position) { [weak self, weak button] _, _ in
+                    MainActor.assumeIsolated {
+                        guard let self, let button else { return }
+                        self.alignLayer(of: button)
                     }
                 }
             }
@@ -470,18 +776,42 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
             [.closeButton, .miniaturizeButton, .zoomButton].compactMap { window?.standardWindowButton($0) }
         }
 
-        /// Only moves a button AppKit has just laid out, so our own move
-        /// (which posts a frame change too) doesn't feed back.
+        /// A fixed distance below AppKit's spot for the button. Absolute, so
+        /// applying it again (our own move posts a frame change too) is a no-op,
+        /// and a button can't end up moved twice or not at all.
+        private func target(for button: NSButton) -> CGFloat {
+            let baseline: CGFloat
+            if let stored = objc_getAssociatedObject(button, &Self.baselineKey) as? CGFloat {
+                baseline = stored
+            } else {
+                baseline = button.frame.origin.y
+                objc_setAssociatedObject(button, &Self.baselineKey, baseline, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            }
+            return (button.superview?.isFlipped ?? false) ? baseline + Self.trafficLightsDrop : baseline - Self.trafficLightsDrop
+        }
+
         private func shiftButtons() {
             guard !isFullScreen else { return }
             for button in buttons {
-                let id = ObjectIdentifier(button)
-                let y = button.frame.origin.y
-                guard shiftedY[id] != y else { continue }
-                let target = (button.superview?.isFlipped ?? false) ? y + Self.trafficLightsDrop : y - Self.trafficLightsDrop
-                shiftedY[id] = target
-                button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: target))
+                let target = target(for: button)
+                if button.frame.origin.y != target {
+                    button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: target))
+                }
             }
+        }
+
+        /// Moves only the layer of a button AppKit has just placed (its frame
+        /// still at AppKit's spot); the frame follows in `shiftButtons`.
+        private func alignLayer(of button: NSButton) {
+            guard !isAligningLayer, !isFullScreen, let layer = button.layer else { return }
+            let delta = target(for: button) - button.frame.origin.y
+            guard delta != 0 else { return }
+            isAligningLayer = true
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.position.y += delta
+            CATransaction.commit()
+            isAligningLayer = false
         }
 
         /// Only writes on a real change: window chrome touched mid-layout
@@ -504,6 +834,7 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
         isolated deinit {
             observers.forEach(NotificationCenter.default.removeObserver)
             buttonObservers.forEach(NotificationCenter.default.removeObserver)
+            clickMonitor.map(NSEvent.removeMonitor)
         }
     }
 }
@@ -623,44 +954,94 @@ private struct FullScreenObserver: NSViewRepresentable {
 
 struct TabBar: View {
     let workspace: Workspace
-    @State private var width: CGFloat = 0
+    let group: EditorGroup
+    @State private var frames: [EditorTab.ID: CGRect] = [:]
+    @State private var insertion: Int?
+    @Environment(TabDrag.self) private var drag
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(workspace.tabs) { tab in
-                        TabItem(tab: tab, workspace: workspace)
-                            .id(tab.id)
-                    }
+        // In a split, the side without focus is quieter.
+        let isFocused = !workspace.isSplit || workspace.groups[workspace.focusedGroup].id == group.id
+        // The row's width from outside the scroll view: measured on it, the
+        // tabs' min width fed back into its size and the layout never settled.
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    row(isFocused: isFocused, width: geometry.size.width)
                 }
-                .padding(.horizontal, 8)
-                // The free space after the tabs is title bar: it drags the window.
-                .frame(minWidth: width, maxHeight: .infinity, alignment: .leading)
-                .background {
-                    Color.clear
-                        .contentShape(.rect)
-                        .gesture(WindowDragGesture())
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { drag.rows[group.id] = $0 }
+                .onDisappear {
+                    drag.rows[group.id] = nil
+                    drag.tabFrames[group.id] = nil
                 }
+                .modifier(TabRowFade())
+                .scrollsToActiveTab(group.activeTabID, in: proxy)
+                // A drop that ends elsewhere (or a move that re-lays the row) never calls dropExited here.
+                .onChange(of: group.tabs) { insertion = nil }
+                .onChange(of: workspace.allTabs.count) { insertion = nil }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .modifier(TabRowFade())
-            .scrollsToActiveTab(workspace.activeTabID, in: proxy)
+        }
+    }
+
+    private var rowSpace: String { "tabRow-\(group.id)" }
+
+    private func row(isFocused: Bool, width: CGFloat) -> some View {
+        HStack(spacing: 2) {
+            ForEach(group.tabs) { tab in
+                item(tab)
+            }
+        }
+        .opacity(isFocused ? 1 : 0.65)
+        .padding(.horizontal, 8)
+        // The free space after the tabs is title bar: it drags the window.
+        .frame(minWidth: width, maxHeight: .infinity, alignment: .leading)
+        .background {
+            Color.clear
+                .contentShape(.rect)
+                .gesture(WindowDragGesture())
+        }
+        .overlay(alignment: .topLeading) { insertionMark }
+        .coordinateSpace(.named(rowSpace))
+        .onDrop(of: [.fileURL], delegate: TabRowDropDelegate(workspace: workspace, group: group, frames: frames, insertion: $insertion))
+    }
+
+    /// A tab, reporting where it is: in the row (file drops) and the window (tab drags).
+    private func item(_ tab: EditorTab) -> some View {
+        let space = rowSpace, groupID = group.id, drag = drag
+        return TabItem(tab: tab, group: group, workspace: workspace)
+            .id(tab.id)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { frames[tab.id] = $0 }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                drag.tabFrames[groupID, default: [:]][tab.id] = $0
+            }
+    }
+
+    /// Where a dropped tab will land: a line between two tabs.
+    @ViewBuilder private var insertionMark: some View {
+        if let insertion {
+            let tabs = group.tabs.compactMap { frames[$0.id] }
+            let x = insertion < tabs.count ? tabs[insertion].minX - 1 : (tabs.last?.maxX ?? 8) + 1
+            Capsule()
+                .fill(Theme.accent)
+                .frame(width: 2, height: 18)
+                .offset(x: x - 1, y: ((tabs.first?.midY ?? 13) - 9))
+                .allowsHitTesting(false)
         }
     }
 }
 
 struct TabItem: View {
     let tab: EditorTab
+    let group: EditorGroup
     let workspace: Workspace
 
     var body: some View {
         let isDirty = tab.url.flatMap { workspace.documents.existingDocument(for: $0) }?.isDirty == true
             && tab.kind == EditorTab.fileKind
-        TabChip(tab.title, isActive: workspace.activeTabID == tab.id, isDirty: isDirty) {
-            workspace.activeTabID = tab.id
+        TabChip(tab.title, isActive: group.activeTabID == tab.id, isDirty: isDirty, isPreview: group.previewTabID == tab.id) {
+            workspace.activate(tab.id, in: group.id)
         } onClose: {
-            workspace.requestClose(tab.id)
+            workspace.requestClose(tab.id, in: group.id)
         } icon: {
             Group {
                 if tab.kind == EditorTab.fileKind, let url = tab.url {
@@ -672,10 +1053,29 @@ struct TabItem: View {
             .foregroundStyle(tab.kind == EditorTab.fileKind ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
         }
         .help(tab.url.map(workspace.relativePath) ?? tab.title)
+        // A preview tab stays once it's double-clicked or edited (D94).
+        .simultaneousGesture(TapGesture(count: 2).onEnded { workspace.pin(tab.id) })
+        .onChange(of: isDirty) { _, dirty in if dirty { workspace.pin(tab.id) } }
+        .modifier(TabDragGesture(tab: tab, group: group.id, workspace: workspace))
+        .modifier(KeepsWindowStillWhileHovered())
         .contextMenu {
-            Button("Close") { workspace.requestClose(tab.id) }
+            if group.previewTabID == tab.id {
+                Button("Keep Open") { workspace.pin(tab.id) }
+                Divider()
+            }
+            Button("Close") { workspace.requestClose(tab.id, in: group.id) }
             Button("Close Others") {
-                for other in workspace.tabs where other.id != tab.id { workspace.requestClose(other.id) }
+                for other in group.tabs where other.id != tab.id { workspace.requestClose(other.id, in: group.id) }
+            }
+            Divider()
+            Button(workspace.isSplit ? "Move to Other Side" : "Move to the Right") {
+                workspace.activate(tab.id, in: group.id)
+                workspace.moveActiveTabToOtherGroup()
+            }
+            .disabled(!workspace.isSplit && group.tabs.count < 2)
+            Button("Open to the Side") {
+                workspace.activate(tab.id, in: group.id)
+                workspace.splitEditor()
             }
             if let url = tab.url {
                 Divider()
@@ -800,6 +1200,7 @@ private struct BottomPanelToggles: View {
 struct StatusBar: View {
     let items: [StatusItem]
     let ui: UIRegistry
+    let commands: CommandRegistry
 
     var body: some View {
         HStack(spacing: 14) {
@@ -810,9 +1211,7 @@ struct StatusBar: View {
             ForEach(items.filter { $0.placement == .leading }) { $0.makeView() }
             Spacer()
             ForEach(items.filter { $0.placement == .trailing }) { $0.makeView() }
-            if let commands = AppDelegate.host?.commands {
-                CheatSheetButton(commands: commands)
-            }
+            CheatSheetButton(commands: commands)
         }
         .padding(.horizontal, 12)
         .frame(height: 24)

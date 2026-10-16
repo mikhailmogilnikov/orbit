@@ -203,7 +203,7 @@ private struct ReferenceRow: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .listRowBackground(isOpened ? Color.accentColor.opacity(0.12) : Color.clear)
+        .listRowBackground(isOpened ? Theme.accent.opacity(0.12) : Color.clear)
     }
 
     private var highlighted: AttributedString {
@@ -213,7 +213,7 @@ private struct ReferenceRow: View {
         var text = AttributedString(string.substring(to: match.location))
         var found = AttributedString(string.substring(with: match))
         found.inlinePresentationIntent = .stronglyEmphasized
-        found.backgroundColor = Color.accentColor.opacity(0.25)
+        found.backgroundColor = Theme.accent.opacity(0.25)
         text += found
         text += AttributedString(string.substring(from: NSMaxRange(match)))
         return text

@@ -74,7 +74,7 @@ public final class PluginHost {
         public var id: String { manifest.id }
     }
 
-    public let workspace = Workspace()
+    public let workspace: Workspace
     public let ui = UIRegistry()
     public let commands = CommandRegistry()
     public let services = ServiceRegistry()
@@ -83,7 +83,9 @@ public final class PluginHost {
     private var active: [String: any OrbitPlugin] = [:]
     private static let disabledKey = "orbit.disabledPlugins"
 
-    public init(plugins: [any OrbitPlugin.Type]) {
+    /// One per window (D101), activating its own copy of every plugin.
+    public init(plugins: [any OrbitPlugin.Type], root: URL? = nil) {
+        workspace = Workspace(root: root)
         let disabled = Set(UserDefaults.standard.stringArray(forKey: Self.disabledKey) ?? [])
         for type in plugins {
             let manifest = type.manifest
@@ -109,8 +111,15 @@ public final class PluginHost {
         entries.contains { ($0.isEnabled) != (active[$0.id] != nil) }
     }
 
+    /// The window closed (D101). Registries hold closures that hold the
+    /// plugins, which hold the registries: emptied, the window's whole graph
+    /// (buffers, indexes, models) can go.
     public func shutdown() {
         for plugin in active.values { plugin.deactivate() }
         active.removeAll()
+        ui.removeAll()
+        commands.removeAll()
+        services.removeAll()
+        workspace.close()
     }
 }

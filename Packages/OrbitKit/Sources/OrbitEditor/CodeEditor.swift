@@ -23,17 +23,37 @@ struct CodeEditor: NSViewRepresentable {
     var diagnostics: [Diagnostic] = []
     var languages: LanguageIntelligence?
     var showsInlayHints = true
+    var showsStickyScroll = true
     /// Bumped when the server's hints went stale.
     var inlayHintsRevision = 0
     var onOpenLocation: (SourceLocation) -> Void = { _ in }
     /// `GrammarRegistry.revision`: a grammar was installed, re-pick this file's.
     var grammarRevision = 0
+    /// For `.editorconfig`.
+    var workspaceRoot: URL?
+    /// Picked in the status bar; nil until the file's is detected.
+    var indentation: Indentation?
+    /// False when the explorer opened the file while browsing (D98).
+    var takesFocus = true
+    /// `Workspace.editorFocusRequest` for this file: a new value takes the focus.
+    var focusRequest: Int?
+    /// This window's commands, for the right-click menu.
+    var commands: CommandRegistry?
+    /// The caret's 0-based line and UTF-16 column, for Go Back (D99).
+    var onCaretMove: (Int, Int) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(document: document) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = OrbitTextView.scrollableTextView()
-        let textView = scrollView.documentView as! STTextView
+        // `STTextView.scrollableTextView()`, in our scroll view (see `EditorScrollView`).
+        let scrollView = EditorScrollView()
+        scrollView.clipsToBounds = true
+        scrollView.wantsLayer = true
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.drawsBackground = false
+        let textView: STTextView = OrbitTextView()
+        scrollView.documentView = textView
         textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         // Our own ruler instead of STTextView's gutter (see LineNumberRuler).
         textView.showsLineNumbers = false
@@ -42,6 +62,9 @@ struct CodeEditor: NSViewRepresentable {
         textView.isIncrementalSearchingEnabled = true
         textView.text = document.text
         textView.textDelegate = context.coordinator
+        context.coordinator.applyIndentation(
+            indentation ?? EditorIndentation.shared.detect(document.url, text: document.text, root: workspaceRoot), to: textView
+        )
 
         let coordinator = context.coordinator
         coordinator.updateGrammar(revision: grammarRevision, in: textView)
@@ -52,6 +75,7 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.inlineDiff.textView = textView
         textView.addPlugin(InlineDiffPlugin(controller: coordinator.inlineDiff))
         coordinator.diagnosticsController.textView = textView
+        coordinator.diagnosticsController.onFadedChange = { [weak palette = coordinator.palette] faded in palette?.faded = faded }
         textView.addPlugin(DiagnosticsPlugin(controller: coordinator.diagnosticsController))
         coordinator.symbolHighlights.textView = textView
         coordinator.symbolHighlights.url = document.url
@@ -62,6 +86,10 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.inlayHints.textView = textView
         coordinator.inlayHints.url = document.url
         textView.addPlugin(InlayHintPlugin(controller: coordinator.inlayHints))
+        coordinator.folding.textView = textView
+        coordinator.folding.url = document.url
+        (textView.textContentManager as? NSTextContentStorage)?.delegate = coordinator.folding
+        textView.addPlugin(FoldingPlugin(controller: coordinator.folding))
         if let orbitView = textView as? OrbitTextView {
             orbitView.onMouseMoved = { [weak coordinator] point in coordinator?.mouseMoved(to: point) }
             orbitView.onMouseExited = { [weak coordinator] in coordinator?.mouseExited() }
@@ -78,6 +106,21 @@ struct CodeEditor: NSViewRepresentable {
         scrollView.rulersVisible = true
         textView.addPlugin(LineNumberRulerPlugin(ruler: ruler))
         coordinator.ruler = ruler
+        let overview = OverviewRuler()
+        scrollView.addSubview(overview, positioned: .below, relativeTo: scrollView.verticalScroller)
+        scrollView.overview = overview
+        coordinator.overview = overview
+        coordinator.symbolHighlights.onChange = { [weak overview] in overview?.highlights = $0 }
+        coordinator.folding.ruler = ruler
+        let sticky = coordinator.stickyScroll
+        sticky.textView = textView
+        sticky.ruler = ruler
+        sticky.inlayHints = coordinator.inlayHints
+        sticky.isEnabled = showsStickyScroll
+        sticky.onReveal = { [weak coordinator] line in coordinator?.revealPinned(line: line) }
+        textView.addPlugin(StickyScrollPlugin(controller: sticky))
+        coordinator.folding.onRegionsChange = { [weak sticky] in sticky?.setNeedsUpdate() }
+        ruler.onToggleFold = { [weak coordinator] line in coordinator?.folding.toggle(line: line) }
 
         coordinator.textView = textView
         coordinator.syncedRevision = document.revision
@@ -85,7 +128,17 @@ struct CodeEditor: NSViewRepresentable {
         (textView as? OrbitTextView)?.onAppearanceChange = { [weak coordinator] in coordinator?.applyTheme() }
         ActiveEditor.shared.coordinator = coordinator
         OpenEditors.shared.register(coordinator)
-        DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
+        coordinator.folding.onRestore = { [weak coordinator] in coordinator?.foldsWereRestored() }
+        let restores = reveal == nil, takesFocus = takesFocus
+        coordinator.focusRequest = focusRequest
+        coordinator.onCaretMove = onCaretMove
+        coordinator.commands = commands
+        DispatchQueue.main.async {
+            if restores { coordinator.restoreViewState() }
+            // Before this, the caret is where a new text view puts it, not where the user left it.
+            coordinator.reportsCaret = true
+            if takesFocus { textView.window?.makeFirstResponder(textView) }
+        }
         return scrollView
     }
 
@@ -102,12 +155,13 @@ struct CodeEditor: NSViewRepresentable {
                 let location = Self.location(textView.textSelection.location, from: old, to: new)
                 coordinator.isApplyingExternalChange = true
                 textView.text = document.text
-                coordinator.isApplyingExternalChange = false
                 textView.textSelection = NSRange(location: location, length: 0)
+                coordinator.isApplyingExternalChange = false
                 coordinator.inlineDiff.invalidate()
                 coordinator.diagnosticsController.textDidChange()
                 coordinator.symbolHighlights.textDidChange()
                 coordinator.inlayHints.textWasReplaced()
+                coordinator.folding.textWasReplaced(old: old)
             }
         }
 
@@ -116,6 +170,10 @@ struct CodeEditor: NSViewRepresentable {
             coordinator.inlineDiff.invalidate()
             coordinator.palette.onChange?()
             coordinator.inlayHints.fontDidChange()
+            if let orbit = textView as? OrbitTextView { coordinator.applyIndentation(orbit.indentation, to: textView) }
+        }
+        if let indentation, (textView as? OrbitTextView)?.indentation != indentation {
+            coordinator.applyIndentation(indentation, to: textView)
         }
         if textView.isHorizontallyResizable == wrapsLines { textView.isHorizontallyResizable = !wrapsLines }
         if textView.highlightSelectedLine != highlightsCurrentLine { textView.highlightSelectedLine = highlightsCurrentLine }
@@ -128,14 +186,27 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.symbolHighlights.languages = languages
         coordinator.definitionLink.languages = languages
         coordinator.onOpenLocation = onOpenLocation
+        coordinator.onCaretMove = onCaretMove
+        coordinator.commands = commands
+        if let focusRequest, focusRequest != coordinator.focusRequest {
+            coordinator.focusRequest = focusRequest
+            DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
+        }
         let shownDiagnostics = coordinator.diagnosticsController.diagnostics
         coordinator.diagnosticsController.update(diagnostics)
+        coordinator.updateOverview()
         coordinator.inlayHints.languages = languages
+        if coordinator.folding.languages == nil, languages != nil {
+            coordinator.folding.languages = languages
+            coordinator.folding.refresh()
+        }
         coordinator.inlayHints.isEnabled = showsInlayHints
+        coordinator.stickyScroll.isEnabled = showsStickyScroll
         // New problems mean the server has caught up with the text: its hints may have changed too.
         if coordinator.inlayHintsRevision != inlayHintsRevision || coordinator.diagnosticsController.diagnostics != shownDiagnostics {
             coordinator.inlayHintsRevision = inlayHintsRevision
             coordinator.inlayHints.refresh(after: .milliseconds(150))
+            coordinator.folding.refresh(after: .milliseconds(150))
         }
 
         if let reveal {
@@ -160,19 +231,24 @@ struct CodeEditor: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        if ActiveEditor.shared.coordinator === coordinator { ActiveEditor.shared.coordinator = nil }
+        ActiveEditor.shared.remove(coordinator)
         coordinator.closePopups()
+        coordinator.rememberViewState()
+        EditorViewStates.flush()
         OpenEditors.shared.unregister(coordinator)
     }
 
     @MainActor
     final class Coordinator: NSObject, @preconcurrency STTextViewDelegate {
         let document: TextDocument
+        var focusRequest: Int?
         let inlineDiff = InlineDiffController()
         let diagnosticsController = DiagnosticsController()
         lazy var symbolHighlights = SymbolHighlightController(geometry: diagnosticsController)
         lazy var definitionLink = DefinitionLinkController(geometry: diagnosticsController)
         lazy var inlayHints = InlayHintController(geometry: diagnosticsController)
+        lazy var folding = FoldingController(geometry: diagnosticsController)
+        lazy var stickyScroll = StickyScrollController(geometry: diagnosticsController, folding: folding, palette: palette)
         var inlayHintsRevision: Int?
         var languages: LanguageIntelligence?
         var onOpenLocation: (SourceLocation) -> Void = { _ in }
@@ -183,8 +259,14 @@ struct CodeEditor: NSViewRepresentable {
         let palette = SyntaxPalette(theme: .system(dark: false))
         weak var textView: STTextView?
         weak var ruler: LineNumberRuler?
+        weak var overview: OverviewRuler?
         var syncedRevision = 0
+        /// The line scrolled back to on open; folds coming back later shift the text, so it's scrolled to again.
+        var restoredTopLine: (line: Int, at: Date)?
         var isApplyingExternalChange = false
+        var onCaretMove: (Int, Int) -> Void = { _, _ in }
+        var reportsCaret = false
+        weak var commands: CommandRegistry?
         private var themeObserver: NSObjectProtocol?
         private var systemInsertionPoint: NSColor?
         /// Completion and signature help (D56).
@@ -230,7 +312,7 @@ struct CodeEditor: NSViewRepresentable {
                 palette.onChange?()
             }
             if systemInsertionPoint == nil { systemInsertionPoint = textView.insertionPointColor }
-            textView.insertionPointColor = theme.cursor?.nsColor ?? systemInsertionPoint ?? .controlAccentColor
+            textView.insertionPointColor = theme.cursor?.nsColor ?? systemInsertionPoint ?? Theme.accentNSColor
             textView.selectedLineHighlightColor = theme.activeLineBackground?.nsColor
                 ?? NSColor.selectedTextBackgroundColor.withAlphaComponent(0.25)
 
@@ -247,10 +329,22 @@ struct CodeEditor: NSViewRepresentable {
                 text: theme.hint?.nsColor ?? ink.withAlphaComponent(0.5),
                 background: theme.hintBackground?.nsColor ?? ink.withAlphaComponent(isDark ? 0.08 : 0.05)
             )
+            folding.colors = FoldingController.Colors(
+                text: theme.hint?.nsColor ?? ink.withAlphaComponent(0.5),
+                background: theme.hintBackground?.nsColor ?? ink.withAlphaComponent(isDark ? 0.08 : 0.05),
+                editor: background ?? .textBackgroundColor
+            )
             diagnosticsController.colors = DiagnosticsController.Colors(
                 error: theme.error?.nsColor ?? .systemRed,
                 warning: theme.warning?.nsColor ?? .systemYellow,
-                info: theme.info?.nsColor ?? .systemBlue
+                info: theme.info?.nsColor ?? .systemBlue,
+                strike: (theme.editorForeground?.nsColor ?? ink).withAlphaComponent(0.7)
+            )
+            stickyScroll.colors = StickyScrollController.Colors(
+                background: background ?? .textBackgroundColor,
+                number: theme.lineNumber?.nsColor ?? .tertiaryLabelColor,
+                text: foreground,
+                separator: ink.withAlphaComponent(isDark ? 0.14 : 0.1)
             )
             ruler?.colors = LineNumberRuler.Colors(
                 background: background ?? .textBackgroundColor,
@@ -260,6 +354,17 @@ struct CodeEditor: NSViewRepresentable {
                 modified: theme.modified?.nsColor ?? .systemBlue,
                 deleted: theme.deleted?.nsColor ?? .systemRed
             )
+            let diagnostics = diagnosticsController.colors
+            overview?.colors = OverviewRuler.Colors(
+                added: (theme.added?.nsColor ?? .systemGreen).withAlphaComponent(0.7),
+                modified: (theme.modified?.nsColor ?? .systemBlue).withAlphaComponent(0.7),
+                deleted: (theme.deleted?.nsColor ?? .systemRed).withAlphaComponent(0.7),
+                error: diagnostics.error,
+                warning: diagnostics.warning,
+                info: diagnostics.info,
+                highlight: ink.withAlphaComponent(isDark ? 0.45 : 0.35),
+                caret: ink.withAlphaComponent(isDark ? 0.5 : 0.4)
+            )
         }
 
         func textView(_ textView: STTextView, willChangeTextIn affectedCharRange: NSTextRange, replacementString: String) {
@@ -267,16 +372,49 @@ struct CodeEditor: NSViewRepresentable {
             pendingEdit = (range.location, range.length, replacementString)
         }
 
+        /// A pinned line was clicked: the caret goes there, the line to the top.
+        func applyIndentation(_ indentation: Indentation, to textView: STTextView) {
+            (textView as? OrbitTextView)?.indentation = indentation
+            // Restamps the whole text's paragraph style: the diff gaps go with it.
+            if IndentEditing.apply(indentation, to: textView) { inlineDiff.invalidate() }
+        }
+
+        func updateOverview() {
+            guard let overview, let textView else { return }
+            let starts = diagnosticsController.lineStarts
+            overview.lineCount = starts.count
+            overview.diagnostics = diagnosticsController.diagnostics
+            overview.caretLine = SourcePosition(offset: min(textView.textSelection.location, diagnosticsController.length), in: starts).line
+        }
+
+        func revealPinned(line: Int) {
+            guard let textView else { return }
+            let starts = diagnosticsController.lineStarts
+            guard line < starts.count else { return }
+            textView.textSelection = NSRange(location: starts[line], length: 0)
+            scroll(toTopLine: line)
+            textView.window?.makeFirstResponder(textView)
+        }
+
+        func foldsWereRestored() {
+            guard let restored = restoredTopLine, Date().timeIntervalSince(restored.at) < 5 else { return }
+            DispatchQueue.main.async { [weak self] in self?.scroll(toTopLine: restored.line) }
+        }
+
         func textViewDidChangeText(_ notification: Notification) {
+            restoredTopLine = nil
             scheduleGitMarkers()
             diagnosticsController.textDidChange()
+            updateOverview()
             symbolHighlights.textDidChange()
             definitionLink.clear()
             closeHover()
             let edit = pendingEdit
             pendingEdit = nil
             if let edit, !isApplyingExternalChange {
-                inlayHints.textDidChange(TextEdit(range: NSRange(location: edit.location, length: edit.length), newLength: edit.replacement.utf16.count))
+                let change = TextEdit(range: NSRange(location: edit.location, length: edit.length), newLength: edit.replacement.utf16.count)
+                inlayHints.textDidChange(change)
+                folding.textDidChange(change)
             }
             guard !isApplyingExternalChange, let textView else {
                 closePopups()
@@ -341,6 +479,7 @@ struct CodeEditor: NSViewRepresentable {
             markersTask?.cancel()
             guard let baseline = gitBaseline else {
                 ruler?.changeMarkers = LineMarkers()
+                overview?.changes = LineMarkers()
                 return
             }
             markersTask = Task { [weak self] in
@@ -349,6 +488,7 @@ struct CodeEditor: NSViewRepresentable {
                 let markers = await Task.detached(priority: .utility) { LineMarkers(baseline: baseline, current: current) }.value
                 guard !Task.isCancelled else { return }
                 self?.ruler?.changeMarkers = markers
+                self?.overview?.changes = markers
             }
         }
 
@@ -356,9 +496,18 @@ struct CodeEditor: NSViewRepresentable {
             completion.selectionDidChange()
             closeHover()
             if let textView { symbolHighlights.caretMoved(to: textView.textSelection) }
+            folding.revealCaret()
             ActiveEditor.shared.coordinator = self
             ruler?.needsDisplay = true
+            updateOverview()
             EditorSelectionService.shared.cursorMoved(in: self)
+            // Text pushed in from outside moves the caret with it: not a jump.
+            if reportsCaret, !isApplyingExternalChange, let textView {
+                let position = SourcePosition(
+                    offset: min(textView.textSelection.location, diagnosticsController.length), in: diagnosticsController.lineStarts
+                )
+                onCaretMove(position.line, position.character)
+            }
         }
 
         /// 0-based line of the insertion point.
@@ -401,6 +550,7 @@ struct CodeEditor: NSViewRepresentable {
                     self?.definitionLink.clear()
                     self?.completion.signatures.close()
                     self?.completion.reposition()
+                    self?.stickyScroll.setNeedsUpdate()
                 }
             }
         }
@@ -486,6 +636,9 @@ struct CodeEditor: NSViewRepresentable {
                     guard let self else { return }
                     self.closeHover()
                     self.presentCodeActions(actions, at: self.screenRect(at: fixStart))
+                },
+                highlight: { [url = document.url] code, language in
+                    await StaticHighlighter().highlight(code, language: language, fallback: url)
                 }
             )
             guard let window = textView.window, let scrollView = textView.enclosingScrollView else { return }
@@ -573,6 +726,28 @@ struct CodeEditor: NSViewRepresentable {
     }
 }
 
+/// Puts the text beside the line-number ruler instead of under it. AppKit
+/// lays a ruler over a full-width clip view with a left inset; STTextView
+/// sizes itself to the clip view minus only the right inset, so it came out
+/// a ruler wider than what's visible and always scrolled sideways.
+final class EditorScrollView: NSScrollView {
+    weak var overview: OverviewRuler?
+
+    override func tile() {
+        super.tile()
+        if let overview {
+            let content = contentView.frame
+            overview.frame = NSRect(x: bounds.maxX - OverviewRuler.width, y: content.minY, width: OverviewRuler.width, height: content.height)
+        }
+        guard rulersVisible, let ruler = verticalRulerView, contentView.contentInsets.left > 0 else { return }
+        contentView.contentInsets.left = 0
+        var frame = contentView.frame
+        frame.origin.x += ruler.ruleThickness
+        frame.size.width -= ruler.ruleThickness
+        contentView.frame = frame
+    }
+}
+
 /// STTextView hardened against invalid input from accessibility clients
 /// (VoiceOver, automation): out-of-range selections crash the stock view.
 final class OrbitTextView: STTextView {
@@ -588,6 +763,7 @@ final class OrbitTextView: STTextView {
     var onModifiersChanged: ((NSEvent.ModifierFlags) -> Void)?
     /// The file's language: comments and bracket pairs (D73).
     var syntaxLanguage: SyntaxLanguage?
+    var indentation = Indentation(size: 4, spaces: true)
     private var hoverArea: NSTrackingArea?
 
     /// Typing (no replacement range; marked text from an input method passes through).
@@ -600,7 +776,20 @@ final class OrbitTextView: STTextView {
         super.insertText(string, replacementRange: replacementRange)
     }
 
+    override func insertTab(_ sender: Any?) {
+        IndentEditing.insertTab(in: self, indentation: indentation)
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        IndentEditing.insertBacktab(in: self, indentation: indentation)
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        IndentEditing.insertNewline(in: self, indentation: indentation)
+    }
+
     override func deleteBackward(_ sender: Any?) {
+        if IndentEditing.deleteBackward(in: self, indentation: indentation) { return }
         if let language = syntaxLanguage, EditingRules.deleteBackward(in: self, language: language) { return }
         super.deleteBackward(sender)
     }
@@ -718,13 +907,38 @@ final class OrbitTextView: STTextView {
     }
 }
 
-/// The editor that last had focus, for keyboard commands.
+/// The editor that last had focus, for keyboard commands: the main window's
+/// own (D101), so a command never reaches another window's editor.
 @MainActor
 final class ActiveEditor {
     static let shared = ActiveEditor()
-    weak var coordinator: CodeEditor.Coordinator?
+
+    private final class Entry {
+        weak var coordinator: CodeEditor.Coordinator?
+        init(_ coordinator: CodeEditor.Coordinator) { self.coordinator = coordinator }
+    }
+
+    /// Most recent first; a new editor isn't in a window yet, so the window is checked when asked.
+    private var recent: [Entry] = []
+
+    var coordinator: CodeEditor.Coordinator? {
+        get {
+            let live = recent.compactMap(\.coordinator)
+            guard let window = NSApp.mainWindow ?? NSApp.keyWindow else { return live.first }
+            return live.first { $0.textView?.window === window }
+        }
+        set {
+            recent.removeAll { $0.coordinator == nil || $0.coordinator === newValue }
+            if let newValue { recent.insert(Entry(newValue), at: 0) }
+        }
+    }
+
+    func remove(_ coordinator: CodeEditor.Coordinator) {
+        recent.removeAll { $0.coordinator == nil || $0.coordinator === coordinator }
+    }
+
     /// For the right-click menu, which lists commands placed there (`EditorMenuPlacement`).
-    var commands: CommandRegistry?
+    var commands: CommandRegistry? { coordinator?.commands }
 }
 
 /// Runs a right-click menu item; a menu item needs an Objective-C target.

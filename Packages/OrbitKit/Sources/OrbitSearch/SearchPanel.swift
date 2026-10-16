@@ -477,7 +477,7 @@ private struct MatchRow: View {
                 inserted.inlinePresentationIntent = .stronglyEmphasized
                 text += inserted
             } else {
-                found.backgroundColor = Color.accentColor.opacity(0.25)
+                found.backgroundColor = Theme.accent.opacity(0.25)
                 text += found
             }
             last = NSMaxRange(range)

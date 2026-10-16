@@ -5,6 +5,7 @@ import OrbitEditor
 import OrbitExplorer
 import OrbitGit
 import OrbitLanguages
+import OrbitPreview
 import OrbitReview
 import OrbitSearch
 import OrbitTerminal
@@ -20,6 +21,7 @@ public enum BuiltinPlugins {
         GitPlugin.self,
         LanguagesPlugin.self,
         EditorPlugin.self,
+        PreviewPlugin.self,
         TerminalPlugin.self,
         AgentsPlugin.self,
     ]

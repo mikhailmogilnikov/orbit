@@ -12,8 +12,17 @@ struct SavedSession: Codable, Hashable, Identifiable, Sendable {
     var updatedAt: Date
     /// The session's own copy of the project, if it's isolated.
     var isolated: IsolatedCopy? = nil
+    /// Restore points of the user's messages, oldest first.
+    var checkpoints: [MessageCheckpoint]? = nil
 
     var id: String { "\(providerID):\(sessionID)" }
+}
+
+/// The project as it was before a message was sent (a `ChangeTracking` restore point).
+/// Matched to the replayed transcript by the message's text.
+struct MessageCheckpoint: Codable, Hashable, Sendable {
+    var message: String
+    var checkpoint: String
 }
 
 /// Per project folder: the agent tabs that were open, and recent conversations,

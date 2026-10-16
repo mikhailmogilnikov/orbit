@@ -214,7 +214,18 @@ struct LanguageServerConfig: Sendable, Hashable, Codable {
 
     /// `settings` for a server running in `root`.
     func settings(for root: URL, installer: LanguageInstaller = .shared) -> JSONValue? {
-        settings.map { substitute($0, root: root, installer: installer) }
+        let own = settings.map { substitute($0, root: root, installer: installer) }
+        guard handlesStyles, ProjectFiles.dependsOn(in: root, where: { $0 == "tailwindcss" || $0.hasPrefix("@tailwindcss/") }) else { return own }
+        // Tailwind's at-rules (@apply, @reference, @theme…) aren't CSS the CSS service
+        // knows; Tailwind's own server checks them. Ours first, so a project can turn it back on.
+        let lint: JSONValue = ["lint": ["unknownAtRules": "ignore"]]
+        let tailwind: JSONValue = ["css": lint, "scss": lint, "less": lint]
+        return own.map { tailwind.merging($0) } ?? tailwind
+    }
+
+    /// CSS, or components with styles inside (their servers run the CSS service too).
+    private var handlesStyles: Bool {
+        !Set(languages.values).isDisjoint(with: ["css", "scss", "less", "svelte", "vue", "astro", "html"])
     }
 
     /// `initializationOptions` for a server running in `root`.
@@ -319,9 +330,15 @@ extension LanguageServerConfig {
             .path(binary: "typescript-language-server", arguments: ["--stdio"]),
         ],
         install: Install(package: "typescript-language-server", binary: "typescript-language-server", arguments: ["--stdio"], needs: "Node.js"),
-        settings: ["typescript": ["inlayHints": typeScriptHints], "javascript": ["inlayHints": typeScriptHints]],
+        settings: [
+            "typescript": ["inlayHints": typeScriptHints],
+            "javascript": ["inlayHints": typeScriptHints],
+            // A function picked from completion comes with its parentheses and argument stops.
+            "completions": ["completeFunctionCalls": true],
+        ],
         // typescript-language-server takes tsserver's preferences here, not from the settings.
-        initializationOptions: ["preferences": [
+        // tsserver's default 3 GB runs out on big projects (Zed raises it the same way).
+        initializationOptions: ["maxTsServerMemory": 8192, "preferences": [
             "includeInlayParameterNameHints": "literals",
             "includeInlayParameterNameHintsWhenArgumentMatchesName": false,
             "includeInlayFunctionLikeReturnTypeHints": true,
@@ -348,6 +365,7 @@ extension LanguageServerConfig {
         initializationOptions: [
             "plugins": [["name": "@vue/typescript-plugin", "location": "${vueTypeScriptPlugin}", "languages": ["vue"]]],
             "preferences": typescript.initializationOptions?["preferences"] ?? .null,
+            "maxTsServerMemory": 8192,
         ],
         formatsWith: "vue-language-server"
     )

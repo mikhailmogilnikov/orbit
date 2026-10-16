@@ -1,12 +1,22 @@
 import Foundation
+import Synchronization
 
 /// GUI apps launched from Finder/Dock don't inherit the user's shell PATH,
 /// so `npx`, `node`, `claude` etc. are invisible. We ask the login shell once.
 public enum ShellEnvironment {
     private static let marker = "__ORBIT_ENV_\(UUID().uuidString)__"
 
+    /// One login shell for the whole app: every window's plugins ask (D101).
+    private static let cached = Mutex<Task<[String: String], Never>?>(nil)
+
     public static func resolve() async -> [String: String] {
-        await Task.detached(priority: .userInitiated) { load() }.value
+        let task = cached.withLock { cached in
+            if let cached { return cached }
+            let task = Task.detached(priority: .userInitiated) { load() }
+            cached = task
+            return task
+        }
+        return await task.value
     }
 
     private static func load() -> [String: String] {

@@ -18,7 +18,9 @@ public final class EditorPlugin: OrbitPlugin {
     /// The open folder's languages get their grammars before their files open (D71).
     private static func prefetchGrammars(_ workspace: Workspace, services: ServiceRegistry) {
         let root = withObservationTracking { workspace.root } onChange: {
-            Task { @MainActor in prefetchGrammars(workspace, services: services) }
+            Task { @MainActor in
+                if !workspace.isClosed { prefetchGrammars(workspace, services: services) }
+            }
         }
         guard root != nil else { return }
         Task { @MainActor in
@@ -54,7 +56,9 @@ public final class EditorPlugin: OrbitPlugin {
                 changes: services.resolve(ChangeTracking.self),
                 versionControl: services.resolve(VersionControlBaseline.self),
                 languages: services.resolve(LanguageIntelligence.self),
-                options: options
+                options: options,
+                ui: context.ui,
+                commands: context.commands
             )
             .id(tab.id)
         })
@@ -103,7 +107,6 @@ public final class EditorPlugin: OrbitPlugin {
 
         registerChangeCommands(context)
 
-        ActiveEditor.shared.commands = context.commands
         let hasServer: @MainActor () -> Bool = {
             guard let coordinator = ActiveEditor.shared.coordinator else { return false }
             return coordinator.languages?.server(for: coordinator.document.url) != nil
@@ -122,6 +125,36 @@ public final class EditorPlugin: OrbitPlugin {
                 return
             }
             coordinator.goToDefinition(at: textView.textSelection.location)
+        })
+
+        // Xcode's keys for folding (D79).
+        let folding: [(id: String, title: String, symbol: String, key: KeyEquivalent, shift: Bool, run: @MainActor (FoldingController) -> Void)] = [
+            ("editor.fold", "Fold", "chevron.down", .leftArrow, false, { $0.foldAtCaret() }),
+            ("editor.unfold", "Unfold", "chevron.right", .rightArrow, false, { $0.unfoldAtCaret() }),
+            ("editor.foldAll", "Fold All", "chevron.down.2", .leftArrow, true, { $0.foldAll() }),
+            ("editor.unfoldAll", "Unfold All", "chevron.right.2", .rightArrow, true, { $0.unfoldAll() }),
+        ]
+        for command in folding {
+            context.commands.register(OrbitCommand(
+                id: command.id,
+                title: command.title,
+                category: "Code",
+                systemImage: command.symbol,
+                shortcut: KeyboardShortcut(command.key, modifiers: command.shift ? [.command, .option, .shift] : [.command, .option])
+            ) {
+                guard let coordinator = ActiveEditor.shared.coordinator else {
+                    NSSound.beep()
+                    return
+                }
+                command.run(coordinator.folding)
+            })
+        }
+
+        context.ui.addStatusItem(StatusItem(
+            id: "editor.indentation", placement: .trailing, order: 20,
+            isVisible: { Self.activeDocument(workspace).flatMap { EditorIndentation.shared.indentation(for: $0.url) } != nil }
+        ) {
+            IndentationStatus(workspace: workspace)
         })
 
         context.commands.register(OrbitCommand(
@@ -187,6 +220,24 @@ public final class EditorPlugin: OrbitPlugin {
             }
         ) {
             ActiveEditor.shared.coordinator?.formatDocument()
+        })
+        // On demand, for projects whose linter doesn't order imports (D81); ⌃⌥O as VS Code's ⇧⌥O types a letter here.
+        context.commands.register(OrbitCommand(
+            id: "editor.organizeImports",
+            title: "Organize Imports",
+            category: "Code",
+            systemImage: "arrow.up.arrow.down",
+            shortcut: KeyboardShortcut("o", modifiers: [.control, .option]),
+            editorMenu: EditorMenuPlacement(.edit, isVisible: hasServer)
+        ) {
+            guard let coordinator = ActiveEditor.shared.coordinator, let languages = coordinator.languages else {
+                NSSound.beep()
+                return
+            }
+            let url = coordinator.document.url
+            Task {
+                if await languages.runCodeActions(["source.organizeImports"], in: url) == 0 { NSSound.beep() }
+            }
         })
         context.services.register(SourceEditing.self, OpenEditors.shared)
         context.services.register(EditorSelectionProviding.self, EditorSelectionService.shared)
@@ -296,17 +347,22 @@ public final class EditorPlugin: OrbitPlugin {
         func save() {
             if quietly { try? document.save() } else { Self.save(document) }
         }
-        guard options.formatsOnSave, let languages, languages.canFormat(document.url) else {
+        guard let languages, languages.server(for: document.url) != nil || options.formatsOnSave && languages.canFormat(document.url) else {
             save()
             return
         }
+        // As in VS Code: code actions on save (ESLint's fixes, D81), then the formatter; a slow server doesn't hold the save.
         Task {
-            let formatting = Task { await languages.format(document.url) }
-            let timeout = Task {
-                try? await Task.sleep(for: .seconds(2))
-                formatting.cancel()
+            let url = document.url
+            let work = Task {
+                await languages.runSaveActions(url)
+                if options.formatsOnSave, languages.canFormat(url) { _ = await languages.format(url) }
             }
-            _ = await formatting.value
+            let timeout = Task {
+                try? await Task.sleep(for: .seconds(3))
+                work.cancel()
+            }
+            await work.value
             timeout.cancel()
             save()
         }
@@ -343,6 +399,8 @@ struct FileEditorView: View {
     let versionControl: VersionControlBaseline?
     let languages: LanguageIntelligence?
     let options: EditorOptions
+    let ui: UIRegistry
+    let commands: CommandRegistry
     /// What the gutter's change markers compare against.
     @State private var gitBaseline: String?
     @State private var isComparing = false
@@ -365,6 +423,12 @@ struct FileEditorView: View {
             if let error = document.loadError {
                 EmptyStateView("Can't Open File", systemImage: "doc.questionmark", message: error)
             } else {
+                let actions = ui.editorActions.filter { $0.isVisible(url) }
+                if options.showsBreadcrumbs {
+                    PathBar(document: document, workspace: workspace, languages: languages) {
+                        EditorActionButtons(actions: actions, commands: commands)
+                    }
+                }
                 CodeEditor(
                     document: document,
                     hunks: hunks,
@@ -379,10 +443,27 @@ struct FileEditorView: View {
                     diagnostics: languages?.diagnostics(for: url) ?? [],
                     languages: languages,
                     showsInlayHints: options.showsInlayHints,
+                    showsStickyScroll: options.showsStickyScroll,
                     inlayHintsRevision: languages?.inlayHintsRevision(for: url) ?? 0,
                     onOpenLocation: { workspace.open($0) },
-                    grammarRevision: GrammarRegistry.shared.revision
+                    grammarRevision: GrammarRegistry.shared.revision,
+                    workspaceRoot: workspace.root,
+                    indentation: EditorIndentation.shared.indentation(for: url),
+                    takesFocus: workspace.quietTabID != EditorTab.file(url).id,
+                    focusRequest: workspace.editorFocusRequest.flatMap { $0.tabID == EditorTab.file(url).id ? $0.serial : nil },
+                    commands: commands,
+                    onCaretMove: { workspace.caretMoved(to: EditorLocation(url: url, line: $0, column: $1)) }
                 )
+                .overlay(alignment: .topTrailing) {
+                    // Without the path bar, the actions float over the editor's corner.
+                    if !options.showsBreadcrumbs, !actions.isEmpty {
+                        EditorActionButtons(actions: actions, commands: commands)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .glassEffect(.regular, in: .capsule)
+                            .padding(8)
+                    }
+                }
             }
         }
         .task(id: versionControl?.baselineGeneration ?? -1) {
@@ -406,7 +487,7 @@ struct LanguageInstallBanner: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: offer.failure == nil ? "sparkles" : "exclamationmark.triangle.fill")
-                .foregroundStyle(offer.failure == nil ? Color.accentColor : .orange)
+                .foregroundStyle(offer.failure == nil ? Theme.accent : .orange)
             if offer.isInstalling {
                 Text("Installing \(offer.name) support…")
                     .font(.callout.weight(.medium))
@@ -444,7 +525,7 @@ struct LanguageInstallBanner: View {
         .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color.accentColor.opacity(offer.failure == nil ? 0.08 : 0))
+        .background(Theme.accent.opacity(offer.failure == nil ? 0.08 : 0))
         .background(.orange.opacity(offer.failure == nil ? 0 : 0.08))
         .overlay(alignment: .bottom) { Divider() }
     }
@@ -492,3 +573,26 @@ struct AgentChangesBanner: View {
     }
 }
 
+/// Buttons other plugins add for a file (`EditorAction`), e.g. Markdown's preview.
+struct EditorActionButtons: View {
+    let actions: [EditorAction]
+    let commands: CommandRegistry
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(actions) { action in
+                Button {
+                    commands.run(action.commandID, teaching: true)
+                } label: {
+                    Image(systemName: action.systemImage)
+                        .font(.system(size: 12))
+                        .frame(width: 22, height: 20)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help(commands.help(action.commandID))
+            }
+        }
+    }
+}

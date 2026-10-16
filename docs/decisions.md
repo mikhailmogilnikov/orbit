@@ -84,6 +84,36 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D72. Our server entries only where we know more than nvim-lspconfig
 - D73. ⌘/ and bracket pairs come from Zed's language configs
 - D74. Vue: tsserver with Vue's plugin, Vue's server beside it
+- D75. Problems cover the files the agent changed, not just open ones
+- D76. Server defaults borrowed from Zed: settings pushed, Tailwind at-rules, TS memory
+- D77. Servers hear about files changed on disk
+- D78. Unused code is faded, deprecated code struck through
+- D79. Code folding: server regions or indentation, lines hidden by TextKit 2
+- D80. The editing session comes back: tabs, caret and scroll, folders, layout
+- D81. Code actions on save; companions configured in `.orbit/settings.json`
+- D82. Sticky scroll and a path bar instead of an outline panel
+- D83. Typing follows the file's indentation
+- D84. Overview ruler under the scroller
+- D85. Restore files to before a message
+- D86. MCP servers for every agent from `.orbit/settings.json`
+- D87. Notifications and a Dock badge for agents in the background
+- D88. Queue messages while the agent works
+- D89. Image / PDF viewer and Markdown preview (Preview plugin)
+- D90. Split editor: two groups, the tab row split along the same line
+- D91. Drag and drop of tabs and files (Cursor-style)
+- D92. Moving files between folders in the explorer
+- D93. Rename, new file / folder, delete and undo in the explorer
+- D94. Preview tabs: a click in the explorer reuses one tab
+- D95. The explorer's context menu: Cursor's useful items
+- D96. Explorer folders: selected on click, gray, toggled reliably
+- D97. The accent comes from the color theme, never the system blue
+- D98. Getting around by keyboard
+- D99. Go Back / Go Forward and the ⌃Tab recent-tab switcher
+- D100. Dock menu and Open Recent: recent folders
+- D101. A window per project; the welcome window
+- D102. Close Folder; folders from Finder and the Dock
+- D103. Tab rows measure their width outside the scroll view
+- D104. The editor column cancels the sidebar's inherited safe-area inset
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -114,6 +144,7 @@ intercepting writes and works with agents that edit via shell.
 Discovered by probing Codex: it edits files with shell commands, producing no
 structured diff. Snapshotting the workspace before each turn into a private git
 repo catches every change. Project `.git` untouched. (Same idea as Cline.)
+The snapshots double as restore points for each message (D85).
 
 ### D7. Inline diffs in the editor — no separate review tab
 The first version had a review tab; the author explicitly asked for
@@ -565,7 +596,10 @@ The keeper also moves the lights down a few points
 too high against the tab row.
 In full screen the keeper does the opposite and keeps the container hidden:
 there it lives in AppKit's separate toolbar window, whose opaque background
-showed as a grey plate over the start of the tab row. The system sidebar
+showed as a grey plate over the start of the tab row. (Later the keeper shows it in full screen too, with the toolbar window made
+clear.) There the revealed traffic lights ignored clicks, which went through
+to the window below: a click on a button's spot is caught by a local event
+monitor and closes the window or leaves full screen itself. The system sidebar
 toggle that `NavigationSplitView` adds is removed
 (`.toolbar(removing: .sidebarToggle)`): it floated over the sidebar next to
 our own toggle in the tab row.
@@ -915,6 +949,7 @@ language comes from Zed's catalog, installed the same lazy way.
   undo action registered first in the group, so it runs last).
 - **Problems** (⇧⌘M): a bottom panel with every open file's errors and
   warnings, worst files first; a click opens the spot.
+  > **D75: also the files the agent changed, open or not.**
 
 They live in a **Code** menu (with Go to Definition and Next Problem) and are
 always enabled: SwiftUI menus re-check `isEnabled` only when something they
@@ -1478,3 +1513,736 @@ section still gets `{}` (the CSS server fails on null). `shutdown` and `exit`
 go without `params` (TypeScript 7 rejected `"params": null` and kept running).
 A crashed server's message shows the stack's error line instead of its last
 frames.
+
+### D75. Problems cover the files the agent changed, not just open ones
+
+An agent edits a dozen files per turn; errors showed only in the ones the
+author happened to open. Servers can't be relied on to check a whole project:
+LSP's workspace diagnostics are rare (Pyright has them behind
+`diagnosticMode: workspace`, slow on big projects; tsserver has none).
+
+- Every file the Review plugin tracks as changed (`ChangeTracking.changedFiles`)
+  is opened on its servers in the background with its text from disk, re-read
+  when the workspace's `fileSystemGeneration` moves. Its servers start for it
+  like for an open file, and its problems join the Problems panel.
+- After review (keep or undo) a file stays checked while it still has
+  problems, so keeping broken code doesn't hide the errors; it drops out once
+  they're fixed. At most 100 files.
+- Problems a server pushes for files nobody opened (rust-analyzer's
+  `cargo check`, gopls) were already kept and still are.
+
+Not covered: files the agent didn't touch but broke (an importer of a changed
+module) unless the server reports them on its own.
+
+### D76. Server defaults borrowed from Zed: settings pushed, Tailwind at-rules, TS memory
+
+A Svelte + Tailwind v4 project showed problems VS Code and Zed users don't
+see or know to silence. Zed's language adapters (GPL: ideas and values
+taken, no code) were read for what they set up that we didn't.
+
+- **Settings are pushed after `initialized`** (`workspace/didChangeConfiguration`
+  with the whole settings object), as VS Code and Zed do. Svelte's server
+  never asks for its settings, so it ran with none; the others ask again.
+- **Tailwind projects ignore unknown CSS at-rules** (`css/scss/less.lint.
+  unknownAtRules: ignore`) on every server that runs the CSS service (CSS,
+  Svelte, Vue, Astro, HTML) when the root's package.json depends on
+  Tailwind: `@apply`, `@reference`, `@theme` are Tailwind's, and its own
+  server checks them. Zed doesn't do this (its Tailwind CSS server fork is
+  opt-in); VS Code users set it by hand. Project settings win.
+- **TypeScript:** tsserver gets 8 GB (`maxTsServerMemory`; the 3 GB default
+  runs out on big projects) and functions complete with their parentheses
+  and argument stops (`completeFunctionCalls`), like Zed. Inlay hints stay
+  ours (quieter than Zed's all-on).
+- **Problem messages** set names and types in code type (`'x'` from
+  TypeScript, Swift, Svelte; `` `x` `` from Rust), like Zed's
+  `diagnostic_message_to_markdown`. The Problems panel joins the lines
+  around blank ones, so "Error in svelte.config.js\n\n<cause>" shows the cause.
+- **Completion takes the snippet from `completionItem/resolve`**:
+  typescript-language-server adds a function's parentheses there, not in the
+  list. Only the text: the range stays the list's (Zed found the resolved one
+  stale once more was typed). Accepting before the resolve lands inserts the
+  plain name.
+- **A problem whose range is only a line break** (Python's missing `:`, from
+  the end of a line to the start of the next) is underlined at the line's
+  last character; it was invisible.
+- **Type hints that start with `:` drop their left padding**
+  (typescript-language-server pads them: `foo : boolean`).
+- **A crashed server starts again**, up to 4 times in 3 minutes (VS Code's
+  client's budget); after that it stays down with its message until Restart
+  Language Servers. Before, a crash left it "running" with no process: every
+  request quietly came back empty.
+- **Hover and fixes wait at most 1.5 s per server**; a slow companion is
+  cancelled, and the card still shows the problem under the pointer.
+
+Taken later: `didChangeWatchedFiles` (D77), fading and strikes (D78).
+Not taken: Zed's ESLint setup that reads the ESLint version and config kind
+to pick flat/legacy options (ours leaves `experimental` empty, ESLint 8.57+
+decides); worth it once an old `.eslintrc` project misbehaves.
+
+### D77. Servers hear about files changed on disk
+
+Agents write files through the shell. tsserver, rust-analyzer, Svelte and
+Tailwind watch the disk themselves; SourceKit-LSP, gopls, Pyright, clangd
+and ESLint (its config) leave it to the editor, and Orbit told them
+nothing: a Swift file the agent created stayed unknown ("cannot find X in
+scope") until Restart Language Servers.
+
+- Orbit offers `workspace/didChangeWatchedFiles` with dynamic registration;
+  a server registers the globs it cares about (SourceKit-LSP: `**/*`), and
+  each burst of changes goes to it filtered by those globs and kinds
+  (create / change / delete). LSP globs (`**`, `*`, `?`, `{a,b}`, `[…]`,
+  relative patterns) become regexes, matched against the full path and the
+  path under the server's root.
+- One FSEvents stream per open folder, per-file events, 0.3 s bursts. What
+  is on disk decides the kind (FSEvents merges flags). It watches the
+  folder's real path (FSEvents doesn't follow a symlinked folder) and maps
+  events back under the folder as opened.
+- `.git/`, `node_modules/` and `.build/` are skipped: thousands of changes
+  per install or build, and SourceKit-LSP's own index build writes into
+  `.build/` while it works (echoing those back made it busy for nothing).
+  No server we run needs them from us.
+- Saves from the editor go out too, as VS Code sends them.
+
+Tested against the real SourceKit-LSP: an error about a type disappears
+once a file defining it is written to disk, and stays without the events.
+
+### D78. Unused code is faded, deprecated code struck through
+
+Servers tag problems `unnecessary` (an unused import, variable, parameter;
+unreachable code) and `deprecated`, once the client says it understands
+tags (`publishDiagnostics.tagSupport`), which Orbit didn't. VS Code and Zed
+draw them; the code's state was invisible here (hints get no squiggle).
+
+- **Unnecessary: faded, keeping its syntax colors** at 55% (VS Code's
+  opacity is about that). The highlighter paints it: the same rendering
+  attributes as the colors, with alpha, so the caret and selection stay
+  as they are. An overlay in the background color would have faded those
+  too and shown as blocks where the window's glass shows through. Files
+  with no grammar don't fade.
+- **Deprecated: a 1-pt line through it** in the text color, an overlay
+  like the squiggles.
+- Their messages show on hover even when they're hints ("'x' is declared
+  but its value is never read"), with the server's fixes ("Remove unused
+  declaration"). Errors and warnings with tags keep their squiggles.
+- Fading follows the server's latest report; after an edit that moves the
+  code it may sit a few characters off until the next one (a fraction of a
+  second), like the squiggles.
+
+### D79. Code folding: server regions or indentation, lines hidden by TextKit 2
+
+Folding was missing, and it's used every day in long files.
+
+- **Regions come from the language server** (`textDocument/foldingRange`,
+  `lineFoldingOnly`); a file without one, or a server with none, folds by
+  **indentation**, as VS Code and Zed do: a line opens a region when the
+  lines below it go deeper, and it ends at the last of them, so a closing
+  brace stays visible. Zed's languages aren't used for this: our grammar
+  table carries only highlight and injection queries, and Zed itself folds
+  by indentation. Several regions on one line: the outermost. A region
+  around the whole file (JSON's root braces, `<html>`) gets no chevron:
+  folding it leaves one line.
+- **Hiding is TextKit 2's own**: the content storage's delegate skips the
+  paragraphs of folded lines (`shouldEnumerate`), so the text, undo, search
+  and the server stay untouched, and the caret can't land inside. A
+  "⋯" capsule after the header (inlay-hint colors) unfolds on click.
+- **A fold is the characters it hides**, so edits elsewhere move it; an
+  edit reaching into it or the caret landing in it (go to line, search)
+  opens it. A whole-text replace (agent edit, reload) maps folds through a
+  line diff, as VS Code does: untouched ones move with their lines, one
+  with changed lines inside (or right after it) opens, so the agent's edits
+  are never hidden.
+- **Folds are remembered per file** (UserDefaults, the last 300 files) by
+  header line, as VS Code and Xcode do, and fold again on open once their
+  regions are known. When regions refresh,
+  a fold whose header no longer starts one opens.
+- **Gutter chevrons** between the numbers and the text: open regions show
+  theirs while the pointer is over the gutter (VS Code), folded ones always.
+- Xcode's keys: Fold ⌥⌘←, Unfold ⌥⌘→, Fold All ⌥⇧⌘←, Unfold All ⌥⇧⌘→.
+- **Animated as in Xcode** (0.22 s): the text below slides up over the
+  region, or down to uncover it. The real text changes at once; a bitmap
+  of the visible part below the header (gutter included) is cut into two
+  layers that Core Animation moves, so there's no layout or drawing per
+  frame. Fold All / Unfold All, Reduce Motion and headers off screen
+  aren't animated.
+
+### D80. The editing session comes back: tabs, caret and scroll, folders, layout
+
+Every launch, every reopened folder and every tab switch started from
+scratch: no file tabs, the caret at the top of the file, the tree
+collapsed, the panels back to defaults. VS Code and Xcode bring all of it
+back. (Agent tabs already did, D28.)
+
+- **File tabs and the active one, per folder** (UserDefaults, relative
+  paths), restored on launch and when the folder is opened again; files
+  gone from disk are skipped. A tab is only a title until it's shown, so
+  twenty restored tabs cost nothing.
+- **Caret, selection and the top visible line, per file** (the last 300),
+  as line and column, which survive edits made while the file was closed.
+  Kept in memory and written when an editor closes and when the app quits,
+  never per keystroke or caret move. Coming back scrolls with TextKit 2's
+  `relocateViewport`, which estimates the text above instead of laying it
+  out. A file opened to a location (definition, search result) goes there
+  instead. Folds that come back a moment later (D79) shift the text, so the
+  editor scrolls to the line again within the first seconds.
+- **Expanded folders in the tree, per folder**, parents first.
+- **The window's layout**: sidebar and agents panel shown or hidden, their
+  selected panels, the bottom panel and its tab.
+
+### D81. Code actions on save; companions configured in `.orbit/settings.json`
+
+Saving a JS/TS file left ESLint's fixable problems in place (VS Code users
+turn on `source.fixAll.eslint` on save), and ESLint and Tailwind couldn't be
+turned off or configured per project: only "Not Now" on their install offer.
+
+- **On save, code actions run before the formatter** (VS Code's order), by
+  kind, listed per file type in `"codeActionsOnSave"`:
+  `{ "ts, tsx": ["source.organizeImports", "source.fixAll.eslint"], "js": [] }`.
+  Each kind is asked of every server of the file over the whole text
+  (`context.only`, `triggerKind` automatic); the first action of that kind
+  is applied. Save waits for them and the formatter at most 3 s.
+- **The default is ESLint's fixes alone** (`source.fixAll.eslint`), which
+  does nothing where ESLint doesn't run. Import order is the linter's call:
+  projects that care have a rule for it (`simple-import-sort`,
+  `import/order`, Biome), and ESLint's fixes apply it. TypeScript's own
+  Organize Imports sorts by its rules and drops imports not used yet, so
+  it's opt-in (`"source.organizeImports"` in the list) and a command,
+  Organize Imports ⌃⌥O (VS Code's ⇧⌥O types a letter on a Mac).
+- **`"companions"`**, keyed by tool (`eslint`, `tailwindcss`; `tailwind`
+  and `vue` work too): `"off"` doesn't start it (and stops offering it),
+  `"on"` starts it even when no package.json names the tool, an object
+  merges `"settings"` / `"initializationOptions"` over Orbit's defaults
+  (`{ "enabled": true | false }` in it does what "on"/"off" do). The
+  project's file wins over `~/.orbit/settings.json`, entry by entry.
+- Tested against npm's ESLint 9 (`make test-language-installs`): asked for
+  `source.fixAll.eslint` over the file, it fixes the project's rule.
+
+### D82. Sticky scroll and a path bar instead of an outline panel
+
+An outline panel (VS Code's Outline, JetBrains' Structure) was next on the
+list. It would take room from the explorer or the agents, and ⇧⌘O already
+jumps to a symbol faster than scanning a tree. What it really answers is
+"where am I in this file", which two cheaper things answer without a panel:
+
+- **Sticky scroll** (VS Code, Zed): the first lines of the scopes the top of
+  the view is inside stay pinned above the text, up to five, the innermost
+  last; a scope about to end pushes its line up. Scopes are the folding
+  regions (D79: the server's, else indentation), comments skipped. One view
+  over the editor and its gutter draws them, line numbers included, with
+  the highlighter's colors from its cache; nothing in the text changes, and
+  it's recomputed once per scroll or layout pass. A click goes to the line.
+- **A path bar above the editor** (Xcode's jump bar): the file's folders,
+  the file, then the symbols around the caret (`Store › subscribeSelector`)
+  from the server's outline (`documentSymbol` ranges; `LanguageSymbol.extent`).
+  A folder lists its files (read when clicked), the file its top-level
+  symbols, a symbol its neighbors. Without an outline the blocks around the
+  caret by indentation, named by their first line. The outline is fetched
+  once typing pauses.
+- Both can be turned off in Settings → Editor.
+
+### D83. Typing follows the file's indentation
+
+Tab inserted a tab character drawn at AppKit's default width, so in a
+2-space file a Tab went deeper than the lines around it. Every editor
+(VS Code's `detectIndentation`, Zed, Sublime, Xcode) instead types the
+file's own indentation:
+
+- A file's indentation is its `.editorconfig`, else guessed from the file
+  when it opens (`Indentation` — the formatter's guess from D60/D61, moved
+  to OrbitAPI so the editor and the Languages plugin share it). It's kept
+  per file for the session; the status bar shows it ("Spaces: 2") and its
+  menu changes it for that file.
+- Tab goes to the next indent stop (spaces or a tab); with several lines
+  selected it indents them, ⇧Tab outdents. Return keeps the line's
+  indentation, one level deeper after `{ [ (`, and between a pair puts the
+  closing one on its own line. Backspace in leading spaces deletes back to
+  the previous stop.
+- Tabs are drawn `size` columns wide (the paragraph style's tab interval).
+- Not done: language-aware indentation (Python's `:`, outdenting a typed
+  `}`), converting a file between tabs and spaces.
+
+### D84. Overview ruler under the scroller
+
+VS Code's overview ruler: a 12-pt strip at the editor's right edge, under
+the vertical scroller, marks where things are in the whole file, so a
+problem or a change far off screen is visible and the scroller jumps to it.
+Three lanes, as VS Code: git changes (the gutter's markers, left), uses of
+the symbol at the caret (LSP document highlights, middle), problems (right,
+errors over warnings); the caret is a line across. Lines map to the strip's
+height proportionally (exact without wrapping, close with it). It is one
+view drawing rects, takes no clicks (the scroller over it does), and
+redraws only when one of those inputs changes.
+
+Not marked yet: ⌘F matches (STTextView's text finder doesn't expose them)
+and occurrences of a selected word (the editor doesn't highlight those).
+
+### D85. Restore files to before a message
+
+Cursor's "Restore checkpoint" / Claude Code's `/rewind`: every user message
+in an agent chat gets a restore point, and hovering the message shows ↺
+(confirmation first) that brings the project's files back to how they were
+before it was sent.
+
+- The restore point is the shadow-git tree `beginAgentTurn` already writes
+  (D6); it now snapshots every turn and returns the tree, while parallel
+  sessions keep sharing the first turn's tree as the review baseline.
+  Shadow repos get `gc.auto 0` so unreferenced trees aren't pruned.
+- Restoring writes every file that differs from the tree (gitignored files
+  and the D6 excludes aren't touched), trashes files created since, and
+  records what it overwrote as unreviewed changes: the restore shows inline
+  like an agent edit and is undone block by block or with Undo All, no
+  separate undo history. Binary files are put back without review.
+- Only the files go back, not the conversation: ACP can't truncate a
+  session. The agent's next message starts with a note that the files were
+  restored, so it doesn't trust its earlier edits.
+- Restore points persist with the session (`SavedSession.checkpoints`, last
+  100) and are matched to a reopened conversation's replayed messages by
+  their text; messages whose text the agent replays differently lose theirs.
+- Not in isolated sessions yet (their copy isn't tracked by `ChangeTracking`)
+  and not while any agent turn runs.
+
+### D86. MCP servers for every agent from `.orbit/settings.json`
+
+Orbit passed agents an empty `mcpServers` list, so an MCP server had to be
+set up in each agent's own config. Now `"mcpServers"` in
+`~/.orbit/settings.json` (all projects) and the project's
+`.orbit/settings.json` go to every agent in `session/new` and `session/load`.
+
+- The format is Claude Code's `.mcp.json` / Cursor's `mcp.json` / Claude
+  Desktop's (`command` + `args` + `env`, or `url` + `headers` with `type`
+  `http` / `sse`; `disabled: true` skips one), so existing configs paste in.
+  `${VAR}` and `${VAR:-default}` expand from the login shell; a bare command
+  is resolved on its PATH (agents don't spawn through a login shell).
+- The project's servers win over global ones by name. Agents keep their own
+  servers too; whether an adapter dedupes a server configured in both
+  places isn't checked, so keep each server in one place.
+- Remote servers go only to agents declaring `mcpCapabilities.http` / `sse`.
+- Edited as JSON, like formatters (D60), not in a form: Settings → Agents →
+  MCP Servers lists what's configured and its problems, with buttons that
+  open the files (adding an empty `"mcpServers"`). Problems aren't posted in
+  the chat: a notice would replace the new-chat screen.
+- Servers are read when a chat starts; open chats keep theirs.
+
+### D87. Notifications and a Dock badge for agents in the background
+
+Parallel agents run for minutes; nothing told the user one was done or
+blocked on a permission while they were in another app.
+
+- While Orbit isn't the active app, a session posts a system notification
+  when its turn ends (the agent's last reply as the body), when it fails or
+  its agent exits mid-turn, and when it asks for a permission (that one also
+  bounces the Dock icon once). A turn the user stopped posts nothing.
+- One notification per chat (its id is the session's), so a newer one
+  replaces the older instead of piling up; clicking it selects the chat and
+  shows the Agents panel.
+- The Dock badge counts chats that wanted the user since Orbit went to the
+  background; it clears when Orbit comes to the front.
+- Nothing is posted while Orbit is in front: the chat tabs already show it.
+- A turn that hands over to a queued message (D88) posts nothing; the last
+  one in the queue does.
+- Settings → Agents → "Notify when an agent finishes or needs you" (on by
+  default) turns both off. Notification permission is asked on the first
+  notification, not at launch.
+- Lives in the Agents plugin (`AgentNotifier`), which owns the
+  `UNUserNotificationCenter` delegate; another plugin wanting notifications
+  would need a shared service first.
+
+### D88. Queue messages while the agent works
+
+The composer was locked while a turn ran, so a follow-up thought had to wait
+or be kept elsewhere. As in Cursor and Claude Code, Return while the agent
+works now queues the message (the placeholder says so); queued messages sit
+above the composer and go out one by one as turns end.
+
+- Each queued row has Send Now (stops the running turn, then sends it),
+  Edit (back into the composer when that's empty) and Remove.
+- The queue goes on after a normal end (also hitting a token or turn limit);
+  after Stop, a refusal, an error or a crash it pauses ("Queue paused…") so
+  the user can rethink, and Send Now resumes it.
+- Messages are sent as written, each its own turn with its own restore point
+  (D85); they aren't merged into one prompt. The queue isn't saved: it's gone
+  when Orbit quits.
+
+### D89. Image / PDF viewer and Markdown preview (Preview plugin)
+
+Images opened as garbled text, and the READMEs and plans agents write could
+only be read as source. A new `OrbitPreview` plugin, through editor
+providers only:
+
+- **Images** (png, jpg, gif, webp, heic, tiff, bmp, ico, icns, avif) and
+  **PDFs** open in a viewer (provider priority 10, above the text editor).
+  Images fit the view when larger, else show at 1×, centered; pinch or
+  ⌘-scroll zooms, double-click toggles fit / actual size (as Preview.app);
+  a glass capsule shows pixel size and file size. PDFs use PDFKit. Both
+  reload when the file changes on disk. SVG stays text (it's edited).
+- **Markdown preview**: File ▸ Open Markdown Preview (⇧⌘V; ⇧⌘V in the
+  preview goes back to the source) opens a "Preview README.md" tab that
+  follows the open buffer as you type (150 ms debounce), unsaved edits
+  included, and the disk when the file isn't open.
+- Rendering: Foundation's `AttributedString(markdown:)` (cmark-gfm) walked
+  into HTML (`MarkdownHTML`): headers with GitHub anchors, lists, task
+  lists, quotes, tables with alignment, code blocks colored by the
+  `SyntaxHighlighting` service, images, raw HTML. No dependency; shown in a
+  WKWebView with a GitHub-like stylesheet in the system font and colors over
+  the window's theme background.
+- The page's own scripts are off (`allowsContentJavaScript = false`): a
+  repo's Markdown can't run code; only our injected `innerHTML` update runs,
+  which also keeps the scroll position. Local images load through an
+  `orbit-file:` scheme handler. Links: anchors scroll, local files open in
+  Orbit, everything else in the default browser.
+- A tab beside the source, not a split: there's no split editor yet; "Open
+  Preview to the Side" waits for one. Preview tabs aren't restored on launch.
+  → D90: ⇧⌘V and the eye button now open the preview in the other group.
+- Closing a file's tab no longer keeps its document open because a preview
+  (another tab kind) shows the same URL.
+- An eye button at the end of the path bar opens the preview (a new
+  `EditorAction` API: plugins add command buttons there for the files they
+  apply to; without the path bar they float in the editor's corner); the
+  preview has a glass button back to the source.
+- Front matter (YAML between `---` lines at the top: skills, Jekyll, Astro)
+  shows as a key / value table instead of a paragraph under a rule; values
+  join their indented and `- ` lines, quotes are dropped. Not a YAML parser:
+  nested maps read as flattened text.
+
+### D90. Split editor: two groups, the tab row split along the same line
+
+`Workspace` holds `groups` (one or two `EditorGroup`s, each with its tabs
+and shown tab) and `focusedGroup`. `tabs`, `activeTabID` and `activeTab`
+stay as the focused group's, so plugins kept working unchanged; `allTabs`
+is every group's.
+
+- Side by side only, at most two groups: enough for source + preview, code
+  + test, a file + the agent's other file. No vertical splits or grids.
+- The author picked Zed's layout: no extra row. The window's tab row is
+  split at the same x as the editors, the left group's tabs over the left
+  editor, the right group's over the right one; the side without focus has
+  dimmed tabs. The line between the editors drags (15–85 %, remembered).
+- A click in a side focuses it (a local mouse-down monitor: AppKit text
+  views swallow SwiftUI tap gestures). Commands act on the focused side.
+- Opening a tab that's already open on the other side focuses it there
+  instead of duplicating it (Zed); Split Editor (⌘\\) is the deliberate
+  duplicate: the active tab also opens on the other side. Two editors of one
+  file share its `TextDocument` and follow each other's edits.
+- Tabs also move and split by drag and drop (D91).
+- Move Tab to Other Side ⌥⌘\\, Focus Other Side ⌃⌘\\, Join Editors (all
+  tabs into one group); tab menus have Move to Other Side and Open to the
+  Side. A side whose last tab closes disappears.
+- `openBeside(_:)` opens a tab on the other side keeping focus: the Markdown
+  preview (D89) opens there, so typing stays in the source.
+- Both groups' file tabs come back on launch (`groups` in the D80 entry;
+  `files`/`active` still hold the first group's).
+
+### D91. Drag and drop of tabs and files (Cursor-style)
+
+- **Tabs** are dragged by our own gesture inside the window (`TabDrag` in
+  `App/EditorDrops.swift`), not the system drag: a glass chip follows the
+  pointer, an accent line marks where it lands in a tab row, the editor
+  shows the zone it would fill. Release: reorder in the row, move to the
+  other side's row (a side that empties closes), split on an editor edge,
+  or attach its file to the agent chat. The first version used the system
+  drag (`onDrag`): after a drop its image hung in the air for seconds and
+  SwiftUI's drop delegate left the insertion line behind; a gesture ends
+  exactly on release. Views report their global frames (rows, tabs, editor,
+  chat) to `TabDrag`, which picks the target under the pointer.
+- **Files** (explorer rows, Finder) use the system drag. Explorer rows use
+  `.draggable` on the row, which List turns into its own row drag (the whole
+  row, every time; `onDrag` on the label caught only its text), with a
+  `DragPreview` (icon and name on a material capsule in the window's color
+  scheme): the default snapshot of the row drew the name in black in dark
+  mode. Files drop on a tab row (between tabs), on an editor (open there, or
+  on an outer quarter of an unsplit editor, a new side), or anywhere on the
+  agent chat ("Add to Chat", attaches). Folders attach but don't open.
+- Editors are AppKit text views registered for file drops themselves, so a
+  SwiftUI `onDrop` above them never fires: the editor area has an AppKit
+  catcher view on top, registered for file URLs only, whose `hitTest` is
+  nil so clicks and text selection pass through (AppKit picks drag
+  destinations by registered types, not `hitTest`). Text drags inside the
+  editor are untouched.
+- The tab row is in the title bar strip, where a mouse drag moves the
+  window: while the pointer is on a tab the window is made immovable
+  (`isMovable`, set async on a change), so the drag goes to the tab; the
+  empty part of the row still moves the window.
+- Tabs dropped on the chat attach through `AgentTasks.attachFile` (the App
+  knows the chat's frame as the inspector's "agents" panel).
+
+### D92. Moving files between folders in the explorer
+
+As in Cursor: explorer rows (D91) dropped on a folder row move there; on a
+file row, into that file's folder; below the rows, into the project's top
+folder. The target folder's row lights up (the whole list is outlined for
+the top folder) and expands after the drop.
+
+- The project's own files move (⌥ while dropping copies); files from Finder
+  or another folder are copied in, as Finder does across folders.
+- A confirmation first ("Move “a.ts” into “src”?"), as in Cursor and VS
+  Code, with "Don't ask again": a drag released on the wrong row is easy to
+  miss and there's no undo yet. Nothing is replaced: a name that's taken, or
+  a folder dropped into itself, is reported and skipped.
+- `Workspace.moveItems(_:into:copy:)` (OrbitAPI) does the move so open tabs
+  and buffers follow the files, unsaved edits included (a document's URL is
+  fixed, so its text moves to a new one), on both sides of a split, previews
+  too. Agent review baselines (D5) keep the old paths.
+  → D93: moves (and copies in) are undoable with ⌘Z.
+
+### D93. Rename, new file / folder, delete and undo in the explorer
+
+Cursor's file operations, with Finder's keys:
+
+- Rename inline: Return on the selected row or "Rename…" in its menu turns
+  the name into a field (a file's name selected up to its extension);
+  Return or clicking away keeps it, Escape cancels. Open tabs and buffers
+  follow, as for moves (D92): `Workspace.moveItem(_:to:)` /
+  `renameItem(_:to:)` share `relocate`. A case-only rename goes by way of a
+  temporary name (the disk is case-insensitive).
+- New File (⌘N) / New Folder (⌥⌘N): from a folder's menu, the hover buttons
+  on the project's header (or its menu), or the File menu, which uses the
+  folder chosen in the tree or the active file's. A field appears at the
+  top of the folder; a path ("src/a.ts") creates the missing folders, as in
+  Cursor. A new file opens.
+- Move to Trash (⌘⌫ or the menu), never a hard delete: asks first with
+  "Don't ask again", but always when unsaved edits would go. Tabs of what
+  went (and of what was inside a folder) close.
+- Undo/redo go on the window's undo manager, so ⌘Z and Edit → Undo
+  ("Undo Rename") work with the explorer (or nothing) focused while the
+  editor and text fields keep their own. Undo moves things back, takes a
+  new or copied item to the Trash and puts a trashed one back where it was;
+  each undo registers its redo. Opening another folder clears them.
+- Rows' selection still follows the active file; a folder chosen with the
+  arrow keys stays selected so Return and ⌘⌫ reach it.
+  → D96: a clicked folder stays selected too.
+
+### D94. Preview tabs: a click in the explorer reuses one tab
+
+As in Cursor, VS Code and Zed: a single click (or the arrow keys) on a file
+in the explorer opens it in the group's preview tab, its title in italics;
+the next click replaces that tab in place instead of adding one, so
+browsing the tree doesn't pile up tabs. The tab is kept (a normal tab) by a
+double click on the file or on the tab, "Keep Open" in the tab's menu, or an
+edit; a preview with unsaved edits is never replaced. Everything else (Open
+Quickly, go to definition, search, agent links, New File) opens kept tabs,
+and clicking a file that's already open just shows it. Dragging a tab to
+the other side keeps it. Not saved across launches: restored tabs are kept.
+`EditorGroup.previewTabID`, `Workspace.open(_:preview:)` and `pin(_:)`.
+
+### D95. The explorer's context menu: Cursor's useful items
+
+Cursor's file menu, minus what Orbit has no feature for (remote, timeline,
+tests, compare, find references): New File / New Folder (folders), Open to
+the Side ⌃↩, Open With (the default app first, then the others, Other…),
+Reveal in Finder ⌥⌘R, Open in Integrated Terminal (the file's folder), Add
+to Agent Chat / Add to New Agent Chat, Cut ⌘X / Copy ⌘C / Paste ⌘V, Copy
+Path ⌥⌘C / Copy Relative Path ⇧⌥⌘C, Rename ↩, Move to Trash ⌘⌫. The keys
+work on the selected row; ⌘X ⌘C ⌘V go through the Edit menu.
+
+- Cut and Copy put file URLs on the general pasteboard, so Finder pastes
+  them and Finder's copies paste here. Paste moves what Orbit cut (open
+  tabs follow, D92) and copies anything else; a taken name gets "a
+  copy.txt" as in Finder, so pasting into the same folder duplicates.
+  Both are undoable (D93).
+- The terminal and the agent chat are other plugins: two services,
+  `TerminalOpening` (new) and `AgentTasks.attachFileToNewChat`, looked up
+  when the menu opens, so an item disappears with its plugin.
+
+### D96. Explorer folders: selected on click, gray, toggled reliably
+
+The tree is a SwiftUI `List` (an outline view underneath) whose selection is
+the active file. A click on a folder used to select it for one turn and
+snap back, so the next click on it registered again: the highlight flashed
+on every click and sometimes stuck on a folder. Now, as in Cursor, a
+clicked folder stays selected (New File and Paste go into it) until a file
+is chosen. The first click toggles it through the selection; a click on the
+already selected row reaches only the row's tap gesture, which toggles it
+then (`folderTapped`; the first click's tap is skipped).
+
+Folders still animate open and closed, but their children load before the
+animation (the rows below shifted while a half-filled folder opened).
+Clicks during the animation were lost to the selection that hadn't snapped
+back yet; the tap gesture takes them now.
+
+The selection is drawn by the rows (`RowHighlight`): always the translucent
+gray of an unfocused sidebar. The list's own highlight is off
+(`selectionHighlightStyle = .none` on the outline view found under it):
+it turned blue whenever the list had the focus (a folder click, the start
+of a drag) and could stay on a folder the selection had already left after
+a file was dragged out to split the editor. Keyboard selection still works.
+
+### D97. The accent comes from the color theme, never the system blue
+
+The system accent (blue by default) clashed with color themes: selected
+panel tabs, toggles, prominent buttons, drop outlines and match highlights
+were blue whatever the theme. `Theme.accent` (and `accentNSColor` for
+AppKit) is the theme's `text.accent` (else `icon.accent`, `border.focused`),
+both variants so it follows light and dark; with no color theme it's the
+text color, so the System theme is monochrome. The window sets it as
+`.tint`, so `.tint` styles, `.glassProminent` buttons and controls follow;
+code uses `Theme.accent` instead of `Color.accentColor` /
+`controlAccentColor`. Open Quickly's matched letters are bold in the text
+color. Status colors stay semantic (info, modified, completion kinds).
+Native list selections elsewhere still take the system accent while
+focused (AppKit has no per-window accent).
+
+### D98. Getting around by keyboard
+
+Arrow keys in the explorer stopped after one step: each step previewed the
+file and the new editor took the focus. Opening now says whether to take
+it (`Workspace.open(_:preview:focus:)`): the explorer's clicks and arrow
+keys don't (`quietTabID`), as in VS Code and Cursor, so the tree keeps the
+keys while it previews. Anything that means "go there" does:
+`focusEditor(group:)` sends a request the code editor answers by taking
+the focus (`editorFocusRequest`).
+
+Keys, VS Code's and Cursor's on a Mac:
+
+- Explorer: arrows move (← → close and open folders), Space keeps the
+  previewed file's tab, Escape or a double click goes to the editor,
+  Return renames, ⌃↩ opens to the side, ⌘⌫ trashes; ⇧⌘E shows the explorer
+  and puts the keys in it.
+- ⌘1 the editor (its left side), ⌘2 the right side; ⌃⌘\ the other side.
+- ⇧⌘] / ⇧⌘[ next and previous tab; ⇧⌘T reopens the last closed tab (the
+  last 30, forgotten with the folder).
+- ⌥⌘R Reveal in Finder, ⌥⌘C / ⇧⌥⌘C copy the path: commands on the
+  explorer's selected row, else the active file, so they work from the
+  editor too.
+- Already there: ⌘P files, ⇧⌘O symbols, ⌘L agent chat, ⌃` terminal,
+  ⌃⇧G source control, ⇧⌘F search, ⌃⌘S / ⌥⌘I sidebars.
+
+Two sides showing one file both answer a focus request (the last wins).
+
+### D99. Go Back / Go Forward and the ⌃Tab recent-tab switcher
+
+VS Code's and Cursor's keys: ⌃- goes back to where the caret was before a
+jump, ⌃⇧- forward again; ⌃Tab, with ⌃ held, walks the open tabs from the
+most recently shown (⇧ walks back, Escape cancels) and letting go of ⌃
+shows the picked one. A quick ⌃Tab flips between the last two tabs.
+
+History lives in `Workspace` beside D98's API, as back and forward stacks
+of `EditorLocation` (file, line, column; 50 kept, forgotten with the
+folder). A jump is recorded where it leaves from, so the caret where it
+lands is the current place:
+
+- the shown file changes for any reason (Open Quickly, the explorer, go
+  to definition, search results, a tab click, ⌃Tab): the previous file's
+  last caret;
+- `openFile(_:line:column:)` within the shown file: the caret before it;
+- the editor reports every caret move (`caretMoved(to:)`); one of 10 lines
+  or more is a jump, as in VS Code. Moves from text pushed in by an agent
+  and the caret a new text view starts with aren't reported.
+
+A new jump drops the forward stack; files gone from disk are skipped.
+⌃- and ⌃⇧- are caught by the window's key monitor along with ⌃Tab: a menu
+shortcut with ⇧ on "-" reads as "_" and never matches. The menu items stay
+for discovery (View menu, palette); "Show Recent Tab" picked from the menu
+flips to the previous tab. In the terminal ⌃- no longer reaches the shell
+(readline's undo), as in VS Code.
+
+### D100. Dock menu and Open Recent: recent folders
+
+As in Cursor, a right click on the Dock icon lists the folders opened
+lately (the open one checked; a click opens it in the window, asking about
+unsaved edits first), then Open Folder… and New Agent Chat; AppKit adds the
+window list, Options, Show All Windows, Hide and Quit. Orbit has one
+window, so Cursor's New Window has no counterpart. *(Changed by D101: a
+window per project; the Dock menu got New Window, every open folder is
+checked, and a recent folder opens in its own window.)* The same folders are in
+File → Open Recent (with Clear Menu). `RecentFolders` (App) remembers the
+last 10 in `orbit.recentFolders`, following `Workspace.root`; folders gone
+from disk are left out.
+
+### D101. A window per project; the welcome window
+
+Several projects at once, as in Cursor: each window has its own folder
+and its own `PluginHost` — a full set of plugins, so tabs, terminals,
+agent chats, language servers, git and checkpoints are per window and
+never mix. Plugins needed no change: they already kept their state in the
+plugin instance. What was app-wide and window-bound became per window:
+the active editor for keyboard commands (`ActiveEditor`: the main window's
+editor), the tab drag (`TabDrag` in the environment), the ⌃Tab switcher,
+the shortcut cheat sheet and the window layout (sidebar, inspector, bottom
+panel height: each window its own, the last change is what a new window
+starts with).
+
+- `WindowGroup(for: ProjectWindowID)`; `ProjectWindows` (App) makes each
+  window's host, knows the main window (menus and their shortcuts act on
+  its host's commands) and opens windows. SwiftUI's own window
+  restoration is off: the folders open at quit (`orbit.openFolders`, in
+  window order) come back as windows on launch, the first in the window
+  macOS opens.
+- Open Folder (⌘O, Open Recent, the Dock) in a window that shows a project
+  opens a new window; in a window without one it opens there. A folder
+  already open just brings its window forward. `Workspace.requestOpenFolder`
+  asks the app through `openFolderElsewhere`.
+- File → New Window (⇧⌘N, as in Cursor), also in the Dock menu.
+- A window without a folder is the welcome window, after Cursor's: Open
+  Folder and Clone Repository (`git clone` into a folder picked in a
+  panel, then opened), and Recent Projects (6, Show All; × removes one).
+- Closing a window asks about its unsaved edits (a stand-in in front of
+  SwiftUI's window delegate) and stops its plugins. Closing the last one
+  still quits, and its folder opens next launch; ⌘Q asks window by window.
+
+No Close Folder yet: plugins were written for a folder that only changes
+to another folder, not back to none. *(Added by D102.)*
+
+A closed window must free its project. The registries hold closures that
+hold the plugins, which hold the registries, so `PluginHost.shutdown()`
+empties them and `Workspace.close()` drops buffers and tabs (the saved
+tabs stay) and sets the folder to none; observers that re-arm on the
+folder stop once `Workspace.isClosed` (`WindowLifetimeTests` checks the
+whole graph goes). It runs after the window is gone, so the window doesn't
+flash the welcome screen. `ShellEnvironment.resolve()` runs the login
+shell once per app, not three times per window.
+
+### D102. Close Folder; folders from Finder and the Dock
+
+File → Close Folder turns the window into a welcome window, as in Cursor.
+Rather than teach every plugin a folder going back to none, the window
+stops its host (terminals, agents, language servers end as when it
+closes, after asking about unsaved edits) and gets a fresh one without a
+folder; `ProjectWindows.hostRevisions` tells its view, and the view's
+layout state starts over with the host. No shortcut: Cursor's ⌘K F is a
+chord, which menus can't show.
+
+Orbit declares folders as a document type it can open (Viewer, Alternate
+rank: never the default for folders; `App/Info.plist`, merged into the
+generated one), so a folder dropped on the Dock icon or opened with Orbit
+in Finder reaches `application(_:open:)` and opens as Open Recent does
+(its window, else a new one). The window group ignores external events, so
+SwiftUI doesn't add a window per folder itself. Folders that arrive while
+Orbit is launching go first, before the ones open at the last quit.
+
+### D103. Tab rows measure their width outside the scroll view
+
+Orbit crashed on launch with the Agents panel open (AppKit's "more Update
+Constraints in Window passes than there are views", after SwiftUI's
+"Geometry action is cycling between duplicate values"). The editor's and
+the chat's tab rows filled their scroll view (`minWidth` of the content =
+the scroll view's width, so free space drags the window) and measured that
+width with `onGeometryChange` on the scroll view itself: the content's min
+width fed back into its size, and in a tight window the two never settled.
+Each row now reads its width from a `GeometryReader` around the scroll
+view, which takes what it's offered whatever is inside.
+
+It showed after D101 because the new window group had no default size:
+every window opened at its minimum (960 × 632), saved that, and came back
+at it. `.defaultSize(1280 × 800)`, and the minimum frames saved by those
+builds are forgotten once.
+
+### D104. The editor column cancels the sidebar's inherited safe-area inset
+
+Shrinking the window with both the sidebar and the Agents inspector open
+crashed (the same update-constraints loop, from
+`SplitViewChildController.hostingView(_:didUpdateMinSize:)`). The detail
+column runs under the floating sidebar, and so does the inspector's split
+view nested in it: the editor column inherited the sidebar's inset, SwiftUI
+counted it (plus the inspector's) into its min width, and the outer column
+added the sidebar's inset again. Min width = 2 × sidebar + inspector (988 at
+the defaults), so any window narrower than that looped. Reproduced every
+time by resizing from 1280 to 960 wide; only with both panels open.
+
+`SidebarInsetCanceller` sets a negative `additionalSafeAreaInsets.left` on
+the inspector's split view, so the editor column no longer inherits the
+sidebar's inset, and `EditorArea` pads itself by the same amount (read as
+the detail column's leading safe area) inside its zero-min frame. The min
+width is now sidebar + inspector, which always fits. Tried and not enough:
+ignoring the safe area in SwiftUI (the inset comes from AppKit),
+`NSSplitViewItem.automaticallyAdjustsSafeAreaInsets = false` (no effect),
+`.inspector` on the whole `NavigationSplitView` (then the inspector is
+counted twice).

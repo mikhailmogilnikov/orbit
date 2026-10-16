@@ -41,37 +41,39 @@ struct AgentsPanel: View {
 /// Agent tabs in the window's top row, the same height and look as the editor's.
 struct SessionTabs: View {
     let store: AgentStore
-    @State private var width: CGFloat = 0
 
     var body: some View {
         HStack(spacing: 4) {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {
-                        ForEach(store.sessions) { session in
-                            // Closing the only, empty chat would just open another one.
-                            let isClosable = !(store.sessions.count == 1 && session.isEmptyChat)
-                            SessionChip(
-                                session: session,
-                                isSelected: store.selectedID == session.id,
-                                onSelect: { store.selectedID = session.id },
-                                onClose: isClosable ? { store.close(session) } : nil
-                            )
-                            .id(session.id)
+            // Measured outside the scroll view: on it, the min width below fed back into its size (D103).
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 2) {
+                            ForEach(store.sessions) { session in
+                                // Closing the only, empty chat would just open another one.
+                                let isClosable = !(store.sessions.count == 1 && session.isEmptyChat)
+                                SessionChip(
+                                    session: session,
+                                    isSelected: store.selectedID == session.id,
+                                    onSelect: { store.selectedID = session.id },
+                                    onClose: isClosable ? { store.close(session) } : nil
+                                )
+                                .id(session.id)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        // Free space in the row is title bar: it drags the window.
+                        .frame(minWidth: width, maxHeight: .infinity, alignment: .leading)
+                        .background {
+                            Color.clear
+                                .contentShape(.rect)
+                                .gesture(WindowDragGesture())
                         }
                     }
-                    .padding(.horizontal, 8)
-                    // Free space in the row is title bar: it drags the window.
-                    .frame(minWidth: width, maxHeight: .infinity, alignment: .leading)
-                    .background {
-                        Color.clear
-                            .contentShape(.rect)
-                            .gesture(WindowDragGesture())
-                    }
+                    .modifier(TabRowFade())
+                    .scrollsToActiveTab(store.selectedID, in: proxy)
                 }
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .modifier(TabRowFade())
-                .scrollsToActiveTab(store.selectedID, in: proxy)
             }
             Menu {
                 Button("New Chat", systemImage: "plus.bubble") { store.newChat() }
@@ -246,6 +248,7 @@ struct RecentSessionRow: View {
 struct SessionView: View {
     let session: AgentSession
     let store: AgentStore
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -260,7 +263,7 @@ struct SessionView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
                         ForEach(session.entries) { entry in
-                            EntryView(entry: entry)
+                            EntryView(entry: entry, session: session)
                         }
                         StatusFooter(session: session)
                     }
@@ -276,6 +279,30 @@ struct SessionView: View {
             }
             Composer(session: session, store: store)
         }
+        // Files and editor tabs dropped anywhere on the chat attach (D91).
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            for url in files { session.attach(.from(fileURL: url)) }
+            return !files.isEmpty
+        } isTargeted: { isDropTargeted = $0 }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Theme.accent.opacity(0.08))
+                    .strokeBorder(Theme.accent.opacity(0.6), lineWidth: 1.5)
+                    .overlay {
+                        Label("Add to Chat", systemImage: "paperclip")
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .glassEffect(.regular, in: .capsule)
+                    }
+                    .padding(8)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.snappy(duration: 0.15), value: isDropTargeted)
     }
 }
 
@@ -362,23 +389,12 @@ struct StatusFooter: View {
 
 struct EntryView: View {
     let entry: TranscriptEntry
+    let session: AgentSession
 
     var body: some View {
         switch entry.kind {
         case .user:
-            VStack(alignment: .leading, spacing: 6) {
-                if !entry.attachments.isEmpty {
-                    AttachmentChips(attachments: entry.attachments)
-                }
-                if !entry.text.isEmpty {
-                    Text(entry.text)
-                        .textSelection(.enabled)
-                }
-            }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.tint.opacity(0.08), in: .rect(cornerRadius: Theme.corner))
+            UserMessageView(entry: entry, session: session)
         case .agent:
             MarkdownText(entry.text)
         case .thought:
@@ -392,6 +408,99 @@ struct EntryView: View {
                 .font(.callout)
                 .foregroundStyle(entry.isError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 .textSelection(.enabled)
+        }
+    }
+}
+
+/// Messages written while the agent works (D88), sent one by one as its turns end.
+struct QueuedMessagesView: View {
+    let session: AgentSession
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if session.isQueuePaused {
+                Text("Queue paused after the turn stopped")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+            ForEach(session.queue) { message in
+                HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(message.text.isEmpty ? message.attachments.map(\.label).joined(separator: ", ") : message.text)
+                        .font(.callout)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 2) {
+                        Button("Send Now", systemImage: "arrow.up") { session.sendQueuedNow(message.id) }
+                            .help(session.status == .working ? "Stop the current turn and send this" : "Send now")
+                        Button("Edit", systemImage: "pencil") { session.editQueued(message.id) }
+                            .help("Edit in the composer")
+                            .disabled(!session.draft.isEmpty || !session.attachments.isEmpty)
+                        Button("Remove", systemImage: "xmark") { session.removeQueued(message.id) }
+                            .help("Remove from the queue")
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.corner))
+            }
+        }
+    }
+}
+
+struct UserMessageView: View {
+    let entry: TranscriptEntry
+    let session: AgentSession
+    @State private var isHovering = false
+    @State private var isConfirming = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !entry.attachments.isEmpty {
+                AttachmentChips(attachments: entry.attachments)
+            }
+            if !entry.text.isEmpty {
+                Text(entry.text)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.tint.opacity(0.08), in: .rect(cornerRadius: Theme.corner))
+        .overlay(alignment: .topTrailing) {
+            if entry.checkpoint != nil, isHovering || isConfirming {
+                Button {
+                    isConfirming = true
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 22, height: 22)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .controlSize(.small)
+                .disabled(!session.canRestore)
+                .help(session.canRestore ? "Restore files to before this message" : "Wait for the agent to finish")
+                .padding(5)
+                .transition(.opacity)
+            }
+        }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
+        }
+        .confirmationDialog("Restore files to before this message?", isPresented: $isConfirming) {
+            Button("Restore") { session.restore(to: entry) }
+        } message: {
+            Text("Changes made since, by the agent or by you, are undone. They show as changes in the editor, so any of them can be brought back.")
         }
     }
 }
@@ -710,6 +819,8 @@ struct Composer: View {
         VStack(spacing: 6) {
             if !mentionMatches.isEmpty {
                 MentionList(paths: mentionMatches, selected: mentionIndex) { pick($0) }
+            } else if !session.queue.isEmpty {
+                QueuedMessagesView(session: session)
             }
             card
         }
@@ -721,7 +832,11 @@ struct Composer: View {
             paste.install(for: session)
         }
         .onDisappear { paste.remove() }
-        .onChange(of: isFocused, initial: true) { paste.isActive = isFocused }
+        .onChange(of: isFocused, initial: true) {
+            paste.isActive = isFocused
+            // Another window's composer keeps its focus too (D101): only this window's paste counts.
+            if isFocused { paste.window = NSApp.keyWindow }
+        }
         .onChange(of: focusRequest) { isFocused = true }
     }
 
@@ -730,12 +845,12 @@ struct Composer: View {
             if !session.attachments.isEmpty {
                 AttachmentChips(attachments: session.attachments) { session.detach($0) }
             }
-            TextField("Ask \(session.provider.name)… (@ to add files)", text: $session.draft, selection: $selection, axis: .vertical)
+            TextField(placeholder, text: $session.draft, selection: $selection, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .lineLimit(1...10)
                 .focused($isFocused)
-                .onSubmit(session.send)
+                .onSubmit(session.submit)
                 .disabled(isDisabled)
                 .onKeyPress(.upArrow) { moveMention(by: -1) }
                 .onKeyPress(.downArrow) { moveMention(by: 1) }
@@ -846,6 +961,12 @@ struct Composer: View {
         return text.replacingOccurrences(of: "\\ ", with: " ")
     }
 
+    private var placeholder: String {
+        session.status == .working
+            ? "Queue a message for when \(session.provider.name) finishes…"
+            : "Ask \(session.provider.name)… (@ to add files)"
+    }
+
     private var isDisabled: Bool {
         if case .failed = session.status { return true }
         return false
@@ -939,6 +1060,7 @@ struct Composer: View {
 @MainActor
 final class PasteInterceptor {
     var isActive = false
+    weak var window: NSWindow?
     private var monitor: Any?
     private nonisolated static let vKeyCode: UInt16 = 9
 
@@ -950,7 +1072,7 @@ final class PasteInterceptor {
                   event.keyCode == Self.vKeyCode || event.charactersIgnoringModifiers == "v",
                   let self, let session else { return event }
             let handled = MainActor.assumeIsolated {
-                guard self.isActive, let attachments = PasteInterceptor.attachments(in: .general) else { return false }
+                guard self.isActive, event.window === self.window, let attachments = PasteInterceptor.attachments(in: .general) else { return false }
                 for attachment in attachments { session.attach(attachment) }
                 return true
             }

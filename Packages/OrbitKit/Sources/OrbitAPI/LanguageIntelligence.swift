@@ -92,12 +92,19 @@ public struct Diagnostic: Sendable, Hashable {
     public var message: String
     /// The tool that reported it, e.g. "ts" or "SourceKit".
     public var source: String?
+    public var tags: Set<Tag>
 
-    public init(range: SourceRange, severity: Severity, message: String, source: String? = nil) {
+    /// LSP's `DiagnosticTag`: drawn faded / struck through (D78).
+    public enum Tag: Int, Sendable {
+        case unnecessary = 1, deprecated
+    }
+
+    public init(range: SourceRange, severity: Severity, message: String, source: String? = nil, tags: Set<Tag> = []) {
         self.range = range
         self.severity = severity
         self.message = message
         self.source = source
+        self.tags = tags
     }
 }
 
@@ -157,6 +164,10 @@ public protocol LanguageIntelligence: AnyObject {
     func canFormat(_ url: URL) -> Bool
     /// Formats the whole file with the repo's formatter or the server.
     func format(_ url: URL) async -> FormatOutcome
+    /// The code actions set to run on save (`codeActionsOnSave`, D81): ESLint's fixes by default.
+    func runSaveActions(_ url: URL) async
+    /// Runs the first action of each kind (`source.organizeImports`…) the file's servers offer; how many ran.
+    func runCodeActions(_ kinds: [String], in url: URL) async -> Int
     /// Problems in every open file, worst first.
     var problems: [FileProblems] { get }
 
@@ -174,6 +185,26 @@ public protocol LanguageIntelligence: AnyObject {
     func inlayHints(in range: SourceRange, url: URL) async -> [InlayHint]
     /// Bumped when the file's server says its hints went stale (a dependency changed).
     func inlayHintsRevision(for url: URL) -> Int
+
+    /// Regions that can be folded; nil when the file's server can't tell (the editor folds by indentation then).
+    func foldingRanges(in url: URL) async -> [FoldingRange]?
+}
+
+/// Lines that can be folded away: `startLine` stays visible, the lines after it through `endLine` hide.
+public struct FoldingRange: Sendable, Hashable {
+    public enum Kind: String, Sendable, Hashable {
+        case comment, imports, region
+    }
+
+    public var startLine: Int
+    public var endLine: Int
+    public var kind: Kind?
+
+    public init(startLine: Int, endLine: Int, kind: Kind? = nil) {
+        self.startLine = startLine
+        self.endLine = endLine
+        self.kind = kind
+    }
 }
 
 /// A label a language server puts into the text without it being there: a
@@ -214,14 +245,17 @@ public struct LanguageSymbol: Sendable, Hashable {
     public var container: String?
     /// Nesting in the file's outline: 0 for top level.
     public var depth: Int
+    /// The whole declaration, body included (the breadcrumb bar finds the caret in it).
+    public var extent: SourceRange?
 
-    public init(name: String, detail: String? = nil, kind: SymbolKind, location: SourceLocation, container: String? = nil, depth: Int = 0) {
+    public init(name: String, detail: String? = nil, kind: SymbolKind, location: SourceLocation, container: String? = nil, depth: Int = 0, extent: SourceRange? = nil) {
         self.name = name
         self.detail = detail
         self.kind = kind
         self.location = location
         self.container = container
         self.depth = depth
+        self.extent = extent
     }
 }
 

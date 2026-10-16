@@ -11,6 +11,8 @@ final class SymbolHighlightController {
     let geometry: DiagnosticsController
     var languages: LanguageIntelligence?
     var url: URL?
+    /// The uses shown changed (the overview ruler marks them).
+    var onChange: (([SymbolHighlight]) -> Void)?
     private var highlights: [SymbolHighlight] = []
     /// `highlights` as offsets of the current text.
     private var ranges: [NSRange] = []
@@ -60,12 +62,14 @@ final class SymbolHighlightController {
         guard !highlights.isEmpty || !overlays.isEmpty else { return }
         highlights = []
         ranges = []
+        onChange?([])
         for view in overlays { view.removeFromSuperview() }
         overlays.removeAll()
     }
 
     private func show(_ found: [SymbolHighlight]) {
         highlights = found
+        onChange?(found)
         let starts = geometry.lineStarts, length = geometry.length
         ranges = found.map { $0.range.nsRange(in: starts, length: length) }
         setNeedsLayout()

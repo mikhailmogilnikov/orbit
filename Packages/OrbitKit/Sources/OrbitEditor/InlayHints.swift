@@ -156,7 +156,7 @@ final class InlayHintController {
 
     // MARK: Room in the text
 
-    private var labelFont: NSFont {
+    var labelFont: NSFont {
         let size = textView?.font.pointSize ?? 13
         return .monospacedSystemFont(ofSize: (size * 0.88).rounded(), weight: .regular)
     }
@@ -258,17 +258,42 @@ final class InlayHintController {
                   let rect = geometry.rects(for: NSRange(location: carrier, length: 1)).first else { continue }
             // TextKit gives the character half the room in its caret rect; the
             // glyph after it is drawn after all of it.
-            var x = rect.maxX - room / 2
+            let x = rect.maxX - room / 2
             guard rect.intersects(visible) || CGRect(x: x, y: rect.minY, width: room, height: rect.height).intersects(visible) else { continue }
-            for (hint, width) in zip(list, widths(of: list)) {
-                let left = Self.margin + (hint.paddingLeft ? Self.padding : 0)
-                let right = Self.margin + (hint.paddingRight ? Self.padding : 0)
-                let frame = CGRect(x: x + left, y: rect.minY + 1, width: width - left - right, height: max(rect.height - 2, 1))
-                let view = InlayHintView(frame: frame.integral, label: hint.label, font: font, colors: colors)
+            for label in labels(for: list) {
+                let frame = CGRect(x: x + label.x, y: rect.minY + 1, width: label.width, height: max(rect.height - 2, 1))
+                let view = InlayHintView(frame: frame.integral, label: label.text, font: font, colors: colors)
                 textView.addSubview(view)
                 overlays.append(view)
-                x += width
             }
+        }
+    }
+
+    /// A label's capsule, from the start of its room.
+    struct Label {
+        var text: String
+        var x: CGFloat
+        var width: CGFloat
+    }
+
+    private func labels(for list: [InlayHint]) -> [Label] {
+        var x: CGFloat = 0
+        return zip(list, widths(of: list)).map { hint, width in
+            let left = Self.margin + (hint.paddingLeft ? Self.padding : 0)
+            let right = Self.margin + (hint.paddingRight ? Self.padding : 0)
+            defer { x += width }
+            return Label(text: hint.label, x: x + left, width: width - left - right)
+        }
+    }
+
+    /// The rooms in a range (the character carrying each, its width) with their
+    /// labels, for views that draw lines themselves (sticky scroll).
+    func rooms(in range: NSRange) -> [(carrier: Int, width: CGFloat, labels: [Label])] {
+        guard isEnabled, let string = geometry.string else { return [] }
+        return hints.compactMap { offset, list in
+            guard let carrier = carrier(of: offset, in: string), NSLocationInRange(carrier, range),
+                  let room = kerned[carrier] else { return nil }
+            return (carrier, room, labels(for: list))
         }
     }
 }

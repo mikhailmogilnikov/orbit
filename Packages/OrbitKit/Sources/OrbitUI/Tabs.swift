@@ -11,6 +11,8 @@ public struct TabChip<Icon: View>: View {
     let isActive: Bool
     /// A dot in place of the close button while not hovered (unsaved edits).
     let isDirty: Bool
+    /// A preview tab's title is italic, as in VS Code (D94).
+    let isPreview: Bool
     let icon: Icon
     let onSelect: () -> Void
     /// Nil for a tab that can't be closed: no close button.
@@ -21,6 +23,7 @@ public struct TabChip<Icon: View>: View {
         _ title: String,
         isActive: Bool,
         isDirty: Bool = false,
+        isPreview: Bool = false,
         onSelect: @escaping () -> Void,
         onClose: (() -> Void)?,
         @ViewBuilder icon: () -> Icon
@@ -28,6 +31,7 @@ public struct TabChip<Icon: View>: View {
         self.title = title
         self.isActive = isActive
         self.isDirty = isDirty
+        self.isPreview = isPreview
         self.icon = icon()
         self.onSelect = onSelect
         self.onClose = onClose
@@ -39,6 +43,7 @@ public struct TabChip<Icon: View>: View {
                 .font(.system(size: 10.5))
             Text(title)
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
+                .italic(isPreview)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .lineLimit(1)
             ZStack {

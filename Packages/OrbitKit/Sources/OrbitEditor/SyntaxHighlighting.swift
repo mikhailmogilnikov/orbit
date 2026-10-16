@@ -48,7 +48,18 @@ final class SyntaxPalette {
 
     /// Also called after a font size change: styled tokens carry their own fonts.
     var onChange: (() -> Void)?
+    /// Code a server marked unnecessary (an unused import or variable), drawn
+    /// with its colors faded (D78). Set by the editor from its problems.
+    var faded = IndexSet() {
+        didSet { if faded != oldValue { onFadedChange?(faded.symmetricDifference(oldValue)) } }
+    }
+    var onFadedChange: ((IndexSet) -> Void)?
+    /// How much of a color faded code keeps (VS Code's unnecessary-code opacity).
+    static let fadedAlpha: CGFloat = 0.55
     var onThemeChange: ((ColorTheme) -> Void)?
+    /// Colored runs of a range from the highlighter's cache, for text drawn
+    /// outside the text view (sticky headers): nil without a highlighter.
+    var colors: ((NSRange) -> [(range: NSRange, color: NSColor, font: NSFont?)])?
     private var styles: [String: SyntaxStyle?] = [:]
     private var fonts: [String: NSFont] = [:]
 
@@ -152,6 +163,21 @@ final class SyntaxHighlightCoordinator {
             }
         }
         palette.onChange = { [weak self] in self?.restyle() }
+        palette.colors = { [weak self] range in
+            guard let self else { return [] }
+            var runs: [(range: NSRange, color: NSColor, font: NSFont?)] = []
+            cache.spans.forEach(in: range) { span in
+                guard let style = self.style(span.capture) else { return }
+                let clipped = NSIntersectionRange(NSRange(location: span.start, length: span.end - span.start), range)
+                if clipped.length > 0 { runs.append((clipped, style.color, style.font)) }
+            }
+            return runs
+        }
+        palette.onFadedChange = { [weak self] changed in
+            guard let self else { return }
+            painted.subtract(changed)
+            paintVisible()
+        }
 
         snapshot = currentSnapshot()
         let waiter = DispatchSemaphore(value: 0)
@@ -262,9 +288,32 @@ final class SyntaxHighlightCoordinator {
                 guard clipped.length > 0, let spanRange = NSTextRange(clipped, in: manager) else { return }
                 layoutManager.addRenderingAttribute(.foregroundColor, value: style.color, for: spanRange)
             }
+            paintFaded(in: range)
         }
         painted.formUnion(todo)
         redraw(todo)
+    }
+
+    /// Faded code keeps its colors at lower opacity; plain text in it fades from the text color.
+    private func paintFaded(in range: NSRange) {
+        guard let textView, let run = Range(range) else { return }
+        let faded = palette.faded.intersection(IndexSet(integersIn: run))
+        guard !faded.isEmpty else { return }
+        let manager = textView.textContentManager
+        let layoutManager = textView.textLayoutManager
+        let alpha = SyntaxPalette.fadedAlpha
+        let plain = (palette.theme.editorForeground?.nsColor ?? textView.textColor ?? .textColor).withAlphaComponent(alpha)
+        for part in faded.rangeView {
+            let partRange = NSRange(part)
+            guard let textRange = NSTextRange(partRange, in: manager) else { continue }
+            layoutManager.addRenderingAttribute(.foregroundColor, value: plain, for: textRange)
+            cache.spans.forEach(in: partRange) { span in
+                guard let style = self.style(span.capture) else { return }
+                let clipped = NSIntersectionRange(NSRange(location: span.start, length: span.end - span.start), partRange)
+                guard clipped.length > 0, let spanRange = NSTextRange(clipped, in: manager) else { return }
+                layoutManager.addRenderingAttribute(.foregroundColor, value: style.color.withAlphaComponent(alpha), for: spanRange)
+            }
+        }
     }
 
     /// STTextView redraws a line only when its layout changes, so new colors for
@@ -419,7 +468,22 @@ final class StaticHighlighter: SyntaxHighlighting {
 
     func highlight(_ text: String, as url: URL) async -> [SyntaxSpan] {
         guard text.utf16.count <= Self.maxLength else { return [] }
-        let captures = await Task.detached(priority: .userInitiated) { Self.captures(in: text, url: url) }.value
+        let captures = await Task.detached(priority: .userInitiated) {
+            Self.captures(in: text, grammar: Grammar.matching(url, firstLine: Self.firstLine(of: text)))
+        }.value
+        return Self.spans(captures)
+    }
+
+    /// A code fence's text (a hover's signature), by the language it names; unnamed, as `fallback`'s.
+    func highlight(_ text: String, language: String, fallback: URL) async -> [SyntaxSpan] {
+        guard text.utf16.count <= Self.maxLength else { return [] }
+        let captures = await Task.detached(priority: .userInitiated) {
+            Self.captures(in: text, grammar: language.isEmpty ? Grammar.matching(fallback) : Grammar.named(language))
+        }.value
+        return Self.spans(captures)
+    }
+
+    private static func spans(_ captures: [(String, NSRange)]) -> [SyntaxSpan] {
         let light = Extensions.shared.colorTheme(dark: false)
         let dark = Extensions.shared.colorTheme(dark: true)
         var colors: [String: Color?] = [:]
@@ -437,8 +501,8 @@ final class StaticHighlighter: SyntaxHighlighting {
     }
 
     /// Capture names and ranges, less specific first (later ones win).
-    nonisolated private static func captures(in text: String, url: URL) -> [(String, NSRange)] {
-        guard let grammar = Grammar.matching(url, firstLine: Self.firstLine(of: text)), let queries = HighlightQueries.queries(for: grammar) else { return [] }
+    nonisolated private static func captures(in text: String, grammar: Grammar?) -> [(String, NSRange)] {
+        guard let grammar, let queries = HighlightQueries.queries(for: grammar) else { return [] }
         let parser = Parser()
         guard (try? parser.setLanguage(queries.language)) != nil,
               let tree = parser.parse(text) else { return [] }

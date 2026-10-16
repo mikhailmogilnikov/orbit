@@ -42,7 +42,8 @@ struct CommandHintOverlay: View {
 @Observable
 final class CheatSheetState {
     static let shared = CheatSheetState()
-    var isShown = false
+    /// The window showing it, by its commands (D101).
+    var shownFor: CommandRegistry?
 }
 
 /// The status bar's keyboard button and its popover.
@@ -51,17 +52,18 @@ struct CheatSheetButton: View {
     @Bindable private var state = CheatSheetState.shared
 
     var body: some View {
+        let isShown = Binding { state.shownFor === commands } set: { state.shownFor = $0 ? commands : nil }
         Button {
-            state.isShown.toggle()
+            isShown.wrappedValue.toggle()
         } label: {
             Image(systemName: "keyboard")
                 .font(.system(size: 11))
-                .foregroundStyle(state.isShown ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .foregroundStyle(isShown.wrappedValue ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .help("Keyboard Shortcuts")
-        .popover(isPresented: $state.isShown, arrowEdge: .top) {
+        .popover(isPresented: isShown, arrowEdge: .top) {
             ShortcutCheatSheet(commands: commands)
         }
     }

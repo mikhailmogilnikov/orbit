@@ -14,6 +14,8 @@ final class TranscriptEntry: Identifiable {
     var text = ""
     /// User messages: what was attached to the prompt.
     var attachments: [PromptAttachment] = []
+    /// User messages: the project's restore point from before it was sent.
+    var checkpoint: String?
 
     // Tool calls
     var toolCallID: String?

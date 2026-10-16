@@ -23,6 +23,10 @@ struct AgentsSettingsPane: View {
                         Text("Start sessions in an isolated copy")
                         Text("The agent works in its own copy of the project; Apply brings its changes back for review.")
                     }
+                    Toggle(isOn: $store.notifies) {
+                        Text("Notify when an agent finishes or needs you")
+                        Text("While Orbit is in the background: a notification, and a count on the Dock icon.")
+                    }
                 } header: {
                     Text("New sessions")
                 } footer: {
@@ -69,6 +73,8 @@ struct AgentsSettingsPane: View {
                 Text("From the ACP registry, the list Zed and JetBrains IDEs use. Downloaded agents live in ~/.orbit/agents.")
             }
 
+            MCPServersSection(store: store)
+
             Section {
                 Text("Any agent that speaks the Agent Client Protocol can also be added by hand, with a JSON file in `~/.orbit/agents/`:")
                     .foregroundStyle(.secondary)
@@ -102,6 +108,77 @@ struct AgentsSettingsPane: View {
             store.reloadProviders()
             await registry.refresh()
         }
+    }
+}
+
+/// MCP servers from `.orbit/settings.json` (D86), given to every agent.
+private struct MCPServersSection: View {
+    let store: AgentStore
+    @State private var loaded: (servers: [MCPServer], problems: [String]) = ([], [])
+
+    var body: some View {
+        Section {
+            if loaded.servers.isEmpty && loaded.problems.isEmpty {
+                Text("None yet.").foregroundStyle(.secondary)
+            }
+            ForEach(loaded.servers) { server in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: icon(server))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(server.name)
+                        Text(server.summary)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 8)
+                    Text(server.isProject ? "Project" : "Global")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.vertical, 2)
+            }
+            ForEach(loaded.problems, id: \.self) { problem in
+                Label(problem, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        } header: {
+            HStack {
+                Text("MCP Servers")
+                Spacer()
+                Button("Edit Project Servers…") { edit(store.workspace.root.map(MCPServer.projectFile)) }
+                    .disabled(store.workspace.root == nil)
+                Button("Edit Global…") { edit(MCPServer.userFile) }
+            }
+            .controlSize(.small)
+        } footer: {
+            Text("""
+            Every agent gets these in new chats, besides the servers it sets up itself (Claude Code's, Codex's own config). \
+            “mcpServers” in .orbit/settings.json, the format of Claude Code's .mcp.json and Cursor's mcp.json; \
+            the project's win over global ones by name. Remote (URL) servers reach only agents that support them.
+            """)
+        }
+        .task(id: store.workspace.root) { reload() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in reload() }
+    }
+
+    private func reload() {
+        loaded = MCPServer.load(project: store.workspace.root)
+    }
+
+    private func edit(_ url: URL?) {
+        guard let url else { return }
+        MCPServer.prepareForEditing(url)
+        store.workspace.openFile(url)
+    }
+
+    private func icon(_ server: MCPServer) -> String {
+        if case .stdio = server.transport { "terminal" } else { "globe" }
     }
 }
 

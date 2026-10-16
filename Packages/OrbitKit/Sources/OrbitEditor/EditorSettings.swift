@@ -9,6 +9,8 @@ final class EditorOptions {
     var highlightsCurrentLine: Bool { didSet { settings.set(highlightsCurrentLine, for: "highlightsCurrentLine") } }
     var formatsOnSave: Bool { didSet { settings.set(formatsOnSave, for: "formatsOnSave") } }
     var showsInlayHints: Bool { didSet { settings.set(showsInlayHints, for: "showsInlayHints") } }
+    var showsStickyScroll: Bool { didSet { settings.set(showsStickyScroll, for: "showsStickyScroll") } }
+    var showsBreadcrumbs: Bool { didSet { settings.set(showsBreadcrumbs, for: "showsBreadcrumbs") } }
 
     @ObservationIgnored private let settings: PluginSettings
 
@@ -18,6 +20,8 @@ final class EditorOptions {
         highlightsCurrentLine = settings.bool("highlightsCurrentLine", default: true)
         formatsOnSave = settings.bool("formatsOnSave")
         showsInlayHints = settings.bool("showsInlayHints", default: true)
+        showsStickyScroll = settings.bool("showsStickyScroll", default: true)
+        showsBreadcrumbs = settings.bool("showsBreadcrumbs", default: true)
     }
 }
 
@@ -55,6 +59,14 @@ struct EditorSettingsPane: View {
                 Toggle(isOn: $options.showsInlayHints) {
                     Text("Show inlay hints")
                     Text("Types and parameter names from the language server, drawn in the code.")
+                }
+                Toggle(isOn: $options.showsStickyScroll) {
+                    Text("Sticky scroll")
+                    Text("The first lines of the class and function you're scrolling through stay pinned at the top.")
+                }
+                Toggle(isOn: $options.showsBreadcrumbs) {
+                    Text("Show the path bar")
+                    Text("The file's folders and the symbol at the caret above the editor; click one for its neighbors.")
                 }
             }
             Section {

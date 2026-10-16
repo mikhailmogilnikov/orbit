@@ -97,6 +97,14 @@
   Rust, Go, C/C++/ObjC, JSON, CSS, HTML, YAML, Shell, Markdown, TOML, Lua,
   Dockerfile, PHP, Zig, Svelte, Terraform, Ruby + Swift, TypeScript)
 - Code actions ⇧⌘A, rename ⌃⌘E, format ⌃⇧I / on save, Problems panel ⇧⌘M (D59)
+- Problems for every file the agent changed, open or not; kept after review
+  until fixed (D75)
+- Settings pushed to servers on start; Tailwind at-rules not flagged in CSS;
+  tsserver 8 GB and function-call completions; names in code type in
+  problem messages; crashed servers restart (D76)
+- Servers hear about files changed on disk, the agent's shell edits included
+  (`didChangeWatchedFiles`, D77)
+- Unused code faded, deprecated code struck through (D78)
 - Find References ⇧⌘R (was ⇧⌃⌘F, D67) (References panel), Go to Symbol in File ⇧⌘O and in
   Project ⌘T, highlights of the symbol under the caret (D62)
 - ESLint and Tailwind CSS beside the file's language server, when the
@@ -136,6 +144,34 @@
 - Vue (D74): tsserver with Vue's plugin as `.vue`'s server, Vue's own server
   beside it with its tsserver questions forwarded; a server's crash shows its
   error line, not the tail of the stack
+- Code folding (D79): server regions or indentation, gutter chevrons,
+  ⌥⌘←/→ and ⌥⇧⌘←/→, animated as in Xcode; folds survive agent edits and
+  reopening the file
+- The editing session comes back (D80): file tabs per folder, caret and
+  scroll per file, expanded folders, window layout
+- Code actions on save (ESLint's fixes by default, `codeActionsOnSave`),
+  Organize Imports ⌃⌥O; companions off / on / configured in
+  `.orbit/settings.json` (D81)
+- Sticky scroll and a path bar with the symbols at the caret (D82)
+- Typing follows the file's indentation (.editorconfig or detected): Tab/⇧Tab/Return/Backspace, status bar picker (D83)
+- Overview ruler by the scroller: git changes, symbol uses, problems, caret (D84)
+- Restore files to before any message of an agent chat, reviewable and undoable inline (D85)
+- MCP servers for every agent from `"mcpServers"` in `.orbit/settings.json`, Settings → Agents lists them (D86)
+- Notifications and a Dock badge when an agent finishes, fails or needs a permission while Orbit is in the background (D87)
+- Messages written while the agent works are queued above the composer and sent as turns end (D88)
+- Image and PDF viewer; live Markdown preview tab ⇧⌘V or the eye button in the path bar, front matter as a table (D89)
+- Split editor: two sides, the tab row split along the same line, ⌘\\ / ⌥⌘\\ / ⌃⌘\\, preview opens beside its source (D90)
+- Drag and drop: reorder tabs, move them between sides, drop tabs or explorer / Finder files on an editor edge to split, anywhere on the agent chat to attach (D91)
+- Move files between folders by dragging them in the explorer (confirmation, ⌥ copies, open tabs follow) (D92)
+- Explorer file operations: inline rename (Return), New File ⌘N / New Folder ⌥⌘N (header buttons, menus, paths create folders), Move to Trash ⌘⌫, ⌘Z / ⇧⌘Z for these and drag-and-drop moves (D93)
+- Preview tabs: a click in the explorer reuses one italic tab, a double click or an edit keeps it (D94)
+- Explorer context menu after Cursor's: open to the side, Open With, terminal here, add to agent chat, cut / copy / paste files (Finder-compatible), copy paths, with keys (D95)
+- Accent color from the color theme (`text.accent`, else the text color) instead of the system blue (D97)
+- Keyboard navigation: the explorer keeps the keys while previewing, ⌘1 / ⌘2 editor sides, ⇧⌘[ ⇧⌘] tabs, ⇧⌘T reopen closed tab, Escape from the explorer to the editor, ⌥⌘R / ⌥⌘C anywhere (D98)
+- Dock icon menu and File → Open Recent with the last 10 folders (D100)
+- A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
+- File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
+- Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
 
 ## Next (rough priority)
 1. Own extension registry (GitHub repo with `index.json`, PR to publish) for
@@ -147,21 +183,19 @@
 Everything below is known to be missing; nothing here is in progress.
 
 **Language features (LSP)**
-- An outline panel (symbols are only in the ⇧⌘O picker); a peek view for
-  references (they go to the References panel)
-- Code lens, semantic tokens, folding and selection ranges; inlay hints
+- A peek view for references (they go to the References panel); no outline
+  panel on purpose (D82)
+- Code lens, semantic tokens and selection ranges; inlay hints
   can't be clicked, double-clicked to insert or hovered for their tooltip
 - Call / type hierarchy, linked editing (renaming an HTML tag's pair)
 - Other companions (Stylelint, Biome's server, Prettier's lint); companions
   and project roots are picked per file when it opens (a dependency or
   lockfile added later needs Restart Language Servers)
-- Companions (ESLint, Tailwind) can't be turned off or configured in
-  `.orbit/settings.json` (only "Not Now" on their install offer)
-- Diagnostics for files that aren't open (workspace / pull diagnostics for
-  the whole project); the Problems panel lists open files only
+- Diagnostics for the whole project (workspace diagnostics): Problems lists
+  open files, the agent's changed files (D75) and what servers push on their
+  own; a file the agent broke without touching it (an importer) is missed
 - File operations in workspace edits (create / rename / delete files from a
   rename or a code action); rename has no preview of the files it touches
-- Code actions on save (organize imports, ESLint fixes after Prettier formats)
 - Imported servers (D65) aren't tested one by one (only Prisma's install
   runs in `make test-language-installs`); 93 of nvim-lspconfig's need code
   and are missing (Angular, Flow, Julia, PowerShell, Roslyn…); choosing
@@ -195,6 +229,11 @@ Everything below is known to be missing; nothing here is in progress.
 - Find in terminal, a terminal font size of its own
 
 ## Known gaps / to verify
+- Windows (D101): unverified on a Mac (windows coming back on launch, the
+  close stand-in in front of SwiftUI's window delegate, menus following the
+  main window, full screen with two windows; D102's Close Folder and
+  folders from Finder / the Dock, at launch too). The clone has no progress beyond a spinner and no sign-in prompt (a
+  private repository needs git credentials already set up).
 - Inlay hints and embedded languages (D69, D70): unverified on a Mac (label
   placement and caret around them, colors in Markdown, Vue and HTML files;
   the first Markdown file installs the inline grammar).
@@ -266,6 +305,54 @@ Everything below is known to be missing; nothing here is in progress.
 - Agent terminals: the `terminal/*` (PTY) path is untested with a real agent
   (Claude Code and Codex use display terminals); check how many tabs a busy
   turn leaves.
+- Split editor (D90): unverified on a Mac (the tab row's split line meeting
+  the editors' with the sidebar shown and hidden, in full screen; dragging;
+  focus by click into the terminal-free area; two editors of one file).
+  Only two sides, side by side.
+- Explorer moves (D92): unverified on a Mac; an agent's unreviewed changes
+  in a moved or renamed file lose their inline review.
+- Explorer file operations (D93): unverified on a Mac (the name field's
+  focus and selection inside the list, Return / ⌘⌫ reaching the list, the
+  header's hover buttons, ⌘Z routing). One item at a time (no multiple
+  selection); undoing a new file drops its unsaved edits.
+- Explorer folder clicks (D96): unverified on a Mac (the row's tap gesture
+  reaching a click on an already selected folder).
+- Theme accent (D97): unverified on a Mac (prominent glass buttons tinted
+  with the text color in the System theme; sheets and hover panels hosted
+  outside the window's `.tint`). Focused native lists outside the explorer
+  still select in the system accent.
+- Keyboard navigation (D98): unverified on a Mac (the list taking focus on
+  ⇧⌘E, Space / Escape reaching it, arrows with the key filter). No
+  keyboard focus for the other sidebar panels.
+- Location history (D99): unverified on a Mac (the caret reports after a
+  reveal, ⌃Tab's panel and ⌃ release). Moving a tab between sides records
+  passing through the tab left behind; no mouse back / forward buttons.
+- Preview tabs (D94): unverified on a Mac (a double click on a list row
+  reaching the gesture beside the list's own selection; the tab's double
+  click beside its drag). Open Quickly doesn't preview, unlike VS Code.
+- Explorer context menu (D95): unverified on a Mac (⌘X ⌘C ⌘V reaching the
+  list through the Edit menu, ⌃↩ / ⌥⌘R / ⌥⌘C keys, app icons in Open With).
+  No Select for Compare (no two-file diff tab yet), no Find in Folder.
+- Drag and drop (D91): tab drags became our own gesture (the system drag
+  hung after drops); unverified on a Mac. Dropping files on the editor rests
+  on an assumption (AppKit finds the catcher above the text view although
+  its `hitTest` is nil). Tabs can't be dragged out of the window.
+- Preview (D89): unverified on a Mac (zoom and centering, the info
+  capsule, the page's look in light and dark themes, code colors, links,
+  relative images); no side-by-side preview (no split editor); preview tabs
+  aren't restored on launch; code colors don't change with the theme until
+  the next edit.
+- Message queue (D88): unverified on a Mac and with a real agent (Send Now
+  stopping a turn, the paused state); the queue isn't saved across launches.
+- Notifications (D87): unverified on a Mac (the permission prompt for an
+  ad-hoc signed debug build, click to open the chat, the badge); no Allow /
+  Deny buttons in the notification itself.
+- MCP servers (D86): not run with a real agent yet (that each adapter
+  accepts the list and starts the servers); the Settings section is
+  unverified on a Mac. No per-agent status of which servers connected.
+- Restore points (D85): unverified on a Mac (the hover button, the dialog,
+  the note to the agent); not available in isolated sessions; the
+  conversation isn't rewound with the files.
 - Isolated sessions: a project on a non-APFS volume gets a full (slow) copy; Apply is
   all-or-nothing per file (no picking files); undoing an applied change in
   the project counts it as not applied again; untested by hand.

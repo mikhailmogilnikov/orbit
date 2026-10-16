@@ -47,18 +47,29 @@ struct Checkpoints: Sendable {
 
     /// Files that differ between `tree` and the working tree, with their baseline contents.
     func changes(since tree: String) throws -> [Change] {
+        try changedPaths(since: tree).map { path, existed in
+            let baseline: String? = existed ? (try? git(["show", "\(tree):\(path)"])) : nil
+            return Change(url: url(of: path), baseline: baseline)
+        }
+    }
+
+    /// The bytes `tree` holds for every file that differs from it now; `nil`
+    /// for files the tree doesn't have (created since).
+    func snapshotContents(since tree: String) throws -> [(url: URL, contents: Data?)] {
+        try changedPaths(since: tree).map { path, existed in
+            (url(of: path), try existed ? gitData(["cat-file", "blob", "\(tree):\(path)"]) : nil)
+        }
+    }
+
+    private func changedPaths(since tree: String) throws -> [(path: String, existed: Bool)] {
         _ = try git(["add", "-A", "--ignore-errors", "."])
         let output = try git(["diff", "--cached", "--name-status", "--no-renames", "-z", tree])
         let fields = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
-        var result: [Change] = []
-        var index = 0
-        while index + 1 < fields.count {
-            let status = fields[index], path = fields[index + 1]
-            index += 2
-            let baseline: String? = status.hasPrefix("A") ? nil : (try? git(["show", "\(tree):\(path)"]))
-            result.append(Change(url: root.appendingPathComponent(path).standardizedFileURL, baseline: baseline))
-        }
-        return result
+        return stride(from: 0, to: fields.count - 1, by: 2).map { (fields[$0 + 1], !fields[$0].hasPrefix("A")) }
+    }
+
+    private func url(of path: String) -> URL {
+        root.appendingPathComponent(path).standardizedFileURL
     }
 
     private func prepare() throws {
@@ -69,6 +80,8 @@ struct Checkpoints: Sendable {
             _ = try git(["config", "core.autocrlf", "false"])
             _ = try git(["config", "core.quotepath", "false"])
             _ = try git(["config", "core.bigFileThreshold", "5m"])
+            // Snapshot trees are referenced by nothing but Orbit's chats (restore points).
+            _ = try git(["config", "gc.auto", "0"])
         }
         let exclude = gitDir.appendingPathComponent("info/exclude")
         try fm.createDirectory(at: exclude.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -77,6 +90,10 @@ struct Checkpoints: Sendable {
 
     @discardableResult
     private func git(_ arguments: [String]) throws -> String {
+        String(decoding: try gitData(arguments), as: UTF8.self)
+    }
+
+    private func gitData(_ arguments: [String]) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["--git-dir=\(gitDir.path)", "--work-tree=\(root.path)"] + arguments
@@ -93,6 +110,6 @@ struct Checkpoints: Sendable {
         guard process.terminationStatus == 0 else {
             throw CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "git \(arguments.first ?? "") failed"])
         }
-        return String(decoding: data, as: UTF8.self)
+        return data
     }
 }

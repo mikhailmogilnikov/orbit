@@ -41,12 +41,17 @@ final class LanguageServer {
     @ObservationIgnored private var outlines = false
     @ObservationIgnored private(set) var searchesSymbols = false
     @ObservationIgnored private var hasInlayHints = false
+    @ObservationIgnored private var folds = false
     /// Bumped on `workspace/inlayHint/refresh`: editors fetch their hints again.
     private(set) var inlayHintsRevision = 0
     @ObservationIgnored private var actionGeneration = 0
     @ObservationIgnored private var actionRaw: (generation: Int, items: [JSONValue]) = (0, [])
     /// Applies an edit the server asks for (after running one of its commands).
     @ObservationIgnored var onApplyEdit: (@MainActor (WorkspaceEdit) -> Bool)?
+    /// The process died after starting (not on shutdown): the manager starts it again.
+    @ObservationIgnored var onCrash: (@MainActor () -> Void)?
+    /// What the server asked to hear about on disk, by registration id (D77).
+    @ObservationIgnored private var fileWatchers: [String: [FileWatcher]] = [:]
     /// Runs a tsserver request for a server that can't (Vue's, D74): the
     /// response body, or nil when there's no answer.
     @ObservationIgnored var onTypeScriptRequest: (@MainActor (_ command: String, _ arguments: JSONValue) async -> JSONValue?)?
@@ -124,6 +129,12 @@ final class LanguageServer {
                     Task { @MainActor in self?.register(params["registrations"]?.array ?? []) }
                     return .null
                 }
+                if method == "client/unregisterCapability" {
+                    // The spec's field name has the typo.
+                    let ids = (params["unregisterations"]?.array ?? []).compactMap { $0["id"]?.string }
+                    Task { @MainActor in for id in ids { self?.fileWatchers[id] = nil } }
+                    return .null
+                }
                 return try Self.answer(method, params, root: root, settings: settings)
             },
             onExit: { [weak self] status, stderr in
@@ -140,6 +151,9 @@ final class LanguageServer {
             pullsDiagnostics = result["capabilities"]?["diagnosticProvider"].map { !$0.isNull } ?? false
             readFeatures(result["capabilities"])
             connection.notify("initialized")
+            // Some servers (Svelte's) never ask for their settings and only take
+            // them pushed; the rest ask again on this, as with VS Code and Zed.
+            connection.notify("workspace/didChangeConfiguration", ["settings": settings ?? .object([:])])
             state = .running
             return true
         } catch {
@@ -172,7 +186,7 @@ final class LanguageServer {
                 "textDocument": [
                     "synchronization": ["dynamicRegistration": false],
                     // `codeActionsInline`: SourceKit-LSP's fix-its ride on its diagnostics.
-                    "publishDiagnostics": ["relatedInformation": false, "codeActionsInline": true],
+                    "publishDiagnostics": ["relatedInformation": false, "codeActionsInline": true, "tagSupport": ["valueSet": [1, 2]]],
                     "diagnostic": ["dynamicRegistration": false, "relatedDocumentSupport": false],
                     "hover": ["contentFormat": ["markdown", "plaintext"]],
                     "completion": [
@@ -214,9 +228,12 @@ final class LanguageServer {
                     "documentHighlight": ["dynamicRegistration": false],
                     "documentSymbol": ["hierarchicalDocumentSymbolSupport": true],
                     "inlayHint": ["dynamicRegistration": false],
+                    // The editor folds whole lines.
+                    "foldingRange": ["dynamicRegistration": false, "lineFoldingOnly": true],
                 ],
                 "workspace": [
                     "workspaceFolders": true, "configuration": true, "applyEdit": true,
+                    "didChangeWatchedFiles": ["dynamicRegistration": true, "relativePatternSupport": true],
                     "workspaceEdit": ["documentChanges": true],
                     // No `resolveSupport`: results must come with their ranges.
                     "symbol": ["dynamicRegistration": false],
@@ -284,6 +301,7 @@ final class LanguageServer {
         outlines = enabled(capabilities?["documentSymbolProvider"])
         searchesSymbols = enabled(capabilities?["workspaceSymbolProvider"])
         hasInlayHints = enabled(capabilities?["inlayHintProvider"])
+        folds = enabled(capabilities?["foldingRangeProvider"])
         triggers = LanguageTriggers(
             completion: strings(completion?["triggerCharacters"]),
             signatureHelp: strings(signature?["triggerCharacters"]),
@@ -323,6 +341,10 @@ final class LanguageServer {
             case "textDocument/inlayHint":
                 hasInlayHints = true
                 inlayHintsRevision += 1
+            case "textDocument/foldingRange":
+                folds = true
+            case "workspace/didChangeWatchedFiles":
+                if let id = registration["id"]?.string { fileWatchers[id] = FileWatcher.parse(options) }
             case "textDocument/signatureHelp":
                 helpsWithSignatures = true
                 triggers.signatureHelp.formUnion(strings(options?["triggerCharacters"]))
@@ -331,6 +353,19 @@ final class LanguageServer {
                 break
             }
         }
+    }
+
+    /// Files changed on disk, sent for the ones the server watches.
+    func filesChanged(_ changes: [(path: String, change: FileChange)]) {
+        guard let connection, state == .running, !fileWatchers.isEmpty else { return }
+        let watchers = fileWatchers.values.flatMap(\.self)
+        let rootPath = root.standardizedFileURL.path
+        let matching: [JSONValue] = changes.compactMap { path, change in
+            guard watchers.contains(where: { $0.matches(path, change, root: rootPath) }) else { return nil }
+            return ["uri": .string(URL(fileURLWithPath: path).absoluteString), "type": .number(Double(change.rawValue))]
+        }
+        guard !matching.isEmpty else { return }
+        connection.notify("workspace/didChangeWatchedFiles", ["changes": .array(matching)])
     }
 
     private func handleNotification(_ method: String, _ params: JSONValue) {
@@ -370,7 +405,8 @@ final class LanguageServer {
             range: range,
             severity: value["severity"]?.int.flatMap(Diagnostic.Severity.init(rawValue:)) ?? .error,
             message: message,
-            source: value["source"]?.string
+            source: value["source"]?.string,
+            tags: Set((value["tags"]?.array ?? []).compactMap { $0.int.flatMap(Diagnostic.Tag.init(rawValue:)) })
         )
     }
 
@@ -390,7 +426,9 @@ final class LanguageServer {
         diagnostics.removeAll()
         guard !isShuttingDown else { return }
         let lines = Self.crashSummary(stderr)
+        let wasRunning = state == .running
         state = .failed("\(config.name) stopped (status \(status))" + (lines.isEmpty ? "" : ":\n\(lines)"))
+        if wasRunning { onCrash?() }
     }
 
     /// A stack trace says what went wrong at its top (`TypeError: …`) and only
@@ -526,9 +564,23 @@ final class LanguageServer {
             position: position, label: label,
             kind: value["kind"]?.int.flatMap(InlayHint.Kind.init(rawValue:)),
             tooltip: value["tooltip"]?.string ?? value["tooltip"]?["value"]?.string,
-            paddingLeft: value["paddingLeft"]?.bool ?? false,
+            // typescript-language-server pads `: boolean` away from its name
+            // (`foo : boolean`); a type annotation sits right after it (as in Zed).
+            paddingLeft: (value["paddingLeft"]?.bool ?? false) && !label.hasPrefix(":"),
             paddingRight: value["paddingRight"]?.bool ?? false
         )
+    }
+
+    func foldingRanges(in url: URL) async -> [FoldingRange]? {
+        guard let connection, folds, documents[url] != nil,
+              let result = try? await connection.request("textDocument/foldingRange", ["textDocument": ["uri": .string(url.absoluteString)]]),
+              let items = result.array else { return nil }
+        return items.compactMap(Self.foldingRange)
+    }
+
+    nonisolated static func foldingRange(_ value: JSONValue) -> FoldingRange? {
+        guard let start = value["startLine"]?.int, let end = value["endLine"]?.int, end > start else { return nil }
+        return FoldingRange(startLine: start, endLine: end, kind: value["kind"]?.string.flatMap(FoldingRange.Kind.init(rawValue:)))
     }
 
     func symbols(in url: URL) async -> [LanguageSymbol]? {
@@ -550,7 +602,8 @@ final class LanguageServer {
                     symbols.append(LanguageSymbol(
                         name: name, detail: item["detail"]?.string.flatMap { $0.isEmpty ? nil : $0 },
                         kind: item["kind"]?.int.flatMap(SymbolKind.init(rawValue:)) ?? .variable,
-                        location: SourceLocation(url: url, range: selection), container: container, depth: depth
+                        location: SourceLocation(url: url, range: selection), container: container, depth: depth,
+                        extent: range(item["range"])
                     ))
                     walk(item["children"]?.array ?? [], depth: depth + 1, container: name)
                 }
@@ -562,7 +615,8 @@ final class LanguageServer {
             guard let name = item["name"]?.string, let range = range(item["location"]?["range"]) else { return nil }
             let symbol = LanguageSymbol(
                 name: name, kind: item["kind"]?.int.flatMap(SymbolKind.init(rawValue:)) ?? .variable,
-                location: SourceLocation(url: url, range: range), container: item["containerName"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+                location: SourceLocation(url: url, range: range), container: item["containerName"]?.string.flatMap { $0.isEmpty ? nil : $0 },
+                extent: range
             )
             return (symbol, range)
         }
@@ -688,22 +742,35 @@ final class LanguageServer {
         item.documentation = resolved.documentation ?? item.documentation
         item.detail = resolved.detail ?? item.detail
         if !resolved.additionalEdits.isEmpty { item.additionalEdits = resolved.additionalEdits }
+        // typescript-language-server adds a function's parentheses and argument stops
+        // only here (`completeFunctionCalls`). The text only: the range stays the one
+        // the list came with, still right after more typing (Zed does the same).
+        if resolved.isSnippet, !item.isSnippet {
+            item.insertText = resolved.insertText
+            item.isSnippet = true
+        }
         return item
     }
 
     // MARK: Code actions, rename, formatting (D59)
 
     /// Fixes and refactorings for a range, with the problems there as context.
-    func codeActions(for range: SourceRange, in url: URL) async -> [CodeAction] {
+    /// `only`: just these kinds (and their sub-kinds), asked for automatically (on save).
+    func codeActions(for range: SourceRange, in url: URL, only: [String]? = nil) async -> [CodeAction] {
         guard let connection, hasCodeActions, documents[url] != nil else { return [] }
         let overlapping = (rawDiagnostics[url.standardizedFileURL] ?? []).filter { raw in
             guard let problem = Self.range(raw["range"]) else { return false }
             return problem.start <= range.end && range.start <= problem.end
         }
+        var context: [String: JSONValue] = ["diagnostics": .array(overlapping), "triggerKind": 1]
+        if let only {
+            context["only"] = .array(only.map(JSONValue.string))
+            context["triggerKind"] = 2
+        }
         let params: JSONValue = [
             "textDocument": ["uri": .string(url.absoluteString)],
             "range": Self.json(range),
-            "context": ["diagnostics": .array(overlapping), "triggerKind": 1],
+            "context": .object(context),
         ]
         actionGeneration += 1
         let generation = actionGeneration

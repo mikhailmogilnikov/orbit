@@ -40,11 +40,17 @@ final class LanguageManager: LanguageIntelligence {
     @ObservationIgnored private var shellEnvironment: [String: String]?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var idleTasks: [ServerKey: Task<Void, Never>] = [:]
+    /// When each server last crashed and was started again, for the restart budget.
+    @ObservationIgnored private var crashes: [ServerKey: [ContinuousClock.Instant]] = [:]
+    /// The open folder's files, for servers that leave watching the disk to us (D77).
+    @ObservationIgnored private var fileEvents: FileEventStream?
     /// Each file's servers: its language's, then the companions its project uses (ESLint, Tailwind).
     @ObservationIgnored private var placements: [URL: [ServerKey]] = [:]
     /// Servers as `.orbit/settings.json` made them (another server, a command, its settings), by id.
     @ObservationIgnored private var effective: [String: LanguageServerConfig] = [:]
     @ObservationIgnored private var serverSettings: Result<[LanguageServerSettings], Error> = .success([])
+    /// Companions turned off or configured, actions on save (D81); invalid JSON is reported by `serverSettings`.
+    @ObservationIgnored private var toolSettings: [ToolSettings] = []
     /// When the settings files last changed: an edit restarts the servers.
     @ObservationIgnored private var settingsStamp: [Date?]?
     /// Bumped on every reload, so views showing the chosen server redraw.
@@ -54,6 +60,20 @@ final class LanguageManager: LanguageIntelligence {
     private static let syncDelay: Duration = .milliseconds(120)
     /// A server with no open files of its language is stopped after this.
     private static let idleTimeout: Duration = .seconds(600)
+    /// Hover and fixes wait no longer than this: the card also carries the problems, which mustn't wait on a slow server.
+    private static let queryDeadline: Duration = .milliseconds(1500)
+    /// A crashed server starts again, like VS Code's client: up to 4 times in 3 minutes,
+    /// then it stays down with its message (a server that dies on start would loop).
+    private static let restartLimit = 4
+    private static let restartWindow: Duration = .seconds(180)
+
+    /// The agent's changes, from the Review plugin (it may start after this one).
+    @ObservationIgnored var changes: () -> ChangeTracking? = { nil }
+    /// Files checked without being open (D75): what the agent changed, kept
+    /// after review while they still have problems.
+    @ObservationIgnored private var checked: [URL] = []
+    @ObservationIgnored private var diskTexts: [URL: (generation: Int, text: String)] = [:]
+    private static let checkedLimit = 100
 
     init(workspace: Workspace) {
         self.workspace = workspace
@@ -73,11 +93,14 @@ final class LanguageManager: LanguageIntelligence {
     private func observe() {
         withObservationTracking {
             _ = workspace.root
+            _ = workspace.fileSystemGeneration
+            _ = changes()?.changedFiles
             for document in workspace.documents.open.values { _ = document.revision }
         } onChange: { [weak self] in
             Task { @MainActor in
-                self?.scheduleSync()
-                self?.observe()
+                guard let self, !self.workspace.isClosed else { return }
+                self.scheduleSync()
+                self.observe()
             }
         }
         scheduleSync()
@@ -98,17 +121,26 @@ final class LanguageManager: LanguageIntelligence {
         reloadSettingsIfChanged()
         if workspace.root != root {
             root = workspace.root
+            fileEvents = root.flatMap { root in
+                FileEventStream(root: root) { [weak self] changes in
+                    guard let self else { return }
+                    for server in servers.values { server.filesChanged(changes) }
+                }
+            }
             for server in servers.values { server.shutdown() }
             servers.removeAll()
             unavailable.removeAll()
             placements.removeAll()
+            checked.removeAll()
+            diskTexts.removeAll()
         }
         guard let root else { return }
 
         let documents = workspace.documents.open.values.filter { $0.loadError == nil }
-        var wanted: [ServerKey: [TextDocument]] = [:]
-        for document in documents {
-            for key in keys(for: document.url) { wanted[key, default: []].append(document) }
+        let files = documents.map { (url: $0.url, text: $0.text) } + checkedFiles(excluding: Set(documents.map(\.url)), in: root)
+        var wanted: [ServerKey: [(url: URL, text: String)]] = [:]
+        for file in files {
+            for key in keys(for: file.url) { wanted[key, default: []].append(file) }
         }
 
         for (key, server) in servers {
@@ -119,12 +151,24 @@ final class LanguageManager: LanguageIntelligence {
 
         for (key, documents) in wanted where unavailable[key] == nil {
             guard let config = serverConfig(id: key.id) else { continue }
+            if let crashed = servers[key], case .failed = crashed.state {
+                let now = ContinuousClock.now
+                let recent = (crashes[key] ?? []).filter { now - $0 < Self.restartWindow }
+                guard recent.count < Self.restartLimit else {
+                    unavailable[key] = crashed.state
+                    servers[key] = nil
+                    continue
+                }
+                crashes[key] = recent + [now]
+                servers[key] = nil
+            }
             let server: LanguageServer
             if let running = servers[key] {
                 server = running
             } else {
                 server = LanguageServer(config: config, root: key.root, origin: documents.first?.url, folder: root)
                 server.onApplyEdit = { [weak self] edit in self?.apply(edit) ?? false }
+                server.onCrash = { [weak self] in self?.scheduleSync() }
                 if let typeScript = config.typeScriptServer {
                     let typeScriptKey = ServerKey(id: typeScript, root: key.root)
                     server.onTypeScriptRequest = { [weak self] command, arguments in
@@ -138,8 +182,34 @@ final class LanguageManager: LanguageIntelligence {
                 servers[key] = nil
                 continue
             }
-            for document in documents { server.sync(document.url, text: document.text) }
+            for file in documents { server.sync(file.url, text: file.text) }
         }
+    }
+
+    /// The agent's changed files as they are on disk, so their servers report
+    /// them before anyone opens them; a file stays after review until its
+    /// problems are fixed (D75).
+    private func checkedFiles(excluding open: Set<URL>, in root: URL) -> [(url: URL, text: String)] {
+        let changed = changes()?.changedFiles ?? []
+        let kept = checked.filter { changed.contains($0) || !diagnostics(for: $0).isEmpty }
+        checked = Array((kept + changed.filter { !kept.contains($0) }).filter { url in
+            url.path.hasPrefix(root.path + "/") && FileManager.default.fileExists(atPath: url.path) && !keys(for: url).isEmpty
+        }.prefix(Self.checkedLimit))
+        let generation = workspace.fileSystemGeneration
+        var files: [(url: URL, text: String)] = []
+        for url in checked {
+            // The editor's text wins; on close the file is read again (saving doesn't bump the generation).
+            if open.contains(url) {
+                diskTexts[url] = nil
+            } else if let cached = diskTexts[url], cached.generation == generation {
+                files.append((url, cached.text))
+            } else if let text = try? String(contentsOf: url, encoding: .utf8) {
+                diskTexts[url] = (generation, text)
+                files.append((url, text))
+            }
+        }
+        diskTexts = diskTexts.filter { checked.contains($0.key) }
+        return files
     }
 
     private func scheduleIdleShutdown(_ key: ServerKey) {
@@ -167,8 +237,21 @@ final class LanguageManager: LanguageIntelligence {
         case .failure(let error): language = chosen.map { LanguageServerSettings.broken(file, $0, error.localizedDescription) }
         }
         if let language { effective[language.id] = language }
-        let configs = (language.map { [$0] } ?? [])
-            + LanguageServerConfig.companions(for: url).filter { $0.isUsed(by: file, in: root) }
+        let companions = LanguageServerConfig.companions(for: url).compactMap { config -> LanguageServerConfig? in
+            var config = config
+            switch ToolSettings.companion(config.id, in: toolSettings) {
+            case .off?: return nil
+            case .on(let overrides)?: config.apply(overrides)
+            case .configured(let overrides)?:
+                guard config.isUsed(by: file, in: root) else { return nil }
+                config.apply(overrides)
+            case nil:
+                return config.isUsed(by: file, in: root) ? config : nil
+            }
+            effective[config.id] = config
+            return config
+        }
+        let configs = (language.map { [$0] } ?? []) + companions
         let keys = configs.map { ServerKey(id: $0.id, root: $0.root(for: file, in: root)) }
         // Until the shell's PATH is known, what's installed can't be told: decide again then.
         if shellEnvironment != nil { placements[file] = keys }
@@ -191,6 +274,7 @@ final class LanguageManager: LanguageIntelligence {
         let first = settingsStamp == nil
         settingsStamp = stamp
         serverSettings = Result { try LanguageServerSettings.layers(root: root) }
+        toolSettings = (try? ToolSettings.layers(root: root)) ?? []
         settingsRevision += 1
         placements.removeAll()
         effective.removeAll()
@@ -198,6 +282,7 @@ final class LanguageManager: LanguageIntelligence {
         for server in servers.values { server.shutdown() }
         servers.removeAll()
         unavailable.removeAll()
+        crashes.removeAll()
     }
 
     /// A file whose language server the settings turned off: (the language, which file says so).
@@ -320,11 +405,23 @@ final class LanguageManager: LanguageIntelligence {
     }
 
     /// Asks every server of the file at once; answers in the servers' order.
-    private func gather<T: Sendable>(_ url: URL, _ ask: @escaping @MainActor (LanguageServer) async -> T?) async -> [(LanguageServer, T)] {
+    /// With a `deadline`, servers that haven't answered by then are left out
+    /// (cancelled), so one stuck companion can't hold back the others' answers.
+    private func gather<T: Sendable>(
+        _ url: URL, deadline: Duration? = nil, _ ask: @escaping @MainActor (LanguageServer) async -> T?
+    ) async -> [(LanguageServer, T)] {
         let servers = flushAll(url)
         // Tasks rather than a group (the region checker can't follow one here);
         // cancelling the caller still cancels the requests (`$/cancelRequest`).
         let tasks = servers.map { server in Task { await ask(server) } }
+        let timer = deadline.map { deadline in
+            Task {
+                try? await Task.sleep(for: deadline)
+                guard !Task.isCancelled else { return }
+                for task in tasks { task.cancel() }
+            }
+        }
+        defer { timer?.cancel() }
         return await withTaskCancellationHandler {
             var answers: [(LanguageServer, T)] = []
             for (server, task) in zip(servers, tasks) {
@@ -341,13 +438,16 @@ final class LanguageManager: LanguageIntelligence {
         for server in servers.values { server.shutdown() }
         servers.removeAll()
         unavailable.removeAll()
+        crashes.removeAll()
         placements.removeAll()
         effective.removeAll()
+        diskTexts.removeAll()
         settingsStamp = nil
         scheduleSync()
     }
 
     func shutdown() {
+        fileEvents = nil
         syncTask?.cancel()
         for task in idleTasks.values { task.cancel() }
         for server in servers.values { server.shutdown() }
@@ -458,13 +558,44 @@ final class LanguageManager: LanguageIntelligence {
 
     func codeActions(for range: SourceRange, in url: URL) async -> [CodeAction] {
         let file = url.standardizedFileURL
-        return await gather(url) { await $0.codeActions(for: range, in: file) }.flatMap { server, actions in
+        return await gather(url, deadline: Self.queryDeadline) { await $0.codeActions(for: range, in: file) }.flatMap { server, actions in
             actions.map { action in
                 var action = action
                 action.server = server.config.id
                 return action
             }
         }
+    }
+
+    /// Code actions on save (D81), in the order the settings list them: for
+    /// each kind, the first server offering it applies its action. Kinds no
+    /// running server offers (ESLint's where the project has no ESLint) are skipped.
+    func runSaveActions(_ url: URL) async {
+        _ = keys(for: url)
+        _ = await runCodeActions(ToolSettings.actionsOnSave(for: url, in: toolSettings), in: url)
+    }
+
+    /// Runs the first action of each kind any of the file's servers offers; the number run.
+    func runCodeActions(_ kinds: [String], in url: URL) async -> Int {
+        let file = url.standardizedFileURL
+        var count = 0
+        for kind in kinds {
+            guard !Task.isCancelled, let document = workspace.documents.existingDocument(for: url) else { return count }
+            let text = document.text as NSString
+            let end = SourcePosition(offset: text.length, in: SourcePosition.lineStarts(of: text))
+            let whole = SourceRange(start: SourcePosition(line: 0, character: 0), end: end)
+            let offers = await gather(url, deadline: Self.queryDeadline) { await $0.codeActions(for: whole, in: file, only: [kind]) }
+            for (server, actions) in offers {
+                guard let action = actions.first(where: { action in
+                    action.disabledReason == nil && action.kind.map { $0 == kind || $0.hasPrefix(kind + ".") } == true
+                }) else { continue }
+                var chosen = action
+                chosen.server = server.config.id
+                if await perform(chosen, in: url) == nil { count += 1 }
+                break
+            }
+        }
+        return count
     }
 
     func perform(_ action: CodeAction, in url: URL) async -> String? {
@@ -682,7 +813,7 @@ final class LanguageManager: LanguageIntelligence {
     /// The language server's, then what the others add (Tailwind's CSS for a class).
     func hover(at position: SourcePosition, in url: URL) async -> HoverInfo? {
         let file = url.standardizedFileURL
-        let answers = await gather(url) { await $0.hover(at: position, in: file) }.map(\.1)
+        let answers = await gather(url, deadline: Self.queryDeadline) { await $0.hover(at: position, in: file) }.map(\.1)
         guard let first = answers.first else { return nil }
         return HoverInfo(markdown: answers.map(\.markdown).joined(separator: "\n\n"), range: first.range)
     }
@@ -758,6 +889,10 @@ final class LanguageManager: LanguageIntelligence {
 
     func inlayHintsRevision(for url: URL) -> Int {
         runningServer(for: url)?.inlayHintsRevision ?? 0
+    }
+
+    func foldingRanges(in url: URL) async -> [FoldingRange]? {
+        await flush(url)?.foldingRanges(in: url.standardizedFileURL)
     }
 
     /// Only servers already running answer: one for a language nobody opened isn't started for a search.

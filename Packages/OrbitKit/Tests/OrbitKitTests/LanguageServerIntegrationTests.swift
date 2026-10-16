@@ -45,6 +45,58 @@ struct LanguageServerIntegrationTests {
         #expect(message.contains("no tsserver.js here"))
     }
 
+    /// D77: a file written straight to disk (an agent's shell) reaches a server
+    /// that leaves watching to the editor, so the type it adds is found.
+    @Test(.enabled(if: LanguageCase.swift.isAvailable))
+    func swiftSeesFilesCreatedOnDisk() async throws {
+        let root = try LanguageCase.swift.makeProject()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let server = LanguageServer(config: .swift, root: root)
+        let started = await server.start(environment: Task { ProcessInfo.processInfo.environment })
+        try #require(started, "Swift didn't start: \(server.state)")
+        let events = try #require(FileEventStream(root: root) { server.filesChanged($0) })
+        defer { withExtendedLifetime(events) {} }
+
+        let main = root.appendingPathComponent("Sources/Demo/main.swift")
+        server.sync(main, text: "print(Extra.value)\n")
+        _ = try await firstError(server, main, LanguageCase.swift.timeout) { $0.message.contains("Extra") }
+
+        try "enum Extra { static let value = 1 }\n".write(
+            to: root.appendingPathComponent("Sources/Demo/Extra.swift"), atomically: true, encoding: .utf8
+        )
+        try await eventually(LanguageCase.swift.timeout, "the error about Extra to go") {
+            server.diagnostics[main.standardizedFileURL]?.contains { $0.message.contains("Extra") } == false
+        }
+        server.shutdown()
+    }
+
+    /// D78: unused code comes tagged (drawn faded), deprecated code too (struck through).
+    @Test(.enabled(if: LanguageCase.typeScriptBare.isAvailable))
+    func typeScriptTagsUnusedAndDeprecated() async throws {
+        let root = try LanguageCase.typeScriptBare.makeProject()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let server = LanguageServer(config: .typescript, root: root)
+        let started = await server.start(environment: Task { ProcessInfo.processInfo.environment })
+        try #require(started, "TypeScript didn't start: \(server.state)")
+        let file = root.appendingPathComponent("src/tags.ts")
+        let text = """
+        /** @deprecated use next */
+        export function old() {}
+        export function run() { const unused = 1; old() }
+
+        """
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        server.sync(file, text: text)
+        try await eventually(LanguageCase.typeScriptBare.timeout, "tagged problems") {
+            let found = server.diagnostics[file.standardizedFileURL] ?? []
+            return found.contains { $0.tags.contains(.unnecessary) } && found.contains { $0.tags.contains(.deprecated) }
+        }
+        let found = server.diagnostics[file.standardizedFileURL] ?? []
+        let unused = try #require(found.first { $0.tags.contains(.unnecessary) })
+        #expect(unused.range.start == Self.position(of: "unused", in: text))
+        server.shutdown()
+    }
+
     @Test func missingServerSaysWhatToInstall() async {
         let config = LanguageServerConfig(
             id: "absent", name: "Absent", languages: ["absent": "absent"],
@@ -109,14 +161,13 @@ struct LanguageServerIntegrationTests {
         // Navigation (D62): uses of the method, the variable's uses in this file, the other file's outline, project search.
         // SourceKit-LSP answers from its index, which is built in the background.
         var references: [OrbitAPI.SourceLocation] = []
+        // The other file's reference can land in the index after this one's.
         try await eventually(language.timeout, "references to greet()") {
             references.contains { $0.url.path == main.standardizedFileURL.path && $0.range.start.line == call.line }
+                && (!language.renamesAcrossFiles
+                    || references.contains { $0.url.path == target.standardizedFileURL.path && $0.range.start.line == expected.line })
         } poll: {
             references = await server.references(at: call, in: main)
-        }
-        if language.renamesAcrossFiles {
-            #expect(references.contains { $0.url.path == target.standardizedFileURL.path && $0.range.start.line == expected.line },
-                    "\(references)")
         }
         let variable = try #require(Self.position(of: "greeter.", in: text))
         let highlights = await server.highlights(at: variable, in: main)

@@ -1,5 +1,6 @@
 import AppKit
 import OrbitAPI
+import OrbitUI
 
 /// A borderless popup that follows the editor window and never takes focus,
 /// so typing stays in the text view.
@@ -279,7 +280,7 @@ final class CompletionRowView: NSTableRowView {
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
-        NSColor.controlAccentColor.withAlphaComponent(0.28).setFill()
+        Theme.accentNSColor.withAlphaComponent(0.28).setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 0), xRadius: 5, yRadius: 5).fill()
     }
 }

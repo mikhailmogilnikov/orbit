@@ -221,7 +221,7 @@ final class OrbitTerminalView: LocalProcessTerminalView {
             })
             nativeForegroundColor = (theme.terminalForeground ?? theme.editorForeground)?.nsColor ?? .textColor
             nativeBackgroundColor = (theme.terminalBackground ?? theme.editorBackground)?.nsColor ?? .textBackgroundColor
-            caretColor = theme.cursor?.nsColor ?? .controlAccentColor
+            caretColor = theme.cursor?.nsColor ?? Theme.accentNSColor
             selectedTextBackgroundColor = theme.selection?.nsColor ?? .selectedTextBackgroundColor
         }
     }

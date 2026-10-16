@@ -61,8 +61,10 @@ A plugin is a class conforming to `OrbitPlugin` with a static `manifest`. In
 - `services.register` — typed services for other plugins
 - `settings` — per-plugin namespaced UserDefaults
 
-`PluginHost` activates enabled plugins at launch; enable/disable takes effect
-on restart. Built-ins use exactly the public API — no private hooks.
+Each window has its own `PluginHost` (D101), which activates enabled plugins
+when the window opens and stops them when it closes; enable/disable takes
+effect on restart. Plugin state lives in the plugin instance, never in a
+static: two windows run two copies side by side. Built-ins use exactly the public API — no private hooks.
 
 ### Plugin roadmap
 1. Built-in Swift plugins (now).

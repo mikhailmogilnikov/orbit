@@ -102,6 +102,25 @@ public struct EditorProvider: Identifiable {
     }
 }
 
+/// An icon button at the trailing end of the editor's path bar, for the files
+/// it applies to (Markdown's preview). It runs a command, so it carries the
+/// command's title and shortcut as its tooltip.
+public struct EditorAction: Identifiable {
+    public let id: String
+    public let commandID: String
+    public let systemImage: String
+    public let order: Int
+    public let isVisible: @MainActor (URL) -> Bool
+
+    public init(commandID: String, systemImage: String, order: Int = 100, isVisible: @escaping @MainActor (URL) -> Bool) {
+        id = commandID
+        self.commandID = commandID
+        self.systemImage = systemImage
+        self.order = order
+        self.isVisible = isVisible
+    }
+}
+
 public struct StatusItem: Identifiable {
     public enum Placement: Sendable { case leading, trailing }
     public let id: String
@@ -133,10 +152,16 @@ public final class UIRegistry {
     public private(set) var inspectorPanels: [PanelContribution] = []
     /// Panels under the editor (terminal, …); one is shown at a time.
     public private(set) var bottomPanels: [PanelContribution] = []
-    public var isBottomPanelVisible = false
-    public var selectedBottomPanel: String?
+    // Remembered across launches (D80).
+    public var isBottomPanelVisible = UserDefaults.standard.bool(forKey: "orbit.bottomPanelVisible") {
+        didSet { UserDefaults.standard.set(isBottomPanelVisible, forKey: "orbit.bottomPanelVisible") }
+    }
+    public var selectedBottomPanel: String? = UserDefaults.standard.string(forKey: "orbit.bottomPanel") {
+        didSet { UserDefaults.standard.set(selectedBottomPanel, forKey: "orbit.bottomPanel") }
+    }
     public private(set) var editorProviders: [EditorProvider] = []
     public private(set) var statusItems: [StatusItem] = []
+    public private(set) var editorActions: [EditorAction] = []
     public private(set) var settingsPanes: [SettingsPane] = []
     /// The Settings screen covers the window while shown.
     public var isSettingsVisible = false
@@ -149,6 +174,17 @@ public final class UIRegistry {
     public private(set) var quickPick: QuickPick?
 
     init() {}
+
+    func removeAll() {
+        sidebarPanels = []
+        inspectorPanels = []
+        bottomPanels = []
+        editorProviders = []
+        statusItems = []
+        editorActions = []
+        settingsPanes = []
+        quickPick = nil
+    }
 
     public func addSidebarPanel(_ panel: PanelContribution) {
         sidebarPanels.append(panel)
@@ -178,6 +214,11 @@ public final class UIRegistry {
     public func showSettings(_ paneID: String? = nil) {
         if let paneID { selectedSettingsPane = paneID }
         isSettingsVisible = true
+    }
+
+    public func addEditorAction(_ action: EditorAction) {
+        editorActions.append(action)
+        editorActions.sort { $0.order < $1.order }
     }
 
     public func addStatusItem(_ item: StatusItem) {
@@ -292,6 +333,11 @@ public final class CommandRegistry {
         all.append(command)
     }
 
+    func removeAll() {
+        all = []
+        hint = nil
+    }
+
     public func unregister(_ id: String) {
         all.removeAll { $0.id == id }
     }
@@ -347,6 +393,8 @@ public final class ServiceRegistry {
     public func register<Service>(_ type: Service.Type, _ service: Service) {
         services[ObjectIdentifier(type)] = service
     }
+
+    func removeAll() { services = [:] }
 
     public func resolve<Service>(_ type: Service.Type) -> Service? {
         services[ObjectIdentifier(type)] as? Service

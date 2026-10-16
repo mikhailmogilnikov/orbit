@@ -38,6 +38,8 @@ final class AgentSession: Identifiable {
     private(set) var status: Status = .dormant
     /// Called when what's worth remembering changed (id, title, activity).
     @ObservationIgnored var onChange: () -> Void = {}
+    /// Called when a turn ends or the agent waits for the user (system notifications).
+    @ObservationIgnored var onAttention: (AgentAttention) -> Void = { _ in }
     /// Called with the agent's options whenever they change (the store keeps its model list).
     @ObservationIgnored var onConfigOptions: ([ConfigOption]) -> Void = { _ in }
     /// Option values (by category) to set once the agent is up: the user's last choices.
@@ -49,6 +51,10 @@ final class AgentSession: Identifiable {
     var draft = ""
     private(set) var attachments: [PromptAttachment] = []
     private var promptCapabilities = PromptCapabilities()
+    private var checkpoints: [MessageCheckpoint]
+    private static let checkpointLimit = 100
+    /// Told to the agent with the next message: its history still has edits a restore undid.
+    private var restoreNote: String?
 
     private var client: ACPClient?
     private var sessionID: String? { didSet { if sessionID != oldValue { onChange() } } }
@@ -105,6 +111,7 @@ final class AgentSession: Identifiable {
         title = saved?.title ?? "New Chat"
         isTitled = saved != nil
         isLoadingHistory = saved != nil
+        checkpoints = saved?.checkpoints ?? []
         if let saved {
             sessionID = saved.sessionID
             updatedAt = saved.updatedAt
@@ -116,7 +123,8 @@ final class AgentSession: Identifiable {
     /// What it takes to open this conversation again later.
     var saved: SavedSession? {
         sessionID.map {
-            SavedSession(providerID: provider.id, sessionID: $0, title: title, cwd: project.path, updatedAt: updatedAt, isolated: isolatedCopy)
+            SavedSession(providerID: provider.id, sessionID: $0, title: title, cwd: project.path, updatedAt: updatedAt, isolated: isolatedCopy,
+                         checkpoints: checkpoints.isEmpty ? nil : checkpoints)
         }
     }
 
@@ -172,13 +180,14 @@ final class AgentSession: Identifiable {
             self.client = client
             let info = try await client.initialize(terminal: terminalHost != nil)
             promptCapabilities = PromptCapabilities(info["agentCapabilities"]?["promptCapabilities"])
+            let mcpServers = mcpServers(environment: env, capabilities: info["agentCapabilities"]?["mcpCapabilities"])
             var session: JSONValue?
             if let restoredID {
-                session = await load(restoredID, with: client, canLoad: info["agentCapabilities"]?["loadSession"]?.bool == true)
+                session = await load(restoredID, with: client, mcpServers: mcpServers, canLoad: info["agentCapabilities"]?["loadSession"]?.bool == true)
                 continuation.yield(.replayFinished)
             }
             if session == nil {
-                session = try await client.newSession(cwd: cwd)
+                session = try await client.newSession(cwd: cwd, mcpServers: mcpServers)
                 sessionID = session?["sessionId"]?.string
             }
             applyConfigOptions(session?["configOptions"])
@@ -192,8 +201,15 @@ final class AgentSession: Identifiable {
         }
     }
 
+    /// The MCP servers from Orbit's settings (D86) this agent can take. Problems
+    /// show in Settings → Agents, not here: a notice would hide the new-chat screen.
+    private func mcpServers(environment: [String: String], capabilities: JSONValue?) -> [JSONValue] {
+        let http = capabilities?["http"]?.bool == true, sse = capabilities?["sse"]?.bool == true
+        return MCPServer.load(project: project).servers.compactMap { $0.acp(environment: environment, http: http, sse: sse) }
+    }
+
     /// Nil when the conversation can't be opened again; a new one starts instead.
-    private func load(_ id: String, with client: ACPClient, canLoad: Bool) async -> JSONValue? {
+    private func load(_ id: String, with client: ACPClient, mcpServers: [JSONValue], canLoad: Bool) async -> JSONValue? {
         guard canLoad else {
             notice("\(provider.name) can't reopen earlier conversations; this is a new one.", isError: true)
             sessionID = nil
@@ -201,7 +217,7 @@ final class AgentSession: Identifiable {
         }
         isReplaying = true
         do {
-            return try await client.loadSession(sessionID: id, cwd: cwd)
+            return try await client.loadSession(sessionID: id, cwd: cwd, mcpServers: mcpServers)
         } catch {
             notice("Couldn't reopen this conversation: \(describe(error))\nThis is a new one.", isError: true)
             sessionID = nil
@@ -220,8 +236,59 @@ final class AgentSession: Identifiable {
 
     // MARK: Prompting
 
-    var canSend: Bool {
-        status == .ready && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+    var canSend: Bool { status == .ready && hasDraft }
+    private var hasDraft: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
+
+    // MARK: Queue
+
+    /// A message written while the agent works, sent when its turn ends (D88).
+    struct QueuedMessage: Identifiable {
+        let id = UUID()
+        var text: String
+        var attachments: [PromptAttachment]
+    }
+
+    private(set) var queue: [QueuedMessage] = []
+    /// The queue waits (a stopped or failed turn) until a message is sent by hand.
+    var isQueuePaused: Bool { !queue.isEmpty && status == .ready }
+    private var sendsQueueAfterStop = false
+
+    /// Return in the composer: sends, or queues while the agent works.
+    func submit() {
+        guard status == .working, hasDraft else { return send() }
+        queue.append(QueuedMessage(text: draft.trimmingCharacters(in: .whitespacesAndNewlines), attachments: attachments))
+        draft = ""
+        attachments = []
+    }
+
+    func removeQueued(_ id: QueuedMessage.ID) {
+        queue.removeAll { $0.id == id }
+    }
+
+    /// Back into the composer to edit (when it's empty).
+    func editQueued(_ id: QueuedMessage.ID) {
+        guard !hasDraft, let index = queue.firstIndex(where: { $0.id == id }) else { return }
+        let message = queue.remove(at: index)
+        draft = message.text
+        attachments = message.attachments
+    }
+
+    /// Sends it next: stops the running turn first.
+    func sendQueuedNow(_ id: QueuedMessage.ID) {
+        guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
+        queue.insert(queue.remove(at: index), at: 0)
+        if status == .working {
+            sendsQueueAfterStop = true
+            stop()
+        } else {
+            sendNextQueued()
+        }
+    }
+
+    private func sendNextQueued() {
+        guard status == .ready, !queue.isEmpty else { return }
+        let message = queue.removeFirst()
+        send(text: message.text, attachments: message.attachments)
     }
 
     func attach(_ attachment: PromptAttachment) {
@@ -245,12 +312,16 @@ final class AgentSession: Identifiable {
     }
 
     func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canSend, let client, let sessionID else { return }
-        let shown = attachments
-        let attached = attachments.map(intoCopy)
+        guard canSend else { return }
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines), shown = attachments
         draft = ""
         attachments = []
+        send(text: text, attachments: shown)
+    }
+
+    private func send(text: String, attachments shown: [PromptAttachment]) {
+        guard status == .ready, let client, let sessionID else { return }
+        let attached = shown.map(intoCopy)
         let entry = TranscriptEntry(kind: .user, text: text)
         entry.attachments = shown
         entries.append(entry)
@@ -262,14 +333,25 @@ final class AgentSession: Identifiable {
         } else {
             onChange()
         }
-        let content = PromptBuilder.content(text: text, attachments: attached, capabilities: promptCapabilities) { url in
+        var content = PromptBuilder.content(text: text, attachments: attached, capabilities: promptCapabilities) { url in
             workspace.documents.currentText(of: url)
+        }
+        if let restoreNote {
+            content.insert(["type": "text", "text": .string(restoreNote)], at: 0)
+            self.restoreNote = nil
         }
         status = .working
         planEntry = nil
 
         Task {
-            await projectTracker?.beginAgentTurn()
+            if let checkpoint = await projectTracker?.beginAgentTurn() {
+                entry.checkpoint = checkpoint
+                checkpoints.append(MessageCheckpoint(message: text, checkpoint: checkpoint))
+                checkpoints = Array(checkpoints.suffix(Self.checkpointLimit))
+                onChange()
+            }
+            var attention: AgentAttention?
+            var continuesQueue = false
             do {
                 let result = try await client.prompt(sessionID: sessionID, content: content)
                 usage.apply(turn: result["usage"])
@@ -280,11 +362,25 @@ final class AgentSession: Identifiable {
                 case "cancelled": notice("Stopped.")
                 default: break
                 }
+                let stopReason = result["stopReason"]?.string
+                continuesQueue = stopReason != "cancelled" && stopReason != "refusal"
+                if stopReason != "cancelled" {
+                    let reply = entries.last { $0.kind == .agent }?.text ?? ""
+                    attention = .finished(summary: String(reply.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)))
+                }
             } catch {
                 notice(describe(error), isError: true)
+                attention = .failed(describe(error))
             }
             await projectTracker?.endAgentTurn()
             if status == .working { status = .ready }
+            let sendsNow = sendsQueueAfterStop
+            sendsQueueAfterStop = false
+            if continuesQueue || sendsNow, !queue.isEmpty, status == .ready {
+                sendNextQueued()
+            } else if let attention {
+                onAttention(attention)
+            }
             await refreshUnappliedChanges()
         }
     }
@@ -334,6 +430,7 @@ final class AgentSession: Identifiable {
             handleRequest(method, params, reply)
         case .replayFinished:
             isReplaying = false
+            matchCheckpoints()
             isLoadingHistory = false
         case .exited(let code, let stderr):
             stderrTail = stderr
@@ -342,7 +439,9 @@ final class AgentSession: Identifiable {
             isLoadingHistory = false
             if case .failed = status { return }
             let detail = stderr.split(separator: "\n").suffix(3).joined(separator: "\n")
+            let wasWorking = status == .working
             status = .failed(code == 0 ? "Agent exited." : "Agent exited with code \(code).\n\(detail)")
+            if wasWorking { onAttention(.failed(code == 0 ? "The agent exited." : "The agent exited with code \(code).")) }
         }
     }
 
@@ -532,6 +631,7 @@ final class AgentSession: Identifiable {
             }()
             entry.permission = request
             pendingPermissions.append(request)
+            onAttention(.permission(entry.title.isEmpty ? "Permission requested" : entry.title))
 
         case "fs/read_text_file":
             guard let path = params["path"]?.string else {
@@ -697,6 +797,42 @@ final class AgentSession: Identifiable {
     }
 
     // MARK: Helpers
+
+    // MARK: Restore points
+
+    var canRestore: Bool { projectTracker != nil && status != .working }
+
+    /// Puts the project's files back to how they were before `entry` was sent.
+    func restore(to entry: TranscriptEntry) {
+        guard let checkpoint = entry.checkpoint, canRestore, let tracker = projectTracker else { return }
+        Task {
+            do {
+                let files = try await tracker.restore(checkpoint)
+                guard !files.isEmpty else {
+                    notice("The files already match how they were before that message.")
+                    return
+                }
+                let count = files.count
+                notice("Restored \(count) file\(count == 1 ? "" : "s") to before that message; undo any change in the editor.")
+                let quoted = entry.text.count > 200 ? String(entry.text.prefix(200)) + "…" : entry.text
+                restoreNote = "[Orbit: the user restored the project's files to how they were before their message \"\(quoted)\". "
+                    + "Changes made after it, yours included, are gone; check files before relying on earlier edits.]"
+            } catch {
+                notice("Couldn't restore: \(error.localizedDescription)", isError: true)
+            }
+        }
+    }
+
+    /// A reopened conversation's messages get their restore points back.
+    private func matchCheckpoints() {
+        var remaining = checkpoints[...]
+        for entry in entries where entry.kind == .user {
+            let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let index = remaining.firstIndex(where: { $0.message == text }) else { continue }
+            entry.checkpoint = remaining[index].checkpoint
+            remaining = remaining[(index + 1)...]
+        }
+    }
 
     private func notice(_ text: String, isError: Bool = false) {
         let entry = TranscriptEntry(kind: .notice, text: text)

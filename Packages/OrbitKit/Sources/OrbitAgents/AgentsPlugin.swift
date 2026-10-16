@@ -128,6 +128,19 @@ final class AgentTaskService: AgentTasks {
         self.ui = ui
     }
 
+    func attachFile(_ url: URL) {
+        ui.revealInspectorPanel("agents")
+        store.attachToChat(.from(fileURL: url))
+        store.focusComposer()
+    }
+
+    func attachFileToNewChat(_ url: URL) {
+        ui.revealInspectorPanel("agents")
+        store.newChat()
+        store.attachToChat(.from(fileURL: url))
+        store.focusComposer()
+    }
+
     func draftTask(_ prompt: String) -> Bool {
         ui.revealInspectorPanel("agents")
         store.newChat()
@@ -180,6 +193,7 @@ final class AgentStore {
         // Agents Orbit used to ship moved to the registry's ids (D52).
         preferredProviderID = context.settings.string("lastProvider").map(AgentProvider.migratedID)
         isolatedByDefault = context.settings.bool("isolatedByDefault")
+        notifies = !context.settings.bool("notificationsOff")
         lastValues = Self.migratingKeys(context.settings.data("lastOptions").flatMap { try? JSONDecoder().decode([String: [String: String]].self, from: $0) } ?? [:])
         models = Self.migratingKeys(context.settings.data("models").flatMap { try? JSONDecoder().decode([String: ConfigOption].self, from: $0) } ?? [:])
         // Resolve the login-shell environment up front; spawning agents needs it.
@@ -189,6 +203,12 @@ final class AgentStore {
         migrateBuiltinAgents()
         restoreTabs()
         observeFolder()
+        notifier.isEnabled = notifies
+        notifier.onOpen = { [weak self] id in
+            guard let self, sessions.contains(where: { $0.id == id }) else { return }
+            selectedID = id
+            ui.revealInspectorPanel("agents")
+        }
         services.resolve(AgentIsolation.self)?.discardCopies(except: history.copiesInUse)
     }
 
@@ -207,8 +227,9 @@ final class AgentStore {
             _ = workspace.root
         } onChange: { [weak self] in
             Task { @MainActor in
-                self?.folderDidChange()
-                self?.observeFolder()
+                guard let self, !self.workspace.isClosed else { return }
+                self.folderDidChange()
+                self.observeFolder()
             }
         }
     }
@@ -246,6 +267,15 @@ final class AgentStore {
     private(set) var missing: Set<String> = []
 
     var availableProviders: [AgentProvider] { providers.filter { !missing.contains($0.id) } }
+
+    let notifier = AgentNotifier()
+    /// System notifications and the Dock badge when an agent finishes or waits in the background (D87).
+    var notifies: Bool {
+        didSet {
+            settings.set(!notifies, for: "notificationsOff")
+            notifier.isEnabled = notifies
+        }
+    }
 
     /// ⇧⌘N and the start screen make isolated sessions unless asked otherwise.
     var isolatedByDefault: Bool {
@@ -430,6 +460,10 @@ final class AgentStore {
             guard let self, let session, let saved = session.saved else { return }
             if !session.isEmptyChat { history.record(saved) }
             saveTabs()
+        }
+        session.onAttention = { [weak self, weak session] attention in
+            guard let self, let session else { return }
+            notifier.post(attention, session: session.id, agent: session.provider.name, chat: session.title)
         }
         session.onConfigOptions = { [weak self] options in
             guard let self, let model = options.first(where: { $0.category == "model" }) else { return }

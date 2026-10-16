@@ -67,17 +67,30 @@ private struct GitHeader: View {
                     isNamingBranch = true
                 }
             } label: {
-                Label(model.branchTitle, systemImage: "arrow.triangle.branch")
-                    .font(.system(size: 12, weight: .medium))
+                // Our own label, so a long branch name truncates instead of
+                // widening the panel past the sidebar.
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                    Text(model.branchTitle)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 12, weight: .medium))
+                .contentShape(.rect)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Switch Branch")
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .help("Switch Branch (\(model.branchTitle))")
 
             if model.status.ahead > 0 || model.status.behind > 0 {
                 Text(syncLabel)
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .fixedSize()
                     .help("\(model.status.ahead) to push, \(model.status.behind) to pull")
             }
             Spacer(minLength: 4)
@@ -276,7 +289,7 @@ private struct ChangesList: View {
                                 StashRow(stash: stash, model: model)
                             }
                         } header: {
-                            SectionHeader(title: "Stashes", count: model.stashes.count)
+                            SectionHeader(title: "Stashes", count: model.stashes.count, isExpanded: $showsStashes)
                         }
                     }
                     if !model.history.isEmpty {
@@ -285,7 +298,7 @@ private struct ChangesList: View {
                                 CommitRow(commit: commit, model: model)
                             }
                         } header: {
-                            SectionHeader(title: "History", count: model.history.count)
+                            SectionHeader(title: "History", count: model.history.count, isExpanded: $showsHistory)
                         }
                     }
                 }
@@ -415,11 +428,15 @@ private struct CommitFileRow: View {
 private struct SectionHeader<Actions: View>: View {
     let title: String
     let count: Int
+    /// A collapsible section: a click anywhere on the header toggles it, not
+    /// only on the list's chevron at its end.
+    var isExpanded: Binding<Bool>?
     @ViewBuilder var actions: Actions
 
-    init(title: String, count: Int, @ViewBuilder actions: () -> Actions = { EmptyView() }) {
+    init(title: String, count: Int, isExpanded: Binding<Bool>? = nil, @ViewBuilder actions: () -> Actions = { EmptyView() }) {
         self.title = title
         self.count = count
+        self.isExpanded = isExpanded
         self.actions = actions()
     }
 
@@ -432,6 +449,11 @@ private struct SectionHeader<Actions: View>: View {
                 .padding(.leading, 4)
             Spacer()
             actions
+        }
+        .contentShape(.rect)
+        .onTapGesture {
+            guard let isExpanded else { return }
+            withAnimation(.snappy(duration: 0.2)) { isExpanded.wrappedValue.toggle() }
         }
     }
 }

@@ -63,6 +63,8 @@ public struct ColorTheme: Sendable, Identifiable, Hashable {
     public var activeLineNumber: ThemeColor?
     public var cursor: ThemeColor?
     public var selection: ThemeColor?
+    /// Zed's `text.accent`: the app's tint instead of the system blue (D97).
+    public var accent: ThemeColor?
     /// Other uses of the symbol under the caret: reads, and writes (assignments).
     public var symbolHighlight: ThemeColor?
     public var symbolHighlightWrite: ThemeColor?
@@ -221,6 +223,7 @@ enum ThemeFile {
             let player = (style["players"] as? [[String: Any]])?.first
             theme.cursor = (player?["cursor"] as? String).flatMap(ThemeColor.init(hex:))
             theme.selection = (player?["selection"] as? String).flatMap(ThemeColor.init(hex:))
+            theme.accent = color("text.accent", "icon.accent", "border.focused")
             theme.symbolHighlight = color("editor.document_highlight.read_background")
             theme.symbolHighlightWrite = color("editor.document_highlight.write_background")
 

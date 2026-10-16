@@ -2,8 +2,8 @@ import OrbitAPI
 import OrbitUI
 import SwiftUI
 
-/// Every error and warning the language servers report for open files,
-/// by file; a click opens the spot (D59).
+/// Every error and warning the language servers report, by file: open
+/// files and the ones the agent changed (D75); a click opens the spot (D59).
 struct ProblemsPanel: View {
     let manager: LanguageManager
     let workspace: Workspace
@@ -11,7 +11,7 @@ struct ProblemsPanel: View {
     var body: some View {
         let problems = manager.problems
         if problems.isEmpty {
-            EmptyStateView("No Problems", systemImage: "checkmark.circle", message: "Errors and warnings in open files show up here.")
+            EmptyStateView("No Problems", systemImage: "checkmark.circle", message: "Errors and warnings in open files and files the agent changed show up here.")
         } else {
             List {
                 ForEach(problems) { file in
@@ -54,9 +54,12 @@ private struct ProblemRow: View {
                 Image(systemName: symbol)
                     .foregroundStyle(color)
                     .font(.system(size: 11))
-                Text(problem.message)
+                // Servers put the cause after a blank line ("Error in svelte.config.js\n\n…");
+                // without collapsing it the two visible lines show only the headline.
+                Text(problem.message.split(whereSeparator: \.isNewline).joined(separator: "\n"))
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(problem.message)
                 if let source = problem.source {
                     Text(source)
                         .foregroundStyle(.tertiary)
