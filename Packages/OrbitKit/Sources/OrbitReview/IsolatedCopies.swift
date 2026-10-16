@@ -14,12 +14,20 @@ final class IsolatedCopies: AgentIsolation {
     init(workspace: Workspace, tracker: ChangeTracker) {
         self.workspace = workspace
         self.tracker = tracker
+        _ = Self.launched
     }
 
-    nonisolated static var storage: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// The app's copies live in Application Support. Any other process (the
+    /// tests) gets its own folder: it has other settings, so the app's copies
+    /// in use would all look unused to its sweep.
+    nonisolated static let storage: URL = Bundle.main.bundleIdentifier == "dev.orbit.app"
+        ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Orbit/isolated", isDirectory: true)
-    }
+        : FileManager.default.temporaryDirectory
+            .appendingPathComponent("orbit-isolated-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+
+    /// Before any copy of this run is made (set by the first instance).
+    private nonisolated static let launched = Date()
 
     func makeCopy(of project: URL) async throws -> IsolatedCopy {
         let project = project.standardizedFileURL
@@ -100,13 +108,17 @@ final class IsolatedCopies: AgentIsolation {
         }
     }
 
+    /// Leftovers of earlier runs only: every window sweeps when it opens (D101), and
+    /// a copy made since launch may belong to a chat whose tab isn't saved yet.
     func discardCopies(except kept: [IsolatedCopy]) {
-        let storage = Self.storage
+        let storage = Self.storage, launched = Self.launched
         let keep = Set(kept.map { $0.directory.deletingLastPathComponent().standardizedFileURL.lastPathComponent })
         Task.detached(priority: .utility) {
             let fileManager = FileManager.default
-            guard let folders = try? fileManager.contentsOfDirectory(at: storage, includingPropertiesForKeys: nil) else { return }
+            guard let folders = try? fileManager.contentsOfDirectory(at: storage, includingPropertiesForKeys: [.creationDateKey]) else { return }
             for folder in folders where !keep.contains(folder.lastPathComponent) {
+                let created = (try? folder.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                guard created < launched else { continue }
                 let copies = (try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
                 for copy in copies { try? fileManager.removeItem(at: Checkpoints(root: copy).gitDir) }
                 try? fileManager.removeItem(at: folder)

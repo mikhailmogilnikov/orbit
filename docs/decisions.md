@@ -118,6 +118,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D106. Files keep their encoding and line endings; binary and huge files aren't opened
 - D107. Shortcuts can be reassigned in Settings → Keyboard Shortcuts
 - D108. Editor and agent options in `.orbit/settings.json`
+- D109. The isolated-copy sweep leaves this run's copies and other processes alone
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2355,3 +2356,17 @@ it's edited and which agent works on it:
   Orbit, files change (`fileSystemDidChange`) and Orbit becomes active.
 - File → Open Project Settings creates the file with empty sections (a
   template with values would pin Orbit's defaults over the user's).
+
+### D109. The isolated-copy sweep leaves this run's copies and other processes alone
+
+Each `AgentStore` deletes isolated copies no saved chat tab uses (leftovers
+of earlier runs). Since D101 that runs whenever a window opens, so a copy
+made since launch whose chat tab wasn't saved yet could go. And `make test`
+(`WindowLifetimeTests` starts every plugin) swept the app's folder with the
+test process's empty settings: it deleted the copies of the running Orbit's
+chats, and the isolated-copy tests' own copies mid-run (their flaky
+"git init failed" / missing `a.txt`).
+
+The sweep now only deletes folders created before the process started, and
+only the app (`dev.orbit.app`) uses `Application Support/Orbit/isolated`;
+any other process gets its own temporary folder.
