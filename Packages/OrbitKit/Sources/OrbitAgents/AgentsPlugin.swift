@@ -192,7 +192,7 @@ final class AgentStore {
         history = SessionHistory(settings: context.settings)
         // Agents Orbit used to ship moved to the registry's ids (D52).
         preferredProviderID = context.settings.string("lastProvider").map(AgentProvider.migratedID)
-        isolatedByDefault = context.settings.bool("isolatedByDefault")
+        chosenIsolated = context.settings.bool("isolatedByDefault")
         notifies = !context.settings.bool("notificationsOff")
         lastValues = Self.migratingKeys(context.settings.data("lastOptions").flatMap { try? JSONDecoder().decode([String: [String: String]].self, from: $0) } ?? [:])
         models = Self.migratingKeys(context.settings.data("models").flatMap { try? JSONDecoder().decode([String: ConfigOption].self, from: $0) } ?? [:])
@@ -260,7 +260,14 @@ final class AgentStore {
 
     /// Nil only when no agent is installed.
     var preferredProvider: AgentProvider? {
-        availableProviders.first { $0.id == preferredProviderID } ?? availableProviders.first ?? providers.first
+        projectProvider ?? availableProviders.first { $0.id == preferredProviderID } ?? availableProviders.first ?? providers.first
+    }
+
+    /// `"agents": { "default": "codex" }` in a settings file (D108): by id or name.
+    var projectProvider: AgentProvider? {
+        guard let wanted = workspace.settings.string("agents.default")?.lowercased() else { return nil }
+        return availableProviders.first { $0.id.lowercased() == wanted || $0.name.lowercased() == wanted }
+            ?? availableProviders.first { $0.id.lowercased().hasPrefix(wanted) || $0.name.lowercased().hasPrefix(wanted) }
     }
 
     /// Agents whose CLI isn't on the PATH; known once the shell environment is.
@@ -277,9 +284,15 @@ final class AgentStore {
         }
     }
 
-    /// ⇧⌘N and the start screen make isolated sessions unless asked otherwise.
+    /// ⇧⌘N and the start screen make isolated sessions unless asked otherwise;
+    /// `"agents": { "isolated": true }` in a settings file decides it (D108).
     var isolatedByDefault: Bool {
-        didSet { settings.set(isolatedByDefault, for: "isolatedByDefault") }
+        get { workspace.settings.bool("agents.isolated") ?? chosenIsolated }
+        set { chosenIsolated = newValue }
+    }
+
+    private var chosenIsolated: Bool {
+        didSet { settings.set(chosenIsolated, for: "isolatedByDefault") }
     }
 
     /// Option values (by category) remembered per agent for new chats; mode

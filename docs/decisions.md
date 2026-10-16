@@ -117,6 +117,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D105. Text editing basics: line moves, multiple carets, Go to Line, bracket match, zoom
 - D106. Files keep their encoding and line endings; binary and huge files aren't opened
 - D107. Shortcuts can be reassigned in Settings → Keyboard Shortcuts
+- D108. Editor and agent options in `.orbit/settings.json`
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2327,3 +2328,30 @@ changed rows, Reset All in the header.
   and editor keys are matched the same way (`KeyPositions`).
 - The editor's own ⌃⇧I by key position (format, menus can't see it in a
   Russian layout) only applies while Format Document keeps its default.
+
+### D108. Editor and agent options in `.orbit/settings.json`
+
+The settings files held only plugin sections (formatters, language servers,
+companions, MCP servers). Now simple options too, so a project can say how
+it's edited and which agent works on it:
+
+    {
+      "editor": { "wordWrap": true, "formatOnSave": true },
+      "agents": { "default": "codex", "isolated": true }
+    }
+
+- Editor: `wordWrap`, `highlightCurrentLine`, `formatOnSave`, `inlayHints`,
+  `stickyScroll`, `pathBar`. Agents: `default` (an installed agent's id or
+  name, a prefix is enough), `isolated`. `"editor.wordWrap": true` at the
+  top level works too, as in VS Code.
+- **Order**: the project's file, then `~/.orbit/settings.json`, then what's
+  picked in Settings. Settings shows a decided option disabled with "Set by
+  .orbit/settings.json" instead of a toggle that does nothing. Font size
+  stays app-wide (shared with the terminal), indentation stays
+  `.editorconfig`'s (D83).
+- `ProjectSettings` (on `Workspace`, one per window) reads both files'
+  top-level values and those one object down; plugins keep parsing their own
+  sections. It reloads when the folder opens, a settings file is saved in
+  Orbit, files change (`fileSystemDidChange`) and Orbit becomes active.
+- File → Open Project Settings creates the file with empty sections (a
+  template with values would pin Orbit's defaults over the user's).

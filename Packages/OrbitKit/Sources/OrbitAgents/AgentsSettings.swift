@@ -11,18 +11,32 @@ struct AgentsSettingsPane: View {
         Form {
             if let preferred = store.preferredProvider {
                 Section {
-                    Picker("Default agent", selection: Binding(
+                    let project = store.workspace.settings
+                    Picker(selection: Binding(
                         get: { preferred.id },
                         set: { store.preferredProviderID = $0 }
                     )) {
                         ForEach(store.availableProviders) { provider in
                             AgentLabel(title: provider.name, provider: provider).tag(provider.id)
                         }
+                    } label: {
+                        Text("Default agent")
+                        if store.projectProvider != nil, let origin = project.origin(of: "agents.default") {
+                            Text("Set by \(origin) (\"agents.default\")").foregroundStyle(.orange)
+                        } else if let wanted = project.string("agents.default") {
+                            Text("“\(wanted)” in settings.json isn't an installed agent").foregroundStyle(.orange)
+                        }
                     }
+                    .disabled(store.projectProvider != nil)
+                    let isolatedOrigin = project.bool("agents.isolated") != nil ? project.origin(of: "agents.isolated") : nil
                     Toggle(isOn: $store.isolatedByDefault) {
                         Text("Start sessions in an isolated copy")
                         Text("The agent works in its own copy of the project; Apply brings its changes back for review.")
+                        if let isolatedOrigin {
+                            Text("Set by \(isolatedOrigin) (\"agents.isolated\")").foregroundStyle(.orange)
+                        }
                     }
+                    .disabled(isolatedOrigin != nil)
                     Toggle(isOn: $store.notifies) {
                         Text("Notify when an agent finishes or needs you")
                         Text("While Orbit is in the background: a notification, and a count on the Dock icon.")

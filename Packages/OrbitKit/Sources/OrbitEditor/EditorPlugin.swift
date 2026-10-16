@@ -36,7 +36,7 @@ public final class EditorPlugin: OrbitPlugin {
         let services = context.services
         Task.detached(priority: .background) { GrammarStore.shared.pruneOutdated() }
         Self.prefetchGrammars(workspace, services: services)
-        let options = EditorOptions(settings: context.settings)
+        let options = EditorOptions(settings: context.settings, project: workspace.settings)
 
         context.ui.addSettingsPane(SettingsPane(
             id: "editor", title: "Editor", systemImage: "chevron.left.forwardslash.chevron.right", order: 10,
@@ -102,7 +102,10 @@ public final class EditorPlugin: OrbitPlugin {
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated { workspace.documents.syncWithDisk() }
+            MainActor.assumeIsolated {
+                workspace.documents.syncWithDisk()
+                workspace.reloadSettings()
+            }
         }
 
         registerChangeCommands(context)
@@ -216,6 +219,23 @@ public final class EditorPlugin: OrbitPlugin {
             ActiveEditor.shared.coordinator?.toggleComment()
         })
         registerLineCommands(context)
+
+        context.commands.register(OrbitCommand(
+            id: "editor.openProjectSettings",
+            title: "Open Project Settings (settings.json)",
+            category: "File",
+            systemImage: "gearshape.2",
+            isEnabled: { workspace.root != nil }
+        ) {
+            guard let root = workspace.root else { return }
+            let url = ProjectSettings.projectFile(root: root)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? ProjectSettings.template.write(to: url, atomically: true, encoding: .utf8)
+                workspace.fileSystemDidChange()
+            }
+            workspace.openFile(url)
+        })
 
         context.commands.register(OrbitCommand(
             id: "editor.format",

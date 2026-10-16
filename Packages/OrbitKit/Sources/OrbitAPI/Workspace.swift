@@ -114,6 +114,8 @@ public final class Workspace {
     /// Set while the saved tabs come back, so restoring doesn't save half of them.
     private var isRestoringTabs = false
     public let documents = DocumentStore()
+    /// `.orbit/settings.json` values over Settings (D108).
+    public let settings = ProjectSettings()
 
     /// Files most recently made active, newest first; remembered per project folder.
     public private(set) var recentFiles: [URL] = []
@@ -133,7 +135,15 @@ public final class Workspace {
         }
         loadRecentFiles()
         restoreTabs()
+        settings.reload(root: self.root)
+        documents.onSave = { [weak self] url in
+            guard let self, settings.isSettingsFile(url) else { return }
+            settings.reload(root: root)
+        }
     }
+
+    /// Picks up edits to the settings files made outside Orbit (on activation).
+    public func reloadSettings() { settings.reload(root: root) }
 
     /// Set by the app: opens a folder in another window (or brings forward the
     /// one showing it) and returns true, or false to open it in this one.
@@ -156,6 +166,7 @@ public final class Workspace {
         UserDefaults.standard.set(url.path, forKey: Self.lastRootKey)
         loadRecentFiles()
         restoreTabs()
+        settings.reload(root: root)
         fileSystemGeneration += 1
     }
 
@@ -814,6 +825,7 @@ public final class Workspace {
     /// Call after something outside the editor touched the disk.
     public func fileSystemDidChange() {
         documents.syncWithDisk()
+        settings.reload(root: root)
         fileSystemGeneration += 1
     }
 }

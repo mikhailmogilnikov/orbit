@@ -172,6 +172,7 @@
 - A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
+- Project options in `.orbit/settings.json` (D108): editor display / format on save, default agent, isolated sessions; Settings shows what the file decides; File → Open Project Settings
 - Reassignable shortcuts (D107): recorder in Settings → Keyboard Shortcuts, conflicts move the key, reset per row / all
 - Encodings and line endings (D106): file encodings, CRLF, BOM, binary and large-file refusal, status bar menu
 - Text editing basics (D105): move / copy lines ⌥↑↓ ⇧⌥↑↓, multiple carets (⌘D, ⇧⌘L, ⌥-click, ⌃⇧↑↓), Go to Line ⌃G, matching bracket outline, font zoom ⌘= ⌘- ⌘0
@@ -216,8 +217,7 @@ Everything below is known to be missing; nothing here is in progress.
   copy is used, on purpose); Pint and PHP CS Fixer don't use their cache
 - Rules can't be edited in Settings, only in the JSON file; the Formatting
   section refreshes when Settings opens, not when the files change
-- `.orbit/settings.json` holds `formatters` and `languageServers` only (no
-  editor or agent options yet)
+- `.orbit/settings.json` (D108) has no font, indentation, terminal or per-agent model options; values aren't validated (an unknown key is ignored silently)
 
 **Editor**
 - Combined injections (PHP's HTML as one document, `injection.combined`):
@@ -370,6 +370,8 @@ Everything below is known to be missing; nothing here is in progress.
 - Git: diff tabs are unified (no side-by-side); History shows only the
   current branch, without search or a graph; blame is only the caret's line
   (no per-line annotations).
+- Project options (D108): unverified on a Mac (the "Set by" notes and
+  disabled toggles, options changing on save of the file).
 - Shortcuts (D107): unverified on a Mac (the recorder taking keys before
   Settings' own Esc, menus updating at once, a reassigned key in a second
   window). Function keys and keys without ⌘⌃⌥ can't be recorded; a command

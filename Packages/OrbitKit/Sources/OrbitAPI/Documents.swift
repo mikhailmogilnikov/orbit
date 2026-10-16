@@ -56,8 +56,11 @@ public final class TextDocument: Identifiable {
         diskConflict = nil
     }
 
+    var onSave: ((URL) -> Void)?
+
     public func save() throws {
         try TextFile.encode(text, as: format).write(to: url, options: .atomic)
+        onSave?(url)
         savedText = text
         savedFormat = format
         diskConflict = nil
@@ -138,6 +141,8 @@ public final class TextDocument: Identifiable {
 @Observable
 public final class DocumentStore {
     public private(set) var open: [URL: TextDocument] = [:]
+    /// A buffer was saved (settings files reload).
+    var onSave: ((URL) -> Void)?
 
     init() {}
 
@@ -145,6 +150,7 @@ public final class DocumentStore {
         let url = url.standardizedFileURL
         if let existing = open[url] { return existing }
         let document = TextDocument(url: url)
+        document.onSave = { [weak self] in self?.onSave?($0) }
         open[url] = document
         return document
     }
@@ -166,6 +172,7 @@ public final class DocumentStore {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             // A file that's there keeps its encoding and line endings.
             try TextFile.encode(text, as: TextFile.format(of: url) ?? .default).write(to: url, options: .atomic)
+            onSave?(url)
         }
     }
 
