@@ -172,6 +172,7 @@
 - A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
+- Indent guides, Find in Folder, Select for Compare (two-file diff tab), Find in Terminal and a terminal font size of its own (D110)
 - Project options in `.orbit/settings.json` (D108): editor display / format on save, default agent, isolated sessions; Settings shows what the file decides; File → Open Project Settings
 - Reassignable shortcuts (D107): recorder in Settings → Keyboard Shortcuts, conflicts move the key, reset per row / all
 - Encodings and line endings (D106): file encodings, CRLF, BOM, binary and large-file refusal, status bar menu
@@ -233,7 +234,6 @@ Everything below is known to be missing; nothing here is in progress.
 **Git and terminal**
 - Side-by-side diffs, branch graph and history search, other branches'
   history, per-line blame annotations
-- Find in terminal, a terminal font size of its own
 
 ## Known gaps / to verify
 - Windows (D101): unverified on a Mac (windows coming back on launch, the
@@ -307,8 +307,9 @@ Everything below is known to be missing; nothing here is in progress.
 - Disk conflicts: merging an agent's edit into unsaved edits makes those edits
   count as agent changes in the inline review (its baseline is the disk before
   the turn).
-- Terminal: no find-in-terminal, font size follows the editor only, panel
-  hides when the last shell exits.
+- Terminal: the panel hides when the last shell exits. Find (D110) is
+  SwiftTerm's own find bar, unverified on a Mac (⌘F reaching it through
+  Edit → Find, its look next to Orbit's glass).
 - Agent terminals: the `terminal/*` (PTY) path is untested with a real agent
   (Claude Code and Codex use display terminals); check how many tabs a busy
   turn leaves.
@@ -339,7 +340,8 @@ Everything below is known to be missing; nothing here is in progress.
   click beside its drag). Open Quickly doesn't preview, unlike VS Code.
 - Explorer context menu (D95): unverified on a Mac (⌘X ⌘C ⌘V reaching the
   list through the Edit menu, ⌃↩ / ⌥⌘R / ⌥⌘C keys, app icons in Open With).
-  No Select for Compare (no two-file diff tab yet), no Find in Folder.
+  Compare and Find in Folder (D110) unverified on a Mac. Compare is unified
+  only, like the git diffs.
 - Drag and drop (D91): tab drags became our own gesture (the system drag
   hung after drops); unverified on a Mac. Dropping files on the editor rests
   on an assumption (AppKit finds the catcher above the text view although
@@ -370,6 +372,8 @@ Everything below is known to be missing; nothing here is in progress.
 - Git: diff tabs are unified (no side-by-side); History shows only the
   current branch, without search or a graph; blame is only the caret's line
   (no per-line annotations).
+- Indent guides (D110): unverified on a Mac (crisp 1-pt lines, placement
+  with tabs, inline-diff gaps and folds; a theme's `editor.indent_guide`).
 - Project options (D108): unverified on a Mac (the "Set by" notes and
   disabled toggles, options changing on save of the file).
 - Shortcuts (D107): unverified on a Mac (the recorder taking keys before

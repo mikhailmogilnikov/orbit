@@ -79,6 +79,12 @@ public protocol TerminalOpening: AnyObject {
     func openTerminal(in directory: URL)
 }
 
+/// Find in Project limited to a folder (the explorer's Find in Folder).
+@MainActor
+public protocol ProjectSearching: AnyObject {
+    func findInFolder(_ folder: URL)
+}
+
 /// How a file differs from version control, for decorations (explorer colors, badges).
 public enum FileChangeKind: Int, Sendable, Comparable {
     // Raw values rank importance: a folder takes its most important child's kind.

@@ -24,6 +24,7 @@ struct CodeEditor: NSViewRepresentable {
     var languages: LanguageIntelligence?
     var showsInlayHints = true
     var showsStickyScroll = true
+    var showsIndentGuides = true
     /// Bumped when the server's hints went stale.
     var inlayHintsRevision = 0
     var onOpenLocation: (SourceLocation) -> Void = { _ in }
@@ -84,6 +85,9 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.definitionLink.characterOffset = { [weak coordinator] point in coordinator?.characterOffset(at: point) }
         textView.addPlugin(SymbolHighlightPlugin(controller: coordinator.symbolHighlights))
         coordinator.bracketMatch.textView = textView
+        coordinator.indentGuides.textView = textView
+        coordinator.indentGuides.isEnabled = showsIndentGuides
+        textView.addPlugin(IndentGuidesPlugin(controller: coordinator.indentGuides))
         textView.addPlugin(BracketMatchPlugin(controller: coordinator.bracketMatch))
         coordinator.inlayHints.textView = textView
         coordinator.inlayHints.url = document.url
@@ -204,6 +208,7 @@ struct CodeEditor: NSViewRepresentable {
         }
         coordinator.inlayHints.isEnabled = showsInlayHints
         coordinator.stickyScroll.isEnabled = showsStickyScroll
+        coordinator.indentGuides.isEnabled = showsIndentGuides
         // New problems mean the server has caught up with the text: its hints may have changed too.
         if coordinator.inlayHintsRevision != inlayHintsRevision || coordinator.diagnosticsController.diagnostics != shownDiagnostics {
             coordinator.inlayHintsRevision = inlayHintsRevision
@@ -248,6 +253,7 @@ struct CodeEditor: NSViewRepresentable {
         let diagnosticsController = DiagnosticsController()
         lazy var symbolHighlights = SymbolHighlightController(geometry: diagnosticsController)
         lazy var bracketMatch = BracketMatchController(geometry: diagnosticsController)
+        let indentGuides = IndentGuidesController()
         lazy var definitionLink = DefinitionLinkController(geometry: diagnosticsController)
         lazy var inlayHints = InlayHintController(geometry: diagnosticsController)
         lazy var folding = FoldingController(geometry: diagnosticsController)
@@ -329,6 +335,7 @@ struct CodeEditor: NSViewRepresentable {
                 write: theme.symbolHighlightWrite?.nsColor ?? ink.withAlphaComponent(isDark ? 0.17 : 0.12)
             )
             bracketMatch.color = foreground.withAlphaComponent(isDark ? 0.5 : 0.4)
+            indentGuides.color = theme.indentGuide?.nsColor ?? ink.withAlphaComponent(isDark ? 0.12 : 0.1)
             inlayHints.colors = InlayHintController.Colors(
                 text: theme.hint?.nsColor ?? ink.withAlphaComponent(0.5),
                 background: theme.hintBackground?.nsColor ?? ink.withAlphaComponent(isDark ? 0.08 : 0.05)

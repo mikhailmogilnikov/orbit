@@ -18,6 +18,12 @@ public final class ExplorerPlugin: OrbitPlugin {
         context.ui.addSidebarPanel(PanelContribution(id: "explorer", title: "Explorer", systemImage: "folder", order: 0) {
             ExplorerView(model: model, workspace: workspace, commands: context.commands, decorations: context.services.resolve(FileStatusProviding.self))
         }.command("explorer.show"))
+        context.ui.addEditorProvider(EditorProvider(id: "explorer.compare", accepts: { $0.kind == CompareFiles.kind }) { tab in
+            if let (left, right) = CompareFiles.files(of: tab) {
+                CompareView(workspace: workspace, left: left, right: right, highlighter: context.services.resolve(SyntaxHighlighting.self))
+                    .id(tab.id)
+            }
+        })
         // Into the folder chosen in the tree, else the active file's (D93).
         context.commands.register(OrbitCommand(
             id: "explorer.newFile",
@@ -157,6 +163,13 @@ final class FileTreeModel {
     @ObservationIgnored var justSelectedFolder: URL?
     /// The folder a drag is over: its row is highlighted (D92).
     var dropTarget: URL?
+    /// The file picked with Select for Compare.
+    var compareSelection: URL?
+
+    func compare(with url: URL) {
+        guard let selected = compareSelection, selected != url else { return }
+        workspace.open(CompareFiles.tab(selected, url))
+    }
 
     func setDropTarget(_ folder: URL, _ isTargeted: Bool) {
         if isTargeted { dropTarget = folder } else if dropTarget == folder { dropTarget = nil }
@@ -411,6 +424,7 @@ final class FileTreeModel {
     private let services: ServiceRegistry
     var agentTasks: AgentTasks? { services.resolve(AgentTasks.self) }
     var terminal: TerminalOpening? { services.resolve(TerminalOpening.self) }
+    var search: ProjectSearching? { services.resolve(ProjectSearching.self) }
     /// What ⌘X put on the pasteboard: pasting those moves them.
     private var cutItems: [URL] = []
 
@@ -1021,12 +1035,20 @@ struct FileContextMenu: View {
             Button("Open to the Side") { model.workspace.openBeside(.file(url)) }
                 .keyboardShortcut(.return, modifiers: .control)
             OpenWithMenu(url: url)
+            Divider()
+            if let selected = model.compareSelection, selected != url {
+                Button("Compare with “\(selected.lastPathComponent)”") { model.compare(with: url) }
+            }
+            Button("Select for Compare") { model.compareSelection = url }
         }
         Divider()
         Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             .keyboardShortcut("r", modifiers: [.option, .command])
         if model.terminal != nil {
             Button("Open in Integrated Terminal") { model.openTerminal(at: url) }
+        }
+        if isFolder, let search = model.search {
+            Button("Find in Folder…") { search.findInFolder(url) }
         }
         if model.agentTasks != nil {
             Divider()

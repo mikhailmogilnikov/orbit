@@ -18,6 +18,7 @@ public final class SearchPlugin: OrbitPlugin {
         let files = ProjectFiles(workspace: workspace)
         let search = SearchModel(workspace: workspace, files: files)
         context.services.register(ProjectFileIndex.self, SearchFileIndex(workspace: workspace, files: files))
+        context.services.register(ProjectSearching.self, FolderSearch(workspace: workspace, ui: ui, model: search))
 
         ui.addSidebarPanel(PanelContribution(id: "search", title: "Search", systemImage: "magnifyingglass", order: 5) {
             SearchPanel(model: search, workspace: workspace)
@@ -46,6 +47,29 @@ public final class SearchPlugin: OrbitPlugin {
             ui.revealSidebarPanel("search")
             search.focusRequest += 1
         })
+    }
+}
+
+/// Find in Folder: the folder goes in "files to include".
+@MainActor
+final class FolderSearch: ProjectSearching {
+    private let workspace: Workspace
+    private let ui: UIRegistry
+    private let model: SearchModel
+
+    init(workspace: Workspace, ui: UIRegistry, model: SearchModel) {
+        self.workspace = workspace
+        self.ui = ui
+        self.model = model
+    }
+
+    func findInFolder(_ folder: URL) {
+        guard let root = workspace.root?.standardizedFileURL.path else { return }
+        let path = folder.standardizedFileURL.path
+        model.include = path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : ""
+        if !model.include.isEmpty { model.areFiltersVisible = true }
+        ui.revealSidebarPanel("search")
+        model.focusRequest += 1
     }
 }
 

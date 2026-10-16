@@ -46,6 +46,23 @@ public final class TerminalPlugin: OrbitPlugin {
         ) {
             store.newSession()
         })
+        // SwiftTerm's find bar; ⌘F (Edit → Find) opens it too while the terminal has focus.
+        context.commands.register(OrbitCommand(
+            id: "terminal.find",
+            title: "Find in Terminal…",
+            category: "Terminal",
+            systemImage: "magnifyingglass",
+            isEnabled: { store.selected != nil }
+        ) {
+            guard let view = store.selected?.view else { return }
+            ui.revealBottomPanel(TerminalStore.panelID)
+            DispatchQueue.main.async {
+                view.window?.makeFirstResponder(view)
+                let item = NSMenuItem()
+                item.tag = NSTextFinder.Action.showFindInterface.rawValue
+                view.performTextFinderAction(item)
+            }
+        })
         context.commands.register(OrbitCommand(
             id: "terminal.kill",
             title: "Kill Terminal",
@@ -210,7 +227,7 @@ struct TerminalPanel: View {
         // The session tabs are in the bottom area's header (`TerminalTabs`).
         VStack(spacing: 0) {
             if let session = store.selected {
-                TerminalHost(session: session, fontSize: Preferences.shared.codeFontSize)
+                TerminalHost(session: session, fontSize: Preferences.shared.effectiveTerminalFontSize)
                     .padding(.leading, 8)
                     .padding(.top, 4)
             } else {

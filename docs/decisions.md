@@ -119,6 +119,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D107. Shortcuts can be reassigned in Settings → Keyboard Shortcuts
 - D108. Editor and agent options in `.orbit/settings.json`
 - D109. The isolated-copy sweep leaves this run's copies and other processes alone
+- D110. Indent guides, Find in Folder, Compare Files, terminal find and font
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2370,3 +2371,25 @@ chats, and the isolated-copy tests' own copies mid-run (their flaky
 The sweep now only deletes folders created before the process started, and
 only the app (`dev.orbit.app`) uses `Application Support/Orbit/isolated`;
 any other process gets its own temporary folder.
+
+### D110. Indent guides, Find in Folder, Compare Files, terminal find and font
+
+The roadmap's smaller "desirable" items:
+
+- **Indent guides**: 1-pt lines at each indentation level of the visible
+  lines (`IndentGuidesController`, a view under the text redrawn per
+  viewport layout). The level is the indent ÷ the file's indent size; blank
+  lines take the shallower neighbor, looking up to 100 lines past the
+  viewport. Theme color `editor.indent_guide` (Zed), else the ink at 10–12%.
+  On by default; `"editor.indentGuides"` (D108) and Settings → Editor.
+- **Find in Folder** in a folder's context menu: Find in Project with the
+  folder in "files to include" (filters shown), through `ProjectSearching`
+  (the explorer can't import the search plugin).
+- **Select for Compare / Compare with “…”** in a file's context menu, as in
+  VS Code: a read-only unified diff tab (`explorer.compare`), unsaved edits
+  included, redone as either buffer or the disk changes. The gap row moved
+  to OrbitUI (`DiffGapRow`) for the git tabs and this one.
+- **Terminal**: SwiftTerm 1.20 has its own find bar (⌘F through Edit →
+  Find while the terminal has focus); Terminal → Find in Terminal opens it
+  from the menu or palette. A terminal font size of its own in Settings →
+  Editor → Font (`Preferences.terminalFontSize`, nil follows the code font).

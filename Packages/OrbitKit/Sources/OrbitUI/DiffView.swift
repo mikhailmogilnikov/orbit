@@ -234,3 +234,22 @@ public struct CompactDiffView: View {
         max(0, hunks.reduce(0) { $0 + $1.lines.count } - maxLines)
     }
 }
+
+/// "⋯ 42 unchanged lines" between hunks.
+public struct DiffGapRow: View {
+    let hidden: Int
+
+    public init(hidden: Int) { self.hidden = hidden }
+
+    public var body: some View {
+        if hidden > 0 {
+            Text("⋯  \(hidden) unchanged line\(hidden == 1 ? "" : "s")")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 96)
+                .padding(.vertical, 4)
+                .background(Theme.subtleFill)
+        }
+    }
+}

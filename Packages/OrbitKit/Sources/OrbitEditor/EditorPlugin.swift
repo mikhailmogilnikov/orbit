@@ -560,6 +560,7 @@ struct FileEditorView: View {
                     languages: languages,
                     showsInlayHints: options.showsInlayHints,
                     showsStickyScroll: options.showsStickyScroll,
+                    showsIndentGuides: options.showsIndentGuides,
                     inlayHintsRevision: languages?.inlayHintsRevision(for: url) ?? 0,
                     onOpenLocation: { workspace.open($0) },
                     grammarRevision: GrammarRegistry.shared.revision,

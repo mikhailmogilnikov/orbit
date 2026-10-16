@@ -8,7 +8,7 @@ import SwiftUI
 final class EditorOptions {
     /// The options a settings file can set, by their key in the "editor" section.
     enum Option: String, CaseIterable {
-        case wordWrap, highlightCurrentLine, formatOnSave, inlayHints, stickyScroll, pathBar
+        case wordWrap, highlightCurrentLine, formatOnSave, inlayHints, stickyScroll, pathBar, indentGuides
 
         /// Their names in Orbit's own defaults (older than the file).
         var storageKey: String {
@@ -19,6 +19,7 @@ final class EditorOptions {
             case .inlayHints: "showsInlayHints"
             case .stickyScroll: "showsStickyScroll"
             case .pathBar: "showsBreadcrumbs"
+            case .indentGuides: "showsIndentGuides"
             }
         }
 
@@ -55,6 +56,7 @@ final class EditorOptions {
     var showsInlayHints: Bool { get { self[.inlayHints] } set { self[.inlayHints] = newValue } }
     var showsStickyScroll: Bool { get { self[.stickyScroll] } set { self[.stickyScroll] = newValue } }
     var showsBreadcrumbs: Bool { get { self[.pathBar] } set { self[.pathBar] = newValue } }
+    var showsIndentGuides: Bool { get { self[.indentGuides] } set { self[.indentGuides] = newValue } }
 }
 
 /// A toggle that says so, and can't be flipped, when a settings file decides it.
@@ -103,14 +105,31 @@ struct EditorSettingsPane: View {
                     .font(.system(size: preferences.codeFontSize, design: .monospaced))
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Toggle("Terminal uses the same size", isOn: Binding(
+                    get: { preferences.terminalFontSize == nil },
+                    set: { preferences.terminalFontSize = $0 ? nil : preferences.codeFontSize }
+                ))
+                if let size = preferences.terminalFontSize {
+                    LabeledContent("Terminal font size") {
+                        HStack(spacing: 8) {
+                            Slider(value: Binding(get: { size }, set: { preferences.terminalFontSize = $0 }), in: Preferences.codeFontSizes, step: 0.5)
+                                .frame(width: 180)
+                            Text(size.formatted(.number.precision(.fractionLength(0...1))) + " pt")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(width: 44, alignment: .trailing)
+                        }
+                    }
+                }
             } header: {
                 Text("Font")
             } footer: {
-                Text("Also used by the terminal and diffs.")
+                Text("Also used by diffs, and by the terminal unless it has its own size. ⌘= ⌘- ⌘0 change it.")
             }
             Section("Display") {
                 OptionToggle(options: options, option: .wordWrap) { Text("Wrap long lines") }
                 OptionToggle(options: options, option: .highlightCurrentLine) { Text("Highlight the current line") }
+                OptionToggle(options: options, option: .indentGuides) { Text("Show indent guides") }
                 OptionToggle(options: options, option: .inlayHints) {
                     Text("Show inlay hints")
                     Text("Types and parameter names from the language server, drawn in the code.")

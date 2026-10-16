@@ -29,10 +29,10 @@ struct GitCommitDiffView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(hunks.enumerated()), id: \.element.id) { index, hunk in
-                            GapRow(hidden: hiddenLines(before: index))
+                            DiffGapRow(hidden: hiddenLines(before: index))
                             DiffHunkView(hunk: hunk, highlighting: highlighting)
                         }
-                        GapRow(hidden: hiddenLinesAfterLast)
+                        DiffGapRow(hidden: hiddenLinesAfterLast)
                     }
                     .textSelection(.enabled)
                 }

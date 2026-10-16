@@ -59,6 +59,7 @@ public struct ColorTheme: Sendable, Identifiable, Hashable {
     public var editorBackground: ThemeColor?
     public var editorForeground: ThemeColor?
     public var activeLineBackground: ThemeColor?
+    public var indentGuide: ThemeColor?
     public var lineNumber: ThemeColor?
     public var activeLineNumber: ThemeColor?
     public var cursor: ThemeColor?
@@ -218,6 +219,7 @@ enum ThemeFile {
             theme.editorBackground = color("editor.background")?.composited(over: surface)
             theme.editorForeground = color("editor.foreground", "text")
             theme.activeLineBackground = color("editor.active_line.background")
+            theme.indentGuide = color("editor.indent_guide")
             theme.lineNumber = color("editor.line_number")
             theme.activeLineNumber = color("editor.active_line_number")
             let player = (style["players"] as? [[String: Any]])?.first

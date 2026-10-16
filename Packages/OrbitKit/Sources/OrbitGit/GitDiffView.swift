@@ -32,10 +32,10 @@ struct GitDiffView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(hunks.enumerated()), id: \.element.id) { index, hunk in
-                            GapRow(hidden: hiddenLines(before: index))
+                            DiffGapRow(hidden: hiddenLines(before: index))
                             DiffHunkView(hunk: hunk, highlighting: highlighting)
                         }
-                        GapRow(hidden: hiddenLinesAfterLast)
+                        DiffGapRow(hidden: hiddenLinesAfterLast)
                     }
                     .textSelection(.enabled)
                 }
@@ -151,19 +151,3 @@ struct GitDiffView: View {
     }
 }
 
-/// "⋯ 42 unchanged lines" between hunks.
-struct GapRow: View {
-    let hidden: Int
-
-    var body: some View {
-        if hidden > 0 {
-            Text("⋯  \(hidden) unchanged line\(hidden == 1 ? "" : "s")")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 96)
-                .padding(.vertical, 4)
-                .background(Theme.subtleFill)
-        }
-    }
-}

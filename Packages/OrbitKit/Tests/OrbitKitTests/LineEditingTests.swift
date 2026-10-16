@@ -89,4 +89,9 @@ import Testing
         #expect(BracketMatchController.match(around: 3, in: text, pairs: pairs) == nil)
         #expect(BracketMatchController.match(around: 1, in: "f(a" as NSString, pairs: pairs) == nil)
     }
+
+    @Test func indentGuidesRunThroughBlankLinesOfABlock() {
+        let lines: [Substring] = ["func f() {\n", "    a()\n", "\n", "    b()\n", "}\n", "\n", "\tc()\n"]
+        #expect(IndentGuidesController.levels(lines, tabSize: 4) == [0, 1, 1, 1, 0, 0, 1])
+    }
 }

@@ -32,6 +32,13 @@ public final class Preferences {
         didSet { UserDefaults.standard.set(codeFontSize, forKey: Keys.codeFontSize) }
     }
 
+    /// The terminal's own size; nil follows the code font.
+    public var terminalFontSize: Double? {
+        didSet { UserDefaults.standard.set(terminalFontSize ?? 0, forKey: Keys.terminalFontSize) }
+    }
+
+    public var effectiveTerminalFontSize: Double { terminalFontSize ?? codeFontSize }
+
     /// Picked color themes by `ColorTheme.id`; nil uses Orbit's default.
     public var lightThemeID: String? {
         didSet { store(lightThemeID, Keys.lightTheme) }
@@ -58,6 +65,7 @@ public final class Preferences {
     private enum Keys {
         static let appearance = "orbit.appearance"
         static let codeFontSize = "orbit.codeFontSize"
+        static let terminalFontSize = "orbit.terminalFontSize"
         static let lightTheme = "orbit.lightTheme"
         static let darkTheme = "orbit.darkTheme"
         static let lightIconTheme = "orbit.lightIconTheme"
@@ -71,6 +79,8 @@ public final class Preferences {
         appearance = defaults.string(forKey: Keys.appearance).flatMap(Appearance.init) ?? .system
         let size = defaults.double(forKey: Keys.codeFontSize)
         codeFontSize = Self.codeFontSizes.contains(size) ? size : Self.defaultCodeFontSize
+        let terminal = defaults.double(forKey: Keys.terminalFontSize)
+        terminalFontSize = Self.codeFontSizes.contains(terminal) ? terminal : nil
         lightThemeID = defaults.string(forKey: Keys.lightTheme)
         darkThemeID = defaults.string(forKey: Keys.darkTheme)
         let legacyIcons = defaults.string(forKey: Keys.legacyIconTheme)
