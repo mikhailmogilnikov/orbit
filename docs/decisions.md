@@ -121,6 +121,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D109. The isolated-copy sweep leaves this run's copies and other processes alone
 - D110. Indent guides, Find in Folder, Compare Files, terminal find and font
 - D111. Side-by-side diffs, replace undo, explorer multiple selection, Peek References
+- D112. Performance and memory pass: review cache, git refresh coalescing, streaming Markdown
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2420,3 +2421,30 @@ The roadmap's bigger "desirable" items:
   jumps. Not VS Code's inline editor, and no live preview while arrowing:
   revealing a line focuses the editor, which would take the keys from the
   pick. Find References (⇧⌘R) still fills the panel.
+
+### D112. Performance and memory pass: review cache, git refresh coalescing, streaming Markdown
+
+An audit of hot paths during agent turns and multi-window use:
+
+- **Change review**: `ChangeTracker` read every changed file from disk two
+  or three times per redraw (changes list, status item, commands, gutters).
+  Files that aren't open are cached and revalidated by `stat` (size, inode,
+  mtime in ns); each file's last diff is reused while both sides are the
+  same, and `stats` comes from those hunks (one per change block).
+- **Git**: a status refresh is five git processes; cancelling its task never
+  stopped them, so an agent's burst of edits stacked runs. Now one runs at a
+  time and requests meanwhile become one more run. The 3 s polls (panel,
+  diff tab) skip while Orbit is in the background; activation refreshes.
+- **Agent chat**: a reply without code fences is one prose segment, re-parsed
+  as Markdown on every streamed chunk (quadratic). Prose is parsed a
+  paragraph at a time with an `NSCache`, so only the last paragraph is new.
+  Tool output trims with hysteresis on `utf8.count` (O(1)), not `count`.
+- **Language edits** to files that aren't open (a project-wide rename) are
+  written through `DocumentStore.write` instead of opening a buffer per
+  file that was never closed (kept in memory and re-read on every disk sync).
+- **Notifications**: the notification center has one delegate, and each
+  window's `AgentNotifier` took it (D101): clicks went to the last window and
+  the Dock badge showed one window's count. A shared router hands clicks to
+  every notifier (the owner of the chat acts) and sums the badge.
+- **Explorer**: a reload keeps a folder's children array when nothing in it
+  changed, so a disk change no longer redraws the whole tree.

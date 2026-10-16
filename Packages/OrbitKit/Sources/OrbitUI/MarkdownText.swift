@@ -84,7 +84,31 @@ public struct MarkdownText: View {
         return segments
     }
 
+    /// While a reply streams in, its earlier paragraphs come back unchanged on
+    /// every chunk; parsing all of it again each time made long replies quadratic.
+    private static let attributedCache: NSCache<NSString, AttributedBox> = {
+        let cache = NSCache<NSString, AttributedBox>()
+        cache.totalCostLimit = 4_000_000
+        return cache
+    }()
+
+    /// Parsed a paragraph at a time (inline Markdown doesn't span blank lines).
     static func attributed(_ prose: String) -> AttributedString {
+        var result = AttributedString()
+        for (index, paragraph) in prose.components(separatedBy: "\n\n").enumerated() {
+            if index > 0 { result.append(AttributedString("\n\n")) }
+            if let cached = attributedCache.object(forKey: paragraph as NSString) {
+                result.append(cached.value)
+            } else {
+                let value = parse(paragraph)
+                attributedCache.setObject(AttributedBox(value), forKey: paragraph as NSString, cost: paragraph.utf16.count)
+                result.append(value)
+            }
+        }
+        return result
+    }
+
+    private static func parse(_ prose: String) -> AttributedString {
         // Headings and bullets aren't supported by inline parsing; normalize them.
         let normalized = prose.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
             var line = String(line)
@@ -99,6 +123,11 @@ public struct MarkdownText: View {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: normalized, options: options)) ?? AttributedString(prose)
     }
+}
+
+private final class AttributedBox {
+    let value: AttributedString
+    init(_ value: AttributedString) { self.value = value }
 }
 
 /// Code in code type, colored once the highlighter answers.

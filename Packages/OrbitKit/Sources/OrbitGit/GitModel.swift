@@ -43,6 +43,9 @@ final class GitModel {
     private var root: URL?
     private var queue: [@Sendable () async -> Void] = []
     private var refreshTask: Task<Void, Never>?
+    /// Git runs one refresh at a time; requests meanwhile become one more run after it.
+    @ObservationIgnored private var isRefreshing = false
+    @ObservationIgnored private var needsRefresh = false
 
     private(set) var isGenerating = false
     private var generateTask: Task<Void, Never>?
@@ -129,15 +132,27 @@ final class GitModel {
             ignoredPaths = []
             blameCache = nil
             state = root == nil ? .noFolder : .loading
+            refreshTask?.cancel()
+            isRefreshing = false
         }
         guard let repository else { return }
-        refreshTask?.cancel()
+        // An agent's burst of edits asks many times a second; each run is five git processes.
+        guard !isRefreshing else {
+            needsRefresh = true
+            return
+        }
+        isRefreshing = true
+        needsRefresh = false
         refreshTask = Task {
             let result = await Task.detached(priority: .utility) { () -> (GitStatus, [String], [GitStash], [GitCommit], [String])? in
                 guard repository.isRepository(), let status = try? repository.status() else { return nil }
                 return (status, (try? repository.branches()) ?? [], repository.stashes(), status.hasCommits ? repository.log() : [], repository.ignoredPaths())
             }.value
-            guard !Task.isCancelled, repository.root == root else { return }
+            // Cancelled: the folder changed and a run for the new one took over.
+            guard !Task.isCancelled else { return }
+            isRefreshing = false
+            defer { if needsRefresh { refresh() } }
+            guard repository.root == root else { return }
             if let (status, branches, stashes, history, ignored) = result {
                 let rootPath = repository.root.standardizedFileURL.path
                 let ignoredPaths = Set(ignored.map { rootPath + "/" + ($0.hasSuffix("/") ? String($0.dropLast()) : $0) })

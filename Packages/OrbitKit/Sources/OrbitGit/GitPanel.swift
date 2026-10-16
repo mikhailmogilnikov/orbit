@@ -31,11 +31,12 @@ struct GitPanel: View {
                 }
             }
         }
-        // Picks up saves and edits made elsewhere while the panel is on screen.
+        // Picks up saves and edits made elsewhere while the panel is on screen;
+        // in the background there's no one to see it (activation refreshes).
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
-                model.refresh()
+                if NSApp.isActive { model.refresh() }
             }
         }
     }

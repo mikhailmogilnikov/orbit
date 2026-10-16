@@ -740,14 +740,19 @@ final class LanguageManager: LanguageIntelligence {
                 worked = false
                 continue
             }
-            let wasOpen = workspace.documents.existingDocument(for: url) != nil
-            let document = workspace.documents.document(for: url)
-            let text = SourceEdit.apply(edits, to: document.text)
+            // A file that isn't open is edited on disk without opening a buffer for
+            // it: a project-wide rename would otherwise keep every file in memory.
+            let document = workspace.documents.existingDocument(for: url)
+            guard let current = document?.text ?? workspace.documents.currentText(of: url) else {
+                worked = false
+                continue
+            }
+            let text = SourceEdit.apply(edits, to: current)
             do {
-                if wasOpen, document.isDirty {
+                if let document, document.isDirty {
                     document.text = text
                 } else {
-                    try document.replaceAndSave(text)
+                    try workspace.documents.write(TextFile.normalized(text), to: url)
                 }
             } catch {
                 worked = false

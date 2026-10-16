@@ -525,7 +525,7 @@ final class AgentSession: Identifiable {
                 terminal.append(delta)
             } else {
                 entry.output += delta
-                if entry.output.count > 20_000 { entry.output = String(entry.output.suffix(20_000)) }
+                if entry.output.utf8.count > 24_000 { entry.output = String(entry.output.suffix(20_000)) }
             }
         }
         if let exit = meta?["terminal_exit"], let terminal = entry.terminal, !terminal.ownsProcess {

@@ -169,25 +169,46 @@ final class ChangeTracker: ChangeTracking {
         baselines[url.standardizedFileURL] ?? nil
     }
 
+    /// Changed files that aren't open, as last read: the changes list, gutters
+    /// and commands ask on every redraw, and a stat is far cheaper than a read.
+    @ObservationIgnored private var diskTexts: [URL: (stamp: DiskStamp?, text: String?)] = [:]
+    /// The last diff of each file, reused while neither side changed.
+    @ObservationIgnored private var diffs: [URL: (old: String, new: String, hunks: [DiffHunk])] = [:]
+
     func current(for url: URL) -> String? {
-        workspace.documents.currentText(of: url)
+        let url = url.standardizedFileURL
+        if let document = workspace.documents.existingDocument(for: url) { return document.text }
+        let stamp = DiskStamp(url)
+        if let cached = diskTexts[url], cached.stamp == stamp, stamp != nil { return cached.text }
+        let text = workspace.documents.currentText(of: url)
+        if baselines[url] != nil { diskTexts[url] = (stamp, text) }
+        return text
     }
 
     func hasChanges(_ url: URL) -> Bool {
         let url = url.standardizedFileURL
         guard let entry = baselines[url] else { return false }
         _ = workspace.documents.existingDocument(for: url)?.revision
-        return (entry ?? "") != (current(for: url) ?? "") || (entry == nil) != (current(for: url) == nil)
+        let current = current(for: url)
+        return (entry ?? "") != (current ?? "") || (entry == nil) != (current == nil)
     }
 
     func stats(for url: URL) -> (added: Int, removed: Int) {
-        guard hasChanges(url) else { return (0, 0) }
-        return LineDiff.stats(old: baseline(for: url) ?? "", new: current(for: url) ?? "")
+        // One hunk per change block: the same counts as `LineDiff.stats`, from the cached diff.
+        hunks(for: url).reduce(into: (0, 0)) { total, hunk in
+            total.0 += hunk.added
+            total.1 += hunk.removed
+        }
     }
 
     func hunks(for url: URL) -> [DiffHunk] {
+        let url = url.standardizedFileURL
         guard hasChanges(url) else { return [] }
-        return LineDiff.hunks(old: baseline(for: url) ?? "", new: current(for: url) ?? "", context: 3)
+        let old = baseline(for: url) ?? "", new = current(for: url) ?? ""
+        if let cached = diffs[url], cached.old == old, cached.new == new { return cached.hunks }
+        let hunks = LineDiff.hunks(old: old, new: new, context: 3)
+        diffs[url] = (old, new, hunks)
+        return hunks
     }
 
     func openReview(for url: URL) {
@@ -214,6 +235,8 @@ final class ChangeTracker: ChangeTracking {
     func accept(_ url: URL) {
         let url = url.standardizedFileURL
         baselines[url] = nil
+        diskTexts[url] = nil
+        diffs[url] = nil
         order.removeAll { $0 == url }
     }
 
@@ -250,5 +273,23 @@ final class ChangeTracker: ChangeTracking {
 
     private func cleanUp(_ url: URL) {
         if !hasChanges(url) { accept(url) }
+    }
+}
+
+/// What changes whenever a file's contents do: size, inode (atomic saves
+/// replace the file) and modification time to the nanosecond.
+private struct DiskStamp: Equatable {
+    let size: Int64
+    let inode: UInt64
+    let seconds: Int
+    let nanoseconds: Int
+
+    init?(_ url: URL) {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        size = Int64(info.st_size)
+        inode = UInt64(info.st_ino)
+        seconds = info.st_mtimespec.tv_sec
+        nanoseconds = info.st_mtimespec.tv_nsec
     }
 }

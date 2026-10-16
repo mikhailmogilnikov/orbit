@@ -132,7 +132,7 @@ final class FileNode: Identifiable {
         let keys: [URLResourceKey] = [.isDirectoryKey]
         let urls = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: [])) ?? []
         let previous = Dictionary(uniqueKeysWithValues: (children ?? []).map { ($0.url, $0) })
-        children = urls
+        let loaded = urls
             .filter { !Self.ignored.contains($0.lastPathComponent) }
             .map { url in
                 if let existing = previous[url] { return existing }
@@ -145,6 +145,9 @@ final class FileNode: Identifiable {
                 if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
                 return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
+        // Unchanged folders keep their array: every disk change reloads the open ones,
+        // and a new array redraws the whole tree.
+        if children.map({ $0.map(ObjectIdentifier.init) }) != loaded.map(ObjectIdentifier.init) { children = loaded }
         if force {
             for child in children ?? [] where child.isExpanded { child.loadChildren(force: true) }
         }

@@ -12,7 +12,7 @@ enum AgentAttention {
 /// for a permission while Orbit is in the background. In front, the chat
 /// itself shows it, so nothing is posted.
 @MainActor
-final class AgentNotifier: NSObject, UNUserNotificationCenterDelegate {
+final class AgentNotifier {
     var isEnabled = true
     /// A notification was clicked: show this session.
     var onOpen: (UUID) -> Void = { _ in }
@@ -22,18 +22,26 @@ final class AgentNotifier: NSObject, UNUserNotificationCenterDelegate {
     // Only an app bundle can use the notification center (not the test runner).
     private let center: UNUserNotificationCenter? = Bundle.main.bundleURL.pathExtension == "app" ? .current() : nil
 
-    override init() {
-        super.init()
-        center?.delegate = self
-        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+    private var activationObserver: NSObjectProtocol?
+
+    init() {
+        if let center { NotificationRouter.shared.add(self, center: center) }
+        activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.clear() }
         }
     }
 
+    isolated deinit {
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+        NotificationRouter.shared.updateBadge()
+    }
+
+    fileprivate var waitingCount: Int { waiting.count }
+
     func post(_ attention: AgentAttention, session: UUID, agent: String, chat: String) {
         guard isEnabled, !NSApp.isActive else { return }
         waiting.insert(session)
-        NSApp.dockTile.badgeLabel = "\(waiting.count)"
+        NotificationRouter.shared.updateBadge()
         let content = UNMutableNotificationContent()
         content.subtitle = chat
         content.sound = .default
@@ -66,12 +74,38 @@ final class AgentNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     private func clear() {
         waiting.removeAll()
-        NSApp.dockTile.badgeLabel = nil
+        NotificationRouter.shared.updateBadge()
+    }
+
+    fileprivate func open(_ id: UUID) { onOpen(id) }
+}
+
+/// The notification center has one delegate for the app, and each window has
+/// its own notifier (D101): a click goes to every window's (only the one with
+/// that chat acts), and the Dock badge counts all of them.
+@MainActor
+private final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = NotificationRouter()
+
+    private struct Weak { weak var notifier: AgentNotifier? }
+    private var notifiers: [Weak] = []
+
+    func add(_ notifier: AgentNotifier, center: UNUserNotificationCenter) {
+        if center.delegate !== self { center.delegate = self }
+        notifiers.removeAll { $0.notifier == nil }
+        notifiers.append(Weak(notifier: notifier))
+    }
+
+    func updateBadge() {
+        let count = notifiers.reduce(0) { $0 + ($1.notifier?.waitingCount ?? 0) }
+        NSApp.dockTile.badgeLabel = count == 0 ? nil : "\(count)"
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         guard let id = (response.notification.request.content.userInfo["session"] as? String).flatMap(UUID.init) else { return }
-        await MainActor.run { onOpen(id) }
+        await MainActor.run {
+            for entry in notifiers { entry.notifier?.open(id) }
+        }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {

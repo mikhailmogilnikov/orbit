@@ -49,6 +49,7 @@ struct GitDiffView: View {
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
+                guard NSApp.isActive else { continue }
                 model.refresh()
                 await load(model.file(at: url))
             }
