@@ -79,6 +79,7 @@ struct GitDiffView: View {
                 .background(Theme.subtleFill, in: .capsule)
             if file != nil { DiffStatBadge(added: added, removed: removed) }
             Spacer()
+            DiffLayoutToggle()
             if let file {
                 if staged {
                     Button("Unstage") { model.unstage([file]) }

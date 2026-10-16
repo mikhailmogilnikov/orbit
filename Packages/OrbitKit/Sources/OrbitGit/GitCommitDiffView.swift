@@ -74,6 +74,7 @@ struct GitCommitDiffView: View {
             }
             if isLoaded, !isBinary { DiffStatBadge(added: added, removed: removed) }
             Spacer()
+            DiffLayoutToggle()
             if let url = tab.url, FileManager.default.fileExists(atPath: url.path) {
                 Button("Open File") { model.openFile(url) }
                     .buttonStyle(.glassProminent)

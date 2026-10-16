@@ -120,6 +120,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D108. Editor and agent options in `.orbit/settings.json`
 - D109. The isolated-copy sweep leaves this run's copies and other processes alone
 - D110. Indent guides, Find in Folder, Compare Files, terminal find and font
+- D111. Side-by-side diffs, replace undo, explorer multiple selection, Peek References
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2393,3 +2394,29 @@ The roadmap's smaller "desirable" items:
   Find while the terminal has focus); Terminal → Find in Terminal opens it
   from the menu or palette. A terminal font size of its own in Settings →
   Editor → Font (`Preferences.terminalFontSize`, nil follows the code font).
+
+### D111. Side-by-side diffs, replace undo, explorer multiple selection, Peek References
+
+The roadmap's bigger "desirable" items:
+
+- **Side-by-side diffs**: every diff tab (working tree, staged, commit,
+  Compare) has a Unified / Side by Side switch in its header; one app-wide
+  choice (`orbit.diffSplit`). Split rows pair each run of removed lines
+  with the added lines after it (`DiffLayout.rows`), a missing side shaded.
+  Agent tool cards stay unified (too narrow).
+- **Replace in Files undo**: the panel keeps what the last replace changed
+  (each file's text before and after) and shows "Replaced N matches · Undo".
+  Undo puts files back only where the text is still what the replace left;
+  a file edited since keeps its edits and is named. Files are now read
+  through `DocumentStore.currentText` (their encoding, D106).
+- **Explorer multiple selection** is the list's own (⌘-click, ⇧-click):
+  the binding is a set, and one row in it takes the single-selection path
+  unchanged (previews, folder toggling, D94–D98). The extra rows are drawn
+  with our highlight; Cut, Copy, Copy Paths, Trash (⌘⌫), Reveal in Finder,
+  Add to Agent Chat act on all of them (nested items go with their folder),
+  Rename only on one; two selected files offer Compare Selected.
+- **Peek References** (⌥⇧⌘R): the uses as a quick pick (line with the name
+  in bold, file, line number), starting on the use at the caret; Return
+  jumps. Not VS Code's inline editor, and no live preview while arrowing:
+  revealing a line focuses the editor, which would take the keys from the
+  pick. Find References (⇧⌘R) still fills the panel.

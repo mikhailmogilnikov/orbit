@@ -120,6 +120,22 @@ public final class LanguagesPlugin: OrbitPlugin {
             ui.revealBottomPanel("references")
         })
         context.commands.register(OrbitCommand(
+            id: "languages.peekReferences",
+            title: "Peek References…",
+            category: "Code",
+            systemImage: "list.bullet.below.rectangle",
+            shortcut: KeyboardShortcut("r", modifiers: [.command, .option, .shift]),
+            editorMenu: EditorMenuPlacement(.navigate) {
+                Self.activeFile(workspace).map { manager.server(for: $0) != nil } ?? false
+            }
+        ) {
+            guard let caret = caret() else {
+                NSSound.beep()
+                return
+            }
+            SymbolPicks.peekReferences(caret, languages: manager, workspace: workspace, ui: ui)
+        })
+        context.commands.register(OrbitCommand(
             id: "languages.fileSymbols",
             title: "Go to Symbol in File…",
             category: "Code",

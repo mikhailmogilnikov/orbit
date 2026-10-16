@@ -64,7 +64,7 @@ public final class ExplorerPlugin: OrbitPlugin {
             systemImage: "folder",
             shortcut: KeyboardShortcut("r", modifiers: [.command, .option])
         ) {
-            if let item = model.selectedItem { NSWorkspace.shared.activateFileViewerSelecting([item]) }
+            if let item = model.selectedItem { NSWorkspace.shared.activateFileViewerSelecting(model.targets(for: item)) }
         })
         context.commands.register(OrbitCommand(
             id: "file.copyPath",
@@ -73,7 +73,7 @@ public final class ExplorerPlugin: OrbitPlugin {
             systemImage: "doc.on.clipboard",
             shortcut: KeyboardShortcut("c", modifiers: [.command, .option])
         ) {
-            if let item = model.selectedItem { model.copyPath(item, relative: false) }
+            if let item = model.selectedItem { model.copyPaths(model.targets(for: item), relative: false) }
         })
         context.commands.register(OrbitCommand(
             id: "file.copyRelativePath",
@@ -82,7 +82,7 @@ public final class ExplorerPlugin: OrbitPlugin {
             systemImage: "doc.on.clipboard",
             shortcut: KeyboardShortcut("c", modifiers: [.command, .option, .shift])
         ) {
-            if let item = model.selectedItem { model.copyPath(item, relative: true) }
+            if let item = model.selectedItem { model.copyPaths(model.targets(for: item), relative: true) }
         })
         context.commands.register(OrbitCommand(
             id: "workspace.openFolder",
@@ -225,6 +225,21 @@ final class FileTreeModel {
 
     /// The highlighted row: drawn by the rows themselves, always gray (D96).
     var selectedRow: URL? { selectedFolder ?? workspace.activeTab?.url }
+    /// Rows ⌘- or ⇧-clicked besides the selected one (D111); a plain click clears them.
+    var extraSelection: Set<URL> = []
+
+    func isSelected(_ url: URL) -> Bool { selectedRow == url || extraSelection.contains(url) }
+
+    /// What a context-menu or key action applies to: every selected row when
+    /// `url` is one of several, else `url` alone. In tree order.
+    func targets(for url: URL) -> [URL] {
+        guard !extraSelection.isEmpty else { return [url] }
+        let all = extraSelection.union([selectedItem].compactMap(\.self))
+        guard all.contains(url), all.count > 1 else { return [url] }
+        // Nested items go with their folder.
+        let sorted = all.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        return sorted.filter { item in !sorted.contains { $0 != item && item.path.hasPrefix($0.path + "/") } }
+    }
     /// Set once the list's own highlight is turned off; until then it draws.
     var hidesNativeSelection = false
 
@@ -472,9 +487,12 @@ final class FileTreeModel {
         }
     }
 
-    func copyPath(_ url: URL, relative: Bool) {
+    func copyPath(_ url: URL, relative: Bool) { copyPaths([url], relative: relative) }
+
+    /// One per line.
+    func copyPaths(_ urls: [URL], relative: Bool) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(relative ? workspace.relativePath(url) : url.path, forType: .string)
+        NSPasteboard.general.setString(urls.map { relative ? workspace.relativePath($0) : $0.path }.joined(separator: "\n"), forType: .string)
     }
 
     func sync() {
@@ -612,7 +630,7 @@ struct ExplorerView: View {
     var body: some View {
         Group {
             if let root = model.root {
-                List(selection: selectionBinding) {
+                List(selection: multipleSelection) {
                     Section {
                         FileChildren(node: root, model: model, workspace: workspace, decorations: decorations)
                     } header: {
@@ -658,12 +676,31 @@ struct ExplorerView: View {
         .onChange(of: undoManager) { model.undoManager = undoManager }
         .onChange(of: workspace.root) { model.sync() }
         .onChange(of: workspace.fileSystemGeneration) { model.sync() }
-        .onChange(of: workspace.activeTab?.id) { model.selectedFolder = nil }
+        .onChange(of: workspace.activeTab?.id) {
+            model.selectedFolder = nil
+            model.extraSelection = []
+        }
     }
 
     @Environment(\.undoManager) private var undoManager
     @FocusState private var isListFocused: Bool
     @State private var handledFocusRequest = 0
+
+    /// The list's own ⌘- and ⇧-click; one row selected goes the usual way.
+    private var multipleSelection: Binding<Set<URL>> {
+        Binding(
+            get: { model.extraSelection.union([model.selectedFolder ?? workspace.activeTab?.url].compactMap(\.self)) },
+            set: { urls in
+                guard urls.count > 1 else {
+                    model.extraSelection = []
+                    selectionBinding.wrappedValue = urls.first
+                    return
+                }
+                let primary = model.selectedFolder ?? workspace.activeTab?.url
+                model.extraSelection = urls.subtracting([primary].compactMap(\.self))
+            }
+        )
+    }
 
     private var selectionBinding: Binding<URL?> {
         Binding(
@@ -764,7 +801,7 @@ struct RowHighlight: ViewModifier {
 
     func body(content: Content) -> some View {
         content.listRowBackground(
-            model.hidesNativeSelection && model.selectedRow == url
+            model.hidesNativeSelection && model.isSelected(url)
                 ? RoundedRectangle(cornerRadius: Theme.smallCorner)
                     .fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
                     .padding(.horizontal, 10)
@@ -924,7 +961,7 @@ struct FileKeys: ViewModifier {
                 case ("\r", [.control]):
                     model.workspace.openBeside(.file(item))
                 case ("\u{7f}", [.command]):
-                    model.trash([item])
+                    model.trash(model.targets(for: item))
                 case (" ", []):
                     guard model.node(for: item)?.isDirectory != true else { return .ignored }
                     model.workspace.openFile(item, focus: false)
@@ -944,8 +981,9 @@ struct FileKeys: ViewModifier {
 
     private func pasteboardItems(cut: Bool) -> [NSItemProvider] {
         guard !isEditingText, let item = model.selectedItem else { return [] }
-        model.noteCopied([item], cut: cut)
-        return [NSItemProvider(object: item as NSURL)]
+        let items = model.targets(for: item)
+        model.noteCopied(items, cut: cut)
+        return items.map { NSItemProvider(object: $0 as NSURL) }
     }
 }
 
@@ -1027,6 +1065,8 @@ struct FileContextMenu: View {
     var isRoot = false
     let model: FileTreeModel
 
+    private var targets: [URL] { model.targets(for: url) }
+
     var body: some View {
         if isFolder {
             Button("New File…") { model.startCreating(in: url, isFolder: false) }
@@ -1036,7 +1076,9 @@ struct FileContextMenu: View {
                 .keyboardShortcut(.return, modifiers: .control)
             OpenWithMenu(url: url)
             Divider()
-            if let selected = model.compareSelection, selected != url {
+            if targets.count == 2 {
+                Button("Compare Selected") { model.workspace.open(CompareFiles.tab(targets[0], targets[1])) }
+            } else if let selected = model.compareSelection, selected != url {
                 Button("Compare with “\(selected.lastPathComponent)”") { model.compare(with: url) }
             }
             Button("Select for Compare") { model.compareSelection = url }
@@ -1050,31 +1092,38 @@ struct FileContextMenu: View {
         if isFolder, let search = model.search {
             Button("Find in Folder…") { search.findInFolder(url) }
         }
-        if model.agentTasks != nil {
+        if let agents = model.agentTasks {
             Divider()
-            Button("Add to Agent Chat") { model.agentTasks?.attachFile(url) }
-            Button("Add to New Agent Chat") { model.agentTasks?.attachFileToNewChat(url) }
+            Button(targets.count > 1 ? "Add \(targets.count) Items to Agent Chat" : "Add to Agent Chat") {
+                for target in targets { agents.attachFile(target) }
+            }
+            Button("Add to New Agent Chat") {
+                agents.attachFileToNewChat(targets[0])
+                for target in targets.dropFirst() { agents.attachFile(target) }
+            }
         }
         Divider()
         if !isRoot {
-            Button("Cut") { model.copyItems([url], cut: true) }
+            Button("Cut") { model.copyItems(targets, cut: true) }
                 .keyboardShortcut("x", modifiers: .command)
-            Button("Copy") { model.copyItems([url], cut: false) }
+            Button("Copy") { model.copyItems(targets, cut: false) }
                 .keyboardShortcut("c", modifiers: .command)
         }
         Button("Paste") { model.paste(into: url) }
             .keyboardShortcut("v", modifiers: .command)
             .disabled(!model.canPaste)
         Divider()
-        Button("Copy Path") { model.copyPath(url, relative: false) }
+        Button(targets.count > 1 ? "Copy \(targets.count) Paths" : "Copy Path") { model.copyPaths(targets, relative: false) }
             .keyboardShortcut("c", modifiers: [.option, .command])
-        Button("Copy Relative Path") { model.copyPath(url, relative: true) }
+        Button(targets.count > 1 ? "Copy \(targets.count) Relative Paths" : "Copy Relative Path") { model.copyPaths(targets, relative: true) }
             .keyboardShortcut("c", modifiers: [.shift, .option, .command])
         if !isRoot {
             Divider()
-            Button("Rename…") { model.startRenaming(url) }
-                .keyboardShortcut(.return, modifiers: [])
-            Button("Move to Trash") { model.trash([url]) }
+            if targets.count == 1 {
+                Button("Rename…") { model.startRenaming(url) }
+                    .keyboardShortcut(.return, modifiers: [])
+            }
+            Button(targets.count > 1 ? "Move \(targets.count) Items to Trash" : "Move to Trash") { model.trash(targets) }
                 .keyboardShortcut(.delete, modifiers: .command)
         }
     }

@@ -172,6 +172,7 @@
 - A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
+- Side-by-side diffs (toggle in every diff tab), Undo for Replace in Files, multiple selection in the explorer, Peek References ⌥⇧⌘R (D111)
 - Indent guides, Find in Folder, Select for Compare (two-file diff tab), Find in Terminal and a terminal font size of its own (D110)
 - Project options in `.orbit/settings.json` (D108): editor display / format on save, default agent, isolated sessions; Settings shows what the file decides; File → Open Project Settings
 - Reassignable shortcuts (D107): recorder in Settings → Keyboard Shortcuts, conflicts move the key, reset per row / all
@@ -188,8 +189,8 @@
 Everything below is known to be missing; nothing here is in progress.
 
 **Language features (LSP)**
-- A peek view for references (they go to the References panel); no outline
-  panel on purpose (D82)
+- An inline peek editor for references (Peek References is a jump list, D111);
+  no outline panel on purpose (D82)
 - Code lens, semantic tokens and selection ranges; inlay hints
   can't be clicked, double-clicked to insert or hovered for their tooltip
 - Call / type hierarchy, linked editing (renaming an HTML tag's pair)
@@ -232,7 +233,7 @@ Everything below is known to be missing; nothing here is in progress.
 - Large files (under the 50 MB limit, D106) open without any lighter mode: highlighting and LSP run as usual
 
 **Git and terminal**
-- Side-by-side diffs, branch graph and history search, other branches'
+- Branch graph and history search, other branches'
   history, per-line blame annotations
 
 ## Known gaps / to verify
@@ -321,8 +322,10 @@ Everything below is known to be missing; nothing here is in progress.
   in a moved or renamed file lose their inline review.
 - Explorer file operations (D93): unverified on a Mac (the name field's
   focus and selection inside the list, Return / ⌘⌫ reaching the list, the
-  header's hover buttons, ⌘Z routing). One item at a time (no multiple
-  selection); undoing a new file drops its unsaved edits.
+  header's hover buttons, ⌘Z routing). Undoing a new file drops its unsaved
+  edits. Multiple selection (D111) unverified on a Mac (⌘- / ⇧-click in the
+  list with our own row highlight, the menu acting on all rows); dragging
+  moves one item.
 - Explorer folder clicks (D96): unverified on a Mac (the row's tap gesture
   reaching a click on an already selected folder).
 - Theme accent (D97): unverified on a Mac (prominent glass buttons tinted
@@ -340,8 +343,7 @@ Everything below is known to be missing; nothing here is in progress.
   click beside its drag). Open Quickly doesn't preview, unlike VS Code.
 - Explorer context menu (D95): unverified on a Mac (⌘X ⌘C ⌘V reaching the
   list through the Edit menu, ⌃↩ / ⌥⌘R / ⌥⌘C keys, app icons in Open With).
-  Compare and Find in Folder (D110) unverified on a Mac. Compare is unified
-  only, like the git diffs.
+  Compare and Find in Folder (D110) unverified on a Mac.
 - Drag and drop (D91): tab drags became our own gesture (the system drag
   hung after drops); unverified on a Mac. Dropping files on the editor rests
   on an assumption (AppKit finds the catcher above the text view although
@@ -367,9 +369,12 @@ Everything below is known to be missing; nothing here is in progress.
   the project counts it as not applied again; untested by hand.
 - Agent sessions: listing an agent's conversations spawns that agent once per
   folder per launch.
-- Replace in files has no undo beyond the editor's own (files that weren't
-  open are written straight to disk); written while unverified in the UI.
-- Git: diff tabs are unified (no side-by-side); History shows only the
+- Replace in files: Undo in the panel (D111) puts back the last replace
+  only, and skips files edited since; ⌘Z doesn't reach it. Unverified in
+  the UI.
+- Side-by-side diffs (D111): unverified on a Mac (row heights with long
+  wrapped lines on one side, the header toggle).
+- Git: History shows only the
   current branch, without search or a graph; blame is only the caret's line
   (no per-line annotations).
 - Indent guides (D110): unverified on a Mac (crisp 1-pt lines, placement

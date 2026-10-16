@@ -33,8 +33,11 @@ public struct DiffHighlighting: Sendable, Equatable {
     }
 
     func text(for line: DiffLine) -> AttributedString? {
-        line.kind == .removed ? line.oldNumber.flatMap { old[$0] } : line.newNumber.flatMap { new[$0] }
+        line.kind == .removed ? oldText(for: line) : newText(for: line)
     }
+
+    func oldText(for line: DiffLine) -> AttributedString? { line.oldNumber.flatMap { old[$0] } }
+    func newText(for line: DiffLine) -> AttributedString? { line.newNumber.flatMap { new[$0] } }
 
     /// Colored copies of the given lines of `text` (only those: a diff shows few).
     public static func lines(of text: String, spans: [SyntaxSpan], numbers: Set<Int>) -> [Int: AttributedString] {
@@ -79,12 +82,60 @@ public struct DiffHighlighting: Sendable, Equatable {
     }
 }
 
-/// Renders one hunk as unified-diff lines with a two-column gutter.
+/// Unified (one column, `−` then `+`) or split (old left, new right) diffs;
+/// one choice for every diff tab, toggled in their headers (`DiffLayoutToggle`).
+public enum DiffLayout {
+    public static let storageKey = "orbit.diffSplit"
+
+    /// Side-by-side rows: context on both sides, removed lines paired with the added lines after them.
+    public static func rows(_ lines: [DiffLine]) -> [(old: DiffLine?, new: DiffLine?)] {
+        var rows: [(old: DiffLine?, new: DiffLine?)] = []
+        var index = 0
+        while index < lines.count {
+            let line = lines[index]
+            guard line.kind != .context else {
+                rows.append((line, line))
+                index += 1
+                continue
+            }
+            var removed: [DiffLine] = [], added: [DiffLine] = []
+            while index < lines.count, lines[index].kind == .removed { removed.append(lines[index]); index += 1 }
+            while index < lines.count, lines[index].kind == .added { added.append(lines[index]); index += 1 }
+            for row in 0..<max(removed.count, added.count) {
+                rows.append((row < removed.count ? removed[row] : nil, row < added.count ? added[row] : nil))
+            }
+        }
+        return rows
+    }
+}
+
+/// The header button switching every diff tab between unified and split.
+public struct DiffLayoutToggle: View {
+    @AppStorage(DiffLayout.storageKey) private var isSplit = false
+
+    public init() {}
+
+    public var body: some View {
+        Picker("Layout", selection: $isSplit) {
+            Image(systemName: "rectangle").help("Unified").tag(false)
+            Image(systemName: "rectangle.split.2x1").help("Side by Side").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .controlSize(.small)
+        .help(isSplit ? "Side by side: old on the left, new on the right" : "Unified: removed lines above added ones")
+    }
+}
+
+/// Renders one hunk as unified-diff lines with a two-column gutter, or split
+/// into old and new sides (diff tabs, with line numbers).
 public struct DiffHunkView<Actions: View>: View {
     let hunk: DiffHunk
     let showsLineNumbers: Bool
     let highlighting: DiffHighlighting?
     let actions: Actions
+    @AppStorage(DiffLayout.storageKey) private var isSplit = false
 
     public init(hunk: DiffHunk, showsLineNumbers: Bool = true, highlighting: DiffHighlighting? = nil, @ViewBuilder actions: () -> Actions) {
         self.hunk = hunk
@@ -95,8 +146,19 @@ public struct DiffHunkView<Actions: View>: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(hunk.lines) { line in
-                DiffLineRow(line: line, showsLineNumbers: showsLineNumbers, highlighted: highlighting?.text(for: line))
+            if isSplit, showsLineNumbers {
+                ForEach(Array(DiffLayout.rows(hunk.lines).enumerated()), id: \.offset) { _, row in
+                    HStack(alignment: .top, spacing: 0) {
+                        SplitDiffSide(line: row.old, number: row.old?.oldNumber, highlighted: row.old.flatMap { highlighting?.oldText(for: $0) })
+                        Rectangle().fill(Theme.hairline).frame(width: 1)
+                        SplitDiffSide(line: row.new, number: row.new?.newNumber, highlighted: row.new.flatMap { highlighting?.newText(for: $0) })
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                ForEach(hunk.lines) { line in
+                    DiffLineRow(line: line, showsLineNumbers: showsLineNumbers, highlighted: highlighting?.text(for: line))
+                }
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -162,6 +224,39 @@ struct DiffLineRow: View {
         case .added: Theme.addedBackground
         case .removed: Theme.removedBackground
         case .context: .clear
+        }
+    }
+}
+
+/// One side of a split row; an empty side (a line only the other has) is shaded.
+struct SplitDiffSide: View {
+    let line: DiffLine?
+    let number: Int?
+    var highlighted: AttributedString?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Text(number.map(String.init) ?? " ")
+                .frame(width: 38, alignment: .trailing)
+                .padding(.trailing, 6)
+                .foregroundStyle(.tertiary)
+            if let line {
+                Text(highlighted.flatMap { $0.characters.isEmpty ? nil : $0 } ?? AttributedString(line.text.isEmpty ? " " : line.text))
+                    .foregroundStyle(.primary)
+            }
+        }
+        .font(.system(size: 11.5, design: .monospaced))
+        .padding(.vertical, 1)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(background)
+    }
+
+    private var background: Color {
+        switch line?.kind {
+        case .added: Theme.addedBackground
+        case .removed: Theme.removedBackground
+        case .context: .clear
+        case nil: Theme.subtleFill
         }
     }
 }

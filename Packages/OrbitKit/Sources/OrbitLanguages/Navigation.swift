@@ -38,32 +38,35 @@ final class ReferencesModel {
         isSearching = true
         opened = nil
         search = Task {
-            let locations = await languages.references(at: caret.range.start, in: caret.url)
+            let found = await Self.load(at: caret, languages: languages, workspace: workspace)
             guard !Task.isCancelled else { return }
-            // Open files as edited, others from disk (read off the main actor).
-            let urls = Set(locations.map(\.url))
-            var texts: [URL: String] = [:]
-            for url in urls {
-                if let document = workspace.documents.existingDocument(for: url) { texts[url] = document.text }
-            }
-            let unread = urls.filter { texts[$0] == nil }
-            let read = await Task.detached(priority: .userInitiated) {
-                Dictionary(uniqueKeysWithValues: unread.compactMap { url in (try? String(contentsOf: url, encoding: .utf8)).map { (url, $0) } })
-            }.value
-            texts.merge(read) { current, _ in current }
-            guard !Task.isCancelled else { return }
-
-            let start = caret.url.standardizedFileURL
-            var files = Self.files(locations, texts: texts)
-            // The file the search started from first, then by path.
-            files.sort { ($0.url.standardizedFileURL == start ? 0 : 1, $0.url.path) < ($1.url.standardizedFileURL == start ? 0 : 1, $1.url.path) }
-            let atCaret = locations.first { $0.url.standardizedFileURL == start && $0.range.contains(caret.range.start) } ?? locations.first
-            symbol = atCaret.flatMap { location in
-                texts[location.url].map { Self.text(in: location.range, of: $0) }
-            }
-            self.files = files
+            symbol = found.symbol
+            files = found.files
             isSearching = false
         }
+    }
+
+    /// The uses of the symbol at `caret` with their lines: the caret's file
+    /// first, then by path. Open files as edited, others from disk.
+    static func load(at caret: SourceLocation, languages: LanguageIntelligence, workspace: Workspace) async -> (symbol: String?, files: [File]) {
+        let locations = await languages.references(at: caret.range.start, in: caret.url)
+        let urls = Set(locations.map(\.url))
+        var texts: [URL: String] = [:]
+        for url in urls {
+            if let document = workspace.documents.existingDocument(for: url) { texts[url] = document.text }
+        }
+        let unread = urls.filter { texts[$0] == nil }
+        let read = await Task.detached(priority: .userInitiated) {
+            Dictionary(uniqueKeysWithValues: unread.compactMap { url in (try? TextFile.read(url).text).map { (url, $0) } })
+        }.value
+        texts.merge(read) { current, _ in current }
+
+        let start = caret.url.standardizedFileURL
+        var files = files(locations, texts: texts)
+        files.sort { ($0.url.standardizedFileURL == start ? 0 : 1, $0.url.path) < ($1.url.standardizedFileURL == start ? 0 : 1, $1.url.path) }
+        let atCaret = locations.first { $0.url.standardizedFileURL == start && $0.range.contains(caret.range.start) } ?? locations.first
+        let symbol = atCaret.flatMap { location in texts[location.url].map { text(in: location.range, of: $0) } }
+        return (symbol, files)
     }
 
     private static func files(_ locations: [SourceLocation], texts: [URL: String]) -> [File] {
@@ -224,6 +227,46 @@ private struct ReferenceRow: View {
 
 @MainActor
 enum SymbolPicks {
+    /// ⌥⇧⌘R: the uses of the symbol as a list to jump through, without leaving
+    /// the editor for the References panel; the use at the caret is selected.
+    static func peekReferences(_ caret: SourceLocation, languages: LanguageIntelligence, workspace: Workspace, ui: UIRegistry) {
+        Task {
+            let (symbol, files) = await ReferencesModel.load(at: caret, languages: languages, workspace: workspace)
+            let references = files.flatMap(\.references)
+            guard !references.isEmpty else {
+                NSSound.beep()
+                return
+            }
+            let current = references.first { $0.location.url.standardizedFileURL == caret.url.standardizedFileURL && $0.location.range.contains(caret.range.start) }
+            let name = symbol.map { "“\($0)”" } ?? "the symbol"
+            ui.presentQuickPick(QuickPick(
+                id: "languages.peekReferences",
+                placeholder: "\(references.count) reference\(references.count == 1 ? "" : "s") to \(name)",
+                initialSelection: current.map { String($0.id) }
+            ) { query in
+                references
+                    .filter { query.isEmpty || $0.preview.localizedCaseInsensitiveContains(query) || workspace.relativePath($0.location.url).localizedCaseInsensitiveContains(query) }
+                    .map { reference in
+                        var title = AttributedString(reference.preview)
+                        if let range = Range(reference.match, in: reference.preview),
+                           let lower = AttributedString.Index(range.lowerBound, within: title),
+                           let upper = AttributedString.Index(range.upperBound, within: title) {
+                            title[lower..<upper].inlinePresentationIntent = .stronglyEmphasized
+                        }
+                        return QuickPickItem(
+                            id: String(reference.id),
+                            title: title,
+                            subtitle: workspace.relativePath(reference.location.url),
+                            fileURL: reference.location.url,
+                            trailing: String(reference.location.range.start.line + 1)
+                        ) {
+                            workspace.open(reference.location)
+                        }
+                    }
+            })
+        }
+    }
+
     /// ⇧⌘O: the active file's outline, in order (nested ones indented); typing filters it.
     static func fileSymbols(_ caret: SourceLocation, languages: LanguageIntelligence, workspace: Workspace, ui: UIRegistry) {
         let url = caret.url

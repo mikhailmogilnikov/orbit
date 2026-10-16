@@ -28,6 +28,19 @@ final class SearchModel {
     private(set) var isSearching = false
     /// Files the last replace couldn't write.
     private(set) var replaceFailure: String?
+
+    /// What the last replace changed, for Undo: each file's text before and after.
+    struct ReplaceRecord {
+        var url: URL
+        var before: String
+        var after: String
+        /// Changed in its unsaved buffer, not on disk.
+        var inBuffer: Bool
+    }
+
+    private(set) var lastReplace: (records: [ReplaceRecord], matches: Int)?
+
+    func dismissReplaceUndo() { lastReplace = nil }
     /// Paths of files the user collapsed in the results.
     var collapsed: Set<String> = []
     var selection: String?
@@ -107,22 +120,60 @@ final class SearchModel {
         let template = TextSearch.template(for: replacement, options: options)
         replaceFailure = nil
         var failed: [String] = []
+        var records: [ReplaceRecord] = []
+        var matches = 0
         for path in paths ?? result.files.map(\.path) {
             let url = root.appendingPathComponent(path)
             let document = workspace.documents.existingDocument(for: url)
-            guard let text = document?.text ?? TextSearch.readText(url) else { continue }
+            guard let text = document?.text ?? workspace.documents.currentText(of: url) else { continue }
             let (replaced, count) = TextSearch.replace(in: text, regex: regex, template: template)
             guard count > 0 else { continue }
             if let document, document.isDirty {
                 document.text = replaced
+                records.append(ReplaceRecord(url: url, before: text, after: replaced, inBuffer: true))
             } else {
-                do { try workspace.documents.write(replaced, to: url) } catch { failed.append(path) }
+                do {
+                    try workspace.documents.write(replaced, to: url)
+                    records.append(ReplaceRecord(url: url, before: text, after: replaced, inBuffer: false))
+                } catch {
+                    failed.append(path)
+                    continue
+                }
             }
+            matches += count
         }
+        lastReplace = records.isEmpty ? nil : (records, matches)
         workspace.fileSystemDidChange()
         schedule(delay: .zero)
         if !failed.isEmpty {
             replaceFailure = failed.count == 1 ? "Couldn't write \(failed[0])" : "Couldn't write \(failed.count) files"
+        }
+    }
+
+    /// Puts back what the last replace changed, file by file; a file edited
+    /// since keeps its edits (undoing over them would lose them).
+    func undoReplace() {
+        guard let (records, _) = lastReplace else { return }
+        lastReplace = nil
+        var skipped: [String] = []
+        for record in records {
+            let document = workspace.documents.existingDocument(for: record.url)
+            guard (document?.text ?? workspace.documents.currentText(of: record.url)) == record.after else {
+                skipped.append(record.url.lastPathComponent)
+                continue
+            }
+            if record.inBuffer, let document {
+                document.text = record.before
+            } else {
+                do { try workspace.documents.write(record.before, to: record.url) } catch { skipped.append(record.url.lastPathComponent) }
+            }
+        }
+        workspace.fileSystemDidChange()
+        schedule(delay: .zero)
+        if !skipped.isEmpty {
+            replaceFailure = skipped.count == 1
+                ? "\(skipped[0]) changed since the replace, so it wasn't undone"
+                : "\(skipped.count) files changed since the replace, so they weren't undone"
         }
     }
 
@@ -266,6 +317,27 @@ struct SearchPanel: View {
                 : "\(result.matchCount)\(result.isTruncated ? "+" : "") result\(result.matchCount == 1 ? "" : "s") in \(result.files.count) file\(result.files.count == 1 ? "" : "s")"
         } else {
             nil
+        }
+        if let last = model.lastReplace {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.added)
+                Text("Replaced \(last.matches) match\(last.matches == 1 ? "" : "es") in \(last.records.count) file\(last.records.count == 1 ? "" : "s")")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Undo") { model.undoReplace() }
+                    .buttonStyle(.link)
+                Button {
+                    model.dismissReplaceUndo()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.tertiary)
+                .help("Dismiss")
+            }
+            .font(.system(size: 11))
+            .padding(.horizontal, 14)
+            .padding(.bottom, 4)
         }
         if let text {
             HStack(spacing: 6) {

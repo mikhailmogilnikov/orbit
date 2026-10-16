@@ -76,6 +76,7 @@ struct CompareView: View {
             name(right)
             DiffStatBadge(added: added, removed: removed)
             Spacer()
+            DiffLayoutToggle()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
