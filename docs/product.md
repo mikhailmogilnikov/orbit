@@ -63,6 +63,10 @@ agents and review their work.
   output), plans, and inline permission prompts. Model / mode / effort pickers
   come from the agent's ACP `configOptions` (not hard-coded).
 - **Composer:** Return sends, ⌘. stops, ⌘L focuses chat, ⇧⌘N new session.
+  `/` at the start lists the agent's slash commands, `@` lists files. While
+  the agent works the transcript ends with what it's doing and a timer; a
+  turn that changed files (or took 30 s+) ends with "Worked for … · N files
+  changed · Review".
 - **Inline diff review:** banner above the file ("N agent changes +a −r",
   prev/next, Undo All / Keep All); per block Undo ⌥⌘⌫ / Keep ⌥⌘↩, navigate
   ⌥⌘↑/↓; accept/reject everything ⇧⌘↩ / ⇧⌘⌫.

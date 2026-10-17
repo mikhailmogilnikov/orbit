@@ -7,7 +7,7 @@ import OrbitAPI
 @MainActor
 @Observable
 final class TranscriptEntry: Identifiable {
-    enum Kind { case user, agent, thought, tool, plan, notice }
+    enum Kind { case user, agent, thought, tool, plan, notice, summary }
 
     let id = UUID()
     let kind: Kind
@@ -32,6 +32,11 @@ final class TranscriptEntry: Identifiable {
 
     // Plans
     var plan: [PlanItem] = []
+
+    // Turn summaries
+    var duration: TimeInterval = 0
+    /// Files the turn left with unreviewed changes.
+    var changedFiles: [URL] = []
 
     var isError = false
 
@@ -58,6 +63,68 @@ enum ToolContent: Identifiable {
 struct PlanItem: Hashable {
     var content: String
     var status: String
+}
+
+/// A command the agent offers (ACP `available_commands_update`), sent as "/name …".
+struct SlashCommand: Hashable, Identifiable {
+    var name: String
+    var description: String
+    /// What to type after the name, when the command takes input.
+    var hint: String?
+
+    var id: String { name }
+
+    init?(_ json: JSONValue) {
+        guard let name = json["name"]?.string, !name.isEmpty else { return nil }
+        self.name = name
+        description = json["description"]?.string ?? ""
+        hint = json["input"]?["hint"]?.string
+    }
+
+    init(name: String, description: String = "", hint: String? = nil) {
+        self.name = name
+        self.description = description
+        self.hint = hint
+    }
+
+    /// Name prefix matches first, then names containing the query; the agent's order otherwise.
+    static func matches(_ query: String, in commands: [SlashCommand]) -> [SlashCommand] {
+        guard !query.isEmpty else { return commands }
+        let prefix = commands.filter { $0.name.range(of: query, options: [.caseInsensitive, .anchored]) != nil }
+        let contains = commands.filter { !prefix.contains($0) && $0.name.localizedCaseInsensitiveContains(query) }
+        return prefix + contains
+    }
+}
+
+enum TurnActivity {
+    /// What the agent is doing in its current turn, for the "Working…" line.
+    @MainActor
+    static func describe(_ entries: [TranscriptEntry]) -> String {
+        var last: TranscriptEntry?
+        for entry in entries.reversed() {
+            if entry.kind == .user { break }
+            if entry.kind == .tool, entry.isRunning, entry.permission?.isPending != true {
+                let title = entry.title.isEmpty ? entry.toolKind.capitalized : entry.title
+                return title.replacingOccurrences(of: "`", with: "")
+            }
+            if last == nil, entry.kind != .plan, entry.kind != .notice { last = entry }
+        }
+        switch last?.kind {
+        case .thought: return "Thinking"
+        case .agent: return "Writing"
+        default: return "Working"
+        }
+    }
+
+    /// Files whose unreviewed changes appeared or changed during a turn.
+    static func changedFiles(before: [URL: DiffStats], after: [(URL, DiffStats)]) -> [URL] {
+        after.compactMap { url, stats in before[url] == stats ? nil : url }
+    }
+}
+
+struct DiffStats: Hashable {
+    var added: Int
+    var removed: Int
 }
 
 @MainActor

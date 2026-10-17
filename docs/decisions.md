@@ -124,6 +124,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D112. Performance and memory pass: review cache, git refresh coalescing, streaming Markdown
 - D113. Second performance pass: shadow-git queue, cancelled searches and diagnostics pulls
 - D114. Third performance pass: media reloads, tool-card diffs, line starts
+- D115. Slash commands in the composer; a live working line and a turn summary
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2496,3 +2497,28 @@ Checked and left as they are: completion filtering (narrows the previous
 pool, UTF-16 scoring), Open Quickly ranking, git change markers (debounced,
 off the main actor), plugin teardown on window close (agents, language
 servers, terminals stop in `deactivate`).
+
+### D115. Slash commands in the composer; a live working line and a turn summary
+
+The agent's commands (ACP `available_commands_update`) were stored and
+never shown; a working agent said only "Working…", and a finished turn
+said nothing, so it took a look at the changes bar to know what it did.
+
+- **Slash commands**: `/` at the start of the draft lists the agent's
+  commands above the composer, like `@` lists files (prefix matches first,
+  then names containing the query; ↑↓, Tab / Return picks, Escape hides).
+  Picking writes `/name ` into the draft, nothing is sent: commands go to
+  the agent as text, the way ACP defines them, and most take input.
+  Only the first word counts — agents read a command nowhere else.
+- **Working line**: the running tool's title (else Thinking / Writing) and
+  the turn's timer (`Text(timerInterval:)`, redrawn by the system, not by
+  a timer of ours).
+- **Turn summary**: a transcript row "Worked for 2m 5s · 3 files changed
+  +40 −12 · Review" after a turn that changed files or took 30 s or more
+  (short Q&A turns stay quiet). Its files are the ones whose unreviewed
+  changes appeared or changed during the turn (stats compared before and
+  after, so shell edits count too); the counts and Review follow what is
+  still unreviewed, "Reviewed" when nothing is. Review opens the first
+  change, inline as always (D7). Summaries aren't saved: a reloaded
+  conversation has none. Isolated sessions show only the time (their
+  changes come through Apply).

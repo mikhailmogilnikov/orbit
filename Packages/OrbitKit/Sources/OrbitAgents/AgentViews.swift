@@ -366,8 +366,16 @@ struct StatusFooter: View {
             if !session.hasPendingPermission {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Working…")
+                    Text(TurnActivity.describe(session.entries) + "…")
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let start = session.turnStartedAt {
+                        Text(timerInterval: start...Date.distantFuture, countsDown: false)
+                            .monospacedDigit()
+                            .foregroundStyle(.tertiary)
+                            .fixedSize()
+                    }
                 }
                 .font(.callout)
             }
@@ -408,7 +416,117 @@ struct EntryView: View {
                 .font(.callout)
                 .foregroundStyle(entry.isError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 .textSelection(.enabled)
+        case .summary:
+            TurnSummaryView(entry: entry, tracker: session.reviewTracker)
         }
+    }
+}
+
+/// The end of a long turn or one that changed files: how long it took and
+/// what's left to review from it, with the way into the inline review.
+struct TurnSummaryView: View {
+    let entry: TranscriptEntry
+    let tracker: ChangeTracking?
+    @State private var isExpanded = false
+
+    var body: some View {
+        let files = entry.changedFiles
+        let pending = files.filter { tracker?.hasChanges($0) == true }
+        let stats = pending.compactMap { tracker?.stats(for: $0) }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle")
+                    .foregroundStyle(.tertiary)
+                Text("Worked for \(Self.format(entry.duration))")
+                    .lineLimit(1)
+                if !files.isEmpty {
+                    Text("·").foregroundStyle(.tertiary)
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("\(files.count) file\(files.count == 1 ? "" : "s") changed")
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.tertiary)
+                                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isExpanded ? "Hide the files" : "Show the files")
+                    if !pending.isEmpty {
+                        DiffStatBadge(added: stats.reduce(0) { $0 + $1.added }, removed: stats.reduce(0) { $0 + $1.removed })
+                    }
+                    Spacer(minLength: 4)
+                    if let first = pending.first {
+                        Button("Review") { tracker?.openReview(for: first) }
+                            .buttonStyle(.glass)
+                            .controlSize(.small)
+                            .help("Open the first change of this turn")
+                    } else {
+                        Text("Reviewed")
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(files, id: \.self) { url in
+                        TurnFileRow(url: url, tracker: tracker)
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+
+    /// "2m 5s", in English like the rest of the UI (the system formatter follows the Mac's language).
+    static func format(_ duration: TimeInterval) -> String {
+        let total = max(1, Int(duration.rounded()))
+        let hours = total / 3600, minutes = total % 3600 / 60, seconds = total % 60
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return minutes > 0 ? "\(minutes)m \(seconds)s" : "\(seconds)s"
+    }
+}
+
+private struct TurnFileRow: View {
+    let url: URL
+    let tracker: ChangeTracking?
+    @State private var isHovering = false
+
+    var body: some View {
+        let isPending = tracker?.hasChanges(url) == true
+        Button {
+            tracker?.openReview(for: url)
+        } label: {
+            HStack(spacing: 6) {
+                FileIconView(url: url, size: 13)
+                Text(url.lastPathComponent)
+                    .lineLimit(1)
+                Text(url.deletingLastPathComponent().lastPathComponent)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if isPending, let stats = tracker?.stats(for: url) {
+                    DiffStatBadge(added: stats.added, removed: stats.removed)
+                } else {
+                    Text("Reviewed").foregroundStyle(.tertiary)
+                }
+            }
+            .font(.system(size: 12))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(isHovering && isPending ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.smallCorner))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isPending)
+        .onHover { isHovering = $0 }
+        .help(url.path)
     }
 }
 
@@ -807,8 +925,8 @@ struct Composer: View {
     private var fileIndex: ProjectFileIndex? { store.fileIndex }
     @FocusState private var isFocused: Bool
     @State private var mentionIndex = 0
-    /// Escape hides the file list until the @-word changes.
-    @State private var dismissedMention: String?
+    /// Escape hides the file or command list until its word changes ("@word", "/word").
+    @State private var dismissedWord: String?
     @State private var isDropTargeted = false
     @State private var selection: TextSelection?
     @State private var paste = PasteInterceptor()
@@ -817,7 +935,9 @@ struct Composer: View {
         // The file list sits in the layout above the composer (which is at the
         // bottom of the panel), so it grows upward instead of off the window.
         VStack(spacing: 6) {
-            if !mentionMatches.isEmpty {
+            if !commandMatches.isEmpty {
+                CommandList(commands: commandMatches, selected: mentionIndex) { pick($0) }
+            } else if !mentionMatches.isEmpty {
                 MentionList(paths: mentionMatches, selected: mentionIndex) { pick($0) }
             } else if !session.queue.isEmpty {
                 QueuedMessagesView(session: session)
@@ -852,16 +972,22 @@ struct Composer: View {
                 .focused($isFocused)
                 .onSubmit(session.submit)
                 .disabled(isDisabled)
-                .onKeyPress(.upArrow) { moveMention(by: -1) }
-                .onKeyPress(.downArrow) { moveMention(by: 1) }
-                .onKeyPress(.tab) { pickMention() }
-                .onKeyPress(.return) { pickMention() }
+                .onKeyPress(.upArrow) { moveSuggestion(by: -1) }
+                .onKeyPress(.downArrow) { moveSuggestion(by: 1) }
+                .onKeyPress(.tab) { pickSuggestion() }
+                .onKeyPress(.return) { pickSuggestion() }
                 .onKeyPress(.escape) {
-                    guard let mention = activeMention else { return .ignored }
-                    dismissedMention = mention
+                    if !commandMatches.isEmpty, let command = activeCommand {
+                        dismissedWord = "/" + command
+                    } else if let mention = activeMention {
+                        dismissedWord = "@" + mention
+                    } else {
+                        return .ignored
+                    }
                     return .handled
                 }
                 .onChange(of: activeMention) { mentionIndex = 0 }
+                .onChange(of: activeCommand) { mentionIndex = 0 }
                 .onChange(of: session.draft) { old, new in attachDroppedPaths(old, new) }
 
             HStack(spacing: 6) {
@@ -964,7 +1090,9 @@ struct Composer: View {
     private var placeholder: String {
         session.status == .working
             ? "Queue a message for when \(session.provider.name) finishes…"
-            : "Ask \(session.provider.name)… (@ to add files)"
+            : session.slashCommands.isEmpty
+                ? "Ask \(session.provider.name)… (@ to add files)"
+                : "Ask \(session.provider.name)… (@ for files, / for commands)"
     }
 
     private var isDisabled: Bool {
@@ -998,22 +1126,55 @@ struct Composer: View {
     }
 
     private var mentionMatches: [String] {
-        guard isFocused, let fileIndex, let query = activeMention, query != dismissedMention else { return [] }
+        guard isFocused, let fileIndex, let query = activeMention, "@" + query != dismissedWord else { return [] }
         return fileIndex.search(query, limit: 8)
     }
 
-    private func moveMention(by offset: Int) -> KeyPress.Result {
-        let count = mentionMatches.count
+    /// The command being typed: the draft's first word while the caret is in it ("/rev" → "rev").
+    /// Agents read a command only at the start of the message.
+    private var activeCommand: String? {
+        let draft = session.draft
+        guard draft.hasPrefix("/"), !session.slashCommands.isEmpty else { return nil }
+        let caret = caret
+        guard caret > draft.startIndex else { return nil }
+        let word = draft[draft.index(after: draft.startIndex)..<caret]
+        guard !word.contains(where: \.isWhitespace) else { return nil }
+        return String(word)
+    }
+
+    private var commandMatches: [SlashCommand] {
+        guard isFocused, let query = activeCommand, "/" + query != dismissedWord else { return [] }
+        return SlashCommand.matches(query, in: session.slashCommands)
+    }
+
+    private func moveSuggestion(by offset: Int) -> KeyPress.Result {
+        let count = commandMatches.isEmpty ? mentionMatches.count : commandMatches.count
         guard count > 0 else { return .ignored }
         mentionIndex = (mentionIndex + offset + count) % count
         return .handled
     }
 
-    private func pickMention() -> KeyPress.Result {
+    private func pickSuggestion() -> KeyPress.Result {
+        let commands = commandMatches
+        if !commands.isEmpty {
+            pick(commands[min(mentionIndex, commands.count - 1)])
+            return .handled
+        }
         let matches = mentionMatches
         guard !matches.isEmpty else { return .ignored }
         pick(matches[min(mentionIndex, matches.count - 1)])
         return .handled
+    }
+
+    /// The first word becomes the command, followed by a space for its input.
+    private func pick(_ command: SlashCommand) {
+        let draft = session.draft
+        let rest = draft.firstIndex(where: \.isWhitespace).map { String(draft[$0...]) } ?? ""
+        let head = "/" + command.name + (rest.isEmpty ? " " : "")
+        session.draft = head + rest
+        selection = TextSelection(insertionPoint: session.draft.index(session.draft.startIndex, offsetBy: head.count + (rest.isEmpty ? 0 : 1)))
+        dismissedWord = nil
+        isFocused = true
     }
 
     /// The @-word is replaced by the file's chip.
@@ -1032,7 +1193,7 @@ struct Composer: View {
             selection = TextSelection(insertionPoint: draft.index(draft.startIndex, offsetBy: offset))
         }
         session.attach(.file(session.cwd.appendingPathComponent(path).standardizedFileURL))
-        dismissedMention = nil
+        dismissedWord = nil
         isFocused = true
     }
 
@@ -1137,6 +1298,58 @@ struct MentionList: View {
             }
         }
         .padding(5)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+    }
+}
+
+/// The agent's slash commands matching what's typed, shown above the composer.
+struct CommandList: View {
+    let commands: [SlashCommand]
+    let selected: Int
+    let pick: (SlashCommand) -> Void
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(commands.enumerated()), id: \.element.id) { index, command in
+                        Button { pick(command) } label: {
+                            HStack(spacing: 7) {
+                                Text("/" + command.name)
+                                    .fontWeight(.medium)
+                                    .lineLimit(1)
+                                    .layoutPriority(2)
+                                if let hint = command.hint, !hint.isEmpty {
+                                    Text(hint)
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
+                                        .layoutPriority(1)
+                                }
+                                if !command.description.isEmpty {
+                                    Text(command.description)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .font(.system(size: 12))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(index == selected ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6))
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .help(command.description)
+                        .id(index)
+                    }
+                }
+                .padding(5)
+            }
+            // About eight rows, then it scrolls.
+            .frame(maxHeight: 210)
+            .fixedSize(horizontal: false, vertical: true)
+            .onChange(of: selected) { proxy.scrollTo(selected) }
+        }
         .glassEffect(.regular, in: .rect(cornerRadius: 12))
     }
 }

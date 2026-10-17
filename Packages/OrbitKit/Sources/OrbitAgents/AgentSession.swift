@@ -46,7 +46,9 @@ final class AgentSession: Identifiable {
     var initialValues: [String: String] = [:]
     private(set) var entries: [TranscriptEntry] = []
     private(set) var configOptions: [ConfigOption] = []
-    private(set) var slashCommands: [String] = []
+    private(set) var slashCommands: [SlashCommand] = []
+    /// When the running turn began, for its timer.
+    private(set) var turnStartedAt: Date?
     private(set) var usage = SessionUsage()
     var draft = ""
     private(set) var attachments: [PromptAttachment] = []
@@ -342,6 +344,9 @@ final class AgentSession: Identifiable {
         }
         status = .working
         planEntry = nil
+        let startedAt = Date()
+        turnStartedAt = startedAt
+        let before = Dictionary(pendingStats(), uniquingKeysWith: { first, _ in first })
 
         Task {
             if let checkpoint = await projectTracker?.beginAgentTurn() {
@@ -373,7 +378,11 @@ final class AgentSession: Identifiable {
                 attention = .failed(describe(error))
             }
             await projectTracker?.endAgentTurn()
-            if status == .working { status = .ready }
+            turnStartedAt = nil
+            if status == .working {
+                status = .ready
+                summarizeTurn(duration: Date().timeIntervalSince(startedAt), before: before)
+            }
             let sendsNow = sendsQueueAfterStop
             sendsQueueAfterStop = false
             if continuesQueue || sendsNow, !queue.isEmpty, status == .ready {
@@ -459,7 +468,7 @@ final class AgentSession: Identifiable {
         case "plan":
             applyPlan(update["entries"])
         case "available_commands_update":
-            slashCommands = (update["availableCommands"]?.array ?? []).compactMap { $0["name"]?.string }
+            slashCommands = (update["availableCommands"]?.array ?? []).compactMap(SlashCommand.init)
         case "current_mode_update":
             if let mode = update["currentModeId"]?.string,
                let index = configOptions.firstIndex(where: { $0.category == "mode" || $0.id == "mode" }) {
@@ -833,6 +842,29 @@ final class AgentSession: Identifiable {
             remaining = remaining[(index + 1)...]
         }
     }
+
+    /// Long turns and turns that changed files end with a line saying so.
+    private static let summaryThreshold: TimeInterval = 30
+
+    private func pendingStats() -> [(URL, DiffStats)] {
+        guard let tracker = projectTracker else { return [] }
+        return tracker.changedFiles.map { url in
+            let stats = tracker.stats(for: url)
+            return (url, DiffStats(added: stats.added, removed: stats.removed))
+        }
+    }
+
+    private func summarizeTurn(duration: TimeInterval, before: [URL: DiffStats]) {
+        let files = TurnActivity.changedFiles(before: before, after: pendingStats())
+        guard !files.isEmpty || duration >= Self.summaryThreshold else { return }
+        let entry = TranscriptEntry(kind: .summary)
+        entry.duration = duration
+        entry.changedFiles = files
+        entries.append(entry)
+    }
+
+    /// Unreviewed changes go through the project's tracker; an isolated session has none until Apply.
+    var reviewTracker: ChangeTracking? { projectTracker }
 
     private func notice(_ text: String, isError: Bool = false) {
         let entry = TranscriptEntry(kind: .notice, text: text)
