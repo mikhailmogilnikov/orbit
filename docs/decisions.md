@@ -125,6 +125,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D113. Second performance pass: shadow-git queue, cancelled searches and diagnostics pulls
 - D114. Third performance pass: media reloads, tool-card diffs, line starts
 - D115. Slash commands in the composer; a live working line and a turn summary
+- D116. Reads and searches in a row fold into one transcript line
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2522,3 +2523,15 @@ said nothing, so it took a look at the changes bar to know what it did.
   change, inline as always (D7). Summaries aren't saved: a reloaded
   conversation has none. Isolated sessions show only the time (their
   changes come through Apply).
+
+### D116. Reads and searches in a row fold into one transcript line
+
+A turn that explores the code left a card per file read and per search,
+pushing the agent's answer and its edits out of sight. Two or more
+consecutive read / search / fetch calls now show as one card — "Read 4
+files · 2 searches", the last call's title while folded, a spinner while
+any runs — that expands into the usual cards. Grouping happens in the
+view (`TranscriptRow.rows`), the transcript keeps every call; the group
+takes its first call's id, so a card growing into a group keeps its place.
+Edits, commands, failed calls and calls asking for permission are never
+folded: those are what the user reviews or acts on.

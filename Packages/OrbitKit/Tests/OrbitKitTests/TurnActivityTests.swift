@@ -57,3 +57,30 @@ import Testing
         #expect(TurnSummaryView.format(0.2) == "1s")
     }
 }
+
+@MainActor
+@Suite struct TranscriptRowTests {
+    private func tool(_ kind: String, _ status: String = "completed") -> TranscriptEntry {
+        let entry = TranscriptEntry(kind: .tool)
+        entry.toolKind = kind
+        entry.title = kind
+        entry.status = status
+        return entry
+    }
+
+    @Test func groupsRunsOfQuietCalls() {
+        let user = TranscriptEntry(kind: .user, text: "go")
+        let r1 = tool("read"), r2 = tool("read"), s1 = tool("search", "in_progress"), edit = tool("edit"), r3 = tool("read")
+        let rows = TranscriptRow.rows([user, r1, r2, s1, edit, r3])
+        #expect(rows.map(\.id) == [user.id, r1.id, edit.id, r3.id])
+        guard case .group(let group) = rows[1] else { Issue.record("no group"); return }
+        #expect(group.map(\.id) == [r1.id, r2.id, s1.id])
+        #expect(TranscriptRow.summary(group) == "Read 2 files · 1 search")
+        guard case .entry = rows[3] else { Issue.record("a lone read is grouped"); return }
+    }
+
+    @Test func failedCallsStayVisible() {
+        let rows = TranscriptRow.rows([tool("read"), tool("read", "failed"), tool("read")])
+        #expect(rows.count == 3)
+    }
+}

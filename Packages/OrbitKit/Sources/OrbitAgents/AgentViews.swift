@@ -262,8 +262,11 @@ struct SessionView: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(session.entries) { entry in
-                            EntryView(entry: entry, session: session)
+                        ForEach(TranscriptRow.rows(session.entries)) { row in
+                            switch row {
+                            case .entry(let entry): EntryView(entry: entry, session: session)
+                            case .group(let entries): ToolGroupCard(entries: entries)
+                            }
                         }
                         StatusFooter(session: session)
                     }
@@ -829,6 +832,62 @@ struct ToolCallCard: View {
                 ProgressView().controlSize(.mini)
             }
         }
+    }
+}
+
+/// Consecutive reads and searches as one line; expands into their cards.
+struct ToolGroupCard: View {
+    let entries: [TranscriptEntry]
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: entries.allSatisfy { $0.toolKind == "read" } ? "doc.text" : "magnifyingglass")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                    Text(TranscriptRow.summary(entries))
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    if !isExpanded, let last = entries.last {
+                        Text(last.title)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 4)
+                    if entries.contains(where: \.isRunning) {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.green)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help(isExpanded ? "Hide the steps" : entries.map(\.title).joined(separator: "\n"))
+
+            if isExpanded {
+                Divider().opacity(0.6)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(entries) { ToolCallCard(entry: $0) }
+                }
+                .padding(6)
+            }
+        }
+        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.corner))
+        .overlay(RoundedRectangle(cornerRadius: Theme.corner).strokeBorder(Theme.hairline))
     }
 }
 

@@ -211,3 +211,56 @@ struct ConfigOption: Identifiable, Hashable, Codable {
         self.choices = choices
     }
 }
+
+/// A transcript row: an entry, or a run of quiet tool calls (reads, searches)
+/// shown as one line so a long turn doesn't become a wall of cards.
+@MainActor
+enum TranscriptRow: Identifiable {
+    case entry(TranscriptEntry)
+    case group([TranscriptEntry])
+
+    /// The first entry's id: a card that grows into a group keeps its place.
+    nonisolated var id: UUID {
+        switch self {
+        case .entry(let entry): entry.id
+        case .group(let entries): entries[0].id
+        }
+    }
+
+    static let quietKinds: Set<String> = ["read", "search", "fetch"]
+
+    static func isQuiet(_ entry: TranscriptEntry) -> Bool {
+        entry.kind == .tool && quietKinds.contains(entry.toolKind) && entry.status != "failed"
+            && entry.permission == nil && entry.terminal == nil
+    }
+
+    static func rows(_ entries: [TranscriptEntry]) -> [TranscriptRow] {
+        var rows: [TranscriptRow] = []
+        var run: [TranscriptEntry] = []
+        func flush() {
+            if run.count > 1 { rows.append(.group(run)) } else { rows += run.map(TranscriptRow.entry) }
+            run = []
+        }
+        for entry in entries {
+            if isQuiet(entry) {
+                run.append(entry)
+            } else {
+                flush()
+                rows.append(.entry(entry))
+            }
+        }
+        flush()
+        return rows
+    }
+
+    /// "Read 4 files · 2 searches".
+    static func summary(_ entries: [TranscriptEntry]) -> String {
+        let count = { (kind: String) in entries.count { $0.toolKind == kind } }
+        let reads = count("read"), searches = count("search"), fetches = count("fetch")
+        var parts: [String] = []
+        if reads > 0 { parts.append("Read \(reads) file\(reads == 1 ? "" : "s")") }
+        if searches > 0 { parts.append("\(searches) search\(searches == 1 ? "" : "es")") }
+        if fetches > 0 { parts.append("\(fetches) fetch\(fetches == 1 ? "" : "es")") }
+        return parts.joined(separator: " · ")
+    }
+}
