@@ -129,6 +129,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D117. One type scale for the UI (`Font.orbit`)
 - D118. Tool cards open their files; permissions by keyboard; other chats' approvals shown
 - D119. Changed files name their chat; an empty chat lists what the composer takes
+- D120. The chat catches up with Claude Code: pinned plan, timed thoughts, Esc / ↑ / ⇧Tab, mode in view
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2597,3 +2598,29 @@ font size, not the scale. The unused `Theme.codeFont` is gone.
 - Not done from the same list: review progress ("2 of 5 viewed"). Files
   already leave the list as they're reviewed, so the count left is the
   progress.
+
+### D120. The chat catches up with Claude Code: pinned plan, timed thoughts, Esc / ↑ / ⇧Tab, mode in view
+
+The author measures the chat against Claude Code (CLI and desktop). What
+it had that Orbit lacked, now in the Agents plugin:
+
+- **Pinned plan**: the turn's plan sits above the composer (folds to the
+  step in progress, "3 of 7 done") while the turn runs and until every
+  step is done; in the transcript the plan is one line that expands. A new
+  message starts without it (the agent sends a new one).
+- **Timed thoughts**: "Thinking…" while it streams, "Thought for 8s" once
+  the next entry arrives or the turn ends; replayed history says
+  "Thought" (no times in it).
+- **Keys in the composer**: Esc stops the turn (after closing the `@` / `/`
+  list; ⌘. still works); ↑ / ↓ walk the sent messages from an empty draft
+  or one recalled, as in a shell; ⇧Tab cycles the agent's mode.
+- **Mode in view**: a button beside the options shows the mode (icon and
+  name, tinted when it isn't the asking default) and picks one from a
+  menu. It stays in the options popover too.
+- **Deny, then say why**: denying a permission focuses the composer with
+  "Tell <agent> what to do instead…" — Claude Code's "No, and tell Claude
+  what to do differently" without a separate field.
+- **Jump to latest**: a round ↓ button over the transcript's bottom when
+  it's scrolled up (`onScrollGeometryChange` reads the offset; nothing
+  measured feeds back into the content, D103).
+- **Copy a reply**: on hover under the agent's message (its Markdown).

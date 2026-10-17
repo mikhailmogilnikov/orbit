@@ -172,6 +172,7 @@
 - A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
+- Chat like Claude Code (D120): pinned plan, "Thought for 8s", Esc stops, ↑/↓ history, ⇧Tab and a mode button, focus after Deny, jump to latest, copy a reply
 - Changed files show which chat changed them when several are open; key hints in an empty chat (D119)
 - Tool cards: file names open the file at its change, +/− in the header; permission keys ⌘↩ / ⌃⌘↩ / ⌃⌘⌫; a bar for another chat waiting for approval (D118)
 - One type scale for UI text, `Font.orbit(_:)` in OrbitUI (D117)
@@ -361,6 +362,7 @@ Everything below is known to be missing; nothing here is in progress.
   relative images); no side-by-side preview (no split editor); preview tabs
   aren't restored on launch; code colors don't change with the theme until
   the next edit.
+- Chat like Claude Code (D120): unverified on a Mac and with a real agent (⇧Tab reaching the field as backtab, Esc and ↑ beside the text field's own keys, the pinned plan's height, the copy button's place, the jump button while streaming).
 - Chat attribution and hints (D119): unverified on a Mac (the agent icon beside the stats and the hover buttons, the hints grid under the greeting).
 - Tool card links and permission keys (D118): unverified on a Mac and with a real agent (the link's hover, keys reaching the buttons from the editor and the composer, the waiting bar).
 - Type scale (D117): unverified on a Mac (bars over the composer, bottom panel and terminal tabs went 11.5 → 11, the model popover's rows 12.5 → 13, the palette's query 16 → 15).

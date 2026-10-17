@@ -33,6 +33,10 @@ final class TranscriptEntry: Identifiable {
     // Plans
     var plan: [PlanItem] = []
 
+    // Thoughts: live ones are timed ("Thought for 8s"), replayed ones aren't.
+    var startedAt: Date?
+    var endedAt: Date?
+
     // Turn summaries
     var duration: TimeInterval = 0
     /// Files the turn left with unreviewed changes.
@@ -63,6 +67,11 @@ enum ToolContent: Identifiable {
 struct PlanItem: Hashable {
     var content: String
     var status: String
+
+    /// "3 of 7 done".
+    static func progress(_ items: [PlanItem]) -> String {
+        "\(items.count { $0.status == "completed" }) of \(items.count) done"
+    }
 }
 
 /// A command the agent offers (ACP `available_commands_update`), sent as "/name …".
@@ -93,6 +102,15 @@ struct SlashCommand: Hashable, Identifiable {
         let prefix = commands.filter { $0.name.range(of: query, options: [.caseInsensitive, .anchored]) != nil }
         let contains = commands.filter { !prefix.contains($0) && $0.name.localizedCaseInsensitiveContains(query) }
         return prefix + contains
+    }
+}
+
+enum ThoughtLabel {
+    /// "Thinking…" while it streams, "Thought for 8s" after, "Thought" when replayed.
+    static func text(startedAt: Date?, endedAt: Date?) -> String {
+        guard let startedAt else { return "Thought" }
+        guard let endedAt else { return "Thinking…" }
+        return "Thought for \(TurnSummaryView.format(endedAt.timeIntervalSince(startedAt)))"
     }
 }
 
@@ -139,6 +157,7 @@ final class PermissionRequest {
 
     let options: [Option]
     private(set) var resolution: String?
+    @ObservationIgnored var onChoose: ((Option) -> Void)?
     private var continuation: CheckedContinuation<JSONValue, Error>?
 
     init(options: [Option], continuation: CheckedContinuation<JSONValue, Error>) {
@@ -152,6 +171,7 @@ final class PermissionRequest {
         resolution = option.name
         continuation?.resume(returning: ["outcome": ["outcome": "selected", "optionId": .string(option.id)]])
         continuation = nil
+        onChoose?(option)
     }
 
     func cancel() {

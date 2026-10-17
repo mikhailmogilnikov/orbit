@@ -100,3 +100,25 @@ import Testing
         #expect(PermissionBar.shortcut(for: "reject_always") == nil)
     }
 }
+
+@Suite struct ChatLabelTests {
+    @Test func thoughtsSayHowLongTheyTook() {
+        let start = Date(timeIntervalSince1970: 0)
+        #expect(ThoughtLabel.text(startedAt: nil, endedAt: nil) == "Thought")
+        #expect(ThoughtLabel.text(startedAt: start, endedAt: nil) == "Thinking…")
+        #expect(ThoughtLabel.text(startedAt: start, endedAt: start.addingTimeInterval(8.2)) == "Thought for 8s")
+    }
+
+    @Test func planProgressCountsDoneSteps() {
+        let items = [PlanItem(content: "a", status: "completed"), PlanItem(content: "b", status: "in_progress"), PlanItem(content: "c", status: "pending")]
+        #expect(PlanItem.progress(items) == "1 of 3 done")
+    }
+
+    @Test func modeIconsReadTheModeName() {
+        #expect(ModeButton.icon(for: "plan", name: "Plan Mode") == "list.bullet.clipboard")
+        #expect(ModeButton.icon(for: "acceptEdits", name: "Accept Edits") == "pencil")
+        #expect(ModeButton.icon(for: "bypassPermissions", name: "Bypass Permissions") == "bolt")
+        #expect(ModeButton.icon(for: "default", name: "Default") == "hand.raised")
+        #expect(ModeButton.isCautious("default") && !ModeButton.isCautious("acceptEdits"))
+    }
+}

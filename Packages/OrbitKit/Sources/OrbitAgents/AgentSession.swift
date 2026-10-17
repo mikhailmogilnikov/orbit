@@ -51,6 +51,8 @@ final class AgentSession: Identifiable {
     private(set) var slashCommands: [SlashCommand] = []
     /// When the running turn began, for its timer.
     private(set) var turnStartedAt: Date?
+    /// After a permission was denied: the composer takes focus to say what to do instead.
+    private(set) var awaitsCorrection = false
     private(set) var usage = SessionUsage()
     var draft = ""
     private(set) var attachments: [PromptAttachment] = []
@@ -330,7 +332,7 @@ final class AgentSession: Identifiable {
         let attached = shown.map(intoCopy)
         let entry = TranscriptEntry(kind: .user, text: text)
         entry.attachments = shown
-        entries.append(entry)
+        appendEntry(entry)
         updatedAt = Date()
         let summary = text.isEmpty ? shown.map(\.label).joined(separator: ", ") : text
         if !isTitled {
@@ -348,6 +350,7 @@ final class AgentSession: Identifiable {
         }
         status = .working
         planEntry = nil
+        awaitsCorrection = false
         let startedAt = Date()
         turnStartedAt = startedAt
         let before = Dictionary(pendingStats(), uniquingKeysWith: { first, _ in first })
@@ -382,6 +385,7 @@ final class AgentSession: Identifiable {
                 attention = .failed(describe(error))
             }
             await projectTracker?.endAgentTurn()
+            closeThought()
             turnStartedAt = nil
             if status == .working {
                 status = .ready
@@ -497,7 +501,7 @@ final class AgentSession: Identifiable {
         if let last = entries.last, last.kind == kind {
             last.text += text
         } else {
-            entries.append(TranscriptEntry(kind: kind, text: text))
+            appendEntry(TranscriptEntry(kind: kind, text: text))
         }
     }
 
@@ -511,7 +515,7 @@ final class AgentSession: Identifiable {
             entry = TranscriptEntry(kind: .tool)
             entry.toolCallID = id
             toolEntries[id] = entry
-            entries.append(entry)
+            appendEntry(entry)
         }
         if let title = update["title"]?.string { entry.title = title }
         if let kind = update["kind"]?.string { entry.toolKind = kind }
@@ -583,7 +587,7 @@ final class AgentSession: Identifiable {
         } else {
             let entry = TranscriptEntry(kind: .plan)
             entry.plan = items
-            entries.append(entry)
+            appendEntry(entry)
             planEntry = entry
         }
     }
@@ -639,10 +643,13 @@ final class AgentSession: Identifiable {
             let entry = applyToolCall(toolCall) ?? {
                 let entry = TranscriptEntry(kind: .tool)
                 entry.title = "Permission requested"
-                entries.append(entry)
+                appendEntry(entry)
                 return entry
             }()
             entry.permission = request
+            request.onChoose = { [weak self] option in
+                if !option.isAllow { self?.awaitsCorrection = true }
+            }
             pendingPermissions.append(request)
             onAttention(.permission(entry.title.isEmpty ? "Permission requested" : entry.title))
 
@@ -865,7 +872,7 @@ final class AgentSession: Identifiable {
         let entry = TranscriptEntry(kind: .summary)
         entry.duration = duration
         entry.changedFiles = files
-        entries.append(entry)
+        appendEntry(entry)
     }
 
     /// A file from a tool call, in the editor: at its first unreviewed change when it has one.
@@ -881,10 +888,44 @@ final class AgentSession: Identifiable {
     /// Unreviewed changes go through the project's tracker; an isolated session has none until Apply.
     var reviewTracker: ChangeTracking? { projectTracker }
 
+    /// Closes the thought before the new entry, so it can say how long it took.
+    private func appendEntry(_ entry: TranscriptEntry) {
+        closeThought()
+        if entry.kind == .thought, !isReplaying { entry.startedAt = Date() }
+        entries.append(entry)
+    }
+
+    private func closeThought() {
+        if let last = entries.last, last.kind == .thought, last.startedAt != nil, last.endedAt == nil { last.endedAt = Date() }
+    }
+
+    /// The turn's plan, pinned above the composer while it runs and until every step is done.
+    var pinnedPlan: [PlanItem]? {
+        guard let plan = planEntry?.plan, !plan.isEmpty else { return nil }
+        return status == .working || plan.contains { $0.status != "completed" } ? plan : nil
+    }
+
+    /// The agent's permission mode (Claude Code: Default / Accept Edits / Plan…), when it has one.
+    var modeOption: ConfigOption? { configOptions.first { $0.category == "mode" } }
+
+    /// ⇧Tab: the next mode, as in Claude Code. False when the agent has no modes.
+    @discardableResult
+    func cycleMode() -> Bool {
+        guard let option = modeOption, option.choices.count > 1 else { return false }
+        let index = option.choices.firstIndex { $0.value == option.currentValue } ?? -1
+        setConfigOption(option, value: option.choices[(index + 1) % option.choices.count].value)
+        return true
+    }
+
+    /// What was sent, newest first: ↑ in an empty composer walks it.
+    var promptHistory: [String] {
+        entries.reversed().compactMap { $0.kind == .user && !$0.text.isEmpty ? $0.text : nil }
+    }
+
     private func notice(_ text: String, isError: Bool = false) {
         let entry = TranscriptEntry(kind: .notice, text: text)
         entry.isError = isError
-        entries.append(entry)
+        appendEntry(entry)
     }
 
     private func describe(_ error: Error) -> String {

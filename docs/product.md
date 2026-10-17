@@ -62,7 +62,8 @@ agents and review their work.
   (Markdown), collapsible "Thinking", tool-call cards (with diffs/command
   output), plans, and inline permission prompts. Model / mode / effort pickers
   come from the agent's ACP `configOptions` (not hard-coded).
-- **Composer:** Return sends, ⌘. stops, ⌘L focuses chat, ⇧⌘N new session.
+- **Composer:** Return sends, Esc or ⌘. stops, ↑/↓ recall sent messages, ⇧Tab cycles the mode (also a button beside the options), ⌘L focuses chat, ⇧⌘N new session.
+  The turn's plan is pinned above the composer; thoughts say how long they took.
   `/` at the start lists the agent's slash commands, `@` lists files. While
   the agent works the transcript ends with what it's doing and a timer; a
   turn that changed files (or took 30 s+) ends with "Worked for … · N files

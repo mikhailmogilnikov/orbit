@@ -281,6 +281,8 @@ struct SessionView: View {
     let session: AgentSession
     let store: AgentStore
     @State private var isDropTargeted = false
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    @State private var isAtBottom = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -306,7 +308,34 @@ struct SessionView: View {
                     .padding(.vertical, 12)
                 }
                 .defaultScrollAnchor(.bottom)
+                .scrollPosition($scrollPosition)
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 60
+                } action: { _, atBottom in
+                    isAtBottom = atBottom
+                }
+                .overlay(alignment: .bottom) {
+                    if !isAtBottom {
+                        Button {
+                            withAnimation(.snappy(duration: 0.25)) { scrollPosition.scrollTo(edge: .bottom) }
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .font(.orbit(.body, weight: .semibold))
+                                .frame(width: 26, height: 26)
+                                .contentShape(.circle)
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .help("Jump to the latest")
+                        .padding(.bottom, 10)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
+                .animation(.snappy(duration: 0.15), value: isAtBottom)
                 .environment(\.keyedPermission, session.firstPendingPermission.map(ObjectIdentifier.init))
+            }
+            if let plan = session.pinnedPlan {
+                PinnedPlanView(items: plan)
             }
             if let waiting = store.sessions.first(where: { $0.id != session.id && $0.hasPendingPermission }) {
                 WaitingSessionBar(session: waiting) { store.selectedID = waiting.id }
@@ -443,7 +472,7 @@ struct EntryView: View {
         case .user:
             UserMessageView(entry: entry, session: session)
         case .agent:
-            MarkdownText(entry.text)
+            AgentMessageView(entry: entry)
         case .thought:
             ThoughtView(entry: entry)
         case .tool:
@@ -569,6 +598,43 @@ private struct TurnFileRow: View {
     }
 }
 
+/// The agent's reply, with Copy on hover (the Markdown source).
+struct AgentMessageView: View {
+    let entry: TranscriptEntry
+    @State private var isHovering = false
+    @State private var copied = false
+
+    var body: some View {
+        MarkdownText(entry.text)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 4)
+            .overlay(alignment: .bottomTrailing) {
+                if isHovering || copied {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(entry.text, forType: .string)
+                        copied = true
+                        Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
+                    } label: {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.orbit(.caption))
+                            .frame(width: 22, height: 22)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .controlSize(.small)
+                    .help("Copy the reply")
+                    .offset(y: 12)
+                    .transition(.opacity)
+                }
+            }
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
+            }
+    }
+}
+
 /// Messages written while the agent works (D88), sent one by one as its turns end.
 struct QueuedMessagesView: View {
     let session: AgentSession
@@ -666,6 +732,8 @@ struct ThoughtView: View {
     let entry: TranscriptEntry
     @State private var isExpanded = false
 
+    private var label: String { ThoughtLabel.text(startedAt: entry.startedAt, endedAt: entry.endedAt) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
@@ -673,7 +741,7 @@ struct ThoughtView: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "brain")
-                    Text("Thinking")
+                    Text(label)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 8, weight: .bold))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
@@ -696,37 +764,115 @@ struct ThoughtView: View {
     }
 }
 
+/// The plan in the transcript: one line ("Plan · 3 of 7 done") that expands;
+/// the live list is pinned above the composer (`PinnedPlanView`).
 struct PlanView: View {
     let items: [PlanItem]
+    @State private var isExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("Plan", systemImage: "list.bullet.clipboard")
-                .font(.caption.weight(.semibold))
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "list.bullet.clipboard")
+                    Text("Plan · \(PlanItem.progress(items))")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            if isExpanded {
+                PlanItemsList(items: items)
+                    .padding(.leading, 2)
+            }
+        }
+    }
+}
+
+struct PlanItemsList: View {
+    let items: [PlanItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: icon(item.status))
-                        .foregroundStyle(item.status == "completed" ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+                    Image(systemName: Self.icon(item.status))
+                        .foregroundStyle(item.status == "completed" ? AnyShapeStyle(.green) : item.status == "in_progress" ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                         .font(.caption)
                     Text(item.content)
-                        .font(.callout)
+                        .font(.orbit(.body, weight: item.status == "in_progress" ? .medium : .regular))
                         .strikethrough(item.status == "completed", color: .secondary)
                         .foregroundStyle(item.status == "completed" ? .secondary : .primary)
                 }
             }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.corner))
     }
 
-    private func icon(_ status: String) -> String {
+    static func icon(_ status: String) -> String {
         switch status {
         case "completed": "checkmark.circle.fill"
         case "in_progress": "circle.dotted.circle"
         default: "circle"
         }
+    }
+}
+
+/// The running turn's plan above the composer, like Claude Code's task list:
+/// the step in progress when folded, every step when open.
+struct PinnedPlanView: View {
+    let items: [PlanItem]
+    @State private var isExpanded = true
+
+    var body: some View {
+        let current = items.first { $0.status == "in_progress" } ?? items.first { $0.status != "completed" }
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .foregroundStyle(.secondary)
+                    Text("Plan")
+                        .font(.orbit(.caption, weight: .medium))
+                    Text(PlanItem.progress(items))
+                        .font(.orbit(.caption))
+                        .foregroundStyle(.secondary)
+                    if !isExpanded, let current {
+                        Text(current.content)
+                            .font(.orbit(.caption))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help(isExpanded ? "Fold the plan" : "Show the whole plan")
+            if isExpanded {
+                ScrollView {
+                    PlanItemsList(items: items)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // About eight steps, then it scrolls; the transcript keeps the space.
+                .frame(maxHeight: 170)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 15)
+                .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .overlay(alignment: .top) { Divider() }
     }
 }
 
@@ -1121,6 +1267,8 @@ struct Composer: View {
     @State private var isDropTargeted = false
     @State private var selection: TextSelection?
     @State private var paste = PasteInterceptor()
+    /// Where ↑ / ↓ are in the sent messages; nil while typing your own.
+    @State private var historyIndex: Int?
 
     var body: some View {
         // The file list sits in the layout above the composer (which is at the
@@ -1149,6 +1297,7 @@ struct Composer: View {
             if isFocused { paste.window = NSApp.keyWindow }
         }
         .onChange(of: focusRequest) { isFocused = true }
+        .onChange(of: session.awaitsCorrection) { if session.awaitsCorrection { isFocused = true } }
     }
 
     private var card: some View {
@@ -1163,19 +1312,32 @@ struct Composer: View {
                 .focused($isFocused)
                 .onSubmit(session.submit)
                 .disabled(isDisabled)
-                .onKeyPress(.upArrow) { moveSuggestion(by: -1) }
-                .onKeyPress(.downArrow) { moveSuggestion(by: 1) }
-                .onKeyPress(.tab) { pickSuggestion() }
+                .onKeyPress(.upArrow) { moveSuggestion(by: -1) == .handled ? .handled : recall(by: 1) }
+                .onKeyPress(.downArrow) { moveSuggestion(by: 1) == .handled ? .handled : recall(by: -1) }
+                // ⇧Tab arrives as backtab.
+                .onKeyPress(keys: [.tab, KeyEquivalent("\u{19}")]) { press in
+                    if press.modifiers.contains(.shift) || press.key == KeyEquivalent("\u{19}") {
+                        return session.cycleMode() ? .handled : .ignored
+                    }
+                    return pickSuggestion()
+                }
                 .onKeyPress(.return) { pickSuggestion() }
                 .onKeyPress(.escape) {
                     if !commandMatches.isEmpty, let command = activeCommand {
                         dismissedWord = "/" + command
                     } else if let mention = activeMention {
                         dismissedWord = "@" + mention
+                    } else if session.status == .working {
+                        session.stop()
                     } else {
                         return .ignored
                     }
                     return .handled
+                }
+                .onChange(of: session.draft) {
+                    if let index = historyIndex, session.promptHistory.indices.contains(index), session.draft != session.promptHistory[index] {
+                        historyIndex = nil
+                    }
                 }
                 .onChange(of: activeMention) { mentionIndex = 0 }
                 .onChange(of: activeCommand) { mentionIndex = 0 }
@@ -1196,6 +1358,7 @@ struct Composer: View {
                 .fixedSize()
                 .help("Attach files or images (or drop them here)")
                 SessionOptionsButton(session: session, store: store)
+                ModeButton(session: session)
                 Spacer()
                 if !session.usage.isEmpty {
                     UsageButton(session: session)
@@ -1278,8 +1441,30 @@ struct Composer: View {
         return text.replacingOccurrences(of: "\\ ", with: " ")
     }
 
+    /// ↑ goes back through the sent messages from an empty draft (or one recalled), ↓ forward.
+    private func recall(by step: Int) -> KeyPress.Result {
+        let history = session.promptHistory
+        let recalled = historyIndex.map { history.indices.contains($0) ? history[$0] : "" }
+        guard session.draft.isEmpty || session.draft == recalled else { return .ignored }
+        let next = (historyIndex ?? -1) + step
+        if next < 0 {
+            guard historyIndex != nil else { return .ignored }
+            historyIndex = nil
+            session.draft = ""
+            return .handled
+        }
+        guard history.indices.contains(next) else { return .ignored }
+        historyIndex = next
+        session.draft = history[next]
+        selection = TextSelection(insertionPoint: session.draft.endIndex)
+        return .handled
+    }
+
     private var placeholder: String {
-        session.status == .working
+        if session.awaitsCorrection, session.status != .working {
+            return "Tell \(session.provider.name) what to do instead…"
+        }
+        return session.status == .working
             ? "Queue a message for when \(session.provider.name) finishes…"
             : session.slashCommands.isEmpty
                 ? "Ask \(session.provider.name)… (@ to add files)"
