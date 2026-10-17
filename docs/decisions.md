@@ -127,6 +127,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D115. Slash commands in the composer; a live working line and a turn summary
 - D116. Reads and searches in a row fold into one transcript line
 - D117. One type scale for the UI (`Font.orbit`)
+- D118. Tool cards open their files; permissions by keyboard; other chats' approvals shown
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2560,3 +2561,20 @@ size kept: monospaced glyphs look larger, so 11.5 sits with 12 text),
 (SF Symbols are sized like text); glyph-only sizes (7–9 pt chevrons, an
 18 pt card icon) stay literal. The editor and terminal follow the user's
 font size, not the scale. The unused `Theme.codeFont` is gone.
+
+### D118. Tool cards open their files; permissions by keyboard; other chats' approvals shown
+
+- **Edit cards → editor**: the file name over a tool card's diff opens the
+  file at its first unreviewed change (`openReview`), else just the file;
+  the review stays inline (D7). The card's header shows the call's +/−,
+  from the same cached diff it draws (D114). Line numbers from the ACP
+  diff aren't used: agents send the edited snippet, not the whole file.
+- **Permission keys**: ⌘↩ allow once, ⌃⌘↩ always allow, ⌃⌘⌫ deny, with
+  the keys in each button's tooltip. Only the oldest pending request of
+  the chat in view takes them (`keyedPermission`); ⌘↩ used to be bound on
+  every pending card at once. Escape and ⌘⌫ were rejected: key equivalents
+  run before the focused view, so Escape closing completion or ⌘⌫ moving a
+  file to the Trash would have denied the request; ⌥⌘ / ⇧⌘ with ↩ / ⌫ are
+  the inline review's keys.
+- **Another chat waiting**: when a chat other than the one shown waits for
+  a permission, a bar over the composer says so, with Show.

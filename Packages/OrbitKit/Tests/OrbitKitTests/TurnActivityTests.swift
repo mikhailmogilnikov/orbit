@@ -1,6 +1,8 @@
 import Foundation
 import OrbitACP
 @testable import OrbitAgents
+import OrbitUI
+import SwiftUI
 import Testing
 
 @Suite struct SlashCommandTests {
@@ -82,5 +84,19 @@ import Testing
     @Test func failedCallsStayVisible() {
         let rows = TranscriptRow.rows([tool("read"), tool("read", "failed"), tool("read")])
         #expect(rows.count == 3)
+    }
+}
+
+@MainActor
+@Suite struct ToolCardTests {
+    @Test func diffStatsCountChangedLinesOnly() {
+        let stats = CompactDiffView.stats(old: "a\nb\nc\nd", new: "a\nB\nc\nd\ne")
+        #expect(stats.added == 2 && stats.removed == 1)
+    }
+
+    @Test func permissionKeysAvoidTheReviewKeys() {
+        #expect(PermissionBar.shortcut(for: "allow_once") == KeyboardShortcut(.return, modifiers: .command))
+        #expect(PermissionBar.shortcut(for: "reject_once") == KeyboardShortcut(.delete, modifiers: [.control, .command]))
+        #expect(PermissionBar.shortcut(for: "reject_always") == nil)
     }
 }

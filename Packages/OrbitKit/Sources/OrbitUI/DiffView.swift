@@ -292,6 +292,14 @@ public struct CompactDiffView: View {
         self.maxLines = maxLines
     }
 
+    /// Lines added and removed, from the same cached diff the view draws.
+    public static func stats(old: String, new: String) -> (added: Int, removed: Int) {
+        CompactDiffCache.hunks(old: old, new: new).reduce(into: (0, 0)) { total, hunk in
+            total.0 += hunk.added
+            total.1 += hunk.removed
+        }
+    }
+
     public var body: some View {
         let visible = visibleHunks
         VStack(alignment: .leading, spacing: 0) {

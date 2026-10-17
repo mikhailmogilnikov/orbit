@@ -135,6 +135,8 @@ final class AgentSession: Identifiable {
     /// A new chat nothing was sent in yet: not worth remembering, and free to swap for another agent.
     var isEmptyChat: Bool { restoredID == nil && !entries.contains { $0.kind == .user } }
     var hasPendingPermission: Bool { pendingPermissions.contains(where: \.isPending) }
+    /// The request the keyboard answers; the others wait their turn.
+    var firstPendingPermission: PermissionRequest? { pendingPermissions.first(where: \.isPending) }
 
     // MARK: Lifecycle
 
@@ -861,6 +863,16 @@ final class AgentSession: Identifiable {
         entry.duration = duration
         entry.changedFiles = files
         entries.append(entry)
+    }
+
+    /// A file from a tool call, in the editor: at its first unreviewed change when it has one.
+    func reveal(path: String) {
+        let url = workspace.resolve(path: path)
+        if let tracker = projectTracker, tracker.hasChanges(url) {
+            tracker.openReview(for: url)
+        } else if FileManager.default.fileExists(atPath: url.path) {
+            workspace.openFile(url)
+        }
     }
 
     /// Unreviewed changes go through the project's tracker; an isolated session has none until Apply.

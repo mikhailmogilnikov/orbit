@@ -67,6 +67,9 @@ agents and review their work.
   the agent works the transcript ends with what it's doing and a timer; a
   turn that changed files (or took 30 s+) ends with "Worked for … · N files
   changed · Review".
+  Permission prompts: ⌘↩ allow once, ⌃⌘↩ always, ⌃⌘⌫ deny; another chat
+  waiting for approval shows a bar over the composer. A tool card's file
+  name opens the file at its change.
 - **Inline diff review:** banner above the file ("N agent changes +a −r",
   prev/next, Undo All / Keep All); per block Undo ⌥⌘⌫ / Keep ⌥⌘↩, navigate
   ⌥⌘↑/↓; accept/reject everything ⇧⌘↩ / ⇧⌘⌫.

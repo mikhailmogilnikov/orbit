@@ -265,7 +265,7 @@ struct SessionView: View {
                         ForEach(TranscriptRow.rows(session.entries)) { row in
                             switch row {
                             case .entry(let entry): EntryView(entry: entry, session: session)
-                            case .group(let entries): ToolGroupCard(entries: entries)
+                            case .group(let entries): ToolGroupCard(entries: entries, reveal: session.reveal)
                             }
                         }
                         StatusFooter(session: session)
@@ -274,6 +274,10 @@ struct SessionView: View {
                     .padding(.vertical, 12)
                 }
                 .defaultScrollAnchor(.bottom)
+                .environment(\.keyedPermission, session.firstPendingPermission.map(ObjectIdentifier.init))
+            }
+            if let waiting = store.sessions.first(where: { $0.id != session.id && $0.hasPendingPermission }) {
+                WaitingSessionBar(session: waiting) { store.selectedID = waiting.id }
             }
             if session.isIsolated {
                 IsolationBar(session: session)
@@ -411,7 +415,7 @@ struct EntryView: View {
         case .thought:
             ThoughtView(entry: entry)
         case .tool:
-            ToolCallCard(entry: entry)
+            ToolCallCard(entry: entry, reveal: session.reveal)
         case .plan:
             PlanView(items: entry.plan)
         case .notice:
@@ -696,6 +700,8 @@ struct PlanView: View {
 
 struct ToolCallCard: View {
     let entry: TranscriptEntry
+    /// Opens a file the call touched in the editor.
+    var reveal: ((String) -> Void)?
     @State private var isExpanded: Bool?
 
     var body: some View {
@@ -714,6 +720,9 @@ struct ToolCallCard: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 4)
+                    if let stats = diffStats {
+                        DiffStatBadge(added: stats.added, removed: stats.removed)
+                    }
                     statusIcon
                     if hasDetails {
                         Image(systemName: "chevron.right")
@@ -757,6 +766,17 @@ struct ToolCallCard: View {
         return entry.permission?.isPending == true || entry.contents.contains { if case .diff = $0 { true } else { false } }
     }
 
+    /// Summed over the call's diffs; nil when it has none.
+    private var diffStats: (added: Int, removed: Int)? {
+        var total: (added: Int, removed: Int)?
+        for content in entry.contents {
+            guard case .diff(_, let old, let new) = content else { continue }
+            let stats = CompactDiffView.stats(old: old ?? "", new: new)
+            total = ((total?.added ?? 0) + stats.added, (total?.removed ?? 0) + stats.removed)
+        }
+        return total
+    }
+
     private var hasDetails: Bool {
         !entry.contents.isEmpty || !entry.output.isEmpty || entry.command != nil || entry.terminal != nil
     }
@@ -779,9 +799,7 @@ struct ToolCallCard: View {
                         .textSelection(.enabled)
                 case .diff(let path, let old, let new):
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(URL(fileURLWithPath: path).lastPathComponent)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
+                        DiffFileLink(path: path, reveal: reveal)
                         CompactDiffView(old: old ?? "", new: new, url: URL(fileURLWithPath: path))
                             .clipShape(.rect(cornerRadius: Theme.smallCorner))
                     }
@@ -835,9 +853,65 @@ struct ToolCallCard: View {
     }
 }
 
+/// Another chat waits for a permission: shown above this chat's composer, so
+/// it isn't missed while you read this one.
+struct WaitingSessionBar: View {
+    let session: AgentSession
+    let show: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "hand.raised.fill")
+                .foregroundStyle(.orange)
+            Text("\(session.title) needs approval")
+                .font(.orbit(.caption))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            Button("Show", action: show)
+                .buttonStyle(.glass)
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(.orange.opacity(0.06))
+        .overlay(alignment: .top) { Divider() }
+    }
+}
+
+/// The file name over a tool card's diff; a click opens it in the editor.
+private struct DiffFileLink: View {
+    let path: String
+    let reveal: ((String) -> Void)?
+    @State private var isHovering = false
+
+    var body: some View {
+        let name = Text(URL(fileURLWithPath: path).lastPathComponent)
+            .font(.caption.weight(.medium))
+        if let reveal {
+            Button { reveal(path) } label: {
+                HStack(spacing: 3) {
+                    name.underline(isHovering)
+                    Image(systemName: "arrow.up.forward")
+                        .font(.system(size: 8, weight: .semibold))
+                        .opacity(isHovering ? 1 : 0)
+                }
+                .foregroundStyle(isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovering = $0 }
+            .help("Open in the editor")
+        } else {
+            name.foregroundStyle(.secondary)
+        }
+    }
+}
+
 /// Consecutive reads and searches as one line; expands into their cards.
 struct ToolGroupCard: View {
     let entries: [TranscriptEntry]
+    var reveal: ((String) -> Void)?
     @State private var isExpanded = false
 
     var body: some View {
@@ -881,7 +955,7 @@ struct ToolGroupCard: View {
             if isExpanded {
                 Divider().opacity(0.6)
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(entries) { ToolCallCard(entry: $0) }
+                    ForEach(entries) { ToolCallCard(entry: $0, reveal: reveal) }
                 }
                 .padding(6)
             }
@@ -941,28 +1015,54 @@ struct AgentTerminalOutput: View {
     }
 }
 
+extension EnvironmentValues {
+    /// The permission request in view that the keyboard answers (one per chat, the oldest).
+    @Entry var keyedPermission: ObjectIdentifier?
+}
+
 struct PermissionBar: View {
     let request: PermissionRequest
+    @Environment(\.keyedPermission) private var keyedPermission
 
     var body: some View {
+        let keyed = keyedPermission == ObjectIdentifier(request)
         HStack(spacing: 6) {
             Text("Allow?")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.orange)
             Spacer(minLength: 0)
             ForEach(request.options.sorted { rank($0) < rank($1) }) { option in
+                let key = keyed ? Self.shortcut(for: option.kind) : nil
+                let help = key.map { "\(option.name) (\(Self.label(for: $0)))" } ?? option.name
                 if option.kind == "allow_once" {
                     Button(option.name) { request.choose(option) }
                         .buttonStyle(.glassProminent)
-                        .keyboardShortcut(.return, modifiers: .command)
+                        .keyboardShortcut(key)
+                        .help(help)
                 } else {
                     Button(option.name) { request.choose(option) }
                         .buttonStyle(.glass)
+                        .keyboardShortcut(key)
+                        .help(help)
                 }
             }
         }
         .controlSize(.small)
         .padding(8)
+    }
+
+    /// ⌘↩ allows once; the rest take ⌃⌘, clear of the review's ⌥⌘ / ⇧⌘ keys and of ⌘⌫ (Move to Trash).
+    static func shortcut(for kind: String) -> KeyboardShortcut? {
+        switch kind {
+        case "allow_once": KeyboardShortcut(.return, modifiers: .command)
+        case "allow_always": KeyboardShortcut(.return, modifiers: [.control, .command])
+        case "reject_once": KeyboardShortcut(.delete, modifiers: [.control, .command])
+        default: nil
+        }
+    }
+
+    private static func label(for shortcut: KeyboardShortcut) -> String {
+        (shortcut.modifiers.contains(.control) ? "⌃" : "") + "⌘" + (shortcut.key == .return ? "↩" : "⌫")
     }
 
     private func rank(_ option: PermissionRequest.Option) -> Int {
