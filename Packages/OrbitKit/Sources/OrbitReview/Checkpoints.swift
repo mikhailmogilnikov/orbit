@@ -46,10 +46,13 @@ struct Checkpoints: Sendable {
     }
 
     /// Files that differ between `tree` and the working tree, with their baseline contents.
-    func changes(since tree: String) throws -> [Change] {
-        try changedPaths(since: tree).map { path, existed in
+    /// `known` files are left out: each would cost a `git show` for a baseline already recorded.
+    func changes(since tree: String, skipping known: Set<URL> = []) throws -> [Change] {
+        try changedPaths(since: tree).compactMap { path, existed in
+            let url = url(of: path)
+            guard !known.contains(url) else { return nil }
             let baseline: String? = existed ? (try? git(["show", "\(tree):\(path)"])) : nil
-            return Change(url: url(of: path), baseline: baseline)
+            return Change(url: url, baseline: baseline)
         }
     }
 

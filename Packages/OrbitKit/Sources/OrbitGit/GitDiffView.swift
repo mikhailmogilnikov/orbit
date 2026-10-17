@@ -15,6 +15,8 @@ struct GitDiffView: View {
     @State private var highlighting: DiffHighlighting?
     /// Which sides `highlighting` was made for; the view reloads every few seconds.
     @State private var highlightedSides: Int?
+    /// Which sides `hunks` were made from.
+    @State private var diffedSides: Int?
 
     var body: some View {
         let file = model.file(at: url)
@@ -105,14 +107,24 @@ struct GitDiffView: View {
     private func load(_ file: GitFileStatus?) async {
         guard let file, let sides = await model.diffSides(of: file, staged: staged) else {
             hunks = []
+            diffedSides = nil
             isLoaded = true
             return
         }
         guard case .text(let old) = sides.old, case .text(let new) = sides.new else {
             isBinary = true
+            diffedSides = nil
             isLoaded = true
             return
         }
+        var hasher = Hasher()
+        hasher.combine(old)
+        hasher.combine(new)
+        let sidesKey = hasher.finalize()
+        hasher.combine(Extensions.shared.themeKey)
+        let key = hasher.finalize()
+        // The periodic reload mostly finds the same sides: nothing to diff or color again.
+        if isLoaded, !isBinary, sidesKey == diffedSides, key == highlightedSides { return }
         let result = await Task.detached(priority: .userInitiated) {
             (LineDiff.hunks(old: old, new: new, context: 3), LineDiff.lines(new).count)
         }.value
@@ -121,11 +133,7 @@ struct GitDiffView: View {
         if hunks != result.0 { hunks = result.0 }
         lineCount = result.1
         isLoaded = true
-        var hasher = Hasher()
-        hasher.combine(old)
-        hasher.combine(new)
-        hasher.combine(Extensions.shared.themeKey)
-        let key = hasher.finalize()
+        diffedSides = sidesKey
         if key != highlightedSides {
             highlightedSides = key
             highlighting = await DiffHighlighting.make(old: old, new: new, url: url, hunks: result.0, with: model.highlighter)

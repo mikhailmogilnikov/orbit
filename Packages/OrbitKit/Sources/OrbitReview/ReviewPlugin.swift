@@ -97,7 +97,9 @@ final class ChangeTracker: ChangeTracking {
         guard let root = workspace.root else { return nil }
         let checkpoints = Checkpoints(root: root)
         do {
-            let tree = try await Task.detached(priority: .userInitiated) { try checkpoints.snapshot() }.value
+            let tree = try await serialized {
+                await Task.detached(priority: .userInitiated) { Result { try checkpoints.snapshot() } }.value
+            }.get()
             if isFirstTurn {
                 turnTree = tree
                 checkpointRoot = root
@@ -116,7 +118,9 @@ final class ChangeTracker: ChangeTracking {
         }
         guard let root = workspace.root else { return [] }
         let checkpoints = Checkpoints(root: root)
-        let files = try await Task.detached(priority: .userInitiated) { try checkpoints.snapshotContents(since: checkpoint) }.value
+        let files = try await serialized {
+            await Task.detached(priority: .userInitiated) { Result { try checkpoints.snapshotContents(since: checkpoint) } }.value
+        }.get()
         let fm = FileManager.default
         for (url, contents) in files {
             let current = current(for: url)
@@ -140,6 +144,20 @@ final class ChangeTracker: ChangeTracking {
         return files.map(\.url)
     }
 
+    @ObservationIgnored private var gitQueue: Task<Void, Never>?
+
+    /// The shadow repository's git work, one batch at a time: two `git add`s on
+    /// one index fail on its lock, and a refresh that failed left changes unseen.
+    private func serialized<T: Sendable>(_ work: @escaping @MainActor () async -> T) async -> T {
+        let previous = gitQueue
+        let task = Task { @MainActor in
+            await previous?.value
+            return await work()
+        }
+        gitQueue = Task { _ = await task.value }
+        return await task.value
+    }
+
     func endAgentTurn() async {
         await refreshAgentChanges()
         activeTurns = max(0, activeTurns - 1)
@@ -148,9 +166,12 @@ final class ChangeTracker: ChangeTracking {
     func refreshAgentChanges() async {
         guard let tree = turnTree, let root = checkpointRoot, root == workspace.root else { return }
         let checkpoints = Checkpoints(root: root)
-        guard let changes = try? await Task.detached(priority: .userInitiated, operation: { try checkpoints.changes(since: tree) }).value else {
-            return
+        let changes = await serialized {
+            // Read when the run starts: the runs before it may have recorded more.
+            let known = Set(self.baselines.keys)
+            return await Task.detached(priority: .userInitiated) { try? checkpoints.changes(since: tree, skipping: known) }.value
         }
+        guard let changes else { return }
         for change in changes {
             recordBaseline(change.baseline, for: change.url)
         }

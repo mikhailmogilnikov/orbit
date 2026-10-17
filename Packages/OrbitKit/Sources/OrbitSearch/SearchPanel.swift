@@ -77,7 +77,7 @@ final class SearchModel {
                 return
             }
             let overrides = unsavedBuffers(root: root)
-            let outcome = await Task.detached(priority: .userInitiated) {
+            let search = Task.detached(priority: .userInitiated) {
                 let pathFilter = PathFilter(include: include, exclude: exclude)
                 let searched = pathFilter.isEmpty ? paths : paths.filter(pathFilter.allows)
                 do throws(TextSearch.Failure) {
@@ -87,7 +87,9 @@ final class SearchModel {
                 } catch {
                     return .failure(error)
                 }
-            }.value
+            }
+            // A newer search (typing, a burst of disk changes) stops this one's file reads too.
+            let outcome = await withTaskCancellationHandler { await search.value } onCancel: { search.cancel() }
             guard !Task.isCancelled else { return }
             isSearching = false
             switch outcome {
@@ -104,7 +106,8 @@ final class SearchModel {
     /// Re-runs the current search after files changed on disk (agent edits, saves).
     func refresh() {
         guard !query.isEmpty else { return }
-        schedule(delay: .zero)
+        // An agent changes files many times a second: one search after the burst.
+        schedule(delay: .milliseconds(400))
     }
 
     var hasFilters: Bool { !include.trimmingCharacters(in: .whitespaces).isEmpty || !exclude.trimmingCharacters(in: .whitespaces).isEmpty }

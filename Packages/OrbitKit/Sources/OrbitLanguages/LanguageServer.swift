@@ -31,6 +31,8 @@ final class LanguageServer {
     @ObservationIgnored private var completionRaw: (generation: Int, items: [JSONValue]) = (0, [])
     /// Diagnostics as the server sent them: code actions need them back verbatim.
     @ObservationIgnored private var rawDiagnostics: [URL: [JSONValue]] = [:]
+    /// The diagnostics pull for each file's latest version; a newer one cancels it (the server stops working on it).
+    @ObservationIgnored private var diagnosticPulls: [URL: Task<Void, Never>] = [:]
     @ObservationIgnored private var hasCodeActions = false
     @ObservationIgnored private var resolvesCodeActions = false
     @ObservationIgnored private var renames = false
@@ -477,7 +479,8 @@ final class LanguageServer {
     /// Asks for a file's problems; an answer for an older version is dropped.
     private func pullDiagnostics(for url: URL) {
         guard pullsDiagnostics, let connection, let version = documents[url]?.version else { return }
-        Task { [weak self] in
+        diagnosticPulls[url]?.cancel()
+        diagnosticPulls[url] = Task { [weak self] in
             guard let result = try? await connection.request("textDocument/diagnostic", ["textDocument": ["uri": .string(url.absoluteString)]]),
                   let self, documents[url]?.version == version else { return }
             // "unchanged" keeps what we have.
@@ -499,6 +502,7 @@ final class LanguageServer {
         connection?.notify("textDocument/didClose", ["textDocument": ["uri": .string(url.absoluteString)]])
         diagnostics[url] = nil
         rawDiagnostics[url] = nil
+        diagnosticPulls.removeValue(forKey: url)?.cancel()
     }
 
     // MARK: Queries

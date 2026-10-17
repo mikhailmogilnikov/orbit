@@ -122,6 +122,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D110. Indent guides, Find in Folder, Compare Files, terminal find and font
 - D111. Side-by-side diffs, replace undo, explorer multiple selection, Peek References
 - D112. Performance and memory pass: review cache, git refresh coalescing, streaming Markdown
+- D113. Second performance pass: shadow-git queue, cancelled searches and diagnostics pulls
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2448,3 +2449,29 @@ An audit of hot paths during agent turns and multi-window use:
   every notifier (the owner of the chat acts) and sums the badge.
 - **Explorer**: a reload keeps a folder's children array when nothing in it
   changed, so a disk change no longer redraws the whole tree.
+
+### D113. Second performance pass: shadow-git queue, cancelled searches and diagnostics pulls
+
+The modules D112 didn't read (editor internals, LSP and JSON-RPC, shadow
+git, terminal, preview, window shell), plus its leftovers:
+
+- **Shadow git** (`ChangeTracker`): snapshot, refresh and restore run one
+  at a time through a queue. Parallel sessions and per-tool-call refreshes
+  ran `git add` on one index together; the loser failed on `index.lock`,
+  and a turn's final refresh failing left its last edits out of review.
+  A refresh also ran `git show` for every changed file on every tool call;
+  files with a recorded baseline are now skipped (`changes(skipping:)`).
+- **Find in Files**: a disk change re-runs the search 400 ms after the
+  burst, and a newer search cancels the running one's file reads (the
+  detached task never got the cancellation before).
+- **Language servers**: a newer `textDocument/diagnostic` pull for a file
+  cancels the previous one (`$/cancelRequest`), instead of the server
+  computing problems for every typed version.
+- **Git diff tab**: the 3 s reload skips diffing and coloring when both
+  sides are the same as last time.
+- JSON-RPC stderr tail trims with hysteresis on `utf8.count`.
+
+Checked and left as they are: the editor's controllers hold the
+coordinator `unowned` and remove their observers; `ActiveEditor` holds
+editors weakly; terminal transcripts are byte arrays; `ToolContent.id`
+hashes only when its own card redraws.

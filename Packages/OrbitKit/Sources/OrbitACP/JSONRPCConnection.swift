@@ -109,7 +109,7 @@ public final class JSONRPCConnection: @unchecked Sendable {
             }
             self.queue.async {
                 self.stderrTail += String(decoding: data, as: UTF8.self)
-                if self.stderrTail.count > 8_000 { self.stderrTail = String(self.stderrTail.suffix(8_000)) }
+                if self.stderrTail.utf8.count > 12_000 { self.stderrTail = String(self.stderrTail.suffix(8_000)) }
             }
         }
         process.terminationHandler = { [weak self] process in
