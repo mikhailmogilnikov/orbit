@@ -288,7 +288,7 @@ public struct CompactDiffView: View {
         self.old = old
         self.new = new
         self.url = url
-        hunks = LineDiff.hunks(old: old, new: new, context: 2)
+        hunks = CompactDiffCache.hunks(old: old, new: new)
         self.maxLines = maxLines
     }
 
@@ -327,6 +327,27 @@ public struct CompactDiffView: View {
 
     private var truncatedLines: Int {
         max(0, hunks.reduce(0) { $0 + $1.lines.count } - maxLines)
+    }
+}
+
+/// A tool card is made again on every update of its call (status, output)
+/// and as the chat scrolls: each pair of texts is diffed once.
+@MainActor
+private enum CompactDiffCache {
+    private struct Key: Hashable {
+        let old: String
+        let new: String
+    }
+
+    private static var cache: [Key: [DiffHunk]] = [:]
+
+    static func hunks(old: String, new: String) -> [DiffHunk] {
+        let key = Key(old: old, new: new)
+        if let cached = cache[key] { return cached }
+        let hunks = LineDiff.hunks(old: old, new: new, context: 2)
+        if cache.count >= 32 { cache.removeAll() }
+        cache[key] = hunks
+        return hunks
     }
 }
 

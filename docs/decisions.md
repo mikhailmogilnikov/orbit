@@ -123,6 +123,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D111. Side-by-side diffs, replace undo, explorer multiple selection, Peek References
 - D112. Performance and memory pass: review cache, git refresh coalescing, streaming Markdown
 - D113. Second performance pass: shadow-git queue, cancelled searches and diagnostics pulls
+- D114. Third performance pass: media reloads, tool-card diffs, line starts
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2475,3 +2476,23 @@ Checked and left as they are: the editor's controllers hold the
 coordinator `unowned` and remove their observers; `ActiveEditor` holds
 editors weakly; terminal transcripts are byte arrays; `ToolContent.id`
 hashes only when its own card redraws.
+
+### D114. Third performance pass: media reloads, tool-card diffs, line starts
+
+- **Image and PDF tabs** reloaded the file on every `fileSystemGeneration`
+  bump (an agent bumps it constantly), and a reload refits the image and
+  sends a PDF back to page 1: zoom and scroll were lost while an agent
+  worked. They reload only when the file's modification date or size
+  changes (`FileStamp`, from `FileManager` attributes; `URL.resourceValues`
+  caches on the URL and would keep the old date).
+- **Tool-card diffs** (`CompactDiffView`) diffed in `init`, which runs on
+  every update of the call (status, streamed output) and as the chat
+  scrolls; results are cached per pair of texts (32 pairs).
+- **`SourcePosition.lineStarts`** (diagnostics, folding, completion, LSP
+  ranges; once per keystroke) called `range(of: "\n")` once per line; it now
+  scans buffered UTF-16 chunks like the highlighter's `LineStarts`.
+
+Checked and left as they are: completion filtering (narrows the previous
+pool, UTF-16 scoring), Open Quickly ranking, git change markers (debounced,
+off the main actor), plugin teardown on window close (agents, language
+servers, terminals stop in `deactivate`).

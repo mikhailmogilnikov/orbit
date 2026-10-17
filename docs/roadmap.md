@@ -172,6 +172,7 @@
 - A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
+- Third performance pass (D114): image and PDF tabs keep zoom and scroll while an agent works, cached tool-card diffs, faster line-start scans
 - Second performance pass (D113): queued shadow-git work (no lost refreshes), skipped baseline re-reads, debounced and cancellable Find in Files, cancelled stale diagnostics pulls
 - Performance and memory pass (D112): cached review reads and diffs, coalesced git refreshes (no polling in the background), linear streaming Markdown, no leaked buffers from project-wide renames, notifications and Dock badge across windows
 - Side-by-side diffs (toggle in every diff tab), Undo for Replace in Files, multiple selection in the explorer, Peek References ⌥⇧⌘R (D111)

@@ -33,15 +33,21 @@ public struct SourcePosition: Sendable, Hashable, Comparable {
     }
 
     /// UTF-16 offsets where each line starts (after `\n`).
+    /// The editor asks on every keystroke: the text is scanned in buffered
+    /// chunks, not with one `range(of:)` call per line.
     public static func lineStarts(of text: NSString) -> [Int] {
         var starts = [0]
         let length = text.length
-        var index = 0
-        while index < length {
-            let range = text.range(of: "\n", options: .literal, range: NSRange(location: index, length: length - index))
-            guard range.location != NSNotFound else { break }
-            starts.append(range.location + 1)
-            index = range.location + 1
+        let chunk = 16 * 1024
+        var buffer = [unichar](repeating: 0, count: min(chunk, length))
+        var location = 0
+        while location < length {
+            let count = min(chunk, length - location)
+            buffer.withUnsafeMutableBufferPointer { pointer in
+                text.getCharacters(pointer.baseAddress!, range: NSRange(location: location, length: count))
+                for index in 0..<count where pointer[index] == 0x0A { starts.append(location + index + 1) }
+            }
+            location += count
         }
         return starts
     }

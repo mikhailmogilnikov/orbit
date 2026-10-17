@@ -8,14 +8,17 @@ import SwiftUI
 struct MediaView: View {
     let url: URL
     let workspace: Workspace
+    @State private var loaded = LoadedImage()
 
     var body: some View {
-        // Reloads when the file changes on disk (an agent regenerated it).
-        let generation = workspace.fileSystemGeneration
+        // Any disk change brings us here, but only a change to this file reloads
+        // it: a reload loses the zoom and scroll (and an agent changes files a lot).
+        let _ = workspace.fileSystemGeneration
+        let stamp = FileStamp(url)
         Group {
             if url.pathExtension.lowercased() == "pdf" {
-                PDFViewer(url: url, generation: generation)
-            } else if let image = NSImage(contentsOf: url) {
+                PDFViewer(url: url, stamp: stamp)
+            } else if let image = loaded.image(at: url, stamp: stamp) {
                 ImageViewer(image: image)
                     .overlay(alignment: .bottomTrailing) { info(image) }
             } else {
@@ -36,6 +39,35 @@ struct MediaView: View {
             .padding(.vertical, 5)
             .glassEffect(.regular, in: .capsule)
             .padding(10)
+    }
+}
+
+/// Modification date and size: what tells a regenerated file from the same one.
+private struct FileStamp: Equatable {
+    let modified: Date?
+    let size: Int?
+
+    init(_ url: URL) {
+        // Not `URL.resourceValues`: the URL caches those and would keep answering the old date.
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        modified = attributes?[.modificationDate] as? Date
+        size = (attributes?[.size] as? NSNumber)?.intValue
+    }
+}
+
+/// The image as last read, kept while the file is the same.
+private final class LoadedImage {
+    private var url: URL?
+    private var stamp: FileStamp?
+    private var image: NSImage?
+
+    func image(at url: URL, stamp: FileStamp) -> NSImage? {
+        if url != self.url || stamp != self.stamp {
+            self.url = url
+            self.stamp = stamp
+            image = NSImage(contentsOf: url)
+        }
+        return image
     }
 }
 
@@ -137,26 +169,26 @@ private final class CenteringClipView: NSClipView {
 
 private struct PDFViewer: NSViewRepresentable {
     let url: URL
-    let generation: Int
+    let stamp: FileStamp
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
         view.autoScales = true
         view.backgroundColor = .clear
         view.document = PDFDocument(url: url)
-        context.coordinator.generation = generation
+        context.coordinator.loaded = (url, stamp)
         return view
     }
 
     func updateNSView(_ view: PDFView, context: Context) {
-        guard context.coordinator.generation != generation else { return }
-        context.coordinator.generation = generation
+        guard let loaded = context.coordinator.loaded, loaded.url != url || loaded.stamp != stamp else { return }
+        context.coordinator.loaded = (url, stamp)
         view.document = PDFDocument(url: url)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator {
-        var generation = 0
+        var loaded: (url: URL, stamp: FileStamp)?
     }
 }
