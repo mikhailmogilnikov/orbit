@@ -40,6 +40,8 @@ final class AgentSession: Identifiable {
     @ObservationIgnored var onChange: () -> Void = {}
     /// Called when a turn ends or the agent waits for the user (system notifications).
     @ObservationIgnored var onAttention: (AgentAttention) -> Void = { _ in }
+    /// Called after each turn with the files it left changes in (the store tells chats apart by them).
+    @ObservationIgnored var onTurnFiles: ([URL]) -> Void = { _ in }
     /// Called with the agent's options whenever they change (the store keeps its model list).
     @ObservationIgnored var onConfigOptions: ([ConfigOption]) -> Void = { _ in }
     /// Option values (by category) to set once the agent is up: the user's last choices.
@@ -858,6 +860,7 @@ final class AgentSession: Identifiable {
 
     private func summarizeTurn(duration: TimeInterval, before: [URL: DiffStats]) {
         let files = TurnActivity.changedFiles(before: before, after: pendingStats())
+        if !files.isEmpty { onTurnFiles(files) }
         guard !files.isEmpty || duration >= Self.summaryThreshold else { return }
         let entry = TranscriptEntry(kind: .summary)
         entry.duration = duration

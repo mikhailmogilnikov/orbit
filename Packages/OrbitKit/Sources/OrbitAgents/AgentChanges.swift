@@ -48,7 +48,9 @@ struct AgentChangesBar: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(Array(files.enumerated()), id: \.element) { index, url in
-                            ChangedFileRow(url: url, stats: stats[index], changes: changes)
+                            ChangedFileRow(url: url, stats: stats[index], changes: changes, author: store.author(of: url)) {
+                                if let author = store.author(of: url) { store.selectedID = author.id }
+                            }
                         }
                     }
                     .padding(.horizontal, 6)
@@ -68,6 +70,9 @@ private struct ChangedFileRow: View {
     let url: URL
     let stats: (added: Int, removed: Int)
     let changes: ChangeTracking
+    /// The chat that changed it, shown when several are open.
+    let author: AgentSession?
+    let showAuthor: () -> Void
     @State private var isHovering = false
 
     var body: some View {
@@ -82,6 +87,15 @@ private struct ChangedFileRow: View {
                 .lineLimit(1)
                 .truncationMode(.head)
             Spacer(minLength: 4)
+            if let author {
+                Button(action: showAuthor) {
+                    AgentIcon(provider: author.provider, size: 12)
+                        .foregroundStyle(.secondary)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help("Changed in “\(author.title)”")
+            }
             if isHovering {
                 IconButton("arrow.uturn.backward", help: "Undo this file's changes") { changes.reject(url) }
                 IconButton("checkmark", help: "Keep this file's changes") { changes.accept(url) }

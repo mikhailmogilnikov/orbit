@@ -179,6 +179,14 @@ final class AgentStore {
     private var providerCommandIDs: [String] = []
     /// The changed-files list above the composer is expanded.
     var isChangesExpanded = false
+    /// The chat whose turn last changed each file: with parallel chats, the list says whose change it is.
+    private(set) var changeAuthors: [URL: AgentSession.ID] = [:]
+
+    /// The open chat that last changed `url`, when there's more than one chat to tell apart.
+    func author(of url: URL) -> AgentSession? {
+        guard sessions.count > 1, let id = changeAuthors[url] else { return nil }
+        return sessions.first { $0.id == id }
+    }
     private let settings: PluginSettings
     private let environmentTask: Task<[String: String], Never>
 
@@ -477,6 +485,10 @@ final class AgentStore {
         session.onAttention = { [weak self, weak session] attention in
             guard let self, let session else { return }
             notifier.post(attention, session: session.id, agent: session.provider.name, chat: session.title)
+        }
+        session.onTurnFiles = { [weak self, weak session] files in
+            guard let self, let session else { return }
+            for file in files { changeAuthors[file] = session.id }
         }
         session.onConfigOptions = { [weak self] options in
             guard let self, let model = options.first(where: { $0.category == "model" }) else { return }

@@ -145,6 +145,36 @@ struct SessionChip: View {
     }
 }
 
+/// What the composer can take, for a chat nothing was sent in yet.
+struct ComposerHints: View {
+    private static let hints: [(key: String, text: String)] = [
+        ("@", "attach a file"),
+        ("/", "the agent's commands"),
+        ("⌘L", "add the editor's selection"),
+        ("⌘V", "paste an image or files"),
+    ]
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
+            ForEach(Self.hints, id: \.key) { hint in
+                GridRow {
+                    Text(hint.key)
+                        .font(.orbit(.caption, weight: .medium))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Theme.subtleFill, in: .rect(cornerRadius: 4))
+                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.hairline))
+                        .gridColumnAlignment(.trailing)
+                    Text(hint.text)
+                        .font(.orbit(.caption))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .fixedSize()
+    }
+}
+
 /// What an empty chat shows above the composer: earlier conversations to pick up.
 struct NewChatView: View {
     let session: AgentSession
@@ -170,6 +200,8 @@ struct NewChatView: View {
                         Text("Edits show up inline in the editor for review.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
+                        ComposerHints()
+                            .padding(.top, 14)
                     }
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)

@@ -128,6 +128,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D116. Reads and searches in a row fold into one transcript line
 - D117. One type scale for the UI (`Font.orbit`)
 - D118. Tool cards open their files; permissions by keyboard; other chats' approvals shown
+- D119. Changed files name their chat; an empty chat lists what the composer takes
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2578,3 +2579,21 @@ font size, not the scale. The unused `Theme.codeFont` is gone.
   the inline review's keys.
 - **Another chat waiting**: when a chat other than the one shown waits for
   a permission, a bar over the composer says so, with Show.
+
+### D119. Changed files name their chat; an empty chat lists what the composer takes
+
+- **Whose change**: review is per project (one `ChangeTracking`), so with
+  parallel chats the changed-files list didn't say which chat made a
+  change. The store remembers the chat whose turn last changed each file
+  (the turn's files from D115) and the row shows that agent's icon, with
+  the chat's title in the tooltip; a click switches to that chat. Only
+  with more than one chat open; nothing for files changed before launch.
+  The editor's banner doesn't name the chat: that would need the Agents
+  plugin's sessions in `OrbitAPI`, not worth it for a tooltip.
+- **Composer hints**: a new chat with no earlier conversations shows
+  `@` / `/` / ⌘L / ⌘V and what each does under its greeting. With
+  earlier conversations the list of them stays as it was; the
+  placeholder names `@` and `/`.
+- Not done from the same list: review progress ("2 of 5 viewed"). Files
+  already leave the list as they're reviewed, so the count left is the
+  progress.
