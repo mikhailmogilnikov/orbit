@@ -71,7 +71,7 @@ struct CompareView: View {
         return HStack(spacing: 8) {
             name(left)
             Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 10))
+                .font(.orbit(.micro))
                 .foregroundStyle(.tertiary)
             name(right)
             DiffStatBadge(added: added, removed: removed)

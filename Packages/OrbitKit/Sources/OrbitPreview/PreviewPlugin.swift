@@ -45,7 +45,7 @@ public final class PreviewPlugin: OrbitPlugin {
                         commands.run("preview.markdown", teaching: true)
                     } label: {
                         Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            .font(.system(size: 12))
+                            .font(.orbit(.body))
                             .frame(width: 22, height: 20)
                     }
                     .buttonStyle(.glass)

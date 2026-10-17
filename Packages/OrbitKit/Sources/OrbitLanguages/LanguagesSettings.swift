@@ -75,7 +75,7 @@ private struct LanguageRow: View {
                         Text("\(install?.package ?? "") \(receipt.version) · installed by Orbit")
                     } else if let found {
                         Text(found)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.orbit(.caption, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.middle)
                     } else if install != nil {
@@ -153,7 +153,7 @@ private struct FormattingSection: View {
                                 .foregroundStyle(.tertiary)
                         }
                         Text(row.source)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.orbit(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)

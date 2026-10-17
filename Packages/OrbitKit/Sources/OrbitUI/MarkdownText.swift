@@ -139,7 +139,7 @@ private struct PlainCodeView: View {
 
     var body: some View {
         Text(colored)
-            .font(.system(size: 11.5, design: .monospaced))
+            .font(.orbit(.code))
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
             .task(id: code) {
@@ -186,7 +186,7 @@ struct CodeBlockView: View {
             Divider().opacity(0.5)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code)
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(.orbit(.code))
                     .textSelection(.enabled)
                     .padding(10)
             }

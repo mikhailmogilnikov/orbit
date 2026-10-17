@@ -21,7 +21,7 @@ struct BlameStatus: View {
                 } icon: {
                     Image(systemName: "person.crop.circle")
                 }
-                .font(.system(size: 11))
+                .font(.orbit(.caption))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 360, alignment: .trailing)
                 .help(blame.isCommitted ? "\(blame.hash.prefix(8)) · \(blame.author)\n\(blame.summary)" : "This line isn't committed yet")

@@ -126,6 +126,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D114. Third performance pass: media reloads, tool-card diffs, line starts
 - D115. Slash commands in the composer; a live working line and a turn summary
 - D116. Reads and searches in a row fold into one transcript line
+- D117. One type scale for the UI (`Font.orbit`)
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2535,3 +2536,27 @@ view (`TranscriptRow.rows`), the transcript keeps every call; the group
 takes its first call's id, so a card growing into a group keeps its place.
 Edits, commands, failed calls and calls asking for permission are never
 folded: those are what the user reviews or acts on.
+
+### D117. One type scale for the UI (`Font.orbit`)
+
+About 150 places set their own point size: 15 values, half sizes (10.5,
+11.5, 12.5) among them, so panels from different plugins were slightly off
+from each other. Every UI text size now comes from `TypeScale` in OrbitUI
+through `.font(.orbit(.caption, weight: .medium))`:
+
+| Token | pt | For |
+|---|---|---|
+| micro | 10 | badges, key caps, counters, hunk buttons |
+| caption | 11 | details, section headers, status bar, bars over the composer |
+| code | 11.5 mono | code in the UI: diffs, search results, Markdown code |
+| body | 12 | list rows, cards, tool calls, tabs |
+| control | 13 | text fields, menus, primary rows |
+| title | 15 | page titles, the palette's query |
+| display | 28 | the welcome screens' name |
+
+Mapping: 10.5 → 10, 11.5 → 11 (monospaced 11.5 is `code`, the one half
+size kept: monospaced glyphs look larger, so 11.5 sits with 12 text),
+12.5 → 13, 16 → 15, 30 → 28. Symbols next to text use the same tokens
+(SF Symbols are sized like text); glyph-only sizes (7–9 pt chevrons, an
+18 pt card icon) stay literal. The editor and terminal follow the user's
+font size, not the scale. The unused `Theme.codeFont` is gone.

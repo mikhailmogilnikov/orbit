@@ -354,7 +354,7 @@ struct HunkActions: View {
             .help("Keep this change")
         }
         .buttonStyle(HunkActionStyle())
-        .font(.system(size: 10.5, weight: .medium))
+        .font(.orbit(.micro, weight: .medium))
         .padding(.horizontal, 2)
         .background(.regularMaterial, in: .rect(bottomLeadingRadius: 6, bottomTrailingRadius: 6))
         .overlay(UnevenRoundedRectangle(bottomLeadingRadius: 6, bottomTrailingRadius: 6).strokeBorder(.separator))

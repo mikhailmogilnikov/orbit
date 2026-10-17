@@ -277,10 +277,10 @@ private struct TerminalTab: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: session.isAgent ? "sparkles" : "terminal")
-                .font(.system(size: 10))
+                .font(.orbit(.micro))
                 .foregroundStyle(session.isAgent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             Text(session.title)
-                .font(.system(size: 11.5))
+                .font(.orbit(.caption))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: 180, alignment: .leading)

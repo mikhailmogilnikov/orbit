@@ -70,7 +70,7 @@ struct SettingsScreen: View {
                 // The window has no toolbar (D42): the title lives here.
                 HStack {
                     Text(current?.title ?? "Settings")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.orbit(.title, weight: .semibold))
                     Spacer()
                 }
                 .padding(.horizontal, 20)
@@ -350,7 +350,7 @@ struct ShortcutRecorder: View {
             Group {
                 if isRecording {
                     Text("Press keys…")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.orbit(.caption, weight: .medium))
                         .foregroundStyle(Theme.accent)
                         .frame(minHeight: 18)
                         .padding(.horizontal, 6)

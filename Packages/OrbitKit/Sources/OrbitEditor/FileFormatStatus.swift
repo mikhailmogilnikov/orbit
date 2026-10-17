@@ -16,7 +16,7 @@ struct FileFormatStatus: View {
                     format.encoding != .utf8 || format.hasBOM ? format.encodingName : nil,
                     format.lineEnding != .lf ? format.lineEnding.rawValue : nil,
                 ].compactMap(\.self).joined(separator: " · "))
-                    .font(.system(size: 11))
+                    .font(.orbit(.caption))
                     .foregroundStyle(.secondary)
             }
             .menuStyle(.button)

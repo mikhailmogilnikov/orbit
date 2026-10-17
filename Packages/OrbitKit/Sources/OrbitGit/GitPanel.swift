@@ -79,7 +79,7 @@ private struct GitHeader: View {
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
-                .font(.system(size: 12, weight: .medium))
+                .font(.orbit(.body, weight: .medium))
                 .contentShape(.rect)
             }
             .menuStyle(.button)
@@ -89,7 +89,7 @@ private struct GitHeader: View {
 
             if model.status.ahead > 0 || model.status.behind > 0 {
                 Text(syncLabel)
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.orbit(.caption).monospacedDigit())
                     .foregroundStyle(.secondary)
                     .fixedSize()
                     .help("\(model.status.ahead) to push, \(model.status.behind) to pull")
@@ -142,7 +142,7 @@ private struct CommitBox: View {
             HStack(alignment: .top, spacing: 4) {
                 TextField(model.isGenerating ? "Writing a message…" : "Message (⌘↩ to commit)", text: $model.commitMessage, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.orbit(.body))
                     .lineLimit(1...8)
                     .disabled(model.isGenerating)
                 if let agent = model.messageAgent {
@@ -195,7 +195,7 @@ private struct GenerateButton: View {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.orbit(.caption, weight: .medium))
                         .foregroundStyle(.tint)
                 }
             }
@@ -217,7 +217,7 @@ private struct ErrorBanner: View {
                 .foregroundStyle(.orange)
             ScrollView {
                 Text(message)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.orbit(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -337,7 +337,7 @@ private struct StashRow: View {
                 IconButton("tray.and.arrow.up", help: "Pop (apply and delete)") { model.applyStash(stash, drop: true) }
             } else {
                 Text(stash.date, format: .relative(presentation: .named))
-                    .font(.system(size: 11))
+                    .font(.orbit(.caption))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -377,7 +377,7 @@ private struct CommitRow: View {
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Text(commit.date, format: .relative(presentation: .named))
-                    .font(.system(size: 11))
+                    .font(.orbit(.caption))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -417,7 +417,7 @@ private struct CommitFileRow: View {
             }
             Spacer(minLength: 4)
             Text(String(file.status.rawValue))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(.orbit(.caption, weight: .semibold, design: .monospaced))
                 .foregroundStyle(file.status.color)
                 .frame(width: 12)
         }
@@ -497,7 +497,7 @@ private struct ChangeRow: View {
                 IconButton("plus", help: "Mark Resolved") { model.stage([file]) }
             }
             Text(String(kind.rawValue))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(.orbit(.caption, weight: .semibold, design: .monospaced))
                 .foregroundStyle(kind.color)
                 .frame(width: 12)
         }

@@ -72,11 +72,11 @@ private struct UsagePopover: View {
                             if let used = limit.used {
                                 meter(title: limit.name, fraction: used, exhausted: limit.isExhausted)
                             } else {
-                                Text(limit.name).font(.system(size: 12))
+                                Text(limit.name).font(.orbit(.body))
                             }
                             if let resetsAt = limit.resetsAt {
                                 Text("Resets \(Text(resetsAt, format: .relative(presentation: .named)))")
-                                    .font(.system(size: 11))
+                                    .font(.orbit(.caption))
                                     .foregroundStyle(limit.isExhausted ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
                             }
                         }
@@ -109,7 +109,7 @@ private struct UsagePopover: View {
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.orbit(.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
             content()
         }
@@ -124,7 +124,7 @@ private struct UsagePopover: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            .font(.system(size: 12))
+            .font(.orbit(.body))
             UsageBar(fraction: fraction, tint: exhausted ? .red : UsageTint.color(for: fraction))
         }
     }
@@ -135,12 +135,12 @@ private struct UsagePopover: View {
             Spacer(minLength: 8)
             Text(value).monospacedDigit()
         }
-        .font(.system(size: 12))
+        .font(.orbit(.body))
     }
 
     private func placeholder(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 12))
+            .font(.orbit(.body))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }

@@ -92,7 +92,7 @@ struct SessionTabs: View {
                 }
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.orbit(.control, weight: .medium))
                     .frame(width: 28, height: 28)
                     .contentShape(.rect)
             } primaryAction: {
@@ -216,7 +216,7 @@ struct RecentSessionRow: View {
                     if let provider {
                         AgentIcon(provider: provider, size: 13)
                     } else {
-                        Image(systemName: "clock").font(.system(size: 10, weight: .semibold))
+                        Image(systemName: "clock").font(.orbit(.micro, weight: .semibold))
                     }
                 }
                 .foregroundStyle(.secondary)
@@ -328,7 +328,7 @@ struct IsolationBar: View {
                         .help(session.unappliedChanges.map(\.lastPathComponent).joined(separator: "\n"))
                 }
             }
-            .font(.system(size: 11.5))
+            .font(.orbit(.caption))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             Spacer(minLength: 4)
@@ -520,7 +520,7 @@ private struct TurnFileRow: View {
                     Text("Reviewed").foregroundStyle(.tertiary)
                 }
             }
-            .font(.system(size: 12))
+            .font(.orbit(.body))
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
             .background(isHovering && isPending ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.smallCorner))
@@ -706,11 +706,11 @@ struct ToolCallCard: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: icon)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.orbit(.caption, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 16)
                     Text(entry.title.isEmpty ? entry.toolKind.capitalized : entry.title)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.orbit(.body, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 4)
@@ -765,7 +765,7 @@ struct ToolCallCard: View {
         VStack(alignment: .leading, spacing: 8) {
             if let command = entry.command, command != entry.title {
                 Text(command)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.orbit(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .lineLimit(6)
             }
@@ -773,7 +773,7 @@ struct ToolCallCard: View {
                 switch content {
                 case .text(let text):
                     Text(text)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.orbit(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(20)
                         .textSelection(.enabled)
@@ -792,7 +792,7 @@ struct ToolCallCard: View {
             } else if !entry.output.isEmpty {
                 ScrollView {
                     Text(entry.output.split(separator: "\n", omittingEmptySubsequences: false).suffix(200).joined(separator: "\n"))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.orbit(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -822,12 +822,12 @@ struct ToolCallCard: View {
     @ViewBuilder private var statusIcon: some View {
         switch entry.status {
         case "completed":
-            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.green)
+            Image(systemName: "checkmark").font(.orbit(.micro, weight: .bold)).foregroundStyle(.green)
         case "failed":
-            Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.red)
+            Image(systemName: "xmark").font(.orbit(.micro, weight: .bold)).foregroundStyle(.red)
         default:
             if entry.permission?.isPending == true {
-                Image(systemName: "hand.raised.fill").font(.system(size: 10)).foregroundStyle(.orange)
+                Image(systemName: "hand.raised.fill").font(.orbit(.micro)).foregroundStyle(.orange)
             } else {
                 ProgressView().controlSize(.mini)
             }
@@ -847,15 +847,15 @@ struct ToolGroupCard: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: entries.allSatisfy { $0.toolKind == "read" } ? "doc.text" : "magnifyingglass")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.orbit(.caption, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 16)
                     Text(TranscriptRow.summary(entries))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.orbit(.body, weight: .medium))
                         .lineLimit(1)
                     if !isExpanded, let last = entries.last {
                         Text(last.title)
-                            .font(.system(size: 12))
+                            .font(.orbit(.body))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -864,7 +864,7 @@ struct ToolGroupCard: View {
                     if entries.contains(where: \.isRunning) {
                         ProgressView().controlSize(.mini)
                     } else {
-                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.green)
+                        Image(systemName: "checkmark").font(.orbit(.micro, weight: .bold)).foregroundStyle(.green)
                     }
                     Image(systemName: "chevron.right")
                         .font(.system(size: 8, weight: .bold))
@@ -900,7 +900,7 @@ struct AgentTerminalOutput: View {
             if !terminal.output.isEmpty {
                 ScrollView {
                     Text(tail)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.orbit(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1026,7 +1026,7 @@ struct Composer: View {
             }
             TextField(placeholder, text: $session.draft, selection: $selection, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(.orbit(.control))
                 .lineLimit(1...10)
                 .focused($isFocused)
                 .onSubmit(session.submit)
@@ -1056,7 +1056,7 @@ struct Composer: View {
                         .disabled(!NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil))
                 } label: {
                     Image(systemName: "paperclip")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.orbit(.body, weight: .medium))
                 }
                 .menuStyle(.button)
                 .buttonStyle(.borderless)
@@ -1071,7 +1071,7 @@ struct Composer: View {
                 if session.status == .working {
                     Button(action: session.stop) {
                         Image(systemName: "stop.fill")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.orbit(.micro, weight: .bold))
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.glassProminent)
@@ -1082,7 +1082,7 @@ struct Composer: View {
                 } else {
                     Button(action: session.send) {
                         Image(systemName: "arrow.up")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.orbit(.body, weight: .bold))
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.glassProminent)
@@ -1333,7 +1333,7 @@ struct MentionList: View {
                 Button { pick(path) } label: {
                     HStack(spacing: 7) {
                         FileIconView(url: URL(fileURLWithPath: path), size: 13)
-                            .font(.system(size: 11))
+                            .font(.orbit(.caption))
                             .foregroundStyle(.secondary)
                             .frame(width: 14)
                         Text((path as NSString).lastPathComponent)
@@ -1347,7 +1347,7 @@ struct MentionList: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .font(.system(size: 12))
+                    .font(.orbit(.body))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
                     .background(index == selected ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6))
@@ -1391,7 +1391,7 @@ struct CommandList: View {
                                 }
                                 Spacer(minLength: 0)
                             }
-                            .font(.system(size: 12))
+                            .font(.orbit(.body))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
                             .background(index == selected ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6))
@@ -1447,11 +1447,11 @@ private struct AttachmentChip: View {
                     .foregroundStyle(.secondary)
             } else {
                 Image(systemName: attachment.systemImage)
-                    .font(.system(size: 10))
+                    .font(.orbit(.micro))
                     .foregroundStyle(.secondary)
             }
             Text(attachment.label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.orbit(.caption, weight: .medium))
                 .lineLimit(1)
             if let remove {
                 Button(action: remove) {

@@ -908,7 +908,7 @@ struct FileLabel: View {
                         .padding(.trailing, 3)
                 } else {
                     Text(kind.badge)
-                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                        .font(.orbit(.micro, weight: .semibold, design: .monospaced))
                         .foregroundStyle(kind.color)
                 }
             }
@@ -929,7 +929,7 @@ struct DragPreview: View {
         HStack(spacing: 6) {
             FileIconView(url: url, isFolder: isFolder)
             Text(url.lastPathComponent)
-                .font(.system(size: 12, weight: .medium))
+                .font(.orbit(.body, weight: .medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
         }

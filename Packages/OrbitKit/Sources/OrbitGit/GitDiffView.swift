@@ -75,7 +75,7 @@ struct GitDiffView: View {
                     .truncationMode(.head)
             }
             Text(staged ? "Staged" : "Working Tree")
-                .font(.system(size: 10, weight: .medium))
+                .font(.orbit(.micro, weight: .medium))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)

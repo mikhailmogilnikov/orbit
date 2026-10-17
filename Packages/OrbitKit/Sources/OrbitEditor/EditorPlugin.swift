@@ -702,7 +702,7 @@ struct EditorActionButtons: View {
                     commands.run(action.commandID, teaching: true)
                 } label: {
                     Image(systemName: action.systemImage)
-                        .font(.system(size: 12))
+                        .font(.orbit(.body))
                         .frame(width: 22, height: 20)
                         .contentShape(.rect)
                 }

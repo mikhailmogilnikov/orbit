@@ -23,7 +23,7 @@ struct AgentChangesBar: View {
                             .rotationEffect(.degrees(store.isChangesExpanded ? 90 : 0))
                             .foregroundStyle(.secondary)
                         Text("\(files.count) file\(files.count == 1 ? "" : "s") changed")
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(.orbit(.caption, weight: .medium))
                         DiffStatBadge(added: stats.reduce(0) { $0 + $1.added }, removed: stats.reduce(0) { $0 + $1.removed })
                     }
                     .contentShape(.rect)
@@ -74,10 +74,10 @@ private struct ChangedFileRow: View {
         HStack(spacing: 6) {
             FileIconView(url: url, size: 13)
             Text(url.lastPathComponent)
-                .font(.system(size: 12))
+                .font(.orbit(.body))
                 .lineLimit(1)
             Text(url.deletingLastPathComponent().lastPathComponent)
-                .font(.system(size: 11))
+                .font(.orbit(.caption))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.head)

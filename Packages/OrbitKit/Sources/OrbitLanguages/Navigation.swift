@@ -146,13 +146,13 @@ struct ReferencesPanel: View {
             Text("\(count) \(count == 1 ? "reference" : "references") to")
                 .foregroundStyle(.secondary)
             Text(model.symbol ?? "symbol")
-                .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                .font(.orbit(.code, weight: .semibold))
             Text("in \(files) \(files == 1 ? "file" : "files")")
                 .foregroundStyle(.secondary)
             Spacer()
             if model.isSearching { ProgressView().controlSize(.mini) }
         }
-        .font(.system(size: 11.5))
+        .font(.orbit(.caption))
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
     }
@@ -173,14 +173,14 @@ private struct ReferenceFileHeader: View {
                 .lineLimit(1)
                 .truncationMode(.head)
             Text("\(count)")
-                .font(.system(size: 10, weight: .medium))
+                .font(.orbit(.micro, weight: .medium))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
                 .background(Theme.subtleFill, in: .capsule)
         }
-        .font(.system(size: 11.5))
+        .font(.orbit(.caption))
     }
 }
 
@@ -193,11 +193,11 @@ private struct ReferenceRow: View {
         Button(action: open) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(reference.location.range.start.line + 1)")
-                    .font(.system(size: 10).monospacedDigit())
+                    .font(.orbit(.micro).monospacedDigit())
                     .foregroundStyle(.tertiary)
                     .frame(minWidth: 26, alignment: .trailing)
                 Text(highlighted)
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(.orbit(.code))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)

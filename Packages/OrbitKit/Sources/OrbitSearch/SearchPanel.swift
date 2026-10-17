@@ -289,7 +289,7 @@ struct SearchPanel: View {
                     SearchField(systemImage: "arrow.2.squarepath", placeholder: "Replace", text: $model.replacement, kind: .replace, focus: $focusedField) {
                         Button { isConfirmingReplaceAll = true } label: {
                             Image(systemName: "text.badge.checkmark")
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.orbit(.caption, weight: .medium))
                                 .frame(width: 22, height: 20)
                                 .contentShape(.rect)
                         }
@@ -338,7 +338,7 @@ struct SearchPanel: View {
                 .foregroundStyle(.tertiary)
                 .help("Dismiss")
             }
-            .font(.system(size: 11))
+            .font(.orbit(.caption))
             .padding(.horizontal, 14)
             .padding(.bottom, 4)
         }
@@ -349,7 +349,7 @@ struct SearchPanel: View {
                 Spacer()
                 if model.isSearching { ProgressView().controlSize(.mini) }
             }
-            .font(.system(size: 11))
+            .font(.orbit(.caption))
             .padding(.horizontal, 14)
             .padding(.bottom, 4)
         }
@@ -414,7 +414,7 @@ private struct SearchField<Accessories: View>: View {
                 .focused(focus, equals: kind)
             HStack(spacing: 1) { accessories }
         }
-        .font(.system(size: 12))
+        .font(.orbit(.body))
         .padding(.leading, 8)
         .padding(.trailing, 3)
         .frame(height: 26)
@@ -451,10 +451,10 @@ private struct OptionToggle: View {
             Group {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.orbit(.caption, weight: .medium))
                 } else {
                     Text(label ?? "")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(.orbit(.caption, weight: .semibold, design: .monospaced))
                         .underline(underline)
                 }
             }
@@ -497,14 +497,14 @@ private struct FileRow: View {
             if let onReplace, isHovered {
                 Button(action: onReplace) {
                     Image(systemName: "text.badge.checkmark")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.orbit(.caption, weight: .medium))
                         .foregroundStyle(.tint)
                 }
                 .buttonStyle(.borderless)
                 .help("Replace in This File")
             } else {
                 Text("\(file.matches.count)")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.orbit(.micro, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 5)
@@ -523,11 +523,11 @@ private struct MatchRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("\(match.line + 1)")
-                .font(.system(size: 10).monospacedDigit())
+                .font(.orbit(.micro).monospacedDigit())
                 .foregroundStyle(.tertiary)
                 .frame(minWidth: 22, alignment: .trailing)
             Text(highlighted)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(.orbit(.code))
                 .lineLimit(1)
                 .truncationMode(.tail)
         }

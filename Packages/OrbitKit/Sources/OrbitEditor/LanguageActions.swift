@@ -361,7 +361,7 @@ struct RenameField: View {
                 .foregroundStyle(.secondary)
             TextField("New name", text: $name)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13, design: .monospaced))
+                .font(.orbit(.control, design: .monospaced))
                 .frame(width: 260)
                 .focused($focused)
                 .onSubmit { commit(name.trimmingCharacters(in: .whitespaces)) }

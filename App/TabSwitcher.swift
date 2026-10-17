@@ -123,7 +123,7 @@ struct TabSwitcherOverlay: View {
             }
             Spacer(minLength: 0)
         }
-        .font(.system(size: 13))
+        .font(.orbit(.control))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(isSelected ? AnyShapeStyle(Theme.accent.opacity(0.18)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 9))

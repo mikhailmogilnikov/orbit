@@ -172,6 +172,7 @@
 - A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
+- One type scale for UI text, `Font.orbit(_:)` in OrbitUI (D117)
 - Consecutive reads / searches fold into one transcript card (D116)
 - Slash commands in the composer (`/` lists the agent's commands), a working line with the current action and a timer, a turn summary with time, changed files and Review (D115)
 - Third performance pass (D114): image and PDF tabs keep zoom and scroll while an agent works, cached tool-card diffs, faster line-start scans
@@ -358,6 +359,7 @@ Everything below is known to be missing; nothing here is in progress.
   relative images); no side-by-side preview (no split editor); preview tabs
   aren't restored on launch; code colors don't change with the theme until
   the next edit.
+- Type scale (D117): unverified on a Mac (bars over the composer, bottom panel and terminal tabs went 11.5 → 11, the model popover's rows 12.5 → 13, the palette's query 16 → 15).
 - Folded reads (D116): unverified on a Mac and with a real agent (the card's look, expanding while calls stream in).
 - Slash commands and turn summary (D115): unverified on a Mac and with a
   real agent (the command list's look and scrolling, Return picking vs.

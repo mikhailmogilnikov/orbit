@@ -197,7 +197,7 @@ struct DiffLineRow: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.system(size: 11.5, design: .monospaced))
+        .font(.orbit(.code))
         .foregroundStyle(.tertiary)
         .padding(.vertical, 1)
         .background(background)
@@ -245,7 +245,7 @@ struct SplitDiffSide: View {
                     .foregroundStyle(.primary)
             }
         }
-        .font(.system(size: 11.5, design: .monospaced))
+        .font(.orbit(.code))
         .padding(.vertical, 1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(background)
@@ -360,7 +360,7 @@ public struct DiffGapRow: View {
     public var body: some View {
         if hidden > 0 {
             Text("⋯  \(hidden) unchanged line\(hidden == 1 ? "" : "s")")
-                .font(.system(size: 11))
+                .font(.orbit(.caption))
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 96)

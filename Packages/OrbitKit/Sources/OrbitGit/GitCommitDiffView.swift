@@ -61,7 +61,7 @@ struct GitCommitDiffView: View {
             }
             if let commit {
                 Text(commit.shortHash)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.orbit(.micro, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)

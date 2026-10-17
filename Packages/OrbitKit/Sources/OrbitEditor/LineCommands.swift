@@ -72,7 +72,7 @@ struct GoToLineField: View {
                 .foregroundStyle(.secondary)
             TextField("\(current)", text: $text)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13, design: .monospaced))
+                .font(.orbit(.control, design: .monospaced))
                 .frame(width: 220)
                 .focused($focused)
                 .onSubmit {

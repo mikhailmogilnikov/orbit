@@ -34,7 +34,7 @@ struct ProblemsPanel: View {
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
-                        .font(.system(size: 11.5))
+                        .font(.orbit(.caption))
                     }
                 }
             }
@@ -53,7 +53,7 @@ private struct ProblemRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: symbol)
                     .foregroundStyle(color)
-                    .font(.system(size: 11))
+                    .font(.orbit(.caption))
                 // Servers put the cause after a blank line ("Error in svelte.config.js\n\n…");
                 // without collapsing it the two visible lines show only the headline.
                 Text(problem.message.split(whereSeparator: \.isNewline).joined(separator: "\n"))
@@ -68,7 +68,7 @@ private struct ProblemRow: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
-            .font(.system(size: 12))
+            .font(.orbit(.body))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

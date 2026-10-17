@@ -40,9 +40,9 @@ public struct TabChip<Icon: View>: View {
     public var body: some View {
         HStack(spacing: 6) {
             icon
-                .font(.system(size: 10.5))
+                .font(.orbit(.micro))
             Text(title)
-                .font(.system(size: 12, weight: isActive ? .medium : .regular))
+                .font(.orbit(.body, weight: isActive ? .medium : .regular))
                 .italic(isPreview)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .lineLimit(1)
@@ -103,7 +103,7 @@ public struct TopBarButton: View {
     public var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .medium))
+                .font(.orbit(.control, weight: .medium))
                 .frame(width: 28, height: 28)
                 .contentShape(.rect)
         }

@@ -20,9 +20,9 @@ struct ProjectPicker: View {
                     .frame(width: 64, height: 64)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Orbit")
-                        .font(.system(size: 28, weight: .semibold))
+                        .font(.orbit(.display, weight: .semibold))
                     Text("Open a project to start working with agents.")
-                        .font(.system(size: 13))
+                        .font(.orbit(.control))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -40,13 +40,13 @@ struct ProjectPicker: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Recent Projects")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.orbit(.body, weight: .medium))
                             .foregroundStyle(.secondary)
                         Spacer()
                         if recent.count > Self.shownRecent {
                             Button(showsAll ? "Show Less" : "Show All (\(recent.count))") { showsAll.toggle() }
                                 .buttonStyle(.plain)
-                                .font(.system(size: 12))
+                                .font(.orbit(.body))
                                 .foregroundStyle(.tint)
                         }
                     }
@@ -84,7 +84,7 @@ private struct PickerCard: View {
                     .foregroundStyle(.tint)
                 HStack {
                     Text(title)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.orbit(.control, weight: .medium))
                     Spacer(minLength: 4)
                     if let shortcut { KeyCaps(shortcut) }
                 }
@@ -109,12 +109,12 @@ private struct RecentProjectRow: View {
         Button(action: open) {
             HStack(spacing: 10) {
                 Text(folder.lastPathComponent)
-                    .font(.system(size: 13))
+                    .font(.orbit(.control))
                     .lineLimit(1)
                     .layoutPriority(1)
                 Spacer(minLength: 12)
                 Text((folder.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
-                    .font(.system(size: 12))
+                    .font(.orbit(.body))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
@@ -123,7 +123,7 @@ private struct RecentProjectRow: View {
                         RecentFolders.shared.remove(folder)
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.orbit(.micro, weight: .semibold))
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)

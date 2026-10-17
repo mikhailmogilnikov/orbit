@@ -190,7 +190,7 @@ struct IndentationStatus: View {
                 .pickerStyle(.inline)
             } label: {
                 Text(current.spaces ? "Spaces: \(current.size)" : "Tab Size: \(current.size)")
-                    .font(.system(size: 11))
+                    .font(.orbit(.caption))
                     .foregroundStyle(.secondary)
             }
             .menuStyle(.button)

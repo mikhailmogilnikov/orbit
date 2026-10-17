@@ -122,7 +122,7 @@ struct QuickPickOverlay: View {
                         .foregroundStyle(.secondary)
                     TextField(state.pick.placeholder, text: $state.query)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 16))
+                        .font(.orbit(.title))
                         .focused($isFocused)
                         .onSubmit { run() }
                 }
@@ -213,11 +213,11 @@ struct QuickPickRow: View {
             Spacer(minLength: 0)
             if let trailing = item.trailing {
                 Text(trailing)
-                    .font(.system(size: 12, design: .rounded))
+                    .font(.orbit(.body, design: .rounded))
                     .foregroundStyle(.secondary)
             }
         }
-        .font(.system(size: 13))
+        .font(.orbit(.control))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(isSelected ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 9))

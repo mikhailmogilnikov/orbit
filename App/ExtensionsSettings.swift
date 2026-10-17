@@ -369,7 +369,7 @@ struct TryOnHint: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "eye")
-                .font(.system(size: 15))
+                .font(.orbit(.title))
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Click an extension to try it on")
@@ -431,7 +431,7 @@ struct ThemeSampleView: View {
                             .foregroundStyle(foreground.opacity(0.7))
                             .frame(width: 14)
                         Text(name)
-                            .font(.system(size: 11))
+                            .font(.orbit(.caption))
                             .foregroundStyle(foreground.opacity(0.85))
                             .lineLimit(1)
                     }
@@ -481,12 +481,12 @@ struct ThemeSampleView: View {
                 .fill(marker ?? .clear)
                 .frame(width: 2)
             Text("\(index + 1)")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.orbit(.caption, design: .monospaced))
                 .foregroundStyle(isActive ? color(theme.activeLineNumber ?? theme.editorForeground, .textColor) : color(theme.lineNumber, .tertiaryLabelColor))
                 .frame(width: 26, alignment: .trailing)
                 .padding(.trailing, 12)
             Text(attributed(tokens))
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(.orbit(.code))
                 .lineLimit(1)
                 .fixedSize()
             Spacer(minLength: 0)
@@ -501,7 +501,7 @@ struct ThemeSampleView: View {
             var piece = AttributedString(token.text)
             let style = token.capture.flatMap(theme.style(forCapture:))
             piece.foregroundColor = color(style?.color ?? theme.editorForeground, .textColor)
-            var font = Font.system(size: 11.5, design: .monospaced)
+            var font = Font.orbit(.code)
             if let weight = style?.weight { font = font.weight(Self.weight(weight)) }
             if style?.isItalic == true { font = font.italic() }
             piece.font = font

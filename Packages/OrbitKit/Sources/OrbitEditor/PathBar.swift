@@ -49,7 +49,7 @@ struct PathBar<Trailing: View>: View {
             trailing()
                 .padding(.trailing, 6)
         }
-        .font(.system(size: 12))
+        .font(.orbit(.body))
         .lineLimit(1)
         // The hairline takes the bottom point; centered in what's left, the text looked low.
         .padding(.bottom, 3)

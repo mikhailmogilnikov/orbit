@@ -2,9 +2,35 @@ import AppKit
 import OrbitAPI
 import SwiftUI
 
+/// The app's type scale: every UI text size is one of these (D117), so
+/// panels from different plugins line up. Code in the editor and terminal
+/// follows the user's font size instead.
+public enum TypeScale: CGFloat, Sendable {
+    /// Badges, key caps, counters, the editor's hunk buttons.
+    case micro = 10
+    /// Secondary details, section headers, the status bar, bars over the composer.
+    case caption = 11
+    /// Code shown inside the UI (diffs, search results, Markdown code), monospaced.
+    case code = 11.5
+    /// List rows, cards, tool calls, tabs.
+    case body = 12
+    /// Text fields, menus and primary rows.
+    case control = 13
+    /// Page titles and the palette's query.
+    case title = 15
+    /// The welcome screens' name.
+    case display = 28
+}
+
+extension Font {
+    /// A size from the type scale; `.code` is monospaced unless a design is given.
+    public static func orbit(_ style: TypeScale, weight: Font.Weight = .regular, design: Font.Design? = nil) -> Font {
+        .system(size: style.rawValue, weight: weight, design: design ?? (style == .code ? .monospaced : .default))
+    }
+}
+
 /// Design tokens shared by all plugins so the app reads as one system.
 public enum Theme {
-    public static let codeFont = Font.system(size: 12, design: .monospaced)
     public static let corner: CGFloat = 10
     public static let smallCorner: CGFloat = 6
 
@@ -159,7 +185,7 @@ public struct DiffStatBadge: View {
             if added > 0 { Text("+\(added)").foregroundStyle(Theme.added) }
             if removed > 0 { Text("−\(removed)").foregroundStyle(Theme.removed) }
         }
-        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .font(.orbit(.caption, weight: .medium, design: .monospaced))
         .monospacedDigit()
     }
 }
@@ -179,7 +205,7 @@ public struct IconButton: View {
     public var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
+                .font(.orbit(.body, weight: .medium))
                 .frame(width: 22, height: 22)
                 .contentShape(.rect)
         }
@@ -202,7 +228,7 @@ public struct EmptyStateView: View {
     public var body: some View {
         VStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 28, weight: .light))
+                .font(.orbit(.display, weight: .light))
                 .foregroundStyle(.tertiary)
             Text(title)
                 .font(.headline)

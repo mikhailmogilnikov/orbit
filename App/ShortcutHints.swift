@@ -13,7 +13,7 @@ struct CommandHintOverlay: View {
             if let shown {
                 HStack(spacing: 8) {
                     Text(shown.title)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.orbit(.body, weight: .medium))
                         .foregroundStyle(.secondary)
                     KeyCaps(shown.shortcut.displayString)
                 }
@@ -57,7 +57,7 @@ struct CheatSheetButton: View {
             isShown.wrappedValue.toggle()
         } label: {
             Image(systemName: "keyboard")
-                .font(.system(size: 11))
+                .font(.orbit(.caption))
                 .foregroundStyle(isShown.wrappedValue ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 .contentShape(.rect)
         }
@@ -104,13 +104,13 @@ struct ShortcutCheatSheet: View {
                     ForEach(groups, id: \.category) { group in
                         VStack(alignment: .leading, spacing: 5) {
                             Text(group.category)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.orbit(.caption, weight: .semibold))
                                 .foregroundStyle(.secondary)
                                 .padding(.bottom, 2)
                             ForEach(group.entries) { entry in
                                 HStack(spacing: 8) {
                                     Text(entry.title)
-                                        .font(.system(size: 12))
+                                        .font(.orbit(.body))
                                         .lineLimit(1)
                                     Spacer(minLength: 8)
                                     KeyCaps(entry.keys)
@@ -125,7 +125,7 @@ struct ShortcutCheatSheet: View {
                     Text("⌥Esc or ⌃Space  completion")
                     Text("Right-click  actions here")
                 }
-                .font(.system(size: 11))
+                .font(.orbit(.caption))
                 .foregroundStyle(.secondary)
             }
             .padding(20)

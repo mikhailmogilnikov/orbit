@@ -99,7 +99,7 @@ struct AgentsSettingsPane: View {
                   "command": { "executable": "my-agent", "arguments": ["--acp"], "environment": {} }
                 }
                 """)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(.orbit(.code))
                 .textSelection(.enabled)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -143,7 +143,7 @@ private struct MCPServersSection: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(server.name)
                         Text(server.summary)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.orbit(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                             .lineLimit(1)
@@ -221,7 +221,7 @@ private struct InstalledAgentRow: View {
                         .foregroundStyle(.secondary)
                 } else {
                     Text(([provider.command.executable] + provider.command.arguments).joined(separator: " "))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.orbit(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                         .lineLimit(1)

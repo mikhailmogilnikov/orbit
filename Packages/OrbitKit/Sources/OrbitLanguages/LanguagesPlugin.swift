@@ -179,7 +179,7 @@ struct LanguageStatus: View {
                 manager.editServerSettings()
             } label: {
                 Text("\(language) off")
-                    .font(.system(size: 11))
+                    .font(.orbit(.caption))
                     .foregroundStyle(.tertiary)
                     .contentShape(.rect)
             }
@@ -232,7 +232,7 @@ struct LanguageStatus: View {
                     }
                 }
                 .labelStyle(TightLabelStyle())
-                .font(.system(size: 11))
+                .font(.orbit(.caption))
                 .foregroundStyle(.secondary)
                 .contentShape(.rect)
             }

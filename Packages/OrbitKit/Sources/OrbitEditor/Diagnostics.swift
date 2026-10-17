@@ -286,7 +286,7 @@ struct HoverCard: View {
                 Divider()
                 // What can be done with the symbol, and the keys for it (D67).
                 Text("⌘-click  definition   ·   ⇧⌘R  references   ·   ⌃⌘E  rename")
-                    .font(.system(size: 10.5))
+                    .font(.orbit(.micro))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -294,7 +294,7 @@ struct HoverCard: View {
         }
         .frame(maxWidth: 540, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .font(.system(size: 12))
+        .font(.orbit(.body))
     }
 
     private struct FixLabelStyle: LabelStyle {
@@ -318,7 +318,7 @@ struct HoverCard: View {
             let inner = match.range(at: 1).location != NSNotFound ? match.range(at: 1) : match.range(at: 2)
             result += AttributedString(text.substring(with: NSRange(location: last, length: match.range.location - last)))
             var code = AttributedString(text.substring(with: inner))
-            code.font = .system(size: 11.5, design: .monospaced)
+            code.font = .orbit(.code)
             code.backgroundColor = Theme.subtleFill
             result += code
             last = match.range.location + match.range.length
