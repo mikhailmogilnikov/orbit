@@ -130,6 +130,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D118. Tool cards open their files; permissions by keyboard; other chats' approvals shown
 - D119. Changed files name their chat; an empty chat lists what the composer takes
 - D120. The chat catches up with Claude Code: pinned plan, timed thoughts, Esc / ↑ / ⇧Tab, mode in view
+- D121. Output follows only from the bottom of the transcript
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2634,3 +2635,19 @@ scrolls through a `ScrollViewReader` to an anchor under the last row, and
 `changedFiles` is read in a slot view of its own. The tool cards' diff
 cache went from 32 pairs (cleared when full, so scrolling a long chat
 re-diffed every card) to 512.
+
+### D121. Output follows only from the bottom of the transcript
+
+Scrolling up a long chat made the content jump and the scroller resize.
+Measured first (Time Profiler and Animation Hitches while scrolling): the
+window held ~120 fps and the main thread stayed under 20%, so it wasn't
+dropped frames. Two causes: `LazyVStack` guesses the height of rows it
+hasn't made yet, and the scroll view was anchored to the bottom for every
+size change, so output arriving while you read above moved what you read.
+
+- `defaultScrollAnchor(.bottom)` only for the initial offset; for size
+  changes the bottom only while you're at the bottom, the top otherwise.
+- The rows stay in a `LazyVStack` (the author's call). A plain `VStack`
+  of the last 150 rows with "Show Earlier" was tried: no guessed heights,
+  but the author preferred the lazy stack, so the guessed heights stay
+  as a known gap.

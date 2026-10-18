@@ -353,7 +353,9 @@ struct TranscriptView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
-            .defaultScrollAnchor(.bottom)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            // Follow new output only from the bottom; scrolled up, what you read stays put.
+            .defaultScrollAnchor(isAtBottom ? .bottom : .top, for: .sizeChanges)
             // Runs per frame but only yields a Bool: the action fires when it flips.
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 60
