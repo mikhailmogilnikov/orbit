@@ -281,8 +281,6 @@ struct SessionView: View {
     let session: AgentSession
     let store: AgentStore
     @State private var isDropTargeted = false
-    @State private var scrollPosition = ScrollPosition(edge: .bottom)
-    @State private var isAtBottom = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -294,45 +292,7 @@ struct SessionView: View {
                     .controlSize(.small)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(TranscriptRow.rows(session.entries)) { row in
-                            switch row {
-                            case .entry(let entry): EntryView(entry: entry, session: session)
-                            case .group(let entries): ToolGroupCard(entries: entries, reveal: session.reveal)
-                            }
-                        }
-                        StatusFooter(session: session)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                }
-                .defaultScrollAnchor(.bottom)
-                .scrollPosition($scrollPosition)
-                .onScrollGeometryChange(for: Bool.self) { geometry in
-                    geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 60
-                } action: { _, atBottom in
-                    isAtBottom = atBottom
-                }
-                .overlay(alignment: .bottom) {
-                    if !isAtBottom {
-                        Button {
-                            withAnimation(.snappy(duration: 0.25)) { scrollPosition.scrollTo(edge: .bottom) }
-                        } label: {
-                            Image(systemName: "arrow.down")
-                                .font(.orbit(.body, weight: .semibold))
-                                .frame(width: 26, height: 26)
-                                .contentShape(.circle)
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .help("Jump to the latest")
-                        .padding(.bottom, 10)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                    }
-                }
-                .animation(.snappy(duration: 0.15), value: isAtBottom)
-                .environment(\.keyedPermission, session.firstPendingPermission.map(ObjectIdentifier.init))
+                TranscriptView(session: session)
             }
             if let plan = session.pinnedPlan {
                 PinnedPlanView(items: plan)
@@ -342,8 +302,8 @@ struct SessionView: View {
             }
             if session.isIsolated {
                 IsolationBar(session: session)
-            } else if let changes = store.changes, !changes.changedFiles.isEmpty {
-                AgentChangesBar(changes: changes, store: store)
+            } else if let changes = store.changes {
+                ChangesBarSlot(changes: changes, store: store)
             }
             Composer(session: session, store: store)
         }
@@ -371,6 +331,93 @@ struct SessionView: View {
             }
         }
         .animation(.snappy(duration: 0.15), value: isDropTargeted)
+    }
+}
+
+/// The transcript's scroll view. Its own view, with no scroll state bound to
+/// it: a binding the scroll view writes on every frame (`scrollPosition`)
+/// re-ran the whole chat's body while scrolling and made long chats lag.
+struct TranscriptView: View {
+    let session: AgentSession
+    @State private var isAtBottom = true
+    private static let bottomID = "transcript-bottom"
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    TranscriptRows(session: session)
+                    StatusFooter(session: session)
+                    Color.clear.frame(height: 1).id(Self.bottomID)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+            }
+            .defaultScrollAnchor(.bottom)
+            // Runs per frame but only yields a Bool: the action fires when it flips.
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 60
+            } action: { _, atBottom in
+                isAtBottom = atBottom
+            }
+            .overlay(alignment: .bottom) {
+                JumpToLatestButton(isVisible: !isAtBottom) {
+                    withAnimation(.snappy(duration: 0.25)) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                }
+            }
+            .environment(\.keyedPermission, session.firstPendingPermission.map(ObjectIdentifier.init))
+        }
+    }
+}
+
+/// The rows alone, so the scroll view's own state never rebuilds them.
+private struct TranscriptRows: View {
+    let session: AgentSession
+
+    var body: some View {
+        ForEach(TranscriptRow.rows(session.entries)) { row in
+            switch row {
+            case .entry(let entry): EntryView(entry: entry, session: session)
+            case .group(let entries): ToolGroupCard(entries: entries, reveal: session.reveal)
+            }
+        }
+    }
+}
+
+private struct JumpToLatestButton: View {
+    let isVisible: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Group {
+            if isVisible {
+                Button(action: action) {
+                    Image(systemName: "arrow.down")
+                        .font(.orbit(.body, weight: .semibold))
+                        .frame(width: 26, height: 26)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .help("Jump to the latest")
+                .padding(.bottom, 10)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+        }
+        .animation(.snappy(duration: 0.15), value: isVisible)
+    }
+}
+
+/// The changed-files bar, in a view of its own: reading `changedFiles`
+/// (a disk check per file) stays out of the chat's body.
+private struct ChangesBarSlot: View {
+    let changes: ChangeTracking
+    let store: AgentStore
+
+    var body: some View {
+        if !changes.changedFiles.isEmpty {
+            AgentChangesBar(changes: changes, store: store)
+        }
     }
 }
 

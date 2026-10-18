@@ -2624,3 +2624,13 @@ it had that Orbit lacked, now in the Agents plugin:
   it's scrolled up (`onScrollGeometryChange` reads the offset; nothing
   measured feeds back into the content, D103).
 - **Copy a reply**: on hover under the agent's message (its Markdown).
+
+Addendum: the jump button first bound `.scrollPosition($position)` on the
+chat's view. The scroll view writes that binding on every frame, so the
+whole chat (every row, the changed-files check of each file) re-ran while
+scrolling and long chats lagged. The transcript is now its own view
+(`TranscriptView`, rows in `TranscriptRows`) with no binding: the button
+scrolls through a `ScrollViewReader` to an anchor under the last row, and
+`changedFiles` is read in a slot view of its own. The tool cards' diff
+cache went from 32 pairs (cleared when full, so scrolling a long chat
+re-diffed every card) to 512.

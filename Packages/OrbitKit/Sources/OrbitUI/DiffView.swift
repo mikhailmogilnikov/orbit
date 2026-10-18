@@ -353,7 +353,9 @@ private enum CompactDiffCache {
         let key = Key(old: old, new: new)
         if let cached = cache[key] { return cached }
         let hunks = LineDiff.hunks(old: old, new: new, context: 2)
-        if cache.count >= 32 { cache.removeAll() }
+        // A long chat has hundreds of edit cards; with a small cache, scrolling
+        // through them diffed every card again. Keys share the entries' strings.
+        if cache.count >= 512 { cache.removeAll() }
         cache[key] = hunks
         return hunks
     }
