@@ -71,11 +71,14 @@ private final class LoadedImage {
     }
 }
 
-private struct ImageViewer: NSViewRepresentable {
+struct ImageViewer: NSViewRepresentable {
     let image: NSImage
+    /// Vector images fill the view; bitmaps stop at 1×.
+    var upscales = false
 
     func makeNSView(context: Context) -> ImageScrollView {
         let view = ImageScrollView()
+        view.upscales = upscales
         view.show(image)
         return view
     }
@@ -89,6 +92,7 @@ private struct ImageViewer: NSViewRepresentable {
 /// from its pixel size and DPI, as Preview does); centered while smaller.
 final class ImageScrollView: NSScrollView {
     let imageView = NSImageView()
+    var upscales = false
     private var fitsWhenResized = true
 
     init() {
@@ -110,6 +114,11 @@ final class ImageScrollView: NSScrollView {
     required init?(coder: NSCoder) { fatalError() }
 
     func show(_ image: NSImage) {
+        // The same picture redrawn (an SVG being edited): the zoom stays.
+        if let old = imageView.image, old.size == image.size {
+            imageView.image = image
+            return
+        }
         imageView.image = image
         imageView.frame = CGRect(origin: .zero, size: image.size)
         fitsWhenResized = true
@@ -119,7 +128,7 @@ final class ImageScrollView: NSScrollView {
     private var fittingMagnification: CGFloat {
         let size = imageView.frame.size, bounds = contentSize
         guard size.width > 0, size.height > 0, bounds.width > 0 else { return 1 }
-        return min(1, bounds.width / size.width, bounds.height / size.height)
+        return min(upscales ? 16 : 1, bounds.width / size.width, bounds.height / size.height)
     }
 
     private func fit() {

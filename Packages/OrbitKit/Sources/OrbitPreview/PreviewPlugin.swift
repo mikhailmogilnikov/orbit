@@ -16,6 +16,7 @@ public final class PreviewPlugin: OrbitPlugin {
     static let markdownExtensions: Set<String> = ["md", "markdown", "mdx", "mdown"]
 
     private var browser: BrowserStore?
+    private let svgSource = SVGSourceMode()
 
     public init() {}
 
@@ -62,14 +63,44 @@ public final class PreviewPlugin: OrbitPlugin {
                 .id(tab.id)
         })
 
+        // An SVG opens as its picture, in its own tab; Show Source flips that tab to the code (D145).
+        let svgSource = svgSource
+        context.ui.addEditorProvider(EditorProvider(
+            id: "preview.svg",
+            priority: 10,
+            accepts: { tab in
+                guard tab.kind == EditorTab.fileKind, let url = tab.url, url.pathExtension.lowercased() == "svg" else { return false }
+                return !svgSource.showsSource.contains(url.standardizedFileURL)
+            }
+        ) { tab in
+            SVGPreview(url: tab.url!, workspace: workspace)
+                .overlay(alignment: .topTrailing) {
+                    Button {
+                        commands.run("preview.markdown", teaching: true)
+                    } label: {
+                        Label("Show Source", systemImage: "chevron.left.forwardslash.chevron.right")
+                    }
+                    .buttonStyle(.glass)
+                    .help(commands.help("preview.markdown", "Show Source"))
+                    .padding(10)
+                }
+                .id(tab.id)
+        })
+
+        // Markdown's preview to the side, and an SVG's picture / source in its tab (D145);
+        // the id stays for shortcuts set before SVG joined.
         context.commands.register(OrbitCommand(
             id: "preview.markdown",
-            title: "Open Markdown Preview to the Side",
+            title: "Toggle Preview",
             category: "File",
             systemImage: "eye",
             shortcut: KeyboardShortcut("v", modifiers: [.command, .shift]),
-            isEnabled: { Self.markdownURL(workspace) != nil }
+            isEnabled: { Self.markdownURL(workspace) != nil || workspace.activeTab?.url?.pathExtension.lowercased() == "svg" }
         ) {
+            if let tab = workspace.activeTab, tab.kind == EditorTab.fileKind, let url = tab.url?.standardizedFileURL, url.pathExtension.lowercased() == "svg" {
+                if svgSource.showsSource.contains(url) { svgSource.showsSource.remove(url) } else { svgSource.showsSource.insert(url) }
+                return
+            }
             guard let url = Self.markdownURL(workspace) else { return }
             let preview = Self.previewTab(for: url)
             if workspace.activeTab?.kind == Self.markdownKind {
@@ -83,7 +114,7 @@ public final class PreviewPlugin: OrbitPlugin {
             }
         })
         context.ui.addEditorAction(EditorAction(commandID: "preview.markdown", systemImage: "eye") { url in
-            Self.markdownExtensions.contains(url.pathExtension.lowercased())
+            Self.previewExtensions.contains(url.pathExtension.lowercased())
         })
     }
 
@@ -124,6 +155,8 @@ public final class PreviewPlugin: OrbitPlugin {
         })
     }
 
+    static var previewExtensions: Set<String> { markdownExtensions.union(["svg"]) }
+
     /// The active Markdown file, or the file of the active preview (⇧⌘V there goes back to it).
     private static func markdownURL(_ workspace: Workspace) -> URL? {
         guard let tab = workspace.activeTab, let url = tab.url else { return nil }
@@ -136,3 +169,11 @@ public final class PreviewPlugin: OrbitPlugin {
         return EditorTab(id: "preview:\(url.path)", kind: markdownKind, title: "Preview \(url.lastPathComponent)", systemImage: "eye", url: url)
     }
 }
+
+/// SVG tabs showing their code instead of their picture (D145).
+@MainActor
+@Observable
+final class SVGSourceMode {
+    var showsSource: Set<URL> = []
+}
+

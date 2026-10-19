@@ -40,6 +40,8 @@ struct CodeEditor: NSViewRepresentable {
     var grammarRevision = 0
     /// Off in a large file (D141).
     var highlights = true
+    /// Thumbnails of the images lines refer to, beside the numbers (D146).
+    var showsImageThumbnails = true
     /// For `.editorconfig`.
     var workspaceRoot: URL?
     /// Picked in the status bar; nil until the file's is detected.
@@ -129,6 +131,9 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.overview = overview
         coordinator.symbolHighlights.onChange = { [weak overview] in overview?.highlights = $0 }
         coordinator.folding.ruler = ruler
+        ruler.onImageClick = { [weak coordinator] url in
+            coordinator?.onOpenLocation(SourceLocation(url: url, range: SourceRange(start: SourcePosition(line: 0, character: 0), end: SourcePosition(line: 0, character: 0))))
+        }
         let sticky = coordinator.stickyScroll
         sticky.textView = textView
         sticky.ruler = ruler
@@ -196,6 +201,11 @@ struct CodeEditor: NSViewRepresentable {
         if textView.highlightSelectedLine != highlightsCurrentLine { textView.highlightSelectedLine = highlightsCurrentLine }
         coordinator.updateGrammar(revision: highlights ? grammarRevision : -1, in: textView)
         coordinator.setGitBaseline(gitBaseline)
+        coordinator.imageRoot = workspaceRoot
+        if coordinator.showsImageThumbnails != showsImageThumbnails {
+            coordinator.showsImageThumbnails = showsImageThumbnails
+            coordinator.scheduleImageReferences(delay: .zero)
+        }
         coordinator.updateBlame(blame, generation: blameGeneration)
         coordinator.inlineDiff.onKeep = onKeep
         coordinator.inlineDiff.onRevert = onRevert
@@ -313,6 +323,9 @@ struct CodeEditor: NSViewRepresentable {
         let palette = SyntaxPalette(theme: .system(dark: false))
         weak var textView: STTextView?
         weak var ruler: LineNumberRuler?
+        var showsImageThumbnails = false
+        var imageRoot: URL?
+        var imagesTask: Task<Void, Never>?
         weak var overview: OverviewRuler?
         var syncedRevision = 0
         /// The line scrolled back to on open; folds coming back later shift the text, so it's scrolled to again.
@@ -460,6 +473,7 @@ struct CodeEditor: NSViewRepresentable {
         func textViewDidChangeText(_ notification: Notification) {
             restoredTopLine = nil
             scheduleGitMarkers()
+            scheduleImageReferences()
             diagnosticsController.textDidChange()
             updateOverview()
             symbolHighlights.textDidChange()

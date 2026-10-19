@@ -183,6 +183,7 @@
 - `orbit .` from a terminal (D142): Orbit → Install 'orbit' Command…; files open in their project's window
 - Built-in browser (D143): Open Browser… and a running task's "Open localhost:5173 in Orbit", back / forward / reload, Web Inspector
 - Push later agent turns to the pull request (D144)
+- SVG opens as a live picture, Show Source / ⇧⌘V flips to the code (D145); image thumbnails in the gutter with hover and click (D146)
 - All agents overview (D130): every window's chats in the status bar's popover (⌃⌘A), Allow / Deny there and in notifications
 - Queued messages and review notes kept across launches (D131)
 - Rewind Chat and Files (D132): the message and what followed leave the chat, the message returns to the composer, the agent is told to disregard them
@@ -424,6 +425,7 @@ Everything below is known to be missing; nothing here is in progress.
   the UI.
 - Side-by-side diffs (D111): unverified on a Mac (row heights with long
   wrapped lines on one side, the header toggle).
+- SVG preview and gutter thumbnails (D145, D146): unverified on a Mac (crispness of an upscaled SVG, the thumbnail column beside folds and blame, the hover popover's place).
 - `orbit` command, browser (D142, D143): unverified on a Mac (the password prompt for /usr/local/bin, a file opening a new window and then its tab; the browser tab's toolbar, retry while a dev server starts, Inspect Element, tabs restored at launch). The browser has no tabs of its own, no find in page and no device sizes.
 - Editor (D139–D141): unverified on a Mac (⌥-drag over wrapped lines and folds, autoscroll while dragging; the large-file banner; Format Selection with each formatter). The running-task status item (D138) is unverified too.
 - Git (D134–D136): unverified on a Mac (the conflict blocks and their bar,

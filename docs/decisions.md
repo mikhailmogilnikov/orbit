@@ -154,6 +154,8 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D142. `orbit` in the terminal opens folders and files
 - D143. A built-in browser for dev servers, in editor tabs
 - D144. Later agent turns are pushed to the pull request
+- D145. SVG opens as its picture; Show Source flips the tab to the code
+- D146. Image thumbnails beside the line numbers
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3101,4 +3103,32 @@ counts the agent's files whose changes aren't committed in the copy; the bar
 then shows Push N. It commits them on the pull request's branch, with the
 last request's first line as the subject, and pushes (`git push`), which
 updates the PR. Hidden once the PR is merged or closed.
+
+### D145. SVG opens as its picture; Show Source flips the tab to the code
+
+Clicking an SVG shows the picture, in the file's own tab (a provider above
+the text editor, like images). Show Source (top right), ⇧⌘V or the eye
+button flips that same tab to the code editor and back: the tab stays one
+per file, only how it's drawn changes (`SVGSourceMode`, per window). The
+command, still `preview.markdown` for set shortcuts, is now "Toggle Preview";
+for Markdown it still opens the preview to the side (D89).
+
+AppKit draws SVG itself (`NSImage(data:)`, no WebKit), from the open buffer,
+so the picture follows unsaved edits and an agent's; while the text doesn't
+parse, the last good picture stays with a note. It fits the view, upscaled
+(vector), keeps its zoom across redraws of the same size, and sits on a
+checkerboard, light or dark backdrop for its transparent parts. An agent's
+changes to an SVG are reviewed inline in the source view (D7).
+
+### D146. Image thumbnails beside the line numbers
+
+As in JetBrains IDEs: a line that names an image file that exists
+(`./logo.png`, `@/assets/icon.svg`, `/hero.webp` from `public/`, `url(bg.png)`)
+gets a 16-pt thumbnail in a gutter column after the change bars. Paths are
+looked up relative to the file, then the project and `public`, `static`,
+`src`, `assets`; `@/` and `~/` mean `src`; web addresses are never fetched.
+Found off the main actor after a pause in typing (first 20,000 lines, one image
+per line); bitmaps are shrunk with ImageIO off the main actor. Hover shows it
+bigger with its name, click opens it. The column only exists while the file has
+any. Settings → Editor → Show image thumbnails; off in large files (D141).
 

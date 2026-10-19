@@ -641,6 +641,7 @@ struct FileEditorView: View {
                     onOpenLocation: { workspace.open($0) },
                     grammarRevision: GrammarRegistry.shared.revision,
                     highlights: !limited,
+                    showsImageThumbnails: options.showsImageThumbnails && !limited,
                     workspaceRoot: workspace.root,
                     indentation: EditorIndentation.shared.indentation(for: url),
                     takesFocus: workspace.quietTabID != EditorTab.file(url).id,

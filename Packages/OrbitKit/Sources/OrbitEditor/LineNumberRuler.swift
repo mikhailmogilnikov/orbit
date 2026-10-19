@@ -31,6 +31,24 @@ final class LineNumberRuler: NSRulerView {
     }
     /// A click on a line's blame: show its commit.
     var onBlameClick: ((LineBlame) -> Void)?
+    /// Images lines refer to (D146), drawn small in a column of their own.
+    var images: [Int: URL] = [:] {
+        didSet {
+            guard images != oldValue else { return }
+            thumbnails.clear()
+            if images.isEmpty != oldValue.isEmpty { reloadLineStarts() } else { needsDisplay = true }
+        }
+    }
+    var onImageClick: ((URL) -> Void)?
+    private lazy var thumbnails: ThumbnailCache = {
+        let cache = ThumbnailCache()
+        cache.onLoad = { [weak self] in self?.needsDisplay = true }
+        return cache
+    }()
+    private var imageColumn: CGFloat { images.isEmpty ? 0 : Self.imageWidth }
+    private static let imageWidth: CGFloat = 20
+    private var imagePopover: NSPopover?
+    private var popoverLine: Int?
     private var blameColumn: CGFloat { blame == nil ? 0 : Self.blameWidth }
     private static let blameWidth: CGFloat = 210
     private let blameFont = NSFont.systemFont(ofSize: 10.5)
@@ -103,7 +121,7 @@ final class LineNumberRuler: NSRulerView {
         lineStarts = InlineDiffController.lineStarts(of: storage.string as NSString)
         let digits = max(3, String(lineStarts.count).count)
         let digitWidth = ("8" as NSString).size(withAttributes: [.font: font]).width
-        let thickness = ceil(CGFloat(digits) * digitWidth + leadingPadding + trailingPadding + Self.foldColumn + blameColumn)
+        let thickness = ceil(CGFloat(digits) * digitWidth + leadingPadding + trailingPadding + Self.foldColumn + blameColumn + imageColumn)
         if abs(ruleThickness - thickness) > 0.5 { ruleThickness = thickness }
         needsDisplay = true
     }
@@ -172,6 +190,10 @@ final class LineNumberRuler: NSRulerView {
                 let startsRun = index == 0 || index - 1 >= blame.count || blame[index - 1].hash != blame[index].hash || index == firstVisibleLine
                 drawBlame(blame[index], top: top, height: height, label: startsRun)
             }
+            if let url = images[index], let first = fragment.textLineFragments.first {
+                let top = convert(NSPoint(x: 0, y: content.minY + frame.minY + first.typographicBounds.minY), from: textView).y
+                drawThumbnail(url, in: thumbnailRect(top: top, height: first.typographicBounds.height))
+            }
             if firstVisibleLine == nil { firstVisibleLine = index }
             for (position, lineFragment) in fragment.textLineFragments.enumerated() {
                 // Wrapped continuation lines get no number; the empty line after a final
@@ -184,6 +206,33 @@ final class LineNumberRuler: NSRulerView {
             }
             return true
         }
+    }
+
+    private func thumbnailRect(top: CGFloat, height: CGFloat) -> NSRect {
+        let side = min(16, max(10, height))
+        return NSRect(x: markerX + Self.markerWidth + 3, y: top + (height - side) / 2, width: side, height: side)
+    }
+
+    /// Fit into a rounded square; a hairline keeps a white image visible on white.
+    private func drawThumbnail(_ url: URL, in rect: NSRect) {
+        let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
+        guard let image = thumbnails.image(for: url), image.size.width > 0, image.size.height > 0 else {
+            colors.number.withAlphaComponent(0.15).setFill()
+            path.fill()
+            return
+        }
+        NSGraphicsContext.saveGraphicsState()
+        path.addClip()
+        let scale = min(rect.width / image.size.width, rect.height / image.size.height)
+        let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+        image.draw(
+            in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
+            from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue]
+        )
+        NSGraphicsContext.restoreGraphicsState()
+        colors.number.withAlphaComponent(0.35).setStroke()
+        path.lineWidth = 0.5
+        path.stroke()
     }
 
     /// An age bar (strong for this week, faint for last year), then "Author · 3mo".
@@ -234,7 +283,7 @@ final class LineNumberRuler: NSRulerView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
         addTrackingArea(area)
         trackingArea = area
     }
@@ -247,6 +296,61 @@ final class LineNumberRuler: NSRulerView {
     override func mouseExited(with event: NSEvent) {
         isPointerInside = false
         if !folds.isEmpty { needsDisplay = true }
+        closeImagePopover()
+    }
+
+    /// Over a thumbnail: the image bigger, beside the gutter.
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let line = imageLine(at: point), let url = images[line] else { return closeImagePopover() }
+        guard popoverLine != line else { return }
+        closeImagePopover()
+        guard let image = NSImage(contentsOf: url), image.size.width > 0, image.size.height > 0,
+              let rect = imageRect(forLine: line) else { return }
+        let scale = min(1, 240 / image.size.width, 240 / image.size.height)
+        let size = NSSize(width: max(24, image.size.width * scale), height: max(24, image.size.height * scale))
+        let view = NSImageView(frame: NSRect(origin: .zero, size: size))
+        view.image = image
+        view.imageScaling = .scaleProportionallyUpOrDown
+        let label = NSTextField(labelWithString: url.lastPathComponent)
+        label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingMiddle
+        let stack = NSStackView(views: [view, label])
+        stack.orientation = .vertical
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 8, right: 10)
+        let controller = NSViewController()
+        controller.view = stack
+        let popover = NSPopover()
+        popover.contentViewController = controller
+        popover.behavior = .semitransient
+        popover.animates = false
+        popover.show(relativeTo: rect, of: self, preferredEdge: .maxX)
+        imagePopover = popover
+        popoverLine = line
+    }
+
+    private func closeImagePopover() {
+        imagePopover?.close()
+        imagePopover = nil
+        popoverLine = nil
+    }
+
+    private func imageLine(at point: NSPoint) -> Int? {
+        guard !images.isEmpty, point.x >= markerX, point.x < markerX + Self.markerWidth + imageColumn,
+              let line = line(atRulerY: point.y), images[line] != nil else { return nil }
+        return line
+    }
+
+    private func imageRect(forLine line: Int) -> NSRect? {
+        guard let textView, line < lineStarts.count,
+              let location = textView.textContentManager.location(textView.textLayoutManager.documentRange.location, offsetBy: lineStarts[line]),
+              let fragment = textView.textLayoutManager.textLayoutFragment(for: location),
+              let first = fragment.textLineFragments.first else { return nil }
+        let frame = fragment.layoutFragmentFrame
+        let top = convert(NSPoint(x: 0, y: textView.contentFrame.minY + frame.minY + first.typographicBounds.minY), from: textView).y
+        return thumbnailRect(top: top, height: first.typographicBounds.height)
     }
 
     /// A click on a line with a chevron folds or unfolds its region.
@@ -254,6 +358,11 @@ final class LineNumberRuler: NSRulerView {
         let point = convert(event.locationInWindow, from: nil)
         if point.x < blameColumn, let blame, let line = line(atRulerY: point.y), line < blame.count, blame[line].isCommitted {
             onBlameClick?(blame[line])
+            return
+        }
+        if let line = imageLine(at: point), let url = images[line] {
+            closeImagePopover()
+            onImageClick?(url)
             return
         }
         guard let line = line(atRulerY: point.y), folds[line] != nil else {

@@ -8,7 +8,7 @@ import SwiftUI
 final class EditorOptions {
     /// The options a settings file can set, by their key in the "editor" section.
     enum Option: String, CaseIterable {
-        case wordWrap, highlightCurrentLine, formatOnSave, inlayHints, stickyScroll, pathBar, indentGuides, blame
+        case wordWrap, highlightCurrentLine, formatOnSave, inlayHints, stickyScroll, pathBar, indentGuides, blame, imageThumbnails
 
         /// Their names in Orbit's own defaults (older than the file).
         var storageKey: String {
@@ -21,6 +21,7 @@ final class EditorOptions {
             case .pathBar: "showsBreadcrumbs"
             case .indentGuides: "showsIndentGuides"
             case .blame: "showsBlame"
+            case .imageThumbnails: "showsImageThumbnails"
             }
         }
 
@@ -60,6 +61,7 @@ final class EditorOptions {
     var showsIndentGuides: Bool { get { self[.indentGuides] } set { self[.indentGuides] = newValue } }
     /// Who changed each line, beside the line numbers (D135).
     var showsBlame: Bool { get { self[.blame] } set { self[.blame] = newValue } }
+    var showsImageThumbnails: Bool { get { self[.imageThumbnails] } set { self[.imageThumbnails] = newValue } }
 }
 
 /// A toggle that says so, and can't be flipped, when a settings file decides it.
@@ -136,6 +138,10 @@ struct EditorSettingsPane: View {
                 OptionToggle(options: options, option: .blame) {
                     Text("Show blame (⌥⌘B)")
                     Text("Who changed each line and when, beside the line numbers; click one for its commit.")
+                }
+                OptionToggle(options: options, option: .imageThumbnails) {
+                    Text("Show image thumbnails")
+                    Text("Beside the line numbers, for images a line refers to (./logo.png, /hero.webp); hover for a bigger one, click to open it.")
                 }
                 OptionToggle(options: options, option: .inlayHints) {
                     Text("Show inlay hints")
