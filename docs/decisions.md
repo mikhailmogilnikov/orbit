@@ -143,6 +143,9 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D131. Queued messages and review notes survive a relaunch
 - D132. Rewind: the chat goes back with the files
 - D133. Isolated sessions become pull requests
+- D134. Merge conflicts are resolved in the editor
+- D135. Blame for every line, beside the line numbers
+- D136. History of any branch, searchable, with a graph
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2945,3 +2948,49 @@ then:
 
 Not done: updating the pull request after more agent turns (push again),
 non-GitHub remotes, a commit message from the agent.
+
+### D134. Merge conflicts are resolved in the editor
+
+A conflicted file opened as raw `<<<<<<<` text. Now the editor finds the
+blocks itself (`MergeConflicts`, any file with markers, from a merge,
+rebase, cherry-pick or stash pop; diff3's `|||||||` base too):
+
+- The current side is tinted with the theme's added color, the incoming
+  side blue, the base grey, the marker lines faint; each block's marker
+  line carries **Accept Current · Accept Incoming · Accept Both** (one
+  undoable edit each, through the text view).
+- A banner counts the conflicts, steps through them and has **Accept All**
+  (current / incoming / both). Once no markers are left in a file git
+  still lists as conflicted, it offers **Mark as Resolved** — `git add`
+  through `ConflictResolving`, implemented by the Git plugin.
+- No three-pane merge editor: the inline blocks are the same idea as the
+  inline agent review (D7) and cover the common cases.
+
+### D135. Blame for every line, beside the line numbers
+
+The status bar named the caret line's author only. **Toggle Blame (⌥⌘B**,
+Git menu; also Settings → Editor) adds a column left of the line numbers,
+like Xcode's Authors: each run of lines from one commit shows the author
+and a short age ("3mo"), with an age bar (strong for this week, faint for
+last year) on every line; uncommitted lines say so. A click opens what that
+commit changed in the file. Blame runs on the editor's text (unsaved edits
+don't shift it), again after a pause in typing and after commits;
+`LineBlaming` is implemented by the Git plugin. It no longer requires the
+gutter's change markers to be on.
+
+### D136. History of any branch, searchable, with a graph
+
+History showed the current branch's last 200 commits. Now:
+
+- **Scope**: Current, All branches (`--all`, 400 commits) or any local
+  branch, from a menu at the top of the section.
+- **Search** (after a pause): commit messages and authors, any case, plus a
+  hash prefix; up to 300 results, newest first.
+- **Graph**: commits are listed in topological order with their parents
+  (`%P`); `GitGraph` gives each a lane and each row the lines crossing
+  it, drawn in a narrow column (up to 8 lanes, colored by lane). Hidden
+  while searching (the results aren't a connected history).
+- Branch and tag names (`%D`) show as small badges on their commits.
+- Commits expand in place (the row's chevron) into their files; the file
+  rows carry the graph's passing lines, so it doesn't break. Rows are
+  exactly as tall as their graph cell.

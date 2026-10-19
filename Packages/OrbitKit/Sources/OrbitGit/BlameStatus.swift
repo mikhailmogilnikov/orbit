@@ -34,7 +34,7 @@ struct BlameStatus: View {
                 blame = nil
                 return
             }
-            let lines = await model.blame(cursor.url, contents: text)
+            let lines = await model.gitBlame(cursor.url, contents: text)
             guard !Task.isCancelled else { return }
             blame = lines.flatMap { cursor.line < $0.count ? $0[cursor.line] : nil }
         }

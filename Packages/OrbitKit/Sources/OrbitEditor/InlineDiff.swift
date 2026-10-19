@@ -18,6 +18,9 @@ final class InlineDiffController {
     var onSaveComment: ((ReviewComment) -> Void)?
     var onRemoveComment: ((ReviewComment.ID) -> Void)?
     var url: URL?
+    /// Merge conflict blocks in the text (D134), and what resolves one.
+    private(set) var conflicts: [MergeConflict] = []
+    var onResolveConflict: ((MergeConflict, MergeConflicts.Choice) -> Void)?
 
     private(set) var hunks: [DiffHunk] = []
     /// The file's notes with the lines they're on now.
@@ -71,6 +74,8 @@ final class InlineDiffController {
         if signature != appliedSignature {
             appliedSignature = signature
             self.hunks = hunks
+            let text = textView?.text ?? ""
+            conflicts = MergeConflicts.hasMarkers(text) ? MergeConflicts.find(in: LineDiff.lines(text)) : []
             applySpacing()
         }
         layoutOverlays()
@@ -166,7 +171,7 @@ final class InlineDiffController {
         guard !isApplying, let textView else { return }
         for view in overlays { view.removeFromSuperview() }
         overlays.removeAll()
-        guard !hunks.isEmpty || !comments.isEmpty else { return }
+        guard !hunks.isEmpty || !comments.isEmpty || !conflicts.isEmpty else { return }
 
         let content = textView.contentFrame
         let width = max(textView.bounds.width, content.maxX) - content.minX
@@ -240,6 +245,8 @@ final class InlineDiffController {
             actions.frame = frame
             add(actions, below: false)
         }
+
+        layoutConflicts(visible: visible, width: width, contentX: content.minX)
 
         // Notes away from any change block (kept since, or on plain code) hang off their first line.
         for (comment, lines) in comments where !hunks.contains(where: { anchorLines(of: $0).overlaps(lines) }) {
@@ -337,7 +344,7 @@ final class InlineDiffController {
 
     func closeComment() { commentPopover?.close() }
 
-    private func add(_ view: NSView, below: Bool) {
+    func add(_ view: NSView, below: Bool) {
         guard let textView else { return }
         if below {
             // Under the text content, above the editor background.

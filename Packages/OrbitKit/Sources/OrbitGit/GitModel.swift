@@ -31,7 +31,41 @@ final class GitModel {
     private(set) var branches: [String] = []
     private(set) var stashes: [GitStash] = []
     /// Recent commits of HEAD, newest first.
-    private(set) var history: [GitCommit] = []
+    private(set) var history: [GitCommit] = [] {
+        didSet { graph = historyQuery.trimmingCharacters(in: .whitespaces).isEmpty ? GitGraph.rows(history) : [] }
+    }
+    /// One row per commit in `history`; empty while searching (D136).
+    private(set) var graph: [GitGraphRow] = []
+
+    enum HistoryScope: Hashable {
+        case current, all
+        case branch(String)
+
+        var revisions: [String] {
+            switch self {
+            case .current: []
+            case .all: ["--all"]
+            case .branch(let name): [name]
+            }
+        }
+    }
+
+    var historyScope = HistoryScope.current {
+        didSet { if historyScope != oldValue { refresh() } }
+    }
+    /// Message, author or hash; searched after a pause in typing.
+    var historyQuery = "" {
+        didSet {
+            guard historyQuery != oldValue else { return }
+            searchTask?.cancel()
+            searchTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                self?.refresh()
+            }
+        }
+    }
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
     private(set) var isBusy = false
     /// Last failure (hook output, push rejection…), shown until dismissed.
     var error: String?
@@ -128,6 +162,8 @@ final class GitModel {
             branches = []
             stashes = []
             history = []
+            historyScope = .current
+            historyQuery = ""
             commitFiles = [:]
             ignoredPaths = []
             blameCache = nil
@@ -143,10 +179,15 @@ final class GitModel {
         }
         isRefreshing = true
         needsRefresh = false
+        let revisions = historyScope.revisions
+        let query = historyQuery.trimmingCharacters(in: .whitespaces)
         refreshTask = Task {
             let result = await Task.detached(priority: .utility) { () -> (GitStatus, [String], [GitStash], [GitCommit], [String])? in
                 guard repository.isRepository(), let status = try? repository.status() else { return nil }
-                return (status, (try? repository.branches()) ?? [], repository.stashes(), status.hasCommits ? repository.log() : [], repository.ignoredPaths())
+                let history = !status.hasCommits ? []
+                    : query.isEmpty ? repository.log(revisions: revisions, limit: revisions.isEmpty ? 200 : 400)
+                    : repository.searchLog(query, revisions: revisions)
+                return (status, (try? repository.branches()) ?? [], repository.stashes(), history, repository.ignoredPaths())
             }.value
             // Cancelled: the folder changed and a run for the new one took over.
             guard !Task.isCancelled else { return }
@@ -350,8 +391,8 @@ final class GitModel {
 
     /// Blame of the editor's current text, so unsaved edits don't shift lines.
     /// Nil for files git doesn't track.
-    func blame(_ url: URL, contents: String) async -> [GitBlameLine]? {
-        guard showsChangeMarkers, let repository, state == .ready, let root else { return nil }
+    func gitBlame(_ url: URL, contents: String) async -> [GitBlameLine]? {
+        guard let repository, state == .ready, let root else { return nil }
         let prefix = root.standardizedFileURL.path + "/"
         let path = url.standardizedFileURL.path
         guard path.hasPrefix(prefix), fileKinds[path] != .untracked, status.hasCommits else { return nil }
@@ -518,5 +559,30 @@ extension GitFileStatus {
         if staged == .deleted || unstaged == .deleted { return .deleted }
         if staged == .renamed || staged == .copied { return .renamed }
         return .modified
+    }
+}
+
+extension GitModel: ConflictResolving {
+    func markResolved(_ url: URL) {
+        guard let root = root?.standardizedFileURL.path else { return }
+        let path = url.standardizedFileURL.path
+        stage(status.conflicted.filter { root + "/" + $0.path == path })
+    }
+}
+
+extension GitModel: LineBlaming {
+    func blame(_ url: URL, contents: String) async -> [LineBlame]? {
+        let lines = await gitBlame(url, contents: contents)
+        return lines?.map { LineBlame(hash: $0.hash, author: $0.author, date: $0.date, summary: $0.summary) }
+    }
+
+    func showCommit(_ hash: String, file url: URL) {
+        guard let root = root?.standardizedFileURL.path else { return }
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(root + "/") else { return }
+        let relative = String(path.dropFirst(root.count + 1))
+        let commit = history.first { $0.hash == hash }
+            ?? GitCommit(hash: hash, shortHash: String(hash.prefix(7)), author: "", date: .distantPast, subject: "")
+        openDiff(GitCommitFile(status: .modified, path: relative, oldPath: nil), in: commit)
     }
 }

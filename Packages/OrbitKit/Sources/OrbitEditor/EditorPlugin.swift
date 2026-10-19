@@ -55,6 +55,9 @@ public final class EditorPlugin: OrbitPlugin {
                 workspace: workspace,
                 changes: services.resolve(ChangeTracking.self),
                 reviewComments: services.resolve(ReviewComments.self),
+                fileStatus: services.resolve(FileStatusProviding.self),
+                conflictResolver: services.resolve(ConflictResolving.self),
+                blameProvider: services.resolve(LineBlaming.self),
                 versionControl: services.resolve(VersionControlBaseline.self),
                 languages: services.resolve(LanguageIntelligence.self),
                 options: options,
@@ -109,7 +112,7 @@ public final class EditorPlugin: OrbitPlugin {
             }
         }
 
-        registerChangeCommands(context)
+        registerChangeCommands(context, options: options)
 
         let hasServer: @MainActor () -> Bool = {
             guard let coordinator = ActiveEditor.shared.coordinator else { return false }
@@ -349,7 +352,7 @@ public final class EditorPlugin: OrbitPlugin {
         ))
     }
 
-    private func registerChangeCommands(_ context: PluginContext) {
+    private func registerChangeCommands(_ context: PluginContext, options: EditorOptions) {
         let services = context.services
         let workspace = context.workspace
         func hasHunks() -> Bool { ActiveEditor.shared.coordinator?.inlineDiff.hunks.isEmpty == false }
@@ -384,6 +387,16 @@ public final class EditorPlugin: OrbitPlugin {
         ) {
             guard let (hunk, url, tracker) = currentHunk() else { return }
             tracker.revert(hunk, in: url)
+        })
+        context.commands.register(OrbitCommand(
+            id: "editor.toggleBlame",
+            title: "Toggle Blame",
+            category: "Git",
+            systemImage: "person.text.rectangle",
+            shortcut: KeyboardShortcut("b", modifiers: [.command, .option]),
+            isEnabled: { services.resolve(LineBlaming.self) != nil }
+        ) {
+            options.showsBlame.toggle()
         })
         context.commands.register(OrbitCommand(
             id: "editor.inlineEdit",
@@ -530,6 +543,9 @@ struct FileEditorView: View {
     let workspace: Workspace
     let changes: ChangeTracking?
     let reviewComments: ReviewComments?
+    let fileStatus: FileStatusProviding?
+    let conflictResolver: ConflictResolving?
+    let blameProvider: LineBlaming?
     let versionControl: VersionControlBaseline?
     let languages: LanguageIntelligence?
     let options: EditorOptions
@@ -553,6 +569,10 @@ struct FileEditorView: View {
             }
             if let changes, !hunks.isEmpty {
                 AgentChangesBanner(url: url, hunks: hunks, changes: changes, workspace: workspace)
+            }
+            let conflictCount = MergeConflicts.hasMarkers(document.text) ? MergeConflicts.find(in: LineDiff.lines(document.text)).count : 0
+            if conflictCount > 0 || fileStatus?.status(of: url) == .conflicted {
+                ConflictBanner(url: url, count: conflictCount, isConflictedInGit: fileStatus?.status(of: url) == .conflicted, resolver: conflictResolver)
             }
             if let error = document.loadError {
                 VStack(spacing: 12) {
@@ -586,6 +606,8 @@ struct FileEditorView: View {
                     reveal: workspace.pendingReveal.flatMap { $0.url == url ? ($0.line, $0.column) : nil },
                     onRevealHandled: { workspace.pendingReveal = nil },
                     gitBaseline: gitBaseline,
+                    blame: options.showsBlame ? blameProvider : nil,
+                    blameGeneration: versionControl?.baselineGeneration ?? 0,
                     fontSize: Preferences.shared.codeFontSize,
                     wrapsLines: options.wrapsLines,
                     highlightsCurrentLine: options.highlightsCurrentLine,

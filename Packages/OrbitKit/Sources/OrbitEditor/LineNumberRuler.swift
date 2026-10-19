@@ -22,6 +22,18 @@ final class LineNumberRuler: NSRulerView {
         didSet { if folds != oldValue { needsDisplay = true } }
     }
     var onToggleFold: ((Int) -> Void)?
+    /// Who changed each line (D135), in a column left of the numbers; nil hides it.
+    var blame: [LineBlame]? {
+        didSet {
+            guard blame != oldValue else { return }
+            if (blame == nil) != (oldValue == nil) { reloadLineStarts() } else { needsDisplay = true }
+        }
+    }
+    /// A click on a line's blame: show its commit.
+    var onBlameClick: ((LineBlame) -> Void)?
+    private var blameColumn: CGFloat { blame == nil ? 0 : Self.blameWidth }
+    private static let blameWidth: CGFloat = 210
+    private let blameFont = NSFont.systemFont(ofSize: 10.5)
     private var isPointerInside = false
     private var trackingArea: NSTrackingArea?
 
@@ -91,7 +103,7 @@ final class LineNumberRuler: NSRulerView {
         lineStarts = InlineDiffController.lineStarts(of: storage.string as NSString)
         let digits = max(3, String(lineStarts.count).count)
         let digitWidth = ("8" as NSString).size(withAttributes: [.font: font]).width
-        let thickness = ceil(CGFloat(digits) * digitWidth + leadingPadding + trailingPadding + Self.foldColumn)
+        let thickness = ceil(CGFloat(digits) * digitWidth + leadingPadding + trailingPadding + Self.foldColumn + blameColumn)
         if abs(ruleThickness - thickness) > 0.5 { ruleThickness = thickness }
         needsDisplay = true
     }
@@ -132,6 +144,11 @@ final class LineNumberRuler: NSRulerView {
             }
         }
 
+        var firstVisibleLine: Int?
+        if blame != nil {
+            NSColor.separatorColor.setFill()
+            NSRect(x: blameColumn - 1, y: dirtyRect.minY, width: 1, height: dirtyRect.height).intersection(bounds).fill()
+        }
         manager.enumerateTextLayoutFragments(from: viewport.location, options: []) { fragment in
             guard fragment.rangeInElement.location.compare(viewport.endLocation) == .orderedAscending else { return false }
             let start = contentManager.offset(from: documentStart, to: fragment.rangeInElement.location)
@@ -148,6 +165,14 @@ final class LineNumberRuler: NSRulerView {
                     drawDeletion(at: bottom)
                 }
             }
+            if let blame, index < blame.count, let first = fragment.textLineFragments.first {
+                let top = convert(NSPoint(x: 0, y: content.minY + frame.minY + first.typographicBounds.minY), from: textView).y
+                let height = first.typographicBounds.height
+                // A run of lines from one commit names it once, on its first line.
+                let startsRun = index == 0 || index - 1 >= blame.count || blame[index - 1].hash != blame[index].hash || index == firstVisibleLine
+                drawBlame(blame[index], top: top, height: height, label: startsRun)
+            }
+            if firstVisibleLine == nil { firstVisibleLine = index }
             for (position, lineFragment) in fragment.textLineFragments.enumerated() {
                 // Wrapped continuation lines get no number; the empty line after a final
                 // newline (an "extra" fragment with no characters) does.
@@ -159,6 +184,41 @@ final class LineNumberRuler: NSRulerView {
             }
             return true
         }
+    }
+
+    /// An age bar (strong for this week, faint for last year), then "Author · 3mo".
+    private func drawBlame(_ line: LineBlame, top: CGFloat, height: CGFloat, label: Bool) {
+        let age = Date().timeIntervalSince(line.date)
+        let freshness = line.isCommitted ? max(0.12, 1 - min(1, age / (365 * 86_400))) : 1
+        (line.isCommitted ? colors.modified : colors.added).withAlphaComponent(0.75 * freshness).setFill()
+        NSRect(x: 2, y: top, width: 2, height: height).fill()
+        guard label else { return }
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        let when = line.isCommitted ? Self.shortAge(age) : ""
+        let whenAttributes: [NSAttributedString.Key: Any] = [.font: blameFont, .foregroundColor: colors.number]
+        let whenWidth = (when as NSString).size(withAttributes: whenAttributes).width
+        let right = blameColumn - 8
+        let y = top + (height - blameFont.ascender + blameFont.descender) / 2
+        (when as NSString).draw(at: NSPoint(x: right - whenWidth, y: y), withAttributes: whenAttributes)
+        let name = line.isCommitted ? line.author : "Not committed"
+        (name as NSString).draw(
+            with: NSRect(x: 9, y: y, width: max(0, right - whenWidth - 15), height: height),
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: [.font: blameFont, .foregroundColor: colors.currentNumber, .paragraphStyle: style]
+        )
+    }
+
+    /// "now", "5m", "3h", "2d", "4w", "3mo", "2y".
+    nonisolated static func shortAge(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds / 60), hours = minutes / 60, days = hours / 24
+        if minutes < 1 { return "now" }
+        if hours < 1 { return "\(minutes)m" }
+        if days < 1 { return "\(hours)h" }
+        if days < 14 { return "\(days)d" }
+        if days < 60 { return "\(days / 7)w" }
+        if days < 365 { return "\(days / 30)mo" }
+        return "\(days / 365)y"
     }
 
     private func drawChevron(folded: Bool, centerY: CGFloat) {
@@ -191,7 +251,12 @@ final class LineNumberRuler: NSRulerView {
 
     /// A click on a line with a chevron folds or unfolds its region.
     override func mouseDown(with event: NSEvent) {
-        guard let line = line(atRulerY: convert(event.locationInWindow, from: nil).y), folds[line] != nil else {
+        let point = convert(event.locationInWindow, from: nil)
+        if point.x < blameColumn, let blame, let line = line(atRulerY: point.y), line < blame.count, blame[line].isCommitted {
+            onBlameClick?(blame[line])
+            return
+        }
+        guard let line = line(atRulerY: point.y), folds[line] != nil else {
             super.mouseDown(with: event)
             return
         }
@@ -222,7 +287,7 @@ final class LineNumberRuler: NSRulerView {
         return found
     }
 
-    private static let markerX: CGFloat = 3
+    private var markerX: CGFloat { blameColumn + 3 }
     private static let markerWidth: CGFloat = 3
 
     private func drawMarker(for line: Int, top: CGFloat, bottom: CGFloat) {
@@ -231,7 +296,7 @@ final class LineNumberRuler: NSRulerView {
             : nil
         if let color {
             color.withAlphaComponent(0.85).setFill()
-            NSBezierPath(roundedRect: NSRect(x: Self.markerX, y: top, width: Self.markerWidth, height: max(2, bottom - top)), xRadius: 1, yRadius: 1).fill()
+            NSBezierPath(roundedRect: NSRect(x: markerX, y: top, width: Self.markerWidth, height: max(2, bottom - top)), xRadius: 1, yRadius: 1).fill()
         }
         if changeMarkers.deletedAbove.contains(line) { drawDeletion(at: top) }
     }
@@ -239,9 +304,9 @@ final class LineNumberRuler: NSRulerView {
     /// A small red wedge on the boundary where lines were removed.
     private func drawDeletion(at y: CGFloat) {
         let path = NSBezierPath()
-        path.move(to: NSPoint(x: Self.markerX - 1, y: y - 4))
-        path.line(to: NSPoint(x: Self.markerX + 5, y: y))
-        path.line(to: NSPoint(x: Self.markerX - 1, y: y + 4))
+        path.move(to: NSPoint(x: markerX - 1, y: y - 4))
+        path.line(to: NSPoint(x: markerX + 5, y: y))
+        path.line(to: NSPoint(x: markerX - 1, y: y + 4))
         path.close()
         colors.deleted.withAlphaComponent(0.85).setFill()
         path.fill()

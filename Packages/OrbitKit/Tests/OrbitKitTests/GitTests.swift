@@ -216,4 +216,55 @@ import Testing
         #expect(files.map(\.path) == ["a.txt", "new name.txt", "gone.txt"])
         #expect(files[1].status == .renamed && files[1].oldPath == "old name.txt")
     }
+
+    /// Branches, a merge, refs, search and the graph's lanes (D136).
+    @Test func historyAcrossBranchesWithGraphAndSearch() throws {
+        let repo = try makeRepository()
+        defer { try? FileManager.default.removeItem(at: repo.root) }
+        try write("a\n", "a.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "Base")
+        let main = try #require(repo.branches().first)
+        try repo.switchBranch("feature", create: true)
+        try write("f\n", "f.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "Feature work")
+        try repo.switchBranch(main)
+        try write("m\n", "m.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "Main work")
+        _ = try repo.run(["merge", "--no-ff", "-m", "Merge feature", "feature"])
+
+        let log = repo.log()
+        #expect(log.map(\.subject) == ["Merge feature", "Feature work", "Main work", "Base"]
+                || log.map(\.subject) == ["Merge feature", "Main work", "Feature work", "Base"])
+        #expect(log[0].parents.count == 2)
+        #expect(log[0].refs.contains { $0.hasPrefix("HEAD -> ") })
+        #expect(repo.log(revisions: ["feature"]).map(\.subject) == ["Feature work", "Base"])
+
+        // The merge opens a second lane that closes again at the base.
+        let rows = GitGraph.rows(log)
+        #expect(rows[0].column == 0)
+        #expect(rows[0].bottom.count == 2)
+        #expect(rows.map(\.laneCount).max() == 2)
+        #expect(rows.last?.continuing == [])
+
+        #expect(repo.searchLog("feature").map(\.subject).contains("Feature work"))
+        #expect(repo.searchLog("ann dev").count == 4)
+        let hash = String(log[3].hash.prefix(7))
+        #expect(repo.searchLog(hash).map(\.subject) == ["Base"])
+        #expect(repo.searchLog("nothing like this").isEmpty)
+    }
+
+    @Test func graphOfALinearHistoryIsOneLane() {
+        let commits = (0..<3).map { index in
+            GitCommit(hash: "c\(index)", shortHash: "c\(index)", author: "", date: .now, subject: "",
+                      parents: index < 2 ? ["c\(index + 1)"] : [])
+        }
+        let rows = GitGraph.rows(commits)
+        #expect(rows.map(\.column) == [0, 0, 0])
+        #expect(rows.map(\.laneCount) == [1, 1, 1])
+        #expect(rows[1].top.map { [$0.0, $0.1] } == [[0, 0]])
+        #expect(rows[2].bottom.isEmpty)
+    }
 }

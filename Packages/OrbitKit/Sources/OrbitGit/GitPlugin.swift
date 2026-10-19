@@ -27,6 +27,8 @@ public final class GitPlugin: OrbitPlugin {
         })
         context.services.register(FileStatusProviding.self, model)
         context.services.register(VersionControlBaseline.self, model)
+        context.services.register(ConflictResolving.self, model)
+        context.services.register(LineBlaming.self, model)
 
         ui.addEditorProvider(EditorProvider(
             id: "git.diff",

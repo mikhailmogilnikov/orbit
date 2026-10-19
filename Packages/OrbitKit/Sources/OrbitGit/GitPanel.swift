@@ -241,7 +241,7 @@ private struct ChangesList: View {
     var body: some View {
         let status = model.status
         Group {
-            if status.files.isEmpty, model.stashes.isEmpty, model.history.isEmpty {
+            if status.files.isEmpty, model.stashes.isEmpty, model.history.isEmpty, model.historyQuery.isEmpty, model.historyScope == .current {
                 EmptyStateView("No Changes", systemImage: "checkmark.circle", message: "The working tree is clean.")
                     .frame(maxHeight: 200)
                 Spacer()
@@ -293,17 +293,17 @@ private struct ChangesList: View {
                             SectionHeader(title: "Stashes", count: model.stashes.count, isExpanded: $showsStashes)
                         }
                     }
-                    if !model.history.isEmpty {
+                    if status.hasCommits {
                         Section(isExpanded: $showsHistory) {
-                            ForEach(model.history) { commit in
-                                CommitRow(commit: commit, model: model)
-                            }
+                            HistoryRows(model: model)
                         } header: {
                             SectionHeader(title: "History", count: model.history.count, isExpanded: $showsHistory)
                         }
                     }
                 }
                 .listStyle(.sidebar)
+                // History rows are as tall as their graph cell, so its lines meet (D136).
+                .environment(\.defaultMinListRowHeight, 20)
             }
         }
         .alert("Stash Changes", isPresented: $model.isNamingStash) {
@@ -355,43 +355,170 @@ private struct StashRow: View {
 }
 
 /// A commit; expanding it lists its files, clicking one opens what changed in it.
+/// Branch picker and search, then the commits with their graph (D136).
+private struct HistoryRows: View {
+    @Bindable var model: GitModel
+    @State private var expanded: Set<String> = []
+
+    private static let laneSpacing: CGFloat = 10
+    private static let maxLanes = 8
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Menu {
+                Picker("Show", selection: $model.historyScope) {
+                    Text("Current Branch").tag(GitModel.HistoryScope.current)
+                    Text("All Branches").tag(GitModel.HistoryScope.all)
+                    if !model.branches.isEmpty {
+                        Divider()
+                        ForEach(model.branches, id: \.self) { branch in
+                            Text(branch).tag(GitModel.HistoryScope.branch(branch))
+                        }
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label(scopeTitle, systemImage: "arrow.triangle.branch")
+                    .font(.orbit(.caption))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Which branches' history to show")
+            TextField("Search commits", text: $model.historyQuery)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .help("Message, author or hash")
+        }
+        .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 4, trailing: 8))
+        let graph = model.graph
+        let lanes = min(Self.maxLanes, graph.map(\.laneCount).max() ?? 0)
+        let width = lanes == 0 ? 0 : CGFloat(lanes) * Self.laneSpacing + 4
+        ForEach(Array(model.history.enumerated()), id: \.element.id) { index, commit in
+            let row = index < graph.count ? graph[index] : nil
+            CommitRow(commit: commit, model: model, graph: row, graphWidth: width, spacing: Self.laneSpacing,
+                      isExpanded: expanded.contains(commit.hash)) {
+                if expanded.remove(commit.hash) == nil { expanded.insert(commit.hash) }
+            }
+            if expanded.contains(commit.hash) {
+                CommitFiles(commit: commit, model: model, passing: row?.continuing ?? [], graphWidth: width, spacing: Self.laneSpacing)
+            }
+        }
+        if model.history.isEmpty, !model.historyQuery.isEmpty {
+            Text("No commits match")
+                .font(.orbit(.caption))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var scopeTitle: String {
+        switch model.historyScope {
+        case .current: "Current"
+        case .all: "All"
+        case .branch(let name): name
+        }
+    }
+}
+
 private struct CommitRow: View {
     let commit: GitCommit
     let model: GitModel
-    @State private var isExpanded = false
+    let graph: GitGraphRow?
+    let graphWidth: CGFloat
+    let spacing: CGFloat
+    let isExpanded: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if graphWidth > 0 {
+                GitGraphCell(row: graph, width: graphWidth, spacing: spacing)
+            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            RefBadges(refs: commit.refs)
+            Text(commit.subject)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text(commit.date, format: .relative(presentation: .named))
+                .font(.orbit(.caption))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+        .frame(height: 24)
+        .contentShape(.rect)
+        .onTapGesture(perform: toggle)
+        .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 8))
+        .help("\(commit.shortHash) · \(commit.author) · \(commit.date.formatted(date: .abbreviated, time: .shortened))\n\(commit.subject)")
+        .contextMenu {
+            Button("Copy Commit Hash") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(commit.hash, forType: .string)
+            }
+        }
+    }
+}
+
+/// Branch and tag names on a commit, the first two shown.
+private struct RefBadges: View {
+    let refs: [String]
+
+    var body: some View {
+        let names = refs.map { $0.replacingOccurrences(of: "HEAD -> ", with: "") }.filter { $0 != "HEAD" }
+        ForEach(names.prefix(2), id: \.self) { name in
+            let isTag = name.hasPrefix("tag: ")
+            Text(isTag ? String(name.dropFirst(5)) : name)
+                .font(.orbit(.micro, weight: .medium))
+                .lineLimit(1)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background((isTag ? Color.orange : Color.accentColor).opacity(0.15), in: .capsule)
+                .foregroundStyle(isTag ? Color.orange : Color.accentColor)
+                .fixedSize()
+        }
+        if names.count > 2 {
+            Text("+\(names.count - 2)")
+                .font(.orbit(.micro))
+                .foregroundStyle(.tertiary)
+                .help(names.dropFirst(2).joined(separator: "\n"))
+        }
+    }
+}
+
+/// A commit's files under it, the graph's lines passing beside them.
+private struct CommitFiles: View {
+    let commit: GitCommit
+    let model: GitModel
+    let passing: [Int]
+    let graphWidth: CGFloat
+    let spacing: CGFloat
     @State private var files: [GitCommitFile]?
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
+        Group {
             if let files {
                 ForEach(files) { file in
-                    CommitFileRow(file: file)
+                    row { CommitFileRow(file: file) }
                         .onTapGesture { model.openDiff(file, in: commit) }
                 }
             } else {
-                ProgressView().controlSize(.mini)
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Text(commit.subject)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text(commit.date, format: .relative(presentation: .named))
-                    .font(.orbit(.caption))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-            .help("\(commit.shortHash) · \(commit.author) · \(commit.date.formatted(date: .abbreviated, time: .shortened))\n\(commit.subject)")
-            .contextMenu {
-                Button("Copy Commit Hash") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(commit.hash, forType: .string)
-                }
+                row { ProgressView().controlSize(.mini) }
             }
         }
-        .task(id: isExpanded) {
-            if isExpanded, files == nil { files = await model.files(in: commit) }
+        .task { if files == nil { files = await model.files(in: commit) } }
+    }
+
+    private func row(@ViewBuilder _ content: () -> some View) -> some View {
+        HStack(spacing: 6) {
+            if graphWidth > 0 {
+                GitGraphCell(row: nil, passing: passing, width: graphWidth, spacing: spacing)
+            }
+            content()
+                .padding(.leading, 14)
         }
+        .frame(height: 22)
+        .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 8))
     }
 }
 

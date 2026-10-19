@@ -265,6 +265,10 @@ struct GitCommit: Identifiable, Hashable, Sendable {
     let author: String
     let date: Date
     let subject: String
+    /// For the graph (D136).
+    var parents: [String] = []
+    /// Branch and tag names pointing at it ("HEAD -> main", "origin/main", "tag: v1").
+    var refs: [String] = []
 
     var id: String { hash }
 }
@@ -308,9 +312,28 @@ extension GitRepository {
         try run(["stash", "drop", stash.ref])
     }
 
-    func log(limit: Int = 200) -> [GitCommit] {
-        let format = ["%H", "%h", "%an", "%ct", "%s"].joined(separator: "%x1f")
-        return GitParse.commits(String(decoding: (try? run(["log", "-n", "\(limit)", "--format=\(format)"])) ?? Data(), as: UTF8.self))
+    private static let logFormat = ["%H", "%h", "%an", "%ct", "%P", "%D", "%s"].joined(separator: "%x1f")
+
+    /// The newest commits of `revisions` (none: the current branch; `--all`: every
+    /// branch), parents before children's siblings so the graph reads (D136).
+    func log(revisions: [String] = [], limit: Int = 200) -> [GitCommit] {
+        let arguments = ["log", "-n", "\(limit)", "--topo-order", "--format=\(Self.logFormat)"] + revisions + ["--"]
+        return GitParse.commits(String(decoding: (try? run(arguments)) ?? Data(), as: UTF8.self))
+    }
+
+    /// Commits whose message or author contains `query` (any case), or whose hash starts with it.
+    func searchLog(_ query: String, revisions: [String] = [], limit: Int = 300) -> [GitCommit] {
+        func search(_ option: String) -> [GitCommit] {
+            let arguments = ["log", "-n", "\(limit)", "--regexp-ignore-case", "--fixed-strings", "\(option)=\(query)", "--format=\(Self.logFormat)"] + revisions + ["--"]
+            return GitParse.commits(String(decoding: (try? run(arguments)) ?? Data(), as: UTF8.self))
+        }
+        var found = search("--grep") + search("--author")
+        if query.count >= 4, query.allSatisfy(\.isHexDigit),
+           let data = try? run(["log", "-1", "--format=\(Self.logFormat)", query, "--"]) {
+            found += GitParse.commits(String(decoding: data, as: UTF8.self)).filter { $0.hash.hasPrefix(query.lowercased()) }
+        }
+        var seen = Set<String>()
+        return found.filter { seen.insert($0.hash).inserted }.sorted { $0.date > $1.date }
     }
 
     /// Merges show what they brought in relative to their first parent.
@@ -354,14 +377,16 @@ enum GitParse {
 
     static func commits(_ text: String) -> [GitCommit] {
         text.split(separator: "\n").compactMap { line in
-            let parts = line.split(separator: field, maxSplits: 4, omittingEmptySubsequences: false)
-            guard parts.count == 5 else { return nil }
+            let parts = line.split(separator: field, maxSplits: 6, omittingEmptySubsequences: false)
+            guard parts.count == 7 else { return nil }
             return GitCommit(
                 hash: String(parts[0]),
                 shortHash: String(parts[1]),
                 author: String(parts[2]),
                 date: Date(timeIntervalSince1970: TimeInterval(parts[3]) ?? 0),
-                subject: String(parts[4])
+                subject: String(parts[6]),
+                parents: parts[4].split(separator: " ").map(String.init),
+                refs: parts[5].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             )
         }
     }

@@ -20,6 +20,10 @@ struct CodeEditor: NSViewRepresentable {
     var onRevealHandled: () -> Void = {}
     /// Git's copy of the file; the gutter marks lines that differ from it.
     var gitBaseline: String?
+    /// The blame column's source (D135); nil hides the column.
+    var blame: LineBlaming?
+    /// Bumped by git when commits change: blame again.
+    var blameGeneration = 0
     var fontSize = Preferences.defaultCodeFontSize
     var wrapsLines = false
     var highlightsCurrentLine = true
@@ -79,6 +83,7 @@ struct CodeEditor: NSViewRepresentable {
         GrammarRegistry.shared.ensureInstalled(for: document.url, firstLine: StaticHighlighter.firstLine(of: document.text))
         coordinator.inlineDiff.textView = textView
         textView.addPlugin(InlineDiffPlugin(controller: coordinator.inlineDiff))
+        coordinator.inlineDiff.onResolveConflict = { [weak coordinator] conflict, choice in coordinator?.resolveConflict(conflict, choice) }
         coordinator.diagnosticsController.textView = textView
         coordinator.diagnosticsController.onFadedChange = { [weak palette = coordinator.palette] faded in palette?.faded = faded }
         textView.addPlugin(DiagnosticsPlugin(controller: coordinator.diagnosticsController))
@@ -189,6 +194,7 @@ struct CodeEditor: NSViewRepresentable {
         if textView.highlightSelectedLine != highlightsCurrentLine { textView.highlightSelectedLine = highlightsCurrentLine }
         coordinator.updateGrammar(revision: grammarRevision, in: textView)
         coordinator.setGitBaseline(gitBaseline)
+        coordinator.updateBlame(blame, generation: blameGeneration)
         coordinator.inlineDiff.onKeep = onKeep
         coordinator.inlineDiff.onRevert = onRevert
         coordinator.inlineDiff.url = document.url
@@ -261,6 +267,32 @@ struct CodeEditor: NSViewRepresentable {
         let inlineDiff = InlineDiffController()
         /// ⌘K's instruction popover (D127).
         var inlineEditPopover: NSPopover?
+        private var blameKey: (revision: Int, generation: Int)?
+        private var blameTask: Task<Void, Never>?
+
+        /// Blames the text after a pause in typing; nil hides the column.
+        func updateBlame(_ provider: LineBlaming?, generation: Int) {
+            guard let ruler else { return }
+            guard let provider else {
+                blameTask?.cancel()
+                blameKey = nil
+                ruler.blame = nil
+                return
+            }
+            let key = (document.revision, generation)
+            guard blameKey.map({ $0 != key }) ?? true else { return }
+            blameKey = key
+            let url = document.url
+            ruler.onBlameClick = { [weak provider] line in provider?.showCommit(line.hash, file: url) }
+            blameTask?.cancel()
+            blameTask = Task { [weak self, weak ruler] in
+                if ruler?.blame != nil { try? await Task.sleep(for: .milliseconds(400)) }
+                guard !Task.isCancelled, let self else { return }
+                let lines = await provider.blame(url, contents: document.text)
+                guard !Task.isCancelled else { return }
+                ruler?.blame = lines ?? []
+            }
+        }
         let diagnosticsController = DiagnosticsController()
         lazy var symbolHighlights = SymbolHighlightController(geometry: diagnosticsController)
         lazy var bracketMatch = BracketMatchController(geometry: diagnosticsController)

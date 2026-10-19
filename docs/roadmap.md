@@ -173,6 +173,9 @@
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
 - Output follows only from the bottom of the chat; scrolled up, what you read stays put (D121)
+- Merge conflicts in the editor (D134): Accept Current / Incoming / Both per block, Accept All, Mark as Resolved
+- Blame column beside the line numbers (D135, ⌥⌘B): author and age per commit run, click for the commit
+- History of any branch with search and a graph, ref badges (D136)
 - All agents overview (D130): every window's chats in the status bar's popover (⌃⌘A), Allow / Deny there and in notifications
 - Queued messages and review notes kept across launches (D131)
 - Rewind Chat and Files (D132): the message and what followed leave the chat, the message returns to the composer, the agent is told to disregard them
@@ -254,8 +257,8 @@ Everything below is known to be missing; nothing here is in progress.
 - Large files (under the 50 MB limit, D106) open without any lighter mode: highlighting and LSP run as usual
 
 **Git and terminal**
-- Branch graph and history search, other branches'
-  history, per-line blame annotations
+- Remote branches in the history's menu (All shows them); a three-pane
+  merge editor; blame of a file at an older commit
 
 ## Known gaps / to verify
 - Windows (D101): unverified on a Mac (windows coming back on launch, the
@@ -415,9 +418,9 @@ Everything below is known to be missing; nothing here is in progress.
   the UI.
 - Side-by-side diffs (D111): unverified on a Mac (row heights with long
   wrapped lines on one side, the header toggle).
-- Git: History shows only the
-  current branch, without search or a graph; blame is only the caret's line
-  (no per-line annotations).
+- Git (D134–D136): unverified on a Mac (the conflict blocks and their bar,
+  the blame column's width beside wide line numbers and folds, the graph's
+  lines meeting between sidebar rows and its colors in light and dark).
 - Indent guides (D110): unverified on a Mac (crisp 1-pt lines, placement
   with tabs, inline-diff gaps and folds; a theme's `editor.indent_guide`).
 - Project options (D108): unverified on a Mac (the "Set by" notes and

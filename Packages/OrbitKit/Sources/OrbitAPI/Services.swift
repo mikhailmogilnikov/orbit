@@ -73,6 +73,40 @@ public protocol AgentTasks: AnyObject {
     func attachFileToNewChat(_ url: URL)
 }
 
+/// Who last changed a line, for the editor's blame column (D135).
+public struct LineBlame: Sendable, Equatable {
+    public var hash: String
+    public var author: String
+    public var date: Date
+    public var summary: String
+
+    public init(hash: String, author: String, date: Date, summary: String) {
+        self.hash = hash
+        self.author = author
+        self.date = date
+        self.summary = summary
+    }
+
+    /// Lines only in the working copy blame to the all-zero hash.
+    public var isCommitted: Bool { hash.contains { $0 != "0" } }
+}
+
+/// Line-by-line blame of the editor's text, implemented by the Git plugin.
+@MainActor
+public protocol LineBlaming: AnyObject {
+    /// Nil when git doesn't track the file.
+    func blame(_ url: URL, contents: String) async -> [LineBlame]?
+    /// Opens what the commit changed in the file.
+    func showCommit(_ hash: String, file url: URL)
+}
+
+/// Marks a file's merge conflict resolved (`git add`), implemented by the Git
+/// plugin; the editor offers it once the file has no conflict markers left (D134).
+@MainActor
+public protocol ConflictResolving: AnyObject {
+    func markResolved(_ url: URL)
+}
+
 /// Opens a shell in a folder, implemented by the Terminal plugin.
 @MainActor
 public protocol TerminalOpening: AnyObject {
