@@ -2602,6 +2602,10 @@ size kept: monospaced glyphs look larger, so 11.5 sits with 12 text),
 18 pt card icon) stay literal. The editor and terminal follow the user's
 font size, not the scale. The unused `Theme.codeFont` is gone.
 (Glyph sizes got a token in D157: `.glyph`, 8 pt.)
+(The ~90 SwiftUI text styles left over (`.callout`, `.caption`, `.headline`…)
+moved to the scale at their macOS sizes, so nothing changed on screen:
+caption / caption2 → micro, callout → body, headline → control bold,
+title3 → title.)
 
 ### D118. Tool cards open their files; permissions by keyboard; other chats' approvals shown
 

@@ -68,7 +68,7 @@ struct GoToLineField: View {
         let target = LineEditing.lineAndColumn(text)
         VStack(alignment: .leading, spacing: 6) {
             Text("Line 1–\(lines), or line:column")
-                .font(.caption)
+                .font(.orbit(.micro))
                 .foregroundStyle(.secondary)
             TextField("\(current)", text: $text)
                 .textFieldStyle(.roundedBorder)

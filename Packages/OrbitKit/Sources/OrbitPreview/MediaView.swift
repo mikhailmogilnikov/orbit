@@ -33,7 +33,7 @@ struct MediaView: View {
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
         let dimensions = pixels.map { "\(Int($0.width)) × \(Int($0.height))" }
         return Text([dimensions, size].compactMap(\.self).joined(separator: " · "))
-            .font(.caption.monospacedDigit())
+            .font(.orbit(.micro).monospacedDigit())
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)

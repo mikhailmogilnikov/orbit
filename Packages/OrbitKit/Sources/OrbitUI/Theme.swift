@@ -312,11 +312,11 @@ public struct EmptyStateView: View {
                 .font(.orbit(.display, weight: .light))
                 .foregroundStyle(.tertiary)
             Text(title)
-                .font(.headline)
+                .font(.orbit(.control, weight: .bold))
                 .foregroundStyle(.secondary)
             if let message {
                 Text(message)
-                    .font(.callout)
+                    .font(.orbit(.body))
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
             }

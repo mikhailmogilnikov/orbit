@@ -1252,7 +1252,7 @@ struct WelcomeView: View {
             .overlay(RoundedRectangle(cornerRadius: Theme.largeCorner).strokeBorder(Theme.hairline))
 
             Text("Version \(version)")
-                .font(.caption)
+                .font(.orbit(.micro))
                 .foregroundStyle(.tertiary)
         }
         .padding(.bottom, 24)

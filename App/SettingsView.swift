@@ -307,7 +307,7 @@ struct ShortcutsSettings: View {
                 Label(command.title, systemImage: command.systemImage ?? "command")
                 if let notice, notice.id == command.id {
                     Text(notice.text)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.orange)
                 }
             }
@@ -423,7 +423,7 @@ struct PluginsSettings: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(entry.manifest.name)
                                 Text(entry.manifest.summary)
-                                    .font(.caption)
+                                    .font(.orbit(.micro))
                                     .foregroundStyle(.secondary)
                             }
                         } icon: {

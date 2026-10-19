@@ -59,11 +59,11 @@ struct InstalledExtensionsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.manifest.name)
                                 Text(Self.summary(of: item))
-                                    .font(.caption)
+                                    .font(.orbit(.micro))
                                     .foregroundStyle(.secondary)
                                 if let failure = catalog.failures[item.id] {
                                     Text(failure)
-                                        .font(.caption)
+                                        .font(.orbit(.micro))
                                         .foregroundStyle(.red)
                                 }
                             }
@@ -89,7 +89,7 @@ struct InstalledExtensionsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(problem.location.lastPathComponent)
                                 Text(problem.message)
-                                    .font(.caption)
+                                    .font(.orbit(.micro))
                                     .foregroundStyle(.secondary)
                             }
                         } icon: {
@@ -172,8 +172,8 @@ struct ExtensionCatalogView: View {
                         ProgressView().controlSize(.small)
                     } else if let error = catalog.loadError {
                         VStack(spacing: 6) {
-                            Text("Couldn't load the catalog").font(.headline)
-                            Text(error).font(.caption).foregroundStyle(.secondary)
+                            Text("Couldn't load the catalog").font(.orbit(.control, weight: .bold))
+                            Text(error).font(.orbit(.micro)).foregroundStyle(.secondary)
                             Button("Try Again") { catalog.search(query, kind: kind) }
                                 .buttonStyle(.glass)
                         }
@@ -184,7 +184,7 @@ struct ExtensionCatalogView: View {
             }
             Divider()
             Text("From Zed's extension catalog. Orbit installs only the themes and icons.")
-                .font(.caption)
+                .font(.orbit(.micro))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
@@ -226,20 +226,20 @@ struct CatalogRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(entry.name).fontWeight(.medium)
-                    Text(entry.version).font(.caption).foregroundStyle(.tertiary)
+                    Text(entry.version).font(.orbit(.micro)).foregroundStyle(.tertiary)
                 }
                 if let description = entry.description, !description.isEmpty {
                     Text(description)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
                 Text(byline)
-                    .font(.caption2)
+                    .font(.orbit(.micro))
                     .foregroundStyle(.tertiary)
                 if let failure = catalog.failures[entry.id] {
                     Text(failure)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.red)
                 }
             }
@@ -337,8 +337,8 @@ struct TryOnPanel: View {
                 ThemeSampleView(theme: preview.colorTheme ?? extensions.pickedColorTheme(dark: Preferences.shared.isDark))
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Trying On").font(.caption).foregroundStyle(.secondary)
-                        Text(preview.manifest.name).font(.headline).lineLimit(2)
+                        Text("Trying On").font(.orbit(.micro)).foregroundStyle(.secondary)
+                        Text(preview.manifest.name).font(.orbit(.control, weight: .bold)).lineLimit(2)
                     }
                     PreviewThemePickers(preview: preview)
                         .labelsHidden()
@@ -373,9 +373,9 @@ struct TryOnHint: View {
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Click an extension to try it on")
-                    .font(.callout.weight(.medium))
+                    .font(.orbit(.body, weight: .medium))
                 Text("The whole window previews it, nothing is installed. Use ↑ ↓ to go through the list.")
-                    .font(.caption)
+                    .font(.orbit(.micro))
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)

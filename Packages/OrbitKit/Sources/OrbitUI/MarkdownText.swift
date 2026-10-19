@@ -313,7 +313,7 @@ struct CodeBlockView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(language.isEmpty ? "code" : language)
-                    .font(.caption2.weight(.medium))
+                    .font(.orbit(.micro, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
@@ -323,7 +323,7 @@ struct CodeBlockView: View {
                     Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
                 } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .font(.caption)
+                        .font(.orbit(.micro))
                 }
                 .buttonStyle(.borderless)
                 .help("Copy")

@@ -127,7 +127,7 @@ struct PendingChangesStatus: View {
         if count > 0 {
             Button(action: action) {
                 Label("\(count) to review", systemImage: "plusminus")
-                    .font(.caption)
+                    .font(.orbit(.micro))
                     .foregroundStyle(.orange)
                     .contentShape(.rect)
             }

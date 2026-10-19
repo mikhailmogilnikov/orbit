@@ -196,9 +196,9 @@ struct NewChatView: View {
                             .foregroundStyle(.primary.opacity(0.85))
                             .padding(.bottom, 4)
                         Text("What should we build?")
-                            .font(.title3.weight(.semibold))
+                            .font(.orbit(.title, weight: .semibold))
                         Text("Edits show up inline in the editor for review.")
-                            .font(.callout)
+                            .font(.orbit(.body))
                             .foregroundStyle(.secondary)
                         ComposerHints()
                             .padding(.top, 14)
@@ -209,7 +209,7 @@ struct NewChatView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Recent")
-                            .font(.caption.weight(.semibold))
+                            .font(.orbit(.micro, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 8)
                             .padding(.bottom, 4)
@@ -221,7 +221,7 @@ struct NewChatView: View {
                         if all.count > recent.count {
                             Button("Show \(all.count - recent.count) More") { showsAll = true }
                                 .buttonStyle(.plain)
-                                .font(.callout)
+                                .font(.orbit(.body))
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 5)
@@ -263,7 +263,7 @@ struct RecentSessionRow: View {
                         .lineLimit(1)
                 }
             }
-            .font(.callout)
+            .font(.orbit(.body))
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
@@ -321,7 +321,7 @@ struct SessionView: View {
                     .strokeBorder(Theme.dropBorder, lineWidth: 1.5)
                     .overlay {
                         Label("Add to Chat", systemImage: "paperclip")
-                            .font(.callout.weight(.medium))
+                            .font(.orbit(.body, weight: .medium))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 7)
                             .glassEffect(.regular, in: .capsule)
@@ -509,7 +509,7 @@ struct StatusFooter: View {
                 Text("Starting \(session.provider.name)…")
                     .foregroundStyle(.secondary)
             }
-            .font(.callout)
+            .font(.orbit(.body))
         case .working:
             if !session.hasPendingPermission {
                 HStack(spacing: 8) {
@@ -525,7 +525,7 @@ struct StatusFooter: View {
                             .fixedSize()
                     }
                 }
-                .font(.callout)
+                .font(.orbit(.body))
             }
         case .failed(let message):
             Label {
@@ -533,7 +533,7 @@ struct StatusFooter: View {
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             }
-            .font(.callout)
+            .font(.orbit(.body))
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.orange.opacity(0.08), in: .rect(cornerRadius: Theme.corner))
@@ -561,7 +561,7 @@ struct EntryView: View {
             PlanView(items: entry.plan)
         case .notice:
             Text(entry.text)
-                .font(.callout)
+                .font(.orbit(.body))
                 .foregroundStyle(entry.isError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 .textSelection(.enabled)
         case .summary:
@@ -617,7 +617,7 @@ struct TurnSummaryView: View {
                     }
                 }
             }
-            .font(.callout)
+            .font(.orbit(.body))
             .foregroundStyle(.secondary)
             if isExpanded {
                 VStack(alignment: .leading, spacing: 0) {
@@ -721,17 +721,17 @@ struct QueuedMessagesView: View {
         VStack(alignment: .leading, spacing: 4) {
             if session.isQueuePaused {
                 Text("Queue paused: Send Now to go on")
-                    .font(.caption)
+                    .font(.orbit(.micro))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 4)
             }
             ForEach(session.queue) { message in
                 HStack(spacing: 8) {
                     Image(systemName: "clock")
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.secondary)
                     Text(message.text.isEmpty ? message.attachments.map(\.label).joined(separator: ", ") : message.text)
-                        .font(.callout)
+                        .font(.orbit(.body))
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 2) {
@@ -745,7 +745,7 @@ struct QueuedMessagesView: View {
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
-                    .font(.caption.weight(.semibold))
+                    .font(.orbit(.micro, weight: .semibold))
                     .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 10)
@@ -828,13 +828,13 @@ struct ThoughtView: View {
                     Text(label)
                     DisclosureChevron(isExpanded: isExpanded)
                 }
-                .font(.caption.weight(.medium))
+                .font(.orbit(.micro, weight: .medium))
                 .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
             if isExpanded {
                 Text(entry.text)
-                    .font(.callout)
+                    .font(.orbit(.body))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .padding(.leading, 10)
@@ -862,7 +862,7 @@ struct PlanView: View {
                     Text("Plan · \(PlanItem.progress(items))")
                     DisclosureChevron(isExpanded: isExpanded)
                 }
-                .font(.caption.weight(.medium))
+                .font(.orbit(.micro, weight: .medium))
                 .foregroundStyle(.secondary)
                 .contentShape(.rect)
             }
@@ -884,7 +884,7 @@ struct PlanItemsList: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: Self.icon(item.status))
                         .foregroundStyle(item.status == "completed" ? AnyShapeStyle(.green) : item.status == "in_progress" ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                        .font(.caption)
+                        .font(.orbit(.micro))
                     Text(item.content)
                         .font(.orbit(.body, weight: item.status == "in_progress" ? .medium : .regular))
                         .strikethrough(item.status == "completed", color: .secondary)
@@ -1150,7 +1150,7 @@ private struct DiffFileLink: View {
 
     var body: some View {
         let name = Text(URL(fileURLWithPath: path).lastPathComponent)
-            .font(.caption.weight(.medium))
+            .font(.orbit(.micro, weight: .medium))
         if let reveal {
             Button { reveal(path) } label: {
                 HStack(spacing: 3) {
@@ -1249,7 +1249,7 @@ struct AgentTerminalOutput: View {
             }
             HStack(spacing: 6) {
                 Text(status)
-                    .font(.caption)
+                    .font(.orbit(.micro))
                     .foregroundStyle(isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 Spacer(minLength: 4)
                 if terminal.isRunning, terminal.ownsProcess {
@@ -1293,7 +1293,7 @@ struct PermissionBar: View {
         let keyed = keyedPermission == ObjectIdentifier(request)
         HStack(spacing: 6) {
             Text("Allow?")
-                .font(.caption.weight(.semibold))
+                .font(.orbit(.micro, weight: .semibold))
                 .foregroundStyle(.orange)
             Spacer(minLength: 0)
             ForEach(request.options.sorted { rank($0) < rank($1) }) { option in

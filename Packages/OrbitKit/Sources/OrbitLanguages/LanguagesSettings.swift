@@ -67,7 +67,7 @@ private struct LanguageRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(config.name)
                     Text(fileTypes)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.tertiary)
                 }
                 Group {
@@ -84,11 +84,11 @@ private struct LanguageRow: View {
                         Text(config.missing)
                     }
                 }
-                .font(.caption)
+                .font(.orbit(.micro))
                 .foregroundStyle(.secondary)
                 if let failure = manager.installFailures[config.id] {
                     Text(failure)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                 }
@@ -149,7 +149,7 @@ private struct FormattingSection: View {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(row.formatter)
                             Text(row.fileTypes)
-                                .font(.caption)
+                                .font(.orbit(.micro))
                                 .foregroundStyle(.tertiary)
                         }
                         Text(row.source)
@@ -159,7 +159,7 @@ private struct FormattingSection: View {
                             .truncationMode(.middle)
                         if let warning = row.warning {
                             Text(warning)
-                                .font(.caption)
+                                .font(.orbit(.micro))
                                 .foregroundStyle(.orange)
                         }
                     }
@@ -169,7 +169,7 @@ private struct FormattingSection: View {
             }
             ForEach(overview.problems, id: \.self) { problem in
                 Text(problem)
-                    .font(.caption)
+                    .font(.orbit(.micro))
                     .foregroundStyle(.red)
                     .textSelection(.enabled)
             }

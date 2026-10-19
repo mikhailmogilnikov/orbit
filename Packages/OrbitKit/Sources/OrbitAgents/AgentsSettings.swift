@@ -159,14 +159,14 @@ private struct MCPServersSection: View {
                     }
                     Spacer(minLength: 8)
                     Text(server.isProject ? "Project" : "Global")
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.tertiary)
                 }
                 .padding(.vertical, 2)
             }
             ForEach(loaded.problems, id: \.self) { problem in
                 Label(problem, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
+                    .font(.orbit(.micro))
                     .foregroundStyle(.orange)
             }
         } header: {
@@ -220,12 +220,12 @@ private struct InstalledAgentRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(provider.name)
                     Text(provider.registry?.version ?? "Custom")
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.tertiary)
                 }
                 if let description = provider.registry?.description, !description.isEmpty {
                     Text(description)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.secondary)
                 } else {
                     Text(([provider.command.executable] + provider.command.arguments).joined(separator: " "))
@@ -237,16 +237,16 @@ private struct InstalledAgentRow: View {
                 }
                 if isMissing {
                     Text(provider.requirement.map { "Needs \($0) — install it, then restart Orbit." } ?? "Its command isn't found.")
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.orange)
                 } else if let hint = provider.loginHint {
                     Text(hint)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.tertiary)
                 }
                 if let failure = registry.failures[provider.id] {
                     Text(failure)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.red)
                 }
             }
@@ -296,21 +296,21 @@ private struct RegistryAgentRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(agent.name)
                     Text(agent.version)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.tertiary)
                 }
                 if let description = agent.description, !description.isEmpty {
                     Text(description)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
                 Text(byline)
-                    .font(.caption2)
+                    .font(.orbit(.micro))
                     .foregroundStyle(.tertiary)
                 if let failure = registry.failures[agent.id] {
                     Text(failure)
-                        .font(.caption)
+                        .font(.orbit(.micro))
                         .foregroundStyle(.red)
                 }
             }

@@ -66,10 +66,10 @@ struct GitDiffView: View {
             FileIconView(url: url)
                 .foregroundStyle(.secondary)
             Text(url.lastPathComponent)
-                .font(.callout.weight(.medium))
+                .font(.orbit(.body, weight: .medium))
             if !folder.isEmpty {
                 Text(folder)
-                    .font(.callout)
+                    .font(.orbit(.body))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)

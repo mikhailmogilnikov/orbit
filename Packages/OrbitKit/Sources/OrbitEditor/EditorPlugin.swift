@@ -729,14 +729,14 @@ struct LanguageInstallBanner: View {
                 .foregroundStyle(offer.failure == nil ? Theme.accent : .orange)
             if offer.isInstalling {
                 Text("Installing \(offer.name) support…")
-                    .font(.callout.weight(.medium))
+                    .font(.orbit(.body, weight: .medium))
                 ProgressView().controlSize(.small)
                 Spacer()
             } else if let failure = offer.failure {
                 Text("Couldn't install \(offer.name) support")
-                    .font(.callout.weight(.medium))
+                    .font(.orbit(.body, weight: .medium))
                 Text(failure)
-                    .font(.callout)
+                    .font(.orbit(.body))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -748,9 +748,9 @@ struct LanguageInstallBanner: View {
                     .buttonStyle(.glassProminent)
             } else {
                 Text("\(offer.name) support isn't installed")
-                    .font(.callout.weight(.medium))
+                    .font(.orbit(.body, weight: .medium))
                 Text(details)
-                    .font(.callout)
+                    .font(.orbit(.body))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -788,7 +788,7 @@ struct AgentChangesBanner: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(.tint)
             Text("\(hunks.count) agent change\(hunks.count == 1 ? "" : "s")")
-                .font(.callout.weight(.medium))
+                .font(.orbit(.body, weight: .medium))
             DiffStatBadge(added: added, removed: removed)
             HStack(spacing: 0) {
                 IconButton("chevron.up", help: "Previous change (⌥⌘↑)") {

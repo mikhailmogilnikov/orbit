@@ -97,7 +97,7 @@ struct AgentActivityStatus: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .font(.caption)
+            .font(.orbit(.micro))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

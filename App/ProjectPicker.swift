@@ -152,7 +152,7 @@ private struct CloneRepositorySheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Clone Repository")
-                .font(.headline)
+                .font(.orbit(.control, weight: .bold))
             TextField("Repository URL", text: $address, prompt: Text("https://github.com/owner/repo.git"))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 400)
@@ -160,7 +160,7 @@ private struct CloneRepositorySheet: View {
                 .onSubmit(clone)
             if let failure {
                 Text(failure)
-                    .font(.callout)
+                    .font(.orbit(.body))
                     .foregroundStyle(.red)
                     .lineLimit(4)
                     .textSelection(.enabled)

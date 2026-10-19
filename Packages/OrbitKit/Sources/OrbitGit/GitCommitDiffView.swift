@@ -51,10 +51,10 @@ struct GitCommitDiffView: View {
             FileIconView(url: url)
                 .foregroundStyle(.secondary)
             Text(url.lastPathComponent)
-                .font(.callout.weight(.medium))
+                .font(.orbit(.body, weight: .medium))
             if let old = file?.oldPath {
                 Text("from \(old)")
-                    .font(.callout)
+                    .font(.orbit(.body))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
@@ -62,7 +62,7 @@ struct GitCommitDiffView: View {
             if let commit {
                 Badge { Text(commit.shortHash).monospaced() }
                 Text(commit.subject)
-                    .font(.callout)
+                    .font(.orbit(.body))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .help("\(commit.subject)\n\(commit.author), \(commit.date.formatted(date: .abbreviated, time: .shortened))")

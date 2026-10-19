@@ -371,7 +371,7 @@ struct RenameField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Rename “\(original)” everywhere")
-                .font(.caption)
+                .font(.orbit(.micro))
                 .foregroundStyle(.secondary)
             TextField("New name", text: $name)
                 .textFieldStyle(.roundedBorder)

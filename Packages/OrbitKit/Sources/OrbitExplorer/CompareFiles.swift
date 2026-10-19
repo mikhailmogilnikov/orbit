@@ -88,7 +88,7 @@ struct CompareView: View {
         } label: {
             HStack(spacing: 4) {
                 FileIconView(url: url).foregroundStyle(.secondary)
-                Text(url.lastPathComponent).font(.callout.weight(.medium))
+                Text(url.lastPathComponent).font(.orbit(.body, weight: .medium))
             }
         }
         .buttonStyle(.plain)

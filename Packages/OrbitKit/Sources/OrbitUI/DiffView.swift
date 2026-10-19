@@ -311,7 +311,7 @@ public struct CompactDiffView: View {
             }
             if truncatedLines > 0 {
                 Text("\(truncatedLines) more lines…")
-                    .font(.caption)
+                    .font(.orbit(.micro))
                     .foregroundStyle(.secondary)
                     .padding(6)
             }
