@@ -2,7 +2,7 @@ import Foundation
 
 /// A note on a few lines of code for the agent, written while reviewing its
 /// changes; notes go to the chat together, as one message (D125).
-public struct ReviewComment: Identifiable, Hashable, Sendable {
+public struct ReviewComment: Identifiable, Hashable, Sendable, Codable {
     public let id: UUID
     public var url: URL
     /// 0-based lines it's about, as they were when it was written.

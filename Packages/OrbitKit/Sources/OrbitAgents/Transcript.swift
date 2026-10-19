@@ -204,7 +204,10 @@ final class PermissionRequest {
         var isAllow: Bool { kind.hasPrefix("allow") }
     }
 
+    let id = UUID()
     let options: [Option]
+    /// What the agent wants to do ("Edit App.swift"), for lists outside the transcript.
+    var title = "Permission requested"
     private(set) var resolution: String?
     @ObservationIgnored var onChoose: ((Option) -> Void)?
     private var continuation: CheckedContinuation<JSONValue, Error>?
@@ -215,6 +218,12 @@ final class PermissionRequest {
     }
 
     var isPending: Bool { continuation != nil }
+
+    /// Allow once (or always), or reject once: by the ACP kinds, else the first of its side.
+    func option(allow: Bool, always: Bool = false) -> Option? {
+        let kind = allow ? (always ? "allow_always" : "allow_once") : "reject_once"
+        return options.first { $0.kind == kind } ?? (always ? nil : options.first { $0.isAllow == allow })
+    }
 
     func choose(_ option: Option) {
         resolution = option.name

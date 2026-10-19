@@ -57,4 +57,57 @@ import Testing
         #expect(result.conflicts.map(\.lastPathComponent) == ["a.txt"])
         #expect(try String(contentsOf: project.appendingPathComponent("a.txt"), encoding: .utf8) == "user\ntwo")
     }
+
+    /// The whole Create PR path against a local bare remote and a stand-in `gh` (D133).
+    @Test func publishesOnlyTheAgentsChangesAsABranch() async throws {
+        let project = try makeProject(["a.txt": "one", "wip.txt": "committed"])
+        let remote = project.deletingLastPathComponent().appendingPathComponent("remote-\(UUID().uuidString).git")
+        let tools = project.deletingLastPathComponent().appendingPathComponent("tools-\(UUID().uuidString)")
+        defer {
+            for url in [project, remote, tools] { try? FileManager.default.removeItem(at: url) }
+        }
+        func git(_ arguments: String..., in directory: URL) throws -> String {
+            try Shell.run("/usr/bin/git", Array(arguments), in: directory)
+        }
+        _ = try git("init", "-q", "-b", "main", in: project)
+        _ = try git("-c", "user.name=T", "-c", "user.email=t@t", "add", "-A", in: project)
+        _ = try git("-c", "user.name=T", "-c", "user.email=t@t", "commit", "-q", "-m", "start", in: project)
+        _ = try git("init", "-q", "--bare", remote.path, in: project)
+        _ = try git("remote", "add", "origin", remote.path, in: project)
+        // The user's uncommitted work, copied along: it must stay out of the pull request.
+        try "user's draft".write(to: project.appendingPathComponent("wip.txt"), atomically: true, encoding: .utf8)
+
+        try FileManager.default.createDirectory(at: tools, withIntermediateDirectories: true)
+        let gh = tools.appendingPathComponent("gh")
+        try """
+        #!/bin/sh
+        case "$1 $2" in
+          "auth status") exit 0 ;;
+          "pr create") echo "https://github.com/me/project/pull/7" ;;
+          *) exit 1 ;;
+        esac
+        """.write(to: gh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gh.path)
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = tools.path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
+        environment["GIT_AUTHOR_NAME"] = "T"; environment["GIT_AUTHOR_EMAIL"] = "t@t"
+        environment["GIT_COMMITTER_NAME"] = "T"; environment["GIT_COMMITTER_EMAIL"] = "t@t"
+
+        let workspace = Workspace()
+        let isolation = IsolatedCopies(workspace: workspace, tracker: ChangeTracker(workspace: workspace))
+        let copy = try await isolation.makeCopy(of: project)
+        defer { isolation.discard(copy) }
+        #expect(await isolation.baseBranch(of: copy) == "main")
+        try "ONE".write(to: copy.directory.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try "new".write(to: copy.directory.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+
+        let url = try await isolation.publish(copy, branch: "orbit/test", title: "Shout", body: "Why", environment: environment)
+        #expect(url.absoluteString == "https://github.com/me/project/pull/7")
+        let files = try git("diff", "--name-only", "orbit/test~1", "orbit/test", in: remote)
+        #expect(files.split(separator: "\n") == ["a.txt", "b.txt"])
+        #expect(try git("log", "-1", "--format=%s", "orbit/test", in: remote) == "Shout\n")
+        // The project itself stays on its branch, its draft untouched.
+        #expect(try git("rev-parse", "--abbrev-ref", "HEAD", in: project) == "main\n")
+        #expect(try String(contentsOf: project.appendingPathComponent("wip.txt"), encoding: .utf8) == "user's draft")
+    }
 }

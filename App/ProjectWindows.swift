@@ -88,6 +88,10 @@ final class ProjectWindows {
         let host = PluginHost(plugins: BuiltinPlugins.all, root: root)
         registerShellCommands(in: host, id: id)
         host.workspace.openFolderElsewhere = { [weak self] url in self?.openElsewhere(url, from: id) ?? false }
+        host.workspace.bringWindowToFront = { [weak self] in
+            NSApp.activate()
+            self?.windows[id]?.window?.makeKeyAndOrderFront(nil)
+        }
         hosts[id] = host
         return host
     }

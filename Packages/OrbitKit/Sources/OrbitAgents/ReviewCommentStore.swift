@@ -6,7 +6,19 @@ import OrbitAPI
 @MainActor
 @Observable
 final class ReviewCommentStore: ReviewComments {
-    private(set) var comments: [ReviewComment] = []
+    private(set) var comments: [ReviewComment] = [] {
+        didSet { if !isLoading { onChange() } }
+    }
+    /// Saves them (per project folder, D131).
+    @ObservationIgnored var onChange: () -> Void = {}
+    @ObservationIgnored private var isLoading = false
+
+    /// Another folder's notes, without saving them back.
+    func load(_ comments: [ReviewComment]) {
+        isLoading = true
+        self.comments = comments
+        isLoading = false
+    }
 
     func save(_ comment: ReviewComment) {
         var comment = comment

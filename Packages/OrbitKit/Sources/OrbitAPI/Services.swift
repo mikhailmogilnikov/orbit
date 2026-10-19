@@ -179,11 +179,30 @@ public struct IsolatedCopy: Codable, Hashable, Sendable {
     public var directory: URL
     /// Snapshot of the copy when it was made; the agent's changes are measured from it.
     public var checkpoint: String
+    /// The pull request made from the copy's changes (D133).
+    public var pullRequest: URL?
 
-    public init(project: URL, directory: URL, checkpoint: String) {
+    public init(project: URL, directory: URL, checkpoint: String, pullRequest: URL? = nil) {
         self.project = project
         self.directory = directory
         self.checkpoint = checkpoint
+        self.pullRequest = pullRequest
+    }
+}
+
+/// A pull request and its checks, as `gh` reports them (D133).
+public struct PullRequestStatus: Sendable, Equatable {
+    public enum State: Sendable { case open, merged, closed }
+    public enum Checks: Sendable { case none, pending, passing, failing }
+
+    public var number: Int
+    public var state: State
+    public var checks: Checks
+
+    public init(number: Int, state: State, checks: Checks) {
+        self.number = number
+        self.state = state
+        self.checks = checks
     }
 }
 
@@ -206,6 +225,12 @@ public protocol AgentIsolation: AnyObject {
     func apply(_ copy: IsolatedCopy) async -> IsolatedApplyResult
     /// Deletes the copy.
     func discard(_ copy: IsolatedCopy)
+    /// The branch the copy was on when it was made; nil when it isn't a git repo on a branch.
+    func baseBranch(of copy: IsolatedCopy) async -> String?
+    /// The agent's changes in the copy as a branch, a commit, a push and a
+    /// GitHub pull request (`gh`); returns its URL. `environment` gives `gh` the user's PATH.
+    func publish(_ copy: IsolatedCopy, branch: String, title: String, body: String, environment: [String: String]) async throws -> URL
+    func pullRequestStatus(_ url: URL, in copy: IsolatedCopy, environment: [String: String]) async -> PullRequestStatus?
     /// Deletes every copy except these (left behind by a crash, or by a
     /// session whose agent never started).
     func discardCopies(except kept: [IsolatedCopy])

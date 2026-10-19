@@ -118,6 +118,10 @@ final class AgentSession: Identifiable {
         isTitled = saved != nil
         isLoadingHistory = saved != nil
         checkpoints = saved?.checkpoints ?? []
+        // Restored paused: the user sends it when ready (D131).
+        queue = (saved?.queued ?? []).map { message in
+            QueuedMessage(text: message.text, attachments: message.files.map { .file(URL(fileURLWithPath: $0)) })
+        }
         if let saved {
             sessionID = saved.sessionID
             updatedAt = saved.updatedAt
@@ -146,11 +150,22 @@ final class AgentSession: Identifiable {
 
     func offers(command name: String) -> Bool { slashCommands.contains { $0.name == name } }
 
+    private var savedQueue: [SavedQueuedMessage]? {
+        let messages = queue.map { message in
+            SavedQueuedMessage(text: message.text, files: message.attachments.compactMap {
+                if case .file(let url) = $0 { url.path } else { nil }
+            })
+        }
+        .filter { !$0.text.isEmpty || !$0.files.isEmpty }
+        return messages.isEmpty ? nil : messages
+    }
+
     /// What it takes to open this conversation again later.
     var saved: SavedSession? {
         sessionID.map {
             SavedSession(providerID: provider.id, sessionID: $0, title: title, cwd: project.path, updatedAt: updatedAt, isolated: isolatedCopy,
-                         checkpoints: checkpoints.isEmpty ? nil : checkpoints)
+                         checkpoints: checkpoints.isEmpty ? nil : checkpoints,
+                         queued: savedQueue)
         }
     }
 
@@ -161,6 +176,13 @@ final class AgentSession: Identifiable {
     var hasPendingPermission: Bool { pendingPermissions.contains(where: \.isPending) }
     /// The request the keyboard answers; the others wait their turn.
     var firstPendingPermission: PermissionRequest? { pendingPermissions.first(where: \.isPending) }
+
+    func pendingPermission(_ id: UUID) -> PermissionRequest? {
+        pendingPermissions.first { $0.id == id && $0.isPending }
+    }
+
+    /// The last turn's summary row ("Worked for … · N files changed"), while it's the latest entry.
+    var lastSummary: TranscriptEntry? { entries.last.flatMap { $0.kind == .summary ? $0 : nil } }
 
     // MARK: Lifecycle
 
@@ -276,7 +298,9 @@ final class AgentSession: Identifiable {
         var attachments: [PromptAttachment]
     }
 
-    private(set) var queue: [QueuedMessage] = []
+    private(set) var queue: [QueuedMessage] = [] {
+        didSet { onChange() }
+    }
     /// The queue waits (a stopped or failed turn) until a message is sent by hand.
     var isQueuePaused: Bool { !queue.isEmpty && status == .ready }
     private var sendsQueueAfterStop = false
@@ -684,8 +708,9 @@ final class AgentSession: Identifiable {
             request.onChoose = { [weak self] option in
                 if !option.isAllow { self?.awaitsCorrection = true }
             }
+            if !entry.title.isEmpty { request.title = entry.title }
             pendingPermissions.append(request)
-            onAttention(.permission(entry.title.isEmpty ? "Permission requested" : entry.title))
+            onAttention(.permission(request.title, request: request.id))
 
         case "fs/read_text_file":
             guard let path = params["path"]?.string else {
@@ -803,6 +828,40 @@ final class AgentSession: Identifiable {
 
     // MARK: Isolated copy
 
+    /// The copy's pull request and its checks (D133), when it has one.
+    private(set) var pullRequestStatus: PullRequestStatus?
+
+    func baseBranch() async -> String? {
+        guard let copy = isolatedCopy, let isolation else { return nil }
+        return await isolation.baseBranch(of: copy)
+    }
+
+    func createPullRequest(branch: String, title: String, body: String) async throws {
+        guard var copy = isolatedCopy, let isolation else { return }
+        let url = try await isolation.publish(copy, branch: branch, title: title, body: body, environment: await environment())
+        copy.pullRequest = url
+        isolatedCopy = copy
+        notice("Opened pull request \(url.absoluteString)")
+        await refreshPullRequest()
+    }
+
+    func refreshPullRequest() async {
+        guard let copy = isolatedCopy, let url = copy.pullRequest, let isolation else { return }
+        pullRequestStatus = await isolation.pullRequestStatus(url, in: copy, environment: await environment())
+    }
+
+    /// A branch name from the chat's title: "orbit/fix-login-redirect".
+    var suggestedBranch: String {
+        let words = title.lowercased().split { !$0.isLetter && !$0.isNumber }.prefix(6)
+        let slug = words.joined(separator: "-").filter { $0.isASCII }
+        return "orbit/" + (slug.isEmpty ? String(id.uuidString.prefix(8)).lowercased() : String(slug.prefix(40)))
+    }
+
+    /// The agent's last reply, as a start for the pull request's description.
+    var lastReply: String {
+        entries.last { $0.kind == .agent }?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
     func refreshUnappliedChanges() async {
         guard let copy = isolatedCopy, let isolation else { return }
         unappliedChanges = await isolation.unappliedChanges(in: copy)
@@ -868,13 +927,53 @@ final class AgentSession: Identifiable {
                 }
                 let count = files.count
                 notice("Restored \(count) file\(count == 1 ? "" : "s") to before that message; undo any change in the editor.")
-                let quoted = entry.text.count > 200 ? String(entry.text.prefix(200)) + "…" : entry.text
-                restoreNote = "[Orbit: the user restored the project's files to how they were before their message \"\(quoted)\". "
+                restoreNote = "[Orbit: the user restored the project's files to how they were before their message \"\(Self.quoted(entry.text))\". "
                     + "Changes made after it, yours included, are gone; check files before relying on earlier edits.]"
             } catch {
                 notice("Couldn't restore: \(error.localizedDescription)", isError: true)
             }
         }
+    }
+
+    /// Like Claude Code's /rewind (D132): the files go back, the message and
+    /// everything after it leave the transcript, and the message returns to
+    /// the composer to edit. ACP can't cut the agent's own history, so its
+    /// next prompt starts with a note to disregard all of that.
+    func rewind(to entry: TranscriptEntry) {
+        guard status != .working, let index = entries.firstIndex(where: { $0 === entry }) else { return }
+        let removed = entries[index...]
+        let removedCheckpoints = Set(removed.compactMap(\.checkpoint))
+        if let planEntry, removed.contains(where: { $0 === planEntry }) { self.planEntry = nil }
+        entries.removeSubrange(index...)
+        checkpoints.removeAll { removedCheckpoints.contains($0.checkpoint) }
+        draft = entry.text
+        attachments = entry.attachments
+        let forget = "[Orbit: the user rewound this conversation to before their message \"\(Self.quoted(entry.text))\". "
+            + "Disregard that message and everything after it: your replies, plans and conclusions since."
+        guard let checkpoint = entry.checkpoint, let tracker = projectTracker else {
+            restoreNote = forget + " The project's files were not restored.]"
+            notice("Rewound the chat to before that message. The files weren't restored.")
+            onChange()
+            return
+        }
+        restoreNote = forget + " The project's files were restored to how they were then; check files before relying on earlier edits.]"
+        onChange()
+        Task {
+            do {
+                let files = try await tracker.restore(checkpoint)
+                let count = files.count
+                notice(count == 0
+                    ? "Rewound the chat to before that message; the files already matched."
+                    : "Rewound the chat and \(count) file\(count == 1 ? "" : "s") to before that message; undo any change in the editor.")
+            } catch {
+                restoreNote = forget + " Restoring the files failed, so they still have the later changes.]"
+                notice("Rewound the chat, but couldn't restore the files: \(error.localizedDescription)", isError: true)
+            }
+        }
+    }
+
+    private static func quoted(_ text: String) -> String {
+        text.count > 200 ? String(text.prefix(200)) + "…" : text
     }
 
     /// A reopened conversation's messages get their restore points back.

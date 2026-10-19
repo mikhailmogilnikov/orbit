@@ -14,8 +14,17 @@ struct SavedSession: Codable, Hashable, Identifiable, Sendable {
     var isolated: IsolatedCopy? = nil
     /// Restore points of the user's messages, oldest first.
     var checkpoints: [MessageCheckpoint]? = nil
+    /// Messages waiting to be sent (D88), kept across launches (D131).
+    var queued: [SavedQueuedMessage]? = nil
 
     var id: String { "\(providerID):\(sessionID)" }
+}
+
+/// A queued message: its text and attached files (images and editor
+/// selections are left out; they'd bloat the saved tabs).
+struct SavedQueuedMessage: Codable, Hashable, Sendable {
+    var text: String
+    var files: [String]
 }
 
 /// The project as it was before a message was sent (a `ChangeTracking` restore point).

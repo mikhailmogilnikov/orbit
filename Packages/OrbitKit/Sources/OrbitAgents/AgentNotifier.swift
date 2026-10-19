@@ -5,7 +5,12 @@ import UserNotifications
 enum AgentAttention {
     case finished(summary: String)
     case failed(String)
-    case permission(String)
+    case permission(String, request: UUID)
+}
+
+/// A permission answered from the notification's buttons (D130).
+enum PermissionAnswer: String {
+    case allow, allowAlways, deny
 }
 
 /// System notifications and the Dock badge for agents that finished or wait
@@ -16,6 +21,8 @@ final class AgentNotifier {
     var isEnabled = true
     /// A notification was clicked: show this session.
     var onOpen: (UUID) -> Void = { _ in }
+    /// Allow / Deny on a permission's notification: session, request, answer.
+    var onAnswer: (UUID, UUID, PermissionAnswer) -> Void = { _, _, _ in }
     /// Sessions that wanted the user since Orbit went to the background.
     private var waiting: Set<UUID> = []
     private var isAuthorized: Bool?
@@ -54,9 +61,11 @@ final class AgentNotifier {
         case .failed(let message):
             content.title = "\(agent) stopped"
             content.body = message
-        case .permission(let action):
+        case .permission(let action, let request):
             content.title = "\(agent) needs your permission"
             content.body = action
+            content.categoryIdentifier = NotificationRouter.permissionCategory
+            content.userInfo["request"] = request.uuidString
             NSApp.requestUserAttention(.informationalRequest)
         }
         Task { await deliver(content, id: session.uuidString) }
@@ -78,6 +87,12 @@ final class AgentNotifier {
     }
 
     fileprivate func open(_ id: UUID) { onOpen(id) }
+
+    fileprivate func answer(session: UUID, request: UUID, _ answer: PermissionAnswer) {
+        guard waiting.remove(session) != nil else { return }
+        NotificationRouter.shared.updateBadge()
+        onAnswer(session, request, answer)
+    }
 }
 
 /// The notification center has one delegate for the app, and each window has
@@ -90,8 +105,22 @@ private final class NotificationRouter: NSObject, UNUserNotificationCenterDelega
     private struct Weak { weak var notifier: AgentNotifier? }
     private var notifiers: [Weak] = []
 
+    static let permissionCategory = "permission"
+
     func add(_ notifier: AgentNotifier, center: UNUserNotificationCenter) {
-        if center.delegate !== self { center.delegate = self }
+        if center.delegate !== self {
+            center.delegate = self
+            // Answered right from the notification, without bringing Orbit forward.
+            center.setNotificationCategories([UNNotificationCategory(
+                identifier: Self.permissionCategory,
+                actions: [
+                    UNNotificationAction(identifier: PermissionAnswer.allow.rawValue, title: "Allow"),
+                    UNNotificationAction(identifier: PermissionAnswer.allowAlways.rawValue, title: "Always Allow"),
+                    UNNotificationAction(identifier: PermissionAnswer.deny.rawValue, title: "Deny", options: .destructive),
+                ],
+                intentIdentifiers: []
+            )])
+        }
         notifiers.removeAll { $0.notifier == nil }
         notifiers.append(Weak(notifier: notifier))
     }
@@ -102,9 +131,18 @@ private final class NotificationRouter: NSObject, UNUserNotificationCenterDelega
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let id = (response.notification.request.content.userInfo["session"] as? String).flatMap(UUID.init) else { return }
+        let info = response.notification.request.content.userInfo
+        guard let id = (info["session"] as? String).flatMap(UUID.init) else { return }
+        let request = (info["request"] as? String).flatMap(UUID.init)
+        let answer = PermissionAnswer(rawValue: response.actionIdentifier)
         await MainActor.run {
-            for entry in notifiers { entry.notifier?.open(id) }
+            for entry in notifiers {
+                if let answer, let request {
+                    entry.notifier?.answer(session: id, request: request, answer)
+                } else {
+                    entry.notifier?.open(id)
+                }
+            }
         }
     }
 

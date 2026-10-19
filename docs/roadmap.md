@@ -173,6 +173,10 @@
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
 - Output follows only from the bottom of the chat; scrolled up, what you read stays put (D121)
+- All agents overview (D130): every window's chats in the status bar's popover (⌃⌘A), Allow / Deny there and in notifications
+- Queued messages and review notes kept across launches (D131)
+- Rewind Chat and Files (D132): the message and what followed leave the chat, the message returns to the composer, the agent is told to disregard them
+- Create PR from an isolated session (D133): branch, commit of the agent's files, push and `gh pr create` in the copy; PR state and checks in the bar
 - Releases (D129): `make release-setup` / `make release VERSION=…` / `make release-publish`, Sparkle updates from GitHub Releases, Check for Updates…; ad hoc signed until there's a Developer ID
 - Tasks (D128): Run Task… ⌃⌘R lists package.json scripts, Make targets, deno / composer / Swift / Cargo / Go commands and `.orbit/settings.json` tasks; each runs in its own terminal tab, ⌘R reruns the last
 - ⌘K Edit with Agent (D127): an instruction for the selection or the caret, the hidden agent's code lands as an inline agent change
@@ -370,6 +374,9 @@ Everything below is known to be missing; nothing here is in progress.
   relative images); no side-by-side preview (no split editor); preview tabs
   aren't restored on launch; code colors don't change with the theme until
   the next edit.
+- Agents overview and notification actions (D130): unverified on a Mac and with real agents (the popover from the status bar, the window coming forward, Allow from a notification while Orbit is behind).
+- Rewind (D132): unverified with a real agent (does it follow the note to disregard the rewound part?).
+- Create PR (D133): the git and `gh` path runs in the tests against a local remote and a stand-in `gh`; against GitHub, and the sheet and badge, unverified. A later agent turn doesn't update the pull request.
 - Releases (D129): no release made yet — the first `make release` (keychain access for the Sparkle key) and an update from one release to the next are unverified; Gatekeeper's first-launch prompt for an ad hoc build.
 - Tasks (D128): unverified on a Mac (typing into a shell that's still starting, e.g. with a slow prompt; ⌃C then restart of a dev server; ⌘R reaching the menu from the terminal and the chat). No problem matchers, no running-task indicator, root package only.
 - ⌘K (D127): unverified on a Mac and with a real agent (the popover's place above the selection, how Claude Code's plan mode and Codex's read-only mode answer the prompt, the time a warm agent takes).
@@ -388,10 +395,10 @@ Everything below is known to be missing; nothing here is in progress.
   sending, the timer, the summary row and its Review). Summaries aren't
   restored with a reloaded conversation.
 - Message queue (D88): unverified on a Mac and with a real agent (Send Now
-  stopping a turn, the paused state); the queue isn't saved across launches.
+  stopping a turn, the paused state); kept across launches since D131.
 - Notifications (D87): unverified on a Mac (the permission prompt for an
-  ad-hoc signed debug build, click to open the chat, the badge); no Allow /
-  Deny buttons in the notification itself.
+  ad-hoc signed debug build, click to open the chat, the badge); Allow /
+  Deny in the notification since D130.
 - MCP servers (D86): not run with a real agent yet (that each adapter
   accepts the list and starts the servers); the Settings section is
   unverified on a Mac. No per-agent status of which servers connected.

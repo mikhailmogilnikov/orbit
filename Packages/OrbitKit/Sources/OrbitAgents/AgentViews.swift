@@ -427,6 +427,7 @@ private struct ChangesBarSlot: View {
 /// State of an isolated session's copy, with Apply.
 struct IsolationBar: View {
     let session: AgentSession
+    @State private var isCreatingPullRequest = false
 
     var body: some View {
         let count = session.unappliedChanges.count
@@ -456,10 +457,21 @@ struct IsolationBar: View {
                 .buttonStyle(.borderless)
                 .help("Show the copy in Finder")
             }
+            if let url = session.isolatedCopy?.pullRequest {
+                PullRequestBadge(session: session, url: url)
+            } else if session.isolatedCopy != nil {
+                Button("Create PR") { isCreatingPullRequest = true }
+                    .buttonStyle(.glass)
+                    .disabled(session.status == .working)
+                    .help(session.status == .working ? "Wait for the agent to finish" : "Commit the agent's changes in the copy to a new branch and open a GitHub pull request")
+            }
             Button(session.isApplying ? "Applying…" : "Apply") { session.applyIsolatedChanges() }
                 .buttonStyle(.glassProminent)
                 .disabled(count == 0 || session.isApplying || session.status == .working)
                 .help(session.status == .working ? "Wait for the agent to finish" : "Bring these changes into the project for review")
+        }
+        .sheet(isPresented: $isCreatingPullRequest) {
+            CreatePullRequestSheet(session: session)
         }
         .controlSize(.small)
         .padding(.horizontal, 14)
@@ -692,7 +704,7 @@ struct QueuedMessagesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if session.isQueuePaused {
-                Text("Queue paused after the turn stopped")
+                Text("Queue paused: Send Now to go on")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 4)
@@ -751,7 +763,7 @@ struct UserMessageView: View {
                 .buttonBorderShape(.circle)
                 .controlSize(.small)
                 .disabled(!session.canRestore)
-                .help(session.canRestore ? "Restore files to before this message" : "Wait for the agent to finish")
+                .help(session.canRestore ? "Go back to before this message: chat and files" : "Wait for the agent to finish")
                 .transition(.opacity)
             }
             VStack(alignment: .leading, spacing: 6) {
@@ -775,10 +787,11 @@ struct UserMessageView: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
         }
-        .confirmationDialog("Restore files to before this message?", isPresented: $isConfirming) {
-            Button("Restore") { session.restore(to: entry) }
+        .confirmationDialog("Go back to before this message?", isPresented: $isConfirming) {
+            Button("Rewind Chat and Files") { session.rewind(to: entry) }
+            Button("Restore Files Only") { session.restore(to: entry) }
         } message: {
-            Text("Changes made since, by the agent or by you, are undone. They show as changes in the editor, so any of them can be brought back.")
+            Text("Changes made since, by the agent or by you, are undone; they show as changes in the editor, so any of them can be brought back. Rewinding also takes this message and what followed out of the chat and puts the message back in the composer to edit.")
         }
     }
 }
@@ -1866,22 +1879,3 @@ private struct AttachmentChip: View {
     }
 }
 
-struct AgentActivityStatus: View {
-    let store: AgentStore
-
-    var body: some View {
-        let working = store.sessions.filter { $0.status == .working }.count
-        let waiting = store.sessions.filter(\.hasPendingPermission).count
-        HStack(spacing: 10) {
-            if working > 0 {
-                Label("\(working) working", systemImage: "sparkles")
-                    .foregroundStyle(.tint)
-            }
-            if waiting > 0 {
-                Label("\(waiting) needs approval", systemImage: "hand.raised.fill")
-                    .foregroundStyle(.orange)
-            }
-        }
-        .font(.caption)
-    }
-}

@@ -139,6 +139,10 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D127. ⌘K edits the selection with a hidden agent; the result is an inline agent change
 - D128. Tasks: the project's scripts run from a picker, each in its own terminal tab
 - D129. Releases: Sparkle updates from GitHub Releases; ad hoc signing until a Developer ID
+- D130. All agents at a glance: an overview of every window's chats; Allow / Deny in notifications
+- D131. Queued messages and review notes survive a relaunch
+- D132. Rewind: the chat goes back with the files
+- D133. Isolated sessions become pull requests
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -1816,7 +1820,7 @@ before it was sent.
   records what it overwrote as unreviewed changes: the restore shows inline
   like an agent edit and is undone block by block or with Undo All, no
   separate undo history. Binary files are put back without review.
-- Only the files go back, not the conversation: ACP can't truncate a
+- (D132 adds rewinding the chat too.) Only the files go back, not the conversation: ACP can't truncate a
   session. The agent's next message starts with a note that the files were
   restored, so it doesn't trust its earlier edits.
 - Restore points persist with the session (`SavedSession.checkpoints`, last
@@ -2872,3 +2876,72 @@ notarization through the `orbit-notary` keychain profile and stapling.
 The updater doesn't start in Debug builds or while `SUPublicEDKey` is
 empty, so a development build never replaces itself. Sparkle is pinned
 exactly (2.10.0): the generated project's Package.resolved isn't in git.
+
+### D130. All agents at a glance: an overview of every window's chats; Allow / Deny in notifications
+
+With a window per project (D101) and parallel chats in each, finding the
+agent that waits for an approval meant visiting every window.
+
+- **Overview**: the status bar's agents item counts every window's working
+  and waiting chats and opens a popover (also **Show All Agents ⌃⌘A**):
+  each started chat with its agent, title, project (when there are
+  several), and what it's doing — waiting for a permission (with Deny /
+  Allow right there), working with a live timer, stopped with the error,
+  done with the last turn's time and changed files, or idle. Waiting
+  first, then working. A click brings that chat's window to the front and
+  selects it.
+- `AgentDirectory` (OrbitAgents) holds every window's `AgentStore`
+  weakly and drops one on shutdown, like the notification router (D87):
+  a closed window still frees everything (D101). Windows come forward
+  through `Workspace.bringWindowToFront`, set by the app.
+- **Notifications**: a permission's notification has **Allow**, **Always
+  Allow** and **Deny** buttons (a notification category). The answer goes
+  to that exact request (its id travels in the notification), without
+  bringing Orbit forward; a request already answered in the app is left
+  alone. Clicking a notification now also brings its window forward.
+
+### D131. Queued messages and review notes survive a relaunch
+
+Messages queued while the agent works (D88) are saved with the chat's tab
+(`SavedSession.queued`: text and attached files; images and editor
+selections aren't kept) and come back paused — "Send Now" goes on. Review
+notes (D125) are saved per project folder in the Agents plugin's settings
+and come back with the folder.
+
+### D132. Rewind: the chat goes back with the files
+
+D85 restored only files. The ↺ on a message now offers **Rewind Chat and
+Files** beside **Restore Files Only**: the files go back as before, and the
+message and everything after it leave the transcript; the message (with
+its attachments) returns to the composer to edit and send again, like
+Claude Code's `/rewind`.
+
+ACP has no way to cut an agent's own history, so the agent still remembers;
+its next prompt starts with a note to disregard that message and all that
+followed (and whether the files were restored). Restore points of removed
+messages are dropped. A reloaded conversation (`session/load`) replays the
+agent's full history, the rewound part included.
+
+### D133. Isolated sessions become pull requests
+
+An isolated session's work could only be applied to the project. Its bar
+now also has **Create PR**: a sheet with the title (the chat's), a branch
+(`orbit/<words of the title>`) and a description (the agent's last reply),
+then:
+
+- In the **copy** (an APFS clone with its own `.git`, D35): a new branch
+  from the branch the copy was on, a commit of **only the files the agent
+  changed** (the shadow snapshot's diff: the user's uncommitted work copied
+  along stays out), `git push -u origin`, and `gh pr create` against that
+  base. The project's checkout is never touched.
+- `gh` runs with the login shell's environment (PATH); it must be installed
+  and logged in — checked first, with a hint when it isn't.
+- The pull request's URL is kept with the copy (`IsolatedCopy.pullRequest`)
+  and the bar shows **PR #12** with its state and checks from
+  `gh pr view --json number,state,statusCheckRollup` (refreshed every
+  minute while Orbit is in front); a click opens it on GitHub.
+- Implemented in the Review plugin beside the rest of the copies
+  (`AgentIsolation.publish / pullRequestStatus / baseBranch`).
+
+Not done: updating the pull request after more agent turns (push again),
+non-GitHub remotes, a commit message from the agent.

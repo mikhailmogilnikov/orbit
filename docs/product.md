@@ -69,8 +69,11 @@ agents and review their work.
   turn that changed files (or took 30 s+) ends with "Worked for … · N files
   changed · Review".
   Permission prompts: ⌘↩ allow once, ⌃⌘↩ always, ⌃⌘⌫ deny; another chat
-  waiting for approval shows a bar over the composer. A tool card's file
-  name opens the file at its change.
+  waiting for approval shows a bar over the composer, and its notification
+  has Allow / Deny. A tool card's file name opens the file at its change.
+  ↺ on a message rewinds the chat and the files to before it (or the files
+  only). The status bar's agents item (⌃⌘A) lists every window's chats.
+  An isolated chat's changes can become a GitHub pull request (Create PR).
 - **Inline diff review:** banner above the file ("N agent changes +a −r",
   prev/next, Undo All / Keep All); per block Undo ⌥⌘⌫ / Keep ⌥⌘↩, navigate
   ⌥⌘↑/↓; accept/reject everything ⇧⌘↩ / ⇧⌘⌫. A block's comment button (or

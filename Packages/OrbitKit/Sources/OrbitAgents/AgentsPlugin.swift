@@ -43,7 +43,10 @@ public final class AgentsPlugin: OrbitPlugin {
 
         ui.addStatusItem(StatusItem(
             id: "agents.activity", placement: .leading, order: 0,
-            isVisible: { store.sessions.contains { $0.status == .working || $0.hasPendingPermission } }
+            // Any window's agents: the overview lists them all (D130).
+            isVisible: {
+                store.isOverviewShown || AgentDirectory.shared.workingCount > 0 || AgentDirectory.shared.waitingCount > 0
+            }
         ) {
             AgentActivityStatus(store: store)
         })
@@ -109,6 +112,16 @@ public final class AgentsPlugin: OrbitPlugin {
         ) {
             ui.revealInspectorPanel("agents")
             store.sendReviewComments()
+        })
+
+        context.commands.register(OrbitCommand(
+            id: "agents.overview",
+            title: "Show All Agents",
+            category: "Agents",
+            systemImage: "rectangle.stack",
+            shortcut: KeyboardShortcut("a", modifiers: [.command, .control])
+        ) {
+            store.isOverviewShown = true
         })
 
         context.commands.register(OrbitCommand(
@@ -191,6 +204,8 @@ final class AgentStore {
     private var providerCommandIDs: [String] = []
     /// The changed-files list above the composer is expanded.
     var isChangesExpanded = false
+    /// The status bar's all-agents popover (D130).
+    var isOverviewShown = false
     /// Notes from the editor waiting to go to a chat (D125).
     let reviewComments = ReviewCommentStore()
     /// The chat whose turn last changed each file: with parallel chats, the list says whose change it is.
@@ -227,10 +242,21 @@ final class AgentStore {
         observeFolder()
         notifier.isEnabled = notifies
         notifier.onOpen = { [weak self] id in
-            guard let self, sessions.contains(where: { $0.id == id }) else { return }
-            selectedID = id
-            ui.revealInspectorPanel("agents")
+            guard let self, let session = sessions.first(where: { $0.id == id }) else { return }
+            show(session)
         }
+        notifier.onAnswer = { [weak self] id, request, answer in
+            guard let self, let session = sessions.first(where: { $0.id == id }),
+                  let permission = session.pendingPermission(request) else { return }
+            if let option = permission.option(allow: answer != .deny, always: answer == .allowAlways) {
+                permission.choose(option)
+            } else {
+                show(session)
+            }
+        }
+        AgentDirectory.shared.add(self)
+        reviewComments.onChange = { [weak self] in self?.saveReviewComments() }
+        loadReviewComments()
         services.resolve(AgentIsolation.self)?.discardCopies(except: history.copiesInUse)
     }
 
@@ -267,6 +293,7 @@ final class AgentStore {
         }
         // Restore before touching the selection: saving tabs now would overwrite the new folder's.
         restoreTabs()
+        loadReviewComments()
         if selected == nil, selectedID != nil { selectedID = nil }
         loadAgentHistory()
     }
@@ -537,6 +564,31 @@ final class AgentStore {
 
     func focusComposer() { focusRequest += 1 }
 
+    // MARK: Review notes, per project folder (D131)
+
+    private var savedReviewComments: [String: [ReviewComment]] {
+        get { settings.data("reviewComments").flatMap { try? JSONDecoder().decode([String: [ReviewComment]].self, from: $0) } ?? [:] }
+        set { settings.set(try? JSONEncoder().encode(newValue), for: "reviewComments") }
+    }
+
+    private func loadReviewComments() {
+        reviewComments.load(workspace.root.flatMap { savedReviewComments[$0.path] } ?? [])
+    }
+
+    private func saveReviewComments() {
+        guard let root = workspace.root?.path else { return }
+        var all = savedReviewComments
+        all[root] = reviewComments.comments.isEmpty ? nil : reviewComments.comments
+        savedReviewComments = all
+    }
+
+    /// The chat in front: its window, the agents panel, its tab.
+    func show(_ session: AgentSession) {
+        workspace.bringWindowToFront?()
+        selectedID = session.id
+        ui.revealInspectorPanel("agents")
+    }
+
     /// All review notes as one message to the open chat (a new one when there's none).
     func sendReviewComments() {
         let comments = reviewComments.comments
@@ -648,6 +700,7 @@ final class AgentStore {
     }
 
     func shutdown() {
+        AgentDirectory.shared.remove(self)
         for session in sessions { session.shutdown() }
     }
 }

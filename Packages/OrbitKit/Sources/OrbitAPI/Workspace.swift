@@ -149,6 +149,9 @@ public final class Workspace {
     /// one showing it) and returns true, or false to open it in this one.
     public var openFolderElsewhere: (@MainActor (URL) -> Bool)?
 
+    /// Set by the app: brings this workspace's window to the front (the agents overview, notifications).
+    public var bringWindowToFront: (@MainActor () -> Void)?
+
     public var name: String { root?.lastPathComponent ?? "Orbit" }
 
     public var activeTab: EditorTab? { groups[focusedIndex].activeTab }
