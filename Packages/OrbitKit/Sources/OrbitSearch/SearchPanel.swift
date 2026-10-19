@@ -257,9 +257,7 @@ struct SearchPanel: View {
                 model.isReplaceVisible.toggle()
                 if model.isReplaceVisible { focusedField = .replace }
             } label: {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .rotationEffect(.degrees(model.isReplaceVisible ? 90 : 0))
+                DisclosureChevron(isExpanded: model.isReplaceVisible)
                     .foregroundStyle(.secondary)
                     .frame(width: 16, height: 26)
                     .contentShape(.rect)
@@ -418,8 +416,8 @@ private struct SearchField<Accessories: View>: View {
         .padding(.leading, 8)
         .padding(.trailing, 3)
         .frame(height: 26)
-        .background(Theme.subtleFill, in: .rect(cornerRadius: 7))
-        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.hairline))
+        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
+        .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(Theme.hairline))
     }
 }
 
@@ -460,7 +458,7 @@ private struct OptionToggle: View {
             }
             .foregroundStyle(isOn || isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .frame(width: 22, height: 20)
-            .background(isOn ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 5))
+            .background(isOn ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -503,13 +501,7 @@ private struct FileRow: View {
                 .buttonStyle(.borderless)
                 .help("Replace in This File")
             } else {
-                Text("\(file.matches.count)")
-                    .font(.orbit(.micro, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Theme.subtleFill, in: .capsule)
+                Badge(count: file.matches.count)
             }
         }
         .onHover { isHovered = $0 }
@@ -552,7 +544,7 @@ private struct MatchRow: View {
                 inserted.inlinePresentationIntent = .stronglyEmphasized
                 text += inserted
             } else {
-                found.backgroundColor = Theme.accent.opacity(0.25)
+                found.backgroundColor = Theme.matchFill
                 text += found
             }
             last = NSMaxRange(range)

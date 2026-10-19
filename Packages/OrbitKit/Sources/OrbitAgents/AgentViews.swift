@@ -120,7 +120,7 @@ struct SessionChip: View {
                 statusIcon
                 if session.isIsolated {
                     Image(systemName: "square.on.square.dashed")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.orbit(.micro, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .help("Works in an isolated copy of the project")
                 }
@@ -162,8 +162,8 @@ struct ComposerHints: View {
                         .font(.orbit(.caption, weight: .medium))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Theme.subtleFill, in: .rect(cornerRadius: 4))
-                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.hairline))
+                        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.tinyCorner))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.tinyCorner).strokeBorder(Theme.hairline))
                         .gridColumnAlignment(.trailing)
                     Text(hint.text)
                         .font(.orbit(.caption))
@@ -266,7 +266,7 @@ struct RecentSessionRow: View {
             .font(.callout)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(isHovering ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.smallCorner))
+            .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -316,9 +316,9 @@ struct SessionView: View {
         } isTargeted: { isDropTargeted = $0 }
         .overlay {
             if isDropTargeted {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Theme.accent.opacity(0.08))
-                    .strokeBorder(Theme.accent.opacity(0.6), lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: Theme.panelCorner)
+                    .fill(Theme.dropFill)
+                    .strokeBorder(Theme.dropBorder, lineWidth: 1.5)
                     .overlay {
                         Label("Add to Chat", systemImage: "paperclip")
                             .font(.callout.weight(.medium))
@@ -595,10 +595,8 @@ struct TurnSummaryView: View {
                         HStack(spacing: 4) {
                             Text("\(files.count) file\(files.count == 1 ? "" : "s") changed")
                                 .lineLimit(1)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 8, weight: .bold))
+                            DisclosureChevron(isExpanded: isExpanded)
                                 .foregroundStyle(.tertiary)
-                                .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         }
                         .contentShape(.rect)
                     }
@@ -668,7 +666,7 @@ private struct TurnFileRow: View {
             .font(.orbit(.body))
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            .background(isHovering && isPending ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.smallCorner))
+            .background(isHovering && isPending ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -798,7 +796,7 @@ struct UserMessageView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.tint.opacity(0.16), in: .rect(cornerRadius: 12))
+            .background(.tint.opacity(0.16), in: .rect(cornerRadius: Theme.largeCorner))
         }
         .padding(.top, 6)
         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -828,9 +826,7 @@ struct ThoughtView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "brain")
                     Text(label)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    DisclosureChevron(isExpanded: isExpanded)
                 }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -864,9 +860,7 @@ struct PlanView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "list.bullet.clipboard")
                     Text("Plan · \(PlanItem.progress(items))")
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    DisclosureChevron(isExpanded: isExpanded)
                 }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -922,9 +916,7 @@ struct PinnedPlanView: View {
                 withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    DisclosureChevron(isExpanded: isExpanded)
                         .foregroundStyle(.secondary)
                     Text("Plan")
                         .font(.orbit(.caption, weight: .medium))
@@ -987,10 +979,8 @@ struct ToolCallRow: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if hasDetails {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 8, weight: .bold))
+                        DisclosureChevron(isExpanded: expanded)
                             .foregroundStyle(.tertiary)
-                            .rotationEffect(.degrees(expanded ? 90 : 0))
                     }
                     Spacer(minLength: 4)
                     if let resolution = entry.permission?.resolution {
@@ -1166,7 +1156,7 @@ private struct DiffFileLink: View {
                 HStack(spacing: 3) {
                     name.underline(isHovering)
                     Image(systemName: "arrow.up.forward")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.orbit(.glyph, weight: .semibold))
                         .opacity(isHovering ? 1 : 0)
                 }
                 .foregroundStyle(isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
@@ -1199,10 +1189,8 @@ struct ToolGroupView: View {
                     Text(TranscriptRow.summary(entries))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
+                    DisclosureChevron(isExpanded: isExpanded)
                         .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     if failed > 0 {
                         Text("\(failed) failed")
                             .foregroundStyle(.red)
@@ -1490,10 +1478,10 @@ struct Composer: View {
         .padding(.horizontal, 12)
         .padding(.top, 12)
         .padding(.bottom, 7)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .glassEffect(.regular, in: .rect(cornerRadius: Theme.panelCorner))
         .overlay {
             if isDropTargeted {
-                RoundedRectangle(cornerRadius: 16).strokeBorder(.tint, lineWidth: 2)
+                RoundedRectangle(cornerRadius: Theme.panelCorner).strokeBorder(.tint, lineWidth: 2)
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -1765,14 +1753,14 @@ struct MentionList: View {
                     .font(.orbit(.body))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
-                    .background(index == selected ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6))
+                    .background(index == selected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(5)
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .glassEffect(.regular, in: .rect(cornerRadius: Theme.largeCorner))
     }
 }
 
@@ -1809,7 +1797,7 @@ struct CommandList: View {
                             .font(.orbit(.body))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
-                            .background(index == selected ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6))
+                            .background(index == selected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
@@ -1824,7 +1812,7 @@ struct CommandList: View {
             .fixedSize(horizontal: false, vertical: true)
             .onChange(of: selected) { proxy.scrollTo(selected) }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .glassEffect(.regular, in: .rect(cornerRadius: Theme.largeCorner))
     }
 }
 
@@ -1856,7 +1844,7 @@ private struct AttachmentChip: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: 16, height: 16)
-                    .clipShape(.rect(cornerRadius: 3))
+                    .clipShape(.rect(cornerRadius: Theme.tinyCorner))
             } else if case .file(let url) = attachment {
                 FileIconView(url: url, size: 12)
                     .foregroundStyle(.secondary)
@@ -1871,7 +1859,7 @@ private struct AttachmentChip: View {
             if let remove {
                 Button(action: remove) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 7, weight: .bold))
+                        .font(.orbit(.glyph, weight: .bold))
                         .foregroundStyle(.secondary)
                         .frame(width: 12, height: 12)
                         .contentShape(.rect)

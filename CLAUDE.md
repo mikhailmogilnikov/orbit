@@ -107,8 +107,9 @@ examples/extensions/      sample extensions (theme, icon theme)
 - Swift 6 strict concurrency. UI/model classes are `@MainActor @Observable`;
   their `Identifiable.id` must be `nonisolated`. `OrbitACP` is nonisolated
   (state confined to a serial queue).
-- Use `Theme` tokens from OrbitUI for colors/corners and `.font(.orbit(.body))`
-  (`TypeScale`, D117) for UI text — no literal point sizes; Liquid Glass button
+- Use `Theme` tokens from OrbitUI for colors, corners and hover/selected
+  fills, `Badge` / `DisclosureChevron` (D157), and `.font(.orbit(.body))`
+  (`TypeScale`, D117) for UI text — no literal point sizes, radii or opacities; Liquid Glass button
   styles (`.glass`, `.glassProminent`) for actions.
 - Colors that should follow the color theme come from `Theme` (SwiftUI) or
   `Extensions.shared.colorTheme(dark:)` + `Extensions.themeDidChange` (AppKit);

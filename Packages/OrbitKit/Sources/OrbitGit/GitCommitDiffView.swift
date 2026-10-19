@@ -60,12 +60,7 @@ struct GitCommitDiffView: View {
                     .truncationMode(.head)
             }
             if let commit {
-                Text(commit.shortHash)
-                    .font(.orbit(.micro, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Theme.subtleFill, in: .capsule)
+                Badge { Text(commit.shortHash).monospaced() }
                 Text(commit.subject)
                     .font(.callout)
                     .foregroundStyle(.secondary)

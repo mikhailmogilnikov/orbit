@@ -74,12 +74,7 @@ struct GitDiffView: View {
                     .lineLimit(1)
                     .truncationMode(.head)
             }
-            Text(staged ? "Staged" : "Working Tree")
-                .font(.orbit(.micro, weight: .medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Theme.subtleFill, in: .capsule)
+            Badge(staged ? "Staged" : "Working Tree")
             if file != nil { DiffStatBadge(added: added, removed: removed) }
             Spacer()
             DiffLayoutToggle()

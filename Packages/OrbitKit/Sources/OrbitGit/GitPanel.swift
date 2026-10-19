@@ -76,7 +76,7 @@ private struct GitHeader: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.orbit(.glyph, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
                 .font(.orbit(.body, weight: .medium))
@@ -153,8 +153,8 @@ private struct CommitBox: View {
             .padding(.leading, 8)
             .padding(.trailing, 4)
             .padding(.vertical, 6)
-            .background(Theme.subtleFill, in: .rect(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.hairline))
+            .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
+            .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(Theme.hairline))
             .onKeyPress(.return, phases: .down) { press in
                 // ⌘↩ commits from the field; plain Return keeps adding lines.
                 guard press.modifiers.contains(.command) else { return .ignored }
@@ -226,7 +226,7 @@ private struct ErrorBanner: View {
             IconButton("xmark", help: "Dismiss", action: dismiss)
         }
         .padding(8)
-        .background(.orange.opacity(0.1), in: .rect(cornerRadius: 7))
+        .background(.orange.opacity(0.1), in: .rect(cornerRadius: Theme.smallCorner))
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
     }
@@ -338,10 +338,8 @@ private struct StashRow: View {
 
     private var row: some View {
         HStack(spacing: 6) {
-            Image(systemName: "chevron.right")
-                .font(.orbit(.micro, weight: .semibold))
+            DisclosureChevron(isExpanded: isExpanded)
                 .foregroundStyle(.tertiary)
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 .frame(width: 10)
                 .contentShape(.rect)
                 .onTapGesture { withAnimation(.snappy(duration: 0.15)) { isExpanded.toggle() } }
@@ -480,7 +478,7 @@ private struct CommitRow: View {
             Spacer(minLength: 0)
         }
         .frame(height: Self.height)
-        .background(isExpanded || isHovered ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.smallCorner))
+        .background(isHovered ? Theme.hoverFill : isExpanded ? Theme.subtleFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
         .contentShape(.rect)
         .onTapGesture(perform: toggle)
         .onHover { isHovered = $0 }
@@ -560,19 +558,15 @@ struct RefBadges: View {
     var body: some View {
         let badges = Self.badges(refs)
         ForEach(badges.prefix(2), id: \.name) { badge in
-            let color: Color = badge.kind == .tag ? .orange : badge.kind == .remote ? .secondary : .accentColor
-            HStack(spacing: 2) {
-                Image(systemName: badge.kind == .tag ? "tag.fill" : badge.kind == .remote ? "cloud" : badge.kind == .synced ? "checkmark.icloud" : "arrow.triangle.branch")
-                    .font(.system(size: 7, weight: .semibold))
-                Text(badge.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+            let color: Color = badge.kind == .tag ? .orange : badge.kind == .remote ? .secondary : Theme.accent
+            OrbitUI.Badge(tint: color, prominent: badge.isHead) {
+                HStack(spacing: 2) {
+                    Image(systemName: badge.kind == .tag ? "tag.fill" : badge.kind == .remote ? "cloud" : badge.kind == .synced ? "checkmark.icloud" : "arrow.triangle.branch")
+                        .font(.orbit(.glyph, weight: .semibold))
+                    Text(badge.name)
+                        .truncationMode(.middle)
+                }
             }
-            .font(.orbit(.micro, weight: .medium))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(badge.isHead ? AnyShapeStyle(color.opacity(0.3)) : AnyShapeStyle(color.opacity(0.13)), in: .capsule)
-            .foregroundStyle(color)
             .frame(maxWidth: 120, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .help(badge.kind == .synced ? "\(badge.name), same as on origin" : badge.isHead ? "\(badge.name) (checked out)" : badge.name)

@@ -50,7 +50,7 @@ public struct TabChip<Icon: View>: View {
                 if let onClose, isHovering || (isActive && !isDirty) {
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.orbit(.glyph, weight: .bold))
                             .foregroundStyle(.secondary)
                             .frame(width: 14, height: 14)
                             .contentShape(.rect)
@@ -66,7 +66,7 @@ public struct TabChip<Icon: View>: View {
         .padding(.leading, 10)
         .padding(.trailing, onClose == nil && !isDirty ? 4 : 6)
         .frame(height: 26)
-        .background(isActive ? AnyShapeStyle(Theme.subtleFill.opacity(2)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 7))
+        .background(isActive ? Theme.activeFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
         .contentShape(.rect)
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }

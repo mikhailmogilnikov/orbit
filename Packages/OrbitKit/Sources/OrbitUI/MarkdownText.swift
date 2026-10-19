@@ -252,10 +252,8 @@ private struct DetailsBlockView<Content: View>: View {
             } label: {
                 HStack(spacing: 5) {
                     Text(summary)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
+                    DisclosureChevron(isExpanded: isExpanded)
                         .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .foregroundStyle(.secondary)
                 .contentShape(.rect)

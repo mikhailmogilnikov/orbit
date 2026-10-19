@@ -166,6 +166,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D154. A stash's files and diffs in the Source Control panel
 - D155. The terminal's editing keys, as in Terminal.app and iTerm
 - D156. History rows on two lines; one badge per branch; a calmer graph
+- D157. Corner, fill and badge tokens in `Theme`
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2600,6 +2601,7 @@ size kept: monospaced glyphs look larger, so 11.5 sits with 12 text),
 (SF Symbols are sized like text); glyph-only sizes (7–9 pt chevrons, an
 18 pt card icon) stay literal. The editor and terminal follow the user's
 font size, not the scale. The unused `Theme.codeFont` is gone.
+(Glyph sizes got a token in D157: `.glyph`, 8 pt.)
 
 ### D118. Tool cards open their files; permissions by keyboard; other chats' approvals shown
 
@@ -3250,4 +3252,37 @@ orange; at most two, then "+N".
 Graph: lanes 12 pt apart (were 10), 1.6-pt round-capped lines; bends have
 vertical ends over a taller half row, so a lane change reads as one S, not a
 hook; merge commits are rings, the checked-out commit has a halo.
+
+### D157. Corner, fill and badge tokens in `Theme`
+
+After D117 the type was one system, but shapes and states weren't: 11
+corner radii (3–18), selected rows tinted at 0.12, 0.15 or 0.18 of the accent
+(some through `.tint`, which sheets and popovers don't always inherit),
+hovers at 0.027, 0.045 or 0.09 of the text color (`subtleFill.opacity(2)`),
+seven hand-made capsule badges, chevrons at 7, 8 or 9 pt. Each panel was
+slightly its own. Now `Theme` has one set:
+
+| Token | Value | For |
+|---|---|---|
+| tinyCorner | 4 | key caps, inline buttons, thumbnails, the rename field |
+| smallCorner | 6 | rows, tabs, toggles, fields, code blocks, the editor's bars |
+| corner | 10 | cards, tool calls, rows in floating panels |
+| largeCorner | 14 | big cards, popovers, chat bubbles |
+| panelCorner | 18 | floating glass: palette, tab switcher, composer |
+| subtleFill | text 4.5% | resting cards, fields, quiet badges |
+| hoverFill | text 6.5% | a row or button under the pointer |
+| activeFill | text 9% | the current tab, a pressed button, a key cap |
+| selectedFill | accent 16% | the keyboard's row in a list, a toggle that's on |
+| matchFill | accent 25% | matched text in results |
+| dropFill / dropBorder | accent 10% / 60% | drop targets |
+
+Radii were rounded to the nearest step (3–4 → 4, 5–7 → 6, 8–9 → 10, 12–14 →
+14, 16–18 → 18), so the composer went 16 → 18 and popovers 12 → 14. Every
+tab (editor, bottom panel, terminal) is `activeFill` when current; every
+keyboard selection is `selectedFill`, always `Theme.accent`. `Badge` (count,
+text or any label; gray, or tinted, `prominent` for the current one) replaces
+the capsule counters, the hash, "Staged", the plan name and the branch
+badges; `DisclosureChevron` is the one rotating "›" (8 pt bold) and other
+small symbols use `TypeScale.glyph`. Chat bubbles and editor banners keep their own
+tints: they aren't states.
 

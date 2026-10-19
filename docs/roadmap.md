@@ -184,6 +184,7 @@
 - Built-in browser (D143): Open Browser… and a running task's "Open localhost:5173 in Orbit", back / forward / reload, Web Inspector
 - Push later agent turns to the pull request (D144)
 - History rows on two lines with merged branch badges and a calmer graph (D156)
+- One set of corner radii, hover / selection fills, badges and chevrons in `Theme` (D157)
 - Terminal editing keys (D155): ⌥←/→, ⌘←/→, ⌥⌫, ⌘⌫, ⇧↩ new line, ⌘K clear, ⌘↑/↓ scroll
 - Fix with Agent from Problems (D147); ⌘-click `file:line` in the terminal (D148)
 - Color swatches in the gutter with the color panel (D149); Copy GitHub Link / Open on GitHub (D150)
@@ -404,6 +405,7 @@ Everything below is known to be missing; nothing here is in progress.
 - Chat like Claude Code (D120): unverified on a Mac and with a real agent (⇧Tab reaching the field as backtab, Esc and ↑ beside the text field's own keys, the pinned plan's height, the copy button's place, the jump button while streaming).
 - Chat attribution and hints (D119): unverified on a Mac (the agent icon beside the stats and the hover buttons, the hints grid under the greeting).
 - Tool card links and permission keys (D118): unverified on a Mac and with a real agent (the link's hover, keys reaching the buttons from the editor and the composer, the waiting bar).
+- Theme tokens (D157): unverified on a Mac (hovers a touch stronger, palette and tab-switcher rows 9 → 10, composer 16 → 18, popovers 12 → 14, leading chevrons 9 → 8 pt, the usage popover's plan badge smaller, the explorer's drop target outlined).
 - Type scale (D117): unverified on a Mac (bars over the composer, bottom panel and terminal tabs went 11.5 → 11, the model popover's rows 12.5 → 13, the palette's query 16 → 15).
 - Folded reads (D116): unverified on a Mac and with a real agent (the card's look, expanding while calls stream in).
 - Slash commands and turn summary (D115): unverified on a Mac and with a

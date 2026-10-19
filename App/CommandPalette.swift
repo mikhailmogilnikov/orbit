@@ -151,7 +151,7 @@ struct QuickPickOverlay: View {
                 }
             }
             .frame(width: 580)
-            .glassEffect(.regular, in: .rect(cornerRadius: 18))
+            .glassEffect(.regular, in: .rect(cornerRadius: Theme.panelCorner))
             .shadow(color: .black.opacity(0.18), radius: 30, y: 12)
             .padding(.top, 70)
         }
@@ -220,7 +220,7 @@ struct QuickPickRow: View {
         .font(.orbit(.control))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(isSelected ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 9))
+        .background(isSelected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.corner))
         .contentShape(.rect)
     }
 }

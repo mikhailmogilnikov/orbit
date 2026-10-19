@@ -434,7 +434,7 @@ private struct TerminalTab: View {
                 .opacity(session.isAgent && !session.isRunning ? 0.6 : 1)
             Button(action: close) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.orbit(.glyph, weight: .bold))
                     .frame(width: 14, height: 14)
                     .contentShape(.rect)
             }
@@ -447,7 +447,7 @@ private struct TerminalTab: View {
         .padding(.leading, 8)
         .padding(.trailing, 4)
         .frame(height: 22)
-        .background(isSelected ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.smallCorner))
+        .background(isSelected ? Theme.activeFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
         .foregroundStyle(isSelected ? .primary : .secondary)
         .contentShape(.rect)
         .onTapGesture(perform: select)

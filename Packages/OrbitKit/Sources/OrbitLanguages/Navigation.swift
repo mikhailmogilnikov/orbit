@@ -172,13 +172,7 @@ private struct ReferenceFileHeader: View {
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.head)
-            Text("\(count)")
-                .font(.orbit(.micro, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1)
-                .background(Theme.subtleFill, in: .capsule)
+            Badge(count: count)
         }
         .font(.orbit(.caption))
     }
@@ -206,7 +200,7 @@ private struct ReferenceRow: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .listRowBackground(isOpened ? Theme.accent.opacity(0.12) : Color.clear)
+        .listRowBackground(isOpened ? Theme.selectedFill : Color.clear)
     }
 
     private var highlighted: AttributedString {
@@ -216,7 +210,7 @@ private struct ReferenceRow: View {
         var text = AttributedString(string.substring(to: match.location))
         var found = AttributedString(string.substring(with: match))
         found.inlinePresentationIntent = .stronglyEmphasized
-        found.backgroundColor = Theme.accent.opacity(0.25)
+        found.backgroundColor = Theme.matchFill
         text += found
         text += AttributedString(string.substring(from: NSMaxRange(match)))
         return text

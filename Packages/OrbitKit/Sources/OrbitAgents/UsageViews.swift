@@ -32,7 +32,7 @@ struct UsageButton: View {
                         .offset(x: -1, y: 2)
                 }
             }
-            .background(isHovering || isPresented ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .capsule)
+            .background(isHovering || isPresented ? Theme.hoverFill : .clear, in: .capsule)
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
@@ -108,12 +108,7 @@ private struct UsagePopover: View {
                 .truncationMode(.tail)
             Spacer(minLength: 6)
             if let plan = usage.plan {
-                Text(plan)
-                    .font(.orbit(.caption, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Theme.subtleFill, in: .capsule)
+                Badge(plan)
                     .help("Plan")
             }
         }

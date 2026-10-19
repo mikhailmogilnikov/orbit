@@ -25,14 +25,14 @@ struct SessionOptionsButton: View {
                     ProgressView().controlSize(.mini)
                 }
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.orbit(.glyph, weight: .bold))
                     .foregroundStyle(.tertiary)
             }
             .font(.orbit(.caption, weight: .medium))
             .lineLimit(1)
             .padding(.horizontal, 8)
             .frame(height: 24)
-            .background(isHovering || isPresented ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .capsule)
+            .background(isHovering || isPresented ? Theme.hoverFill : .clear, in: .capsule)
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
@@ -412,7 +412,7 @@ struct OptionsRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(isHovering ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 7))
+            .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

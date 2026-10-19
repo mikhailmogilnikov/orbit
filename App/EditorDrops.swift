@@ -258,8 +258,8 @@ struct EditorDropHighlight: View {
             if let zone {
                 let rect = zone.rect(width: proxy.size.width, height: proxy.size.height, workspace: workspace).insetBy(dx: 6, dy: 6)
                 RoundedRectangle(cornerRadius: Theme.corner)
-                    .fill(Theme.accent.opacity(0.1))
-                    .strokeBorder(Theme.accent.opacity(0.6), lineWidth: 1.5)
+                    .fill(Theme.dropFill)
+                    .strokeBorder(Theme.dropBorder, lineWidth: 1.5)
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
                     .animation(.snappy(duration: 0.15), value: zone)

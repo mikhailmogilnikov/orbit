@@ -76,7 +76,7 @@ struct PathBar<Trailing: View>: View {
 
     private var separator: some View {
         Image(systemName: "chevron.right")
-            .font(.system(size: 8, weight: .semibold))
+            .font(.orbit(.glyph, weight: .semibold))
             .foregroundStyle(.tertiary)
     }
 

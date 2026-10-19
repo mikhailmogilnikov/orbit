@@ -6,6 +6,8 @@ import SwiftUI
 /// panels from different plugins line up. Code in the editor and terminal
 /// follows the user's font size instead.
 public enum TypeScale: CGFloat, Sendable {
+    /// Tiny symbols beside text: disclosure chevrons, close ×, path separators.
+    case glyph = 8
     /// Badges, key caps, counters, the editor's hunk buttons.
     case micro = 10
     /// Secondary details, section headers, the status bar, bars over the composer.
@@ -31,8 +33,18 @@ extension Font {
 
 /// Design tokens shared by all plugins so the app reads as one system.
 public enum Theme {
-    public static let corner: CGFloat = 10
+    // Corner radii, smallest to largest (D157). A shape inside another
+    // takes a smaller step, so the curves stay roughly concentric.
+    /// Key caps, inline buttons, thumbnails, the rename field.
+    public static let tinyCorner: CGFloat = 4
+    /// Rows, tabs, toggles, fields, code blocks, the editor's bars.
     public static let smallCorner: CGFloat = 6
+    /// Cards, tool calls, rows in floating panels.
+    public static let corner: CGFloat = 10
+    /// Big cards, popovers, chat bubbles.
+    public static let largeCorner: CGFloat = 14
+    /// Floating glass panels: the palette, the tab switcher, the composer.
+    public static let panelCorner: CGFloat = 18
 
     // Version-control colors come from the color theme (both variants, so they
     // follow light/dark); reading them in a body re-renders on a theme switch.
@@ -57,8 +69,22 @@ public enum Theme {
         return .dynamic(light: light, dark: dark)
     }
 
+    // Neutral fills by state (D157); stronger means "more current".
+    /// Resting cards, fields, code blocks and quiet badges.
     public static let subtleFill = Color.primary.opacity(0.045)
+    /// A row or button under the pointer.
+    public static let hoverFill = Color.primary.opacity(0.065)
+    /// The current tab, a pressed button, a key cap.
+    public static let activeFill = Color.primary.opacity(0.09)
     public static let hairline = Color.primary.opacity(0.08)
+
+    /// The keyboard's row in a list or popover, a toggle that's on.
+    @MainActor public static var selectedFill: Color { accent.opacity(0.16) }
+    /// Matched text in search results.
+    @MainActor public static var matchFill: Color { accent.opacity(0.25) }
+    /// A drop target under a drag, with its outline.
+    @MainActor public static var dropFill: Color { accent.opacity(0.1) }
+    @MainActor public static var dropBorder: Color { accent.opacity(0.6) }
 
     /// Behind the terminal, so the padding around it matches.
     @MainActor public static var terminalBackground: Color {
@@ -187,6 +213,61 @@ public struct DiffStatBadge: View {
         }
         .font(.orbit(.caption, weight: .medium, design: .monospaced))
         .monospacedDigit()
+    }
+}
+
+/// A small capsule label: a count, a commit hash, "Staged", a branch.
+/// Gray unless tinted; `prominent` marks the current one (the checked-out branch).
+public struct Badge<Label: View>: View {
+    let tint: Color?
+    let prominent: Bool
+    let label: Label
+
+    public init(tint: Color? = nil, prominent: Bool = false, @ViewBuilder label: () -> Label) {
+        self.tint = tint
+        self.prominent = prominent
+        self.label = label()
+    }
+
+    public var body: some View {
+        label
+            .font(.orbit(.micro, weight: .medium))
+            .monospacedDigit()
+            .lineLimit(1)
+            .foregroundStyle(tint ?? .secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(fill, in: .capsule)
+    }
+
+    private var fill: Color {
+        guard let tint else { return prominent ? Theme.activeFill : Theme.subtleFill }
+        return tint.opacity(prominent ? 0.3 : 0.15)
+    }
+}
+
+extension Badge where Label == Text {
+    public init(_ text: String, tint: Color? = nil, prominent: Bool = false) {
+        self.init(tint: tint, prominent: prominent) { Text(text) }
+    }
+
+    public init(count: Int, tint: Color? = nil) {
+        self.init(count < 1000 ? "\(count)" : "999+", tint: tint)
+    }
+}
+
+/// The "›" that turns down when its section opens.
+public struct DisclosureChevron: View {
+    let isExpanded: Bool
+
+    public init(isExpanded: Bool) {
+        self.isExpanded = isExpanded
+    }
+
+    public var body: some View {
+        Image(systemName: "chevron.right")
+            .font(.orbit(.glyph, weight: .bold))
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
     }
 }
 

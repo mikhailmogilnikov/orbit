@@ -91,8 +91,8 @@ private struct PickerCard: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.subtleFill.opacity(isHovering ? 2.5 : 1.5), in: .rect(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.hairline))
+            .background(isHovering ? Theme.activeFill : Theme.subtleFill, in: .rect(cornerRadius: Theme.largeCorner))
+            .overlay(RoundedRectangle(cornerRadius: Theme.largeCorner).strokeBorder(Theme.hairline))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -132,7 +132,7 @@ private struct RecentProjectRow: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 30)
-            .background(isHovering ? AnyShapeStyle(Theme.subtleFill.opacity(2)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 8))
+            .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.corner))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

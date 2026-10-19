@@ -519,7 +519,7 @@ struct HunkActionStyle: ButtonStyle {
         configuration.label
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(configuration.isPressed ? Color.primary.opacity(0.12) : .clear, in: .rect(cornerRadius: 4))
+            .background(configuration.isPressed ? Theme.activeFill : .clear, in: .rect(cornerRadius: Theme.tinyCorner))
             .contentShape(.rect)
     }
 }
@@ -538,8 +538,8 @@ struct CommentChip: View {
         }
         .buttonStyle(HunkActionStyle())
         .font(.orbit(.micro, weight: .medium))
-        .background(.regularMaterial, in: .rect(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+        .background(.regularMaterial, in: .rect(cornerRadius: Theme.smallCorner))
+        .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
         .help(text)
     }

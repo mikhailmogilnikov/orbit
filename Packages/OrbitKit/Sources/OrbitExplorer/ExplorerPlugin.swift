@@ -668,7 +668,7 @@ struct ExplorerView: View {
                 .overlay {
                     if model.dropTarget == root.url {
                         RoundedRectangle(cornerRadius: Theme.corner)
-                            .strokeBorder(Theme.accent.opacity(0.6), lineWidth: 1.5)
+                            .strokeBorder(Theme.dropBorder, lineWidth: 1.5)
                             .padding(4)
                             .allowsHitTesting(false)
                     }
@@ -869,8 +869,9 @@ struct FolderDrop: ViewModifier {
             } isTargeted: { model.setDropTarget(folder, $0) }
             .background {
                 if highlights, model.dropTarget == folder {
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(Theme.accent.opacity(0.22))
+                    RoundedRectangle(cornerRadius: Theme.smallCorner)
+                        .fill(Theme.dropFill)
+                        .strokeBorder(Theme.dropBorder, lineWidth: 1)
                         .padding(.horizontal, -6)
                         .padding(.vertical, -2)
                 }
@@ -1050,8 +1051,8 @@ struct NameField: View {
             .textFieldStyle(.plain)
             .focused($isFocused)
             .padding(.horizontal, 3)
-            .background(Color(nsColor: .textBackgroundColor), in: .rect(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.accent, lineWidth: 1))
+            .background(Color(nsColor: .textBackgroundColor), in: .rect(cornerRadius: Theme.tinyCorner))
+            .overlay(RoundedRectangle(cornerRadius: Theme.tinyCorner).strokeBorder(Theme.accent, lineWidth: 1))
             .onSubmit { finish(cancelled: false) }
             .onExitCommand { finish(cancelled: true) }
             .onChange(of: isFocused) { _, focused in if !focused { finish(cancelled: false) } }

@@ -18,9 +18,7 @@ struct AgentChangesBar: View {
                     withAnimation(.snappy(duration: 0.2)) { store.isChangesExpanded.toggle() }
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .bold))
-                            .rotationEffect(.degrees(store.isChangesExpanded ? 90 : 0))
+                        DisclosureChevron(isExpanded: store.isChangesExpanded)
                             .foregroundStyle(.secondary)
                         Text("\(files.count) file\(files.count == 1 ? "" : "s") changed")
                             .font(.orbit(.caption, weight: .medium))
@@ -105,7 +103,7 @@ private struct ChangedFileRow: View {
         }
         .frame(height: 24)
         .padding(.horizontal, 8)
-        .background(isHovering ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6))
+        .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
         .contentShape(.rect)
         .onTapGesture { changes.openReview(for: url) }
         .onHover { isHovering = $0 }

@@ -236,7 +236,7 @@ struct PanelTabButton: View {
                 .font(.orbit(.control, weight: isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 .frame(maxWidth: .infinity, minHeight: 26)
-                .background(isSelected ? AnyShapeStyle(.tint.opacity(0.12)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 7))
+                .background(isSelected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -1131,7 +1131,7 @@ private struct BottomPanelTab: View {
             .foregroundStyle(isSelected ? .primary : .secondary)
             .padding(.horizontal, 8)
             .frame(height: 22)
-            .background(isSelected ? Theme.subtleFill : isHovered ? Theme.subtleFill.opacity(0.6) : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+            .background(isSelected ? Theme.activeFill : isHovered ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -1144,18 +1144,12 @@ struct PanelBadgeView: View {
     let badge: PanelBadge
 
     var body: some View {
-        Text(badge.count < 1000 ? "\(badge.count)" : "999+")
-            .font(.orbit(.micro, weight: .medium))
-            .monospacedDigit()
-            .foregroundStyle(color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(color == .secondary ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(color.opacity(0.15)), in: .capsule)
+        Badge(count: badge.count, tint: tint)
     }
 
-    private var color: Color {
+    private var tint: Color? {
         switch badge.style {
-        case .plain: .secondary
+        case .plain: nil
         case .error: .red
         case .warning: .orange
         }
@@ -1254,8 +1248,8 @@ struct WelcomeView: View {
             }
             .padding(5)
             .frame(width: 320)
-            .background(Theme.subtleFill, in: .rect(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.hairline))
+            .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.largeCorner))
+            .overlay(RoundedRectangle(cornerRadius: Theme.largeCorner).strokeBorder(Theme.hairline))
 
             Text("Version \(version)")
                 .font(.caption)
@@ -1308,7 +1302,7 @@ struct WelcomeActionRow: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 32)
-            .background(isHovering && isEnabled ? AnyShapeStyle(Theme.subtleFill.opacity(2)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 9))
+            .background(isHovering && isEnabled ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.corner))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -1337,7 +1331,7 @@ struct KeyCaps: View {
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 18, minHeight: 18)
                     .padding(.horizontal, key.count > 1 ? 4 : 0)
-                    .background(Theme.subtleFill.opacity(2), in: .rect(cornerRadius: 5))
+                    .background(Theme.activeFill, in: .rect(cornerRadius: Theme.smallCorner))
             }
         }
     }

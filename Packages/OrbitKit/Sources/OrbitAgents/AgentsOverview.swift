@@ -196,7 +196,7 @@ private struct AgentOverviewRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 7)
-        .background(isHovering ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 8))
+        .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.corner))
         .contentShape(.rect)
         .onTapGesture(perform: open)
         .onHover { isHovering = $0 }

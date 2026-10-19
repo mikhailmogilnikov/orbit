@@ -17,9 +17,7 @@ struct ReviewCommentsBar: View {
                         withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
                     } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .bold))
-                                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            DisclosureChevron(isExpanded: isExpanded)
                                 .foregroundStyle(.secondary)
                             Text("\(comments.count) comment\(comments.count == 1 ? "" : "s") for the agent")
                                 .font(.orbit(.caption, weight: .medium))
@@ -91,7 +89,7 @@ private struct ReviewCommentRow: View {
         }
         .frame(height: 24)
         .padding(.horizontal, 8)
-        .background(isHovering ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 6))
+        .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
         .contentShape(.rect)
         .onTapGesture { store.workspace.openFile(comment.url, line: comment.lines.lowerBound) }
         .onHover { isHovering = $0 }

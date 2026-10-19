@@ -354,7 +354,7 @@ struct ShortcutRecorder: View {
                         .foregroundStyle(Theme.accent)
                         .frame(minHeight: 18)
                         .padding(.horizontal, 6)
-                        .background(Theme.accent.opacity(0.12), in: .rect(cornerRadius: 5))
+                        .background(Theme.selectedFill, in: .rect(cornerRadius: Theme.smallCorner))
                 } else if let shortcut {
                     KeyCaps(shortcut.displayString)
                 } else {

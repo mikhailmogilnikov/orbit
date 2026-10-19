@@ -155,8 +155,8 @@ struct ConflictActions: View {
         .buttonStyle(HunkActionStyle())
         .font(.orbit(.micro, weight: .medium))
         .padding(.horizontal, 2)
-        .background(.regularMaterial, in: .rect(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+        .background(.regularMaterial, in: .rect(cornerRadius: Theme.smallCorner))
+        .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
     }
 }
