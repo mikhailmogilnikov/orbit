@@ -300,6 +300,21 @@ public final class EditorPlugin: OrbitPlugin {
                 run(coordinator)
             }
         }
+        // Transforms (D151): menu bar and palette only, the right-click menu would grow too long.
+        let lineOperations: [(id: String, title: String, image: String, operation: TextTransforms.LineOperation)] = [
+            ("editor.sortLinesAscending", "Sort Lines Ascending", "arrow.up.and.down.text.horizontal", .sortAscending),
+            ("editor.sortLinesDescending", "Sort Lines Descending", "arrow.up.and.down.text.horizontal", .sortDescending),
+            ("editor.removeDuplicateLines", "Remove Duplicate Lines", "line.3.horizontal.decrease", .removeDuplicates),
+            ("editor.reverseLines", "Reverse Lines", "arrow.uturn.down", .reverse),
+        ]
+        for entry in lineOperations {
+            context.commands.register(OrbitCommand(id: entry.id, title: entry.title, category: "Code", systemImage: entry.image,
+                                                   run: editor { $0.transformLines(entry.operation) }))
+        }
+        for style in TextTransforms.Case.allCases {
+            context.commands.register(OrbitCommand(id: "editor.case.\(style.id)", title: "Transform to \(style.title)", category: "Code",
+                                                   systemImage: "textformat", run: editor { $0.changeCase(style) }))
+        }
         let commands: [OrbitCommand] = [
             OrbitCommand(
                 id: "editor.goToLine", title: "Go to Line…", category: "Code", systemImage: "arrow.right.to.line",

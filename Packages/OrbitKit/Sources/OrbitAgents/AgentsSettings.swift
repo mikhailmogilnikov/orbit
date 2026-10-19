@@ -41,6 +41,14 @@ struct AgentsSettingsPane: View {
                         Text("Notify when an agent finishes or needs you")
                         Text("While Orbit is in the background: a notification, and a count on the Dock icon.")
                     }
+                    Toggle(isOn: $store.playsSound) {
+                        Text("Play a sound when an agent finishes")
+                        Text("In the background, when there's no notification to make one.")
+                    }
+                    Toggle(isOn: $store.keepsAwake) {
+                        Text("Keep the Mac awake while an agent works")
+                        Text("Stops idle sleep during a turn. Closing the lid still puts it to sleep.")
+                    }
                 } header: {
                     Text("New sessions")
                 } footer: {

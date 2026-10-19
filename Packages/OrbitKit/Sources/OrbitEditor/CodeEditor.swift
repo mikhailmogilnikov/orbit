@@ -113,6 +113,7 @@ struct CodeEditor: NSViewRepresentable {
             orbitView.onMouseMoved = { [weak coordinator] point in coordinator?.mouseMoved(to: point) }
             orbitView.onMouseExited = { [weak coordinator] in coordinator?.mouseExited() }
             orbitView.onCommandClick = { [weak coordinator] point in coordinator?.commandClick(at: point) ?? false }
+            orbitView.onPasteImage = { [weak coordinator] pasteboard in coordinator?.pasteImage(from: pasteboard) }
             orbitView.onCommand = { [weak coordinator] selector in coordinator?.completion.handle(selector) ?? false }
             orbitView.onResignFocus = { [weak coordinator] in coordinator?.closePopups() }
             orbitView.onModifiersChanged = { [weak coordinator] flags in coordinator?.definitionLink.update(modifiers: flags) }
@@ -131,6 +132,7 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.overview = overview
         coordinator.symbolHighlights.onChange = { [weak overview] in overview?.highlights = $0 }
         coordinator.folding.ruler = ruler
+        ruler.onSwatchClick = { [weak coordinator] line in coordinator?.editColor(onLine: line) }
         ruler.onImageClick = { [weak coordinator] url in
             coordinator?.onOpenLocation(SourceLocation(url: url, range: SourceRange(start: SourcePosition(line: 0, character: 0), end: SourcePosition(line: 0, character: 0))))
         }
@@ -326,6 +328,7 @@ struct CodeEditor: NSViewRepresentable {
         var showsImageThumbnails = false
         var imageRoot: URL?
         var imagesTask: Task<Void, Never>?
+        var colorLiterals: [Int: ColorLiteral] = [:]
         weak var overview: OverviewRuler?
         var syncedRevision = 0
         /// The line scrolled back to on open; folds coming back later shift the text, so it's scrolled to again.
@@ -853,7 +856,17 @@ final class OrbitTextView: STTextView {
     /// The file's language: comments and bracket pairs (D73).
     var syntaxLanguage: SyntaxLanguage?
     var indentation = Indentation(size: 4, spaces: true)
+    /// An image pasted into Markdown (D152): saved beside the file, the text to insert instead.
+    var onPasteImage: ((NSPasteboard) -> String?)?
     private var hoverArea: NSTrackingArea?
+
+    override func paste(_ sender: Any?) {
+        if let text = onPasteImage?(.general) {
+            insertText(text, replacementRange: .notFound)
+            return
+        }
+        super.paste(sender)
+    }
 
     /// Typing (no replacement range; marked text from an input method passes through).
     override func insertText(_ string: Any, replacementRange: NSRange) {

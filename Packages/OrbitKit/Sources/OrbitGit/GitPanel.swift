@@ -323,9 +323,29 @@ private struct StashRow: View {
     let stash: GitStash
     let model: GitModel
     @State private var isHovered = false
+    @State private var isExpanded = false
 
     var body: some View {
+        row
+        if isExpanded, !stash.hash.isEmpty {
+            // A stash is a commit on top of HEAD: its files, as a commit's (D154).
+            CommitFiles(
+                commit: GitCommit(hash: stash.hash, shortHash: stash.ref, author: "", date: stash.date, subject: stash.message),
+                model: model, passing: [], graphWidth: 0, spacing: 0
+            )
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: 6) {
+            Image(systemName: "chevron.right")
+                .font(.orbit(.micro, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .frame(width: 10)
+                .contentShape(.rect)
+                .onTapGesture { withAnimation(.snappy(duration: 0.15)) { isExpanded.toggle() } }
+                .help(isExpanded ? "Hide Files" : "Show Files")
             Image(systemName: "tray.full")
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
@@ -344,7 +364,10 @@ private struct StashRow: View {
         }
         .contentShape(.rect)
         .onHover { isHovered = $0 }
+        .onTapGesture(count: 2) { isExpanded.toggle() }
         .contextMenu {
+            Button(isExpanded ? "Hide Files" : "Show Files") { isExpanded.toggle() }
+            Divider()
             Button("Pop (Apply and Delete)") { model.applyStash(stash, drop: true) }
             Button("Apply") { model.applyStash(stash, drop: false) }
             Divider()

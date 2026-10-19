@@ -167,6 +167,10 @@ import Testing
         let stashes = repo.stashes()
         #expect(stashes.map(\.message) == ["my wip"])
         #expect(stashes.first?.ref == "stash@{0}")
+        // Its files, as a commit's against HEAD (D154).
+        let stashed = repo.files(in: stashes[0].hash)
+        #expect(stashed.map(\.path).contains("a.txt"))
+        #expect(repo.commitSides(stashes[0].hash, file: stashed.first { $0.path == "a.txt" }!).new == .text("two\n"))
 
         try repo.applyStash(stashes[0], drop: true)
         #expect(repo.stashes().isEmpty)

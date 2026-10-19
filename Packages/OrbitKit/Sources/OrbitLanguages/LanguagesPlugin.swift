@@ -51,7 +51,11 @@ public final class LanguagesPlugin: OrbitPlugin {
             if errors > 0 { return PanelBadge(errors, style: .error) }
             return warnings > 0 ? PanelBadge(warnings, style: .warning) : nil
         }) {
-            ProblemsPanel(manager: manager, workspace: workspace)
+            ProblemsPanel(manager: manager, workspace: workspace, fix: services.resolve(AgentTasks.self).map { agent in
+                { files in _ = agent.draftTask(ProblemPrompt.text(for: files, root: workspace.root) { url in
+                    workspace.documents.existingDocument(for: url)?.text ?? (try? String(contentsOf: url, encoding: .utf8))
+                }) }
+            })
         }.command("languages.problems"))
         context.commands.register(OrbitCommand(
             id: "languages.problems",

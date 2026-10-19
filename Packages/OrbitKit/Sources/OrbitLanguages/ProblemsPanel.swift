@@ -7,6 +7,8 @@ import SwiftUI
 struct ProblemsPanel: View {
     let manager: LanguageManager
     let workspace: Workspace
+    /// Hands problems to a new chat (D147); nil without the Agents plugin.
+    var fix: (([FileProblems]) -> Void)?
 
     var body: some View {
         let problems = manager.problems
@@ -17,8 +19,20 @@ struct ProblemsPanel: View {
                 ForEach(problems) { file in
                     Section {
                         ForEach(Array(file.diagnostics.enumerated()), id: \.offset) { _, problem in
-                            ProblemRow(problem: problem) {
+                            ProblemRow(problem: problem, fix: fix.map { fix in { fix([FileProblems(url: file.url, diagnostics: [problem])]) } }) {
                                 workspace.openFile(file.url, line: problem.range.start.line)
+                            }
+                            .contextMenu {
+                                if let fix {
+                                    Button("Fix with Agent") { fix([FileProblems(url: file.url, diagnostics: [problem])]) }
+                                    Button("Fix All in “\(file.url.lastPathComponent)” with Agent") { fix([file]) }
+                                    Button("Fix All Errors with Agent") { fix(problems.compactMap(Self.errorsOnly)) }
+                                    Divider()
+                                }
+                                Button("Copy Message") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(problem.message, forType: .string)
+                                }
                             }
                         }
                     } header: {
@@ -44,9 +58,18 @@ struct ProblemsPanel: View {
     }
 }
 
+extension ProblemsPanel {
+    static func errorsOnly(_ file: FileProblems) -> FileProblems? {
+        let errors = file.diagnostics.filter { $0.severity == .error }
+        return errors.isEmpty ? nil : FileProblems(url: file.url, diagnostics: errors)
+    }
+}
+
 private struct ProblemRow: View {
     let problem: Diagnostic
+    let fix: (() -> Void)?
     let open: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: open) {
@@ -67,11 +90,20 @@ private struct ProblemRow: View {
                 Text("\(problem.range.start.line + 1):\(problem.range.start.character + 1)")
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                if let fix {
+                    Button(action: fix) {
+                        Image(systemName: "sparkles")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Fix with Agent")
+                    .opacity(isHovered ? 1 : 0)
+                }
             }
             .font(.orbit(.body))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 
     private var symbol: String {

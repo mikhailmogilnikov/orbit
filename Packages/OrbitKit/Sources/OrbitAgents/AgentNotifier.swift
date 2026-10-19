@@ -19,6 +19,8 @@ enum PermissionAnswer: String {
 @MainActor
 final class AgentNotifier {
     var isEnabled = true
+    /// A sound when one finishes in the background without a notification (D153).
+    var playsSound = true
     /// A notification was clicked: show this session.
     var onOpen: (UUID) -> Void = { _ in }
     /// Allow / Deny on a permission's notification: session, request, answer.
@@ -46,9 +48,18 @@ final class AgentNotifier {
     fileprivate var waitingCount: Int { waiting.count }
 
     func post(_ attention: AgentAttention, session: UUID, agent: String, chat: String) {
-        guard isEnabled, !NSApp.isActive else { return }
-        waiting.insert(session)
-        NotificationRouter.shared.updateBadge()
+        guard !NSApp.isActive else { return }
+        if isEnabled {
+            waiting.insert(session)
+            NotificationRouter.shared.updateBadge()
+        }
+        guard isEnabled, isAuthorized != false, center != nil else {
+            // Notifications off or not allowed: the Mac's own sound still says it.
+            if playsSound, case .finished = attention { NSSound(named: "Glass")?.play() }
+            if playsSound, case .failed = attention { NSSound(named: "Basso")?.play() }
+            if case .permission = attention { NSApp.requestUserAttention(.informationalRequest) }
+            return
+        }
         let content = UNMutableNotificationContent()
         content.subtitle = chat
         content.sound = .default

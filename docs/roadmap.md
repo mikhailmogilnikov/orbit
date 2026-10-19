@@ -183,6 +183,11 @@
 - `orbit .` from a terminal (D142): Orbit → Install 'orbit' Command…; files open in their project's window
 - Built-in browser (D143): Open Browser… and a running task's "Open localhost:5173 in Orbit", back / forward / reload, Web Inspector
 - Push later agent turns to the pull request (D144)
+- Terminal editing keys (D155): ⌥←/→, ⌘←/→, ⌥⌫, ⌘⌫, ⇧↩ new line, ⌘K clear, ⌘↑/↓ scroll
+- Fix with Agent from Problems (D147); ⌘-click `file:line` in the terminal (D148)
+- Color swatches in the gutter with the color panel (D149); Copy GitHub Link / Open on GitHub (D150)
+- Sort / dedupe / reverse lines and case conversions (D151); pasted images in Markdown saved to assets/ (D152)
+- Keep awake while agents work, a sound when one finishes (D153); a stash's files and diffs (D154)
 - SVG opens as a live picture, Show Source / ⇧⌘V flips to the code (D145); image thumbnails in the gutter with hover and click (D146)
 - All agents overview (D130): every window's chats in the status bar's popover (⌃⌘A), Allow / Deny there and in notifications
 - Queued messages and review notes kept across launches (D131)
@@ -425,6 +430,8 @@ Everything below is known to be missing; nothing here is in progress.
   the UI.
 - Side-by-side diffs (D111): unverified on a Mac (row heights with long
   wrapped lines on one side, the header toggle).
+- Terminal keys (D155): unverified on a Mac (in zsh, Claude Code and Codex; ⇧↩ in each agent's prompt; ⌘K while a full-screen program runs).
+- D147–D154: unverified on a Mac (the Fix button's hover, ⌘-click on paths in the terminal, the color panel editing a literal while dragging, the permalink against GitHub, pasting a screenshot, the power assertion in `pmset -g assertions`, the stash rows).
 - SVG preview and gutter thumbnails (D145, D146): unverified on a Mac (crispness of an upscaled SVG, the thumbnail column beside folds and blame, the hover popover's place).
 - `orbit` command, browser (D142, D143): unverified on a Mac (the password prompt for /usr/local/bin, a file opening a new window and then its tab; the browser tab's toolbar, retry while a dev server starts, Inspect Element, tabs restored at launch). The browser has no tabs of its own, no find in page and no device sizes.
 - Editor (D139–D141): unverified on a Mac (⌥-drag over wrapped lines and folds, autoscroll while dragging; the large-file banner; Format Selection with each formatter). The running-task status item (D138) is unverified too.

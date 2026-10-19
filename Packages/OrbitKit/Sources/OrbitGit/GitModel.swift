@@ -117,6 +117,8 @@ final class GitModel {
         root.map { GitRepository(root: $0, environment: environment) }
     }
 
+    var repositoryForLinks: GitRepository? { state == .ready ? repository : nil }
+
     var branchTitle: String {
         status.branch ?? "Detached HEAD"
     }

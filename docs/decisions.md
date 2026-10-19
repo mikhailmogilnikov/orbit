@@ -156,6 +156,15 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D144. Later agent turns are pushed to the pull request
 - D145. SVG opens as its picture; Show Source flips the tab to the code
 - D146. Image thumbnails beside the line numbers
+- D147. Fix with Agent from the Problems panel
+- D148. ⌘-click a path in the terminal opens it in the editor
+- D149. Color swatches beside the line numbers, edited with the color panel
+- D150. Copy GitHub Link and Open on GitHub
+- D151. Text transforms: sort, dedupe, reverse lines; change case and naming style
+- D152. Images pasted into Markdown are saved in assets/
+- D153. The Mac stays awake while an agent works; a sound when one finishes
+- D154. A stash's files and diffs in the Source Control panel
+- D155. The terminal's editing keys, as in Terminal.app and iTerm
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3131,4 +3140,94 @@ Found off the main actor after a pause in typing (first 20,000 lines, one image
 per line); bitmaps are shrunk with ImageIO off the main actor. Hover shows it
 bigger with its name, click opens it. The column only exists while the file has
 any. Settings → Editor → Show image thumbnails; off in large files (D141).
+
+### D147. Fix with Agent from the Problems panel
+
+A problem row has a sparkles button on hover and a context menu: Fix with
+Agent, Fix All in “file”, Fix All Errors, Copy Message. It drafts a new chat
+(`AgentTasks.draftTask`, so the user reads it before sending) with each
+problem as `path:line:col severity (source): message` and the code around it
+(three lines each side, the line marked `>`), at most 30 per file. Task
+errors (D137) included: a failed build is one click from a fix.
+
+### D148. ⌘-click a path in the terminal opens it in the editor
+
+SwiftTerm already finds paths under the pointer (Ghostty's rules: with a
+slash or `./`, `~/`, `/`) and hands a ⌘-click to `requestOpenLink`. Orbit's
+terminal view takes it first: `file:line:col`, `file:line`, `file(line,col)`
+and `file://` resolve against the tab's folder, then the project's, and open
+at that line; web links and paths that don't exist go on to the default
+handling (the browser). A bare name without a slash (`main.swift:3`) isn't a
+link to SwiftTerm, so it isn't one here.
+
+### D149. Color swatches beside the line numbers, edited with the color panel
+
+As JetBrains does, in the gutter column of D146 (an image wins when a line
+has both): `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()/rgba()` and
+`hsl()/hsla()` with commas or spaces and `/ alpha`; the first per line. In
+Markdown and plain text a digits-only `#123` is an issue number, not a color;
+`&#123;` never is. Transparent colors sit on a checkered half. A click opens
+the system color panel; each change rewrites the literal in its own notation
+(case of hex digits, commas, rgb vs rgba kept; alpha added only when below 1).
+One object is the panel's target (AppKit doesn't retain it) and points at the
+literal being edited. Not inline in the text: that would need space the
+layout doesn't have (inline diff gaps are paragraph styles, D14).
+
+### D150. Copy GitHub Link and Open on GitHub
+
+In the editor's right-click menu and Git menu: a permalink to the selected
+lines (or the caret's) at the commit the host has: HEAD when a remote branch
+contains it, else the upstream's commit, since unpushed commits 404. The
+remote is `origin` or the first one; ssh, scp-like and https forms become
+`https://host/owner/repo`. GitLab (`/-/blob/…#L1-5`) and Bitbucket
+(`/src/…#lines-1:5`) get their own shapes, everything else GitHub's.
+
+### D151. Text transforms: sort, dedupe, reverse lines; change case and naming style
+
+Code menu and palette (not the right-click menu, which would grow too long):
+Sort Lines Ascending / Descending (natural order, `a2` before `a10`), Remove
+Duplicate Lines, Reverse Lines on the selected lines, or the whole file
+without a selection (its final newline stays last); Transform to UPPERCASE,
+lowercase, Title Case, camelCase, PascalCase, snake_case, kebab-case,
+CONSTANT_CASE on each selection or the word at each caret. Words split at
+separators and case changes, acronyms kept (`HTTPServer` → HTTP, Server).
+
+### D152. Images pasted into Markdown are saved in assets/
+
+⌘V in a Markdown file with an image on the pasteboard (a screenshot) writes
+`assets/image-<date-time>.png` beside the file and inserts `![](assets/…)`.
+Image files copied in Finder are linked where they are when inside the
+file's folder, else copied into `assets/` (a name taken gets `-2`); paths with
+spaces go in angle brackets. Text on the pasteboard pastes as usual, and
+other files aren't touched.
+
+### D153. The Mac stays awake while an agent works; a sound when one finishes
+
+While any window's agent is working, Orbit holds a PreventUserIdleSystemSleep
+power assertion (`AgentWakeLock`, app-wide like the agents directory, D130),
+released when none is; closing the lid still sleeps, which apps can't stop.
+When an agent finishes or fails in the background and no notification can say
+so (turned off, or not allowed), the Mac plays Glass / Basso; the Dock badge
+counts as before. Both are on by default, in Settings → Agents.
+
+### D154. A stash's files and diffs in the Source Control panel
+
+Stashes were listed with Pop, Apply and Delete. Now a row expands (its chevron,
+a double-click, or Show Files) into its files, and a file opens its diff:
+a stash is a commit on top of HEAD, so its files and sides are the commit's
+against the first parent (`%H` added to `git stash list`). Untracked files
+stashed with `-u` live in a third parent and aren't listed.
+
+### D155. The terminal's editing keys, as in Terminal.app and iTerm
+
+With ⌥ typing characters (accented letters, `@` on some layouts), SwiftTerm
+dropped ⌥←/→, ⌥⌫, ⌘⌫ and gave ⇧↩ no meaning. Orbit's terminal now sends what
+readline, zsh, Claude Code and Codex bind: ⌥←/→ ESC b / ESC f (word), ⌘←/→
+⌃A / ⌃E (line start / end), ⌥⌫ ESC DEL and ⌥⌦ ESC d (delete a word), ⌘⌫ ⌃U
+and ⌘⌦ ⌃K (to line start / end), ⇧↩ and ⌥↩ ESC CR (a new line in an agent's
+prompt). ⌘K clears the scrollback and sends ⌃L so the shell redraws;
+⌘↑/⌘↓ scroll to the top / bottom of the scrollback. Matched by key code
+(any layout), only while the terminal has focus, through a local key monitor:
+SwiftTerm's `keyDown` isn't open, and ⌘K would otherwise reach the editor's
+Edit with Agent in the menu first.
 

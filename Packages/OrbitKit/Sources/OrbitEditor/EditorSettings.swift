@@ -140,8 +140,8 @@ struct EditorSettingsPane: View {
                     Text("Who changed each line and when, beside the line numbers; click one for its commit.")
                 }
                 OptionToggle(options: options, option: .imageThumbnails) {
-                    Text("Show image thumbnails")
-                    Text("Beside the line numbers, for images a line refers to (./logo.png, /hero.webp); hover for a bigger one, click to open it.")
+                    Text("Show images and colors beside the line numbers")
+                    Text("Thumbnails of images a line refers to (./logo.png; hover for a bigger one, click to open it) and swatches of colors it spells out (#ff5500, rgb(…); click to pick another).")
                 }
                 OptionToggle(options: options, option: .inlayHints) {
                     Text("Show inlay hints")

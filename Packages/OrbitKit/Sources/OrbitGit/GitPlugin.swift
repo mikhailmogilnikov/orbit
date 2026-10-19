@@ -93,6 +93,7 @@ public final class GitPlugin: OrbitPlugin {
 
         // The Editor plugin activates later; look its service up when drawing.
         let services = context.services
+        registerRemoteLinks(context, model: model, isReady: isReady)
         ui.addStatusItem(StatusItem(
             id: "git.blame", placement: .trailing, order: 50,
             isVisible: {
@@ -114,6 +115,48 @@ public final class GitPlugin: OrbitPlugin {
             MainActor.assumeIsolated { model.refresh() }
         }
         model.refresh()
+    }
+
+    /// Copy GitHub Link / Open on GitHub for the selected lines (D150).
+    private func registerRemoteLinks(_ context: PluginContext, model: GitModel, isReady: @escaping @MainActor () -> Bool) {
+        let services = context.services
+        let workspace = context.workspace
+        func target() -> (url: URL, lines: ClosedRange<Int>?)? {
+            guard let url = workspace.activeTab?.url, workspace.activeTab?.kind == EditorTab.fileKind else { return nil }
+            let editor = services.resolve(EditorSelectionProviding.self)
+            if let selection = editor?.selection, selection.url == url { return (url, selection.lines) }
+            if let cursor = editor?.cursor, cursor.url == url { return (url, (cursor.line + 1)...(cursor.line + 1)) }
+            return (url, nil)
+        }
+        func link(_ use: @escaping @MainActor (URL) -> Void) {
+            guard let target = target() else { return NSSound.beep() }
+            Task {
+                guard let url = await model.remoteLink(for: target.url, lines: target.lines) else {
+                    let alert = NSAlert()
+                    alert.messageText = "No link for this file"
+                    alert.informativeText = "The repository has no remote on a web host, or the file isn't in it."
+                    alert.runModal()
+                    return
+                }
+                use(url)
+            }
+        }
+        let available: @MainActor () -> Bool = { isReady() && workspace.activeTab?.kind == EditorTab.fileKind }
+        context.commands.register(OrbitCommand(
+            id: "git.copyRemoteLink", title: "Copy GitHub Link", category: "Git", systemImage: "link",
+            isEnabled: available, editorMenu: EditorMenuPlacement(.navigate, isVisible: available)
+        ) {
+            link { url in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+            }
+        })
+        context.commands.register(OrbitCommand(
+            id: "git.openRemote", title: "Open on GitHub", category: "Git", systemImage: "safari",
+            isEnabled: available, editorMenu: EditorMenuPlacement(.navigate, isVisible: available)
+        ) {
+            link { NSWorkspace.shared.open($0) }
+        })
     }
 
     public func deactivate() {

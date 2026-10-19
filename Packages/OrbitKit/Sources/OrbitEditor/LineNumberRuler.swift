@@ -36,16 +36,25 @@ final class LineNumberRuler: NSRulerView {
         didSet {
             guard images != oldValue else { return }
             thumbnails.clear()
-            if images.isEmpty != oldValue.isEmpty { reloadLineStarts() } else { needsDisplay = true }
+            if hasPictureColumn != (!oldValue.isEmpty || !swatches.isEmpty) { reloadLineStarts() } else { needsDisplay = true }
         }
     }
     var onImageClick: ((URL) -> Void)?
+    /// Colors lines spell out (D149), in the same column; a click edits one.
+    var swatches: [Int: NSColor] = [:] {
+        didSet {
+            guard swatches != oldValue else { return }
+            if hasPictureColumn != (!images.isEmpty || !oldValue.isEmpty) { reloadLineStarts() } else { needsDisplay = true }
+        }
+    }
+    var onSwatchClick: ((Int) -> Void)?
+    private var hasPictureColumn: Bool { !images.isEmpty || !swatches.isEmpty }
     private lazy var thumbnails: ThumbnailCache = {
         let cache = ThumbnailCache()
         cache.onLoad = { [weak self] in self?.needsDisplay = true }
         return cache
     }()
-    private var imageColumn: CGFloat { images.isEmpty ? 0 : Self.imageWidth }
+    private var imageColumn: CGFloat { hasPictureColumn ? Self.imageWidth : 0 }
     private static let imageWidth: CGFloat = 20
     private var imagePopover: NSPopover?
     private var popoverLine: Int?
@@ -190,9 +199,10 @@ final class LineNumberRuler: NSRulerView {
                 let startsRun = index == 0 || index - 1 >= blame.count || blame[index - 1].hash != blame[index].hash || index == firstVisibleLine
                 drawBlame(blame[index], top: top, height: height, label: startsRun)
             }
-            if let url = images[index], let first = fragment.textLineFragments.first {
+            if hasPictureColumn, images[index] != nil || swatches[index] != nil, let first = fragment.textLineFragments.first {
                 let top = convert(NSPoint(x: 0, y: content.minY + frame.minY + first.typographicBounds.minY), from: textView).y
-                drawThumbnail(url, in: thumbnailRect(top: top, height: first.typographicBounds.height))
+                let rect = thumbnailRect(top: top, height: first.typographicBounds.height)
+                if let url = images[index] { drawThumbnail(url, in: rect) } else if let color = swatches[index] { drawSwatch(color, in: rect.insetBy(dx: 1.5, dy: 1.5)) }
             }
             if firstVisibleLine == nil { firstVisibleLine = index }
             for (position, lineFragment) in fragment.textLineFragments.enumerated() {
@@ -211,6 +221,27 @@ final class LineNumberRuler: NSRulerView {
     private func thumbnailRect(top: CGFloat, height: CGFloat) -> NSRect {
         let side = min(16, max(10, height))
         return NSRect(x: markerX + Self.markerWidth + 3, y: top + (height - side) / 2, width: side, height: side)
+    }
+
+    /// A see-through color over a checkered half, so its alpha shows.
+    private func drawSwatch(_ color: NSColor, in rect: NSRect) {
+        let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
+        if color.alphaComponent < 1 {
+            NSGraphicsContext.saveGraphicsState()
+            path.addClip()
+            NSColor.white.setFill()
+            rect.fill()
+            NSColor(white: 0.75, alpha: 1).setFill()
+            let half = rect.width / 2
+            NSRect(x: rect.minX, y: rect.minY, width: half, height: half).fill()
+            NSRect(x: rect.minX + half, y: rect.minY + half, width: half, height: half).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        color.setFill()
+        path.fill()
+        colors.number.withAlphaComponent(0.45).setStroke()
+        path.lineWidth = 0.5
+        path.stroke()
     }
 
     /// Fit into a rounded square; a hairline keeps a white image visible on white.
@@ -343,6 +374,12 @@ final class LineNumberRuler: NSRulerView {
         return line
     }
 
+    private func swatchLine(at point: NSPoint) -> Int? {
+        guard !swatches.isEmpty, point.x >= markerX, point.x < markerX + Self.markerWidth + imageColumn,
+              let line = line(atRulerY: point.y), swatches[line] != nil, images[line] == nil else { return nil }
+        return line
+    }
+
     private func imageRect(forLine line: Int) -> NSRect? {
         guard let textView, line < lineStarts.count,
               let location = textView.textContentManager.location(textView.textLayoutManager.documentRange.location, offsetBy: lineStarts[line]),
@@ -363,6 +400,10 @@ final class LineNumberRuler: NSRulerView {
         if let line = imageLine(at: point), let url = images[line] {
             closeImagePopover()
             onImageClick?(url)
+            return
+        }
+        if let line = swatchLine(at: point) {
+            onSwatchClick?(line)
             return
         }
         guard let line = line(atRulerY: point.y), folds[line] != nil else {

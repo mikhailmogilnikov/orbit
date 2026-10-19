@@ -190,3 +190,31 @@ final class TaskProblemStore: TaskProblems {
             .sorted { $0.url.path < $1.url.path }
     }
 }
+
+/// A path the terminal found under a ⌘-click (D148): `src/a.ts:12:5`,
+/// `a.ts(12,5)`, `./main.go:8`, `file:///…`; nil for web links and paths that don't exist.
+enum TerminalLink {
+    nonisolated(unsafe) static let position = /(?<path>.+?)(?::(?<line>\d+)(?::(?<column>\d+))?|\((?<pline>\d+),(?<pcolumn>\d+)\))?:?/
+
+    static func file(_ link: String, in directories: [URL]) -> (url: URL, line: Int?, column: Int?)? {
+        var text = link.trimmingCharacters(in: .whitespaces)
+        if text.hasPrefix("file://") {
+            guard let url = URL(string: text), url.isFileURL else { return nil }
+            text = url.path
+        } else if text.contains("://") || text.hasPrefix("mailto:") {
+            return nil
+        }
+        guard let match = text.wholeMatch(of: position) else { return nil }
+        var path = String(match.path)
+        if path.hasPrefix("~/") { path = NSHomeDirectory() + path.dropFirst() }
+        if path.hasPrefix("./") { path.removeFirst(2) }
+        let candidates = path.hasPrefix("/") ? [URL(fileURLWithPath: path)] : directories.map { $0.appendingPathComponent(path) }
+        var isDirectory: ObjCBool = false
+        guard let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path, isDirectory: &isDirectory) && !isDirectory.boolValue }) else {
+            return nil
+        }
+        let line = (match.line ?? match.pline).flatMap { Int($0) }.map { max(0, $0 - 1) }
+        let column = (match.column ?? match.pcolumn).flatMap { Int($0) }.map { max(0, $0 - 1) }
+        return (url.standardizedFileURL, line, column)
+    }
+}

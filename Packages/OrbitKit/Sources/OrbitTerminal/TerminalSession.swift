@@ -31,6 +31,7 @@ final class TerminalSession: Identifiable {
         let delegate = Delegate(session: self)
         self.delegate = delegate
         view.processDelegate = delegate
+        view.directories = [directory] + (root.map { [$0] } ?? [])
         if task != nil {
             output = TaskOutputParser(directories: [directory] + (root.map { [$0] } ?? []))
             view.onData = { [weak self] bytes in self?.read(bytes) }
@@ -61,6 +62,7 @@ final class TerminalSession: Identifiable {
         self.delegate = delegate
         view.processDelegate = delegate
         view.onData = { [weak agentTerminal] bytes in agentTerminal?.receive(bytes) }
+        view.directories = [request.directory]
 
         var env = request.environment
         env["TERM"] = "xterm-256color"
@@ -227,6 +229,10 @@ final class TerminalSession: Identifiable {
 final class OrbitTerminalView: LocalProcessTerminalView {
     /// Raw output as it arrives, for agent commands.
     var onData: (@MainActor (ArraySlice<UInt8>) -> Void)?
+    /// Where relative paths in the output start (the shell's folder, then the project's).
+    var directories: [URL] = []
+    /// ⌘-click on `file:line:col` (D148): opens it in the editor; false when it isn't a file here.
+    var onOpenFile: ((URL, Int?, Int?) -> Bool)?
 
     private var themeObserver: NSObjectProtocol?
 
@@ -243,10 +249,47 @@ final class OrbitTerminalView: LocalProcessTerminalView {
 
     isolated deinit {
         if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not used")
+    }
+
+    /// SwiftTerm's `keyDown` can't be overridden; a local monitor also sees ⌘ keys
+    /// before the menus (⌘K is Edit with Agent in the editor).
+    private var keyMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+        guard window != nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let handled = MainActor.assumeIsolated {
+                guard let self, event.window === self.window, self.window?.firstResponder === self else { return false }
+                return self.handle(event)
+            }
+            return handled ? nil : event
+        }
+    }
+
+    private func handle(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, !hasMarkedText(), let action = TerminalKeys.action(keyCode: event.keyCode, modifiers: event.modifierFlags) else { return false }
+        switch action {
+        case .send(let bytes): send(bytes)
+        case .clear:
+            clearScrollback()
+            send([0x0C])
+        case .scrollToTop: scrollUp(lines: Int(Int32.max))
+        case .scrollToBottom: scrollDown(lines: Int(Int32.max))
+        }
+        return true
+    }
+
+    override func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
+        if let target = TerminalLink.file(link, in: directories), onOpenFile?(target.url, target.line, target.column) == true { return }
+        super.requestOpenLink(source: source, link: link, params: params)
     }
 
     override func dataReceived(slice: ArraySlice<UInt8>) {

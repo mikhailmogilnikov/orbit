@@ -254,6 +254,8 @@ struct GitStash: Identifiable, Hashable, Sendable {
     let index: Int
     let message: String
     let date: Date
+    /// Its commit: what the panel lists the files of (D154).
+    var hash = ""
 
     var id: Int { index }
     var ref: String { "stash@{\(index)}" }
@@ -294,7 +296,7 @@ struct GitBlameLine: Hashable, Sendable {
 
 extension GitRepository {
     func stashes() -> [GitStash] {
-        GitParse.stashes(String(decoding: (try? run(["stash", "list", "--format=%gd%x1f%ct%x1f%gs"])) ?? Data(), as: UTF8.self))
+        GitParse.stashes(String(decoding: (try? run(["stash", "list", "--format=%gd%x1f%ct%x1f%H%x1f%gs"])) ?? Data(), as: UTF8.self))
     }
 
     /// Untracked files go into the stash too, so "stash, switch, pop" moves everything.
@@ -362,16 +364,16 @@ enum GitParse {
 
     static func stashes(_ text: String) -> [GitStash] {
         text.split(separator: "\n").compactMap { line in
-            let parts = line.split(separator: field, maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3,
+            let parts = line.split(separator: field, maxSplits: 3, omittingEmptySubsequences: false)
+            guard parts.count == 4,
                   let open = parts[0].firstIndex(of: "{"), let close = parts[0].firstIndex(of: "}"),
                   let index = Int(parts[0][parts[0].index(after: open)..<close]) else { return nil }
-            var message = String(parts[2])
+            var message = String(parts[3])
             // "On main: wip" / "WIP on main: 1a2b3c subject": the branch is noise in a list.
             if let colon = message.range(of: ": "), message.hasPrefix("On ") || message.hasPrefix("WIP on ") {
                 message = String(message[colon.upperBound...])
             }
-            return GitStash(index: index, message: message, date: Date(timeIntervalSince1970: TimeInterval(parts[1]) ?? 0))
+            return GitStash(index: index, message: message, date: Date(timeIntervalSince1970: TimeInterval(parts[1]) ?? 0), hash: String(parts[2]))
         }
     }
 

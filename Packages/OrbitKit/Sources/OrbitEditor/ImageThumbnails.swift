@@ -101,20 +101,33 @@ final class ThumbnailCache {
 
 extension CodeEditor.Coordinator {
     /// After a pause in typing, off the main actor: which lines name an image.
+    /// Images (D146) and colors (D149) the lines spell out, for the gutter.
     func scheduleImageReferences(delay: Duration = .milliseconds(400)) {
         imagesTask?.cancel()
         guard showsImageThumbnails, let textView else {
             ruler?.images = [:]
+            ruler?.swatches = [:]
+            colorLiterals = [:]
             return
         }
         let text = textView.text ?? ""
         let file = document.url, root = imageRoot
+        let prose = ["md", "markdown", "mdx", "txt", "rst"].contains(file.pathExtension.lowercased())
         imagesTask = Task { [weak self] in
             if delay > .zero { try? await Task.sleep(for: delay) }
             guard !Task.isCancelled else { return }
-            let images = await Task.detached(priority: .utility) { ImageReferences.find(in: text, file: file, root: root) }.value
-            guard !Task.isCancelled else { return }
-            self?.ruler?.images = images
+            let (images, colors) = await Task.detached(priority: .utility) {
+                (ImageReferences.find(in: text, file: file, root: root), ColorLiterals.find(in: text, prose: prose))
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            ruler?.images = images
+            colorLiterals = colors
+            ruler?.swatches = colors.mapValues(\.color)
         }
+    }
+
+    func editColor(onLine line: Int) {
+        guard let literal = colorLiterals[line] else { return }
+        ColorEditing.shared.edit(literal, in: self)
     }
 }

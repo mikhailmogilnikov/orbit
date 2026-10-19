@@ -241,6 +241,8 @@ final class AgentStore {
         restoreTabs()
         observeFolder()
         notifier.isEnabled = notifies
+        notifier.playsSound = playsSound
+        AgentWakeLock.shared.start()
         notifier.onOpen = { [weak self] id in
             guard let self, let session = sessions.first(where: { $0.id == id }) else { return }
             show(session)
@@ -330,6 +332,24 @@ final class AgentStore {
         didSet {
             settings.set(!notifies, for: "notificationsOff")
             notifier.isEnabled = notifies
+        }
+    }
+
+    /// When notifications are off or not allowed (D153).
+    var playsSound: Bool = UserDefaults.standard.object(forKey: "orbit.agents.sound") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(playsSound, forKey: "orbit.agents.sound")
+            notifier.playsSound = playsSound
+        }
+    }
+
+    var keepsAwake: Bool {
+        get {
+            access(keyPath: \.keepsAwake)
+            return AgentWakeLock.shared.isEnabled
+        }
+        set {
+            withMutation(keyPath: \.keepsAwake) { AgentWakeLock.shared.isEnabled = newValue }
         }
     }
 

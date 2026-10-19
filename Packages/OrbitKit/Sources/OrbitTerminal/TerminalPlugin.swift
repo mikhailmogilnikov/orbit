@@ -186,6 +186,7 @@ final class TerminalStore: TerminalOpening {
             session = TerminalSession(directory: directory, task: task, root: root)
             session.onExit = { [weak self] session in self?.remove(session) }
             session.onProblems = { [weak self] session in self?.problems.update(session.id, session.output?.problems ?? [:]) }
+            linkFiles(session)
             sessions.append(session)
         }
         selectedID = session.id
@@ -214,6 +215,16 @@ final class TerminalStore: TerminalOpening {
         }
     }
 
+    /// ⌘-clicked paths open in the editor (D148).
+    func linkFiles(_ session: TerminalSession) {
+        if let root = workspace.root, !session.view.directories.contains(root) { session.view.directories.append(root) }
+        session.view.onOpenFile = { [weak self] url, line, column in
+            guard let workspace = self?.workspace else { return false }
+            if let line { workspace.openFile(url, line: line, column: column) } else { workspace.openFile(url) }
+            return true
+        }
+    }
+
     func reveal(_ session: TerminalSession) {
         selectedID = session.id
         ui.revealBottomPanel(Self.panelID)
@@ -237,8 +248,9 @@ final class TerminalStore: TerminalOpening {
     var hasShell: Bool { sessions.contains { !$0.isAgent } }
 
     func newSession(in directory: URL? = nil) {
-        let session = TerminalSession(directory: directory ?? workspace.root ?? URL(fileURLWithPath: NSHomeDirectory()))
+        let session = TerminalSession(directory: directory ?? workspace.root ?? URL(fileURLWithPath: NSHomeDirectory()), root: workspace.root)
         session.onExit = { [weak self] session in self?.remove(session) }
+        linkFiles(session)
         sessions.append(session)
         selectedID = session.id
         ui.revealBottomPanel(Self.panelID)
@@ -344,6 +356,7 @@ extension TerminalStore: AgentTerminalHosting {
     @discardableResult
     private func add(_ session: TerminalSession) -> TerminalSession {
         session.onExit = { [weak self] _ in self?.pruneAgentSessions() }
+        linkFiles(session)
         sessions.append(session)
         return session
     }
