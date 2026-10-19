@@ -88,6 +88,11 @@ public enum Theme {
     @MainActor public static var dropFill: Color { accent.opacity(0.1) }
     @MainActor public static var dropBorder: Color { accent.opacity(0.6) }
 
+    /// `code` spans in chat replies and Markdown (D163).
+    public static let inlineCode = Color(nsColor: .dynamic(
+        light: NSColor(srgbRed: 0.75, green: 0.2, blue: 0.3, alpha: 1),
+        dark: NSColor(srgbRed: 0.95, green: 0.47, blue: 0.52, alpha: 1)))
+
     /// Behind the terminal, so the padding around it matches.
     @MainActor public static var terminalBackground: Color {
         themed({ $0.terminalBackground ?? $0.editorBackground }, .textBackgroundColor)
@@ -342,5 +347,43 @@ public struct EmptyStateView<Actions: View>: View {
 extension EmptyStateView where Actions == EmptyView {
     public init(_ title: String, systemImage: String, message: String? = nil) {
         self.init(title, systemImage: systemImage, message: message) { EmptyView() }
+    }
+}
+
+/// A light sweeping across text while something is in progress ("Thinking…"),
+/// as in Claude Code and Apple Intelligence; still under Reduce Motion.
+private struct Shimmer: ViewModifier {
+    let isActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if isActive, !reduceMotion {
+            content.overlay {
+                TimelineView(.animation) { context in
+                    let period = 1.8
+                    let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+                    // The band travels from off the leading edge to off the trailing one.
+                    let center = -0.4 + phase * 1.8
+                    LinearGradient(
+                        stops: [
+                            .init(color: .primary.opacity(0), location: 0),
+                            .init(color: .primary.opacity(0.9), location: 0.5),
+                            .init(color: .primary.opacity(0), location: 1),
+                        ],
+                        startPoint: UnitPoint(x: center - 0.35, y: 0.5),
+                        endPoint: UnitPoint(x: center + 0.35, y: 0.5))
+                }
+                .mask { content }
+                .allowsHitTesting(false)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    public func shimmer(_ isActive: Bool = true) -> some View {
+        modifier(Shimmer(isActive: isActive))
     }
 }

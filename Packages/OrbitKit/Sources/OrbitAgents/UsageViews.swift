@@ -13,8 +13,8 @@ struct UsageButton: View {
     var body: some View {
         Button { isPresented.toggle() } label: {
             HStack(spacing: 4) {
-                UsageRing(fraction: usage.contextFraction, tint: UsageTint.color(for: usage.contextFraction))
-                    .frame(width: 15, height: 15)
+                UsageRing(fraction: usage.contextFraction, tint: UsageTint.color(for: usage.contextFraction), style: .pie)
+                    .frame(width: 13, height: 13)
                 if usage.hasContext, usage.contextFraction >= 0.5 {
                     Text(UsageFormat.percent(usage.contextFraction))
                         .font(.orbit(.caption, weight: .medium))
@@ -60,16 +60,54 @@ struct UsageRing: View {
     let tint: Color
     var lineWidth: CGFloat = 2.2
 
+    /// A ring when large (the popover); in the composer a filled pie (D163):
+    /// an empty ring there read as a spinner that never stops.
+    var style: Style = .ring
+
+    enum Style { case ring, pie }
+
     var body: some View {
-        ZStack {
-            Circle().stroke(Color.primary.opacity(0.13), lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: max(fraction, fraction > 0 ? 0.03 : 0))
-                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+        Group {
+            switch style {
+            case .ring:
+                ZStack {
+                    Circle().stroke(Color.primary.opacity(0.13), lineWidth: lineWidth)
+                    Circle()
+                        .trim(from: 0, to: max(fraction, fraction > 0 ? 0.03 : 0))
+                        .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                .padding(lineWidth / 2)
+            case .pie:
+                ZStack {
+                    Circle().fill(Color.primary.opacity(0.14))
+                    PieSlice(fraction: max(fraction, fraction > 0 ? 0.04 : 0))
+                        .fill(tint)
+                    Circle().strokeBorder(Color.primary.opacity(0.18), lineWidth: 1)
+                }
+            }
         }
-        .padding(lineWidth / 2)
         .animation(.smooth, value: fraction)
+    }
+}
+
+/// The part of a circle from twelve o'clock, clockwise.
+private struct PieSlice: Shape {
+    var fraction: Double
+
+    var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2
+        return Path { path in
+            path.move(to: center)
+            path.addArc(center: center, radius: radius, startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * min(fraction, 1)), clockwise: false)
+            path.closeSubpath()
+        }
     }
 }
 

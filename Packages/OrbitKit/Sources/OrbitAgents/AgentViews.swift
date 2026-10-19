@@ -507,6 +507,7 @@ struct StatusFooter: View {
                 ProgressView().controlSize(.small)
                 Text("Starting \(session.provider.name)…")
                     .foregroundStyle(.secondary)
+                    .shimmer()
             }
             .font(.orbit(.body))
         case .working:
@@ -517,6 +518,7 @@ struct StatusFooter: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .shimmer()
                     if let start = session.turnStartedAt {
                         Text(timerInterval: start...Date.distantFuture, countsDown: false)
                             .monospacedDigit()
@@ -582,8 +584,8 @@ struct TurnSummaryView: View {
         let stats = pending.compactMap { tracker?.stats(for: $0) }
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle")
-                    .foregroundStyle(.tertiary)
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Theme.added)
                 Text("Worked for \(Self.format(entry.duration))")
                     .lineLimit(1)
                 if !files.isEmpty {
@@ -832,6 +834,7 @@ struct ThoughtView: View {
                 }
                 .font(.orbit(.micro, weight: .medium))
                 .foregroundStyle(.secondary)
+                .shimmer(entry.startedAt != nil && entry.endedAt == nil)
             }
             .buttonStyle(.plain)
             if isExpanded {
@@ -975,11 +978,16 @@ struct ToolCallRow: View {
                 withAnimation(.snappy(duration: 0.2)) { isExpanded = !expanded }
             } label: {
                 HStack(spacing: 6) {
+                    Image(systemName: Self.symbol(for: entry.toolKind))
+                        .font(.orbit(.caption, weight: .medium))
+                        .foregroundStyle(entry.status == "failed" ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+                        .frame(width: 14)
                     Text(Self.styledTitle(entry.title.isEmpty ? entry.toolKind.capitalized : entry.title))
                         .font(.orbit(.body))
                         .foregroundStyle(asking ? .primary : .secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .shimmer(entry.isRunning && !asking)
                     if hasDetails {
                         DisclosureChevron(isExpanded: expanded)
                             .foregroundStyle(.tertiary)
@@ -1003,10 +1011,12 @@ struct ToolCallRow: View {
             .buttonStyle(.plain)
 
             if expanded && hasDetails {
+                // In a group the group's card is the box; alone the details get one (D163).
                 details
-                    .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
-                    .padding(.horizontal, inset)
-                    .padding(.top, 2)
+                    .background(inGroup ? Color.clear : Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
+                    .padding(.leading, inGroup ? inset + 12 : inset)
+                    .padding(.trailing, inset)
+                    .padding(.top, inGroup ? 0 : 2)
                     .padding(.bottom, inset > 0 ? 8 : 2)
             }
 
@@ -1020,6 +1030,22 @@ struct ToolCallRow: View {
             if asking {
                 RoundedRectangle(cornerRadius: Theme.corner).strokeBorder(.orange.opacity(0.6))
             }
+        }
+    }
+
+    /// What kind of step it was, at a glance: ACP's tool kinds.
+    static func symbol(for kind: String) -> String {
+        switch kind {
+        case "read": "doc.text"
+        case "edit": "pencil"
+        case "delete": "trash"
+        case "move": "arrow.right.doc.on.clipboard"
+        case "search": "magnifyingglass"
+        case "execute": "terminal"
+        case "think": "brain"
+        case "fetch": "globe"
+        case "switch_mode": "arrow.triangle.2.circlepath"
+        default: "wrench.and.screwdriver"
         }
     }
 
@@ -1202,7 +1228,7 @@ struct ToolGroupView: View {
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        ProgressView().controlSize(.mini)
+                            .shimmer()
                     }
                     Spacer(minLength: 0)
                 }
@@ -1226,7 +1252,8 @@ struct ToolGroupView: View {
                         }
                     }
                 }
-                .overlay(RoundedRectangle(cornerRadius: Theme.corner).strokeBorder(Theme.hairline))
+                .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.corner, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).strokeBorder(Theme.hairline))
             }
         }
     }
@@ -1250,16 +1277,18 @@ struct AgentTerminalOutput: View {
                 .defaultScrollAnchor(.bottom)
             }
             HStack(spacing: 6) {
-                Text(status)
-                    .font(.orbit(.micro))
-                    .foregroundStyle(isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                // A clean exit says nothing: the output is the result (D163).
+                if let status {
+                    Text(status)
+                        .font(.orbit(.micro))
+                        .foregroundStyle(isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                }
                 Spacer(minLength: 4)
                 if terminal.isRunning, terminal.ownsProcess {
                     Button("Stop") { terminal.kill() }
                         .buttonStyle(.glass)
                 }
-                Button("Show in Terminal", systemImage: "terminal") { terminal.reveal() }
-                    .buttonStyle(.glass)
+                IconButton("macwindow", help: "Show in Terminal") { terminal.reveal() }
             }
             .controlSize(.small)
         }
@@ -1274,9 +1303,9 @@ struct AgentTerminalOutput: View {
         return !exit.succeeded
     }
 
-    private var status: String {
+    private var status: String? {
         guard let exit = terminal.exitStatus else { return "Running…" }
-        if let code = exit.exitCode { return code == 0 ? "Done" : "Exited with code \(code)" }
+        if let code = exit.exitCode { return code == 0 ? nil : "Exited with code \(code)" }
         if let signal = exit.signal { return "Stopped (\(signal))" }
         return "Ended"
     }
@@ -1438,11 +1467,16 @@ struct Composer: View {
                     Button("Paste Image", systemImage: "photo.on.rectangle", action: pasteImage)
                         .disabled(!NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil))
                 } label: {
-                    Image(systemName: "paperclip")
-                        .font(.orbit(.body, weight: .medium))
+                    Image(systemName: "plus")
+                        .font(.orbit(.body, weight: .semibold))
+                        .frame(width: 18, height: 18)
                 }
+                // A round "+" like Messages and Apple Intelligence (D163).
                 .menuStyle(.button)
-                .buttonStyle(.borderless)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .controlSize(.small)
+                .tint(nil)
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help("Attach files or images (or drop them here)")

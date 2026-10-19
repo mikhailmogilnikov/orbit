@@ -172,6 +172,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D160. The welcome screen laid out like Xcode 26's welcome window
 - D161. Command palette and Open Quickly look like Spotlight
 - D162. Alerts and open panels are sheets on the window
+- D163. The chat: Claude Code's flow, Apple's look
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3385,3 +3386,32 @@ discarding) works unchanged. With no window to hang it on, or a sheet
 already showing, it falls back to a plain dialog. New alerts and panels
 should use `runSheetModal()` too.
 
+### D163. The chat: Claude Code's flow, Apple's look
+
+The chat keeps everything D120–D122 took from Claude Code (folded runs of
+calls, the pinned plan, timed thoughts, Esc / ↑ / ⇧Tab, "Worked for … ·
+N files changed · Review") and looks more like a Mac app:
+
+- Every tool call has its kind's symbol in front (ACP's kinds: a page for
+  reads, a pencil for edits, a terminal for commands, a magnifier for
+  searches…), red when it failed.
+- An expanded run of calls is one filled card with divided rows; a row's
+  details (a diff, a command's output) sit in that card instead of a second
+  box inside it. A lone call still gets its own box.
+- A command that exited cleanly says nothing under its output (no "Done");
+  Show in Terminal is a small icon button, Stop stays a button while it runs.
+- The turn summary starts with a filled green check.
+- The composer's attach button is a round glass "+", like Messages'; the
+  context indicator is a small filled pie, since an empty ring at rest read
+  as a spinner that never stopped (the popover keeps the ring).
+
+- Inline `code` in replies is a soft red on a quiet fill (`Theme.inlineCode`),
+  as in Claude Code, so names and paths stand out of the prose.
+- Text for work in progress ("Thinking…", the "Working…" line, a running
+  call's title) shimmers (`.shimmer()` in OrbitUI), still under Reduce Motion.
+- The changed-files bar sits close to the composer: the composer's margin is
+  the only gap between them.
+- The "Working…" line no longer repeats a live row: while a thought streams
+  or a call runs, that row shimmers and the line just says "Working…" with
+  the timer (it used to show "Thinking…" twice). This changes D121's line,
+  which named the running call.

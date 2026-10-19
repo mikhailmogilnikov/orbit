@@ -165,19 +165,18 @@ enum ThoughtLabel {
 
 enum TurnActivity {
     /// What the agent is doing in its current turn, for the "Working…" line.
+    /// A running call or a thought still streaming already says so in its own
+    /// (shimmering) row, so the line doesn't repeat it (D163).
     @MainActor
     static func describe(_ entries: [TranscriptEntry]) -> String {
         var last: TranscriptEntry?
         for entry in entries.reversed() {
             if entry.kind == .user { break }
-            if entry.kind == .tool, entry.isRunning, entry.permission?.isPending != true {
-                let title = entry.title.isEmpty ? entry.toolKind.capitalized : entry.title
-                return title.replacingOccurrences(of: "`", with: "")
-            }
+            if entry.kind == .tool, entry.isRunning, entry.permission?.isPending != true { return "Working" }
             if last == nil, entry.kind != .plan, entry.kind != .notice { last = entry }
         }
         switch last?.kind {
-        case .thought: return "Thinking"
+        case .thought: return last?.startedAt != nil && last?.endedAt == nil ? "Working" : "Thinking"
         case .agent: return "Writing"
         default: return "Working"
         }

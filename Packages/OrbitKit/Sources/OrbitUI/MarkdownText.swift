@@ -179,7 +179,13 @@ public struct MarkdownText: View {
             return line
         }.joined(separator: "\n")
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: normalized, options: options)) ?? AttributedString(prose)
+        guard var result = try? AttributedString(markdown: normalized, options: options) else { return AttributedString(prose) }
+        // `code` spans stand out the way they do in Claude Code's replies.
+        for run in result.runs where run.inlinePresentationIntent?.contains(.code) == true {
+            result[run.range].foregroundColor = Theme.inlineCode
+            result[run.range].backgroundColor = Theme.activeFill
+        }
+        return result
     }
 }
 

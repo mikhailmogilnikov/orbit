@@ -43,7 +43,8 @@ struct AgentChangesBar: View {
             }
             .controlSize(.small)
             .padding(.horizontal, 14)
-            .padding(.vertical, 6)
+            // The composer below brings its own margin.
+            .padding(.top, 4)
             if store.isChangesExpanded {
                 ScrollView {
                     VStack(spacing: 0) {

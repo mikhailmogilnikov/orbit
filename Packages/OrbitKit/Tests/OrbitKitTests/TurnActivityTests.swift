@@ -24,7 +24,7 @@ import Testing
 
 @MainActor
 @Suite struct TurnActivityTests {
-    @Test func namesTheRunningTool() {
+    @Test func leavesTheRunningToolToItsRow() {
         let user = TranscriptEntry(kind: .user, text: "fix it")
         let done = TranscriptEntry(kind: .tool)
         done.title = "Read Foo.swift"
@@ -32,7 +32,7 @@ import Testing
         let running = TranscriptEntry(kind: .tool)
         running.title = "Edit `Bar.swift`"
         running.status = "in_progress"
-        #expect(TurnActivity.describe([user, done, running]) == "Edit Bar.swift")
+        #expect(TurnActivity.describe([user, done, running]) == "Working")
         #expect(TurnActivity.describe([user, done]) == "Working")
     }
 
@@ -40,6 +40,9 @@ import Testing
         let user = TranscriptEntry(kind: .user, text: "hi")
         #expect(TurnActivity.describe([user, TranscriptEntry(kind: .thought, text: "hm")]) == "Thinking")
         #expect(TurnActivity.describe([user, TranscriptEntry(kind: .agent, text: "Sure")]) == "Writing")
+        let streaming = TranscriptEntry(kind: .thought, text: "hm")
+        streaming.startedAt = Date()
+        #expect(TurnActivity.describe([user, streaming]) == "Working")
         // A tool still running from an earlier turn doesn't count.
         let stale = TranscriptEntry(kind: .tool)
         stale.title = "Old"
