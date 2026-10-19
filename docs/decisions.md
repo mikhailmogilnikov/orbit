@@ -170,6 +170,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D158. Settings laid out like System Settings: groups, tiles, header cards, pages
 - D159. System empty states; numbers and symbols animate like Apple's apps
 - D160. The welcome screen laid out like Xcode 26's welcome window
+- D161. Command palette and Open Quickly look like Spotlight
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2604,7 +2605,7 @@ size kept: monospaced glyphs look larger, so 11.5 sits with 12 text),
 (SF Symbols are sized like text); glyph-only sizes (7–9 pt chevrons, an
 18 pt card icon) stay literal. The editor and terminal follow the user's
 font size, not the scale. The unused `Theme.codeFont` is gone.
-(Glyph sizes got a token in D157: `.glyph`, 8 pt.)
+(Glyph sizes got a token in D157: `.glyph`, 8 pt. The palette's query moved to `.large`, 20 pt, in D161.)
 (The ~90 SwiftUI text styles left over (`.callout`, `.caption`, `.headline`…)
 moved to the scale at their macOS sizes, so nothing changed on screen:
 caption / caption2 → micro, callout → body, headline → control bold,
@@ -3358,4 +3359,15 @@ like a sidebar, the recent projects as a list with Finder's folder icon, the nam
 `.git/HEAD`, no git process) and where it lives. As in Xcode, a click selects
 a project and a double-click or Return opens it; right-click opens, shows in
 Finder or removes it from the list.
+
+### D161. Command palette and Open Quickly look like Spotlight
+
+The quick pick (⇧⌘P, ⌘P, the theme selector and every plugin's picks) was
+a 580-pt panel with a 15-pt query and one-line rows: "Category  Title"
+for commands, the shortcut as plain text. It now reads like macOS 26's
+Spotlight: a 640-pt glass panel with a 20-pt query and magnifier
+(`TypeScale.large`), rows 44 pt high with the icon on a tile (files keep
+their own icon), the title over a dimmed detail line — a command's
+category, a file's folder — and shortcuts as key caps. The result list is
+as tall as its rows, up to 400 pt, instead of always taking the maximum.
 

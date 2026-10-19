@@ -20,17 +20,13 @@ enum CommandPalette {
     }
 
     private static func item(for command: OrbitCommand, label: String, positions: [Int], commands: CommandRegistry) -> QuickPickItem {
-        // Category dimmed, then the title; matches highlighted in both.
+        // The title with its matches highlighted, the category under it (D161).
         let titleOffset = command.category.count + 2
-        var title = FuzzyMatch.highlighted(command.category, positions: positions.filter { $0 < command.category.count })
-        for run in title.runs where run.foregroundColor == nil {
-            title[run.range].foregroundColor = .secondary
-        }
-        title += AttributedString("  ")
-        title += FuzzyMatch.highlighted(command.title, positions: positions.filter { $0 >= titleOffset }.map { $0 - titleOffset })
+        let title = FuzzyMatch.highlighted(command.title, positions: positions.filter { $0 >= titleOffset }.map { $0 - titleOffset })
         return QuickPickItem(
             id: command.id,
             title: title,
+            subtitle: command.category,
             systemImage: command.systemImage ?? "command",
             trailing: command.displayShortcut?.displayString
         ) {
@@ -117,17 +113,19 @@ struct QuickPickOverlay: View {
                 .onTapGesture { dismiss() }
 
             VStack(spacing: 0) {
-                HStack(spacing: 10) {
+                // A large query field like Spotlight's (D161).
+                HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
+                        .font(.orbit(.large, weight: .medium))
                         .foregroundStyle(.secondary)
                     TextField(state.pick.placeholder, text: $state.query)
                         .textFieldStyle(.plain)
-                        .font(.orbit(.title))
+                        .font(.orbit(.large))
                         .focused($isFocused)
                         .onSubmit { run() }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 13)
+                .padding(.horizontal, 18)
+                .frame(height: 54)
 
                 if !state.results.isEmpty {
                     Divider()
@@ -143,14 +141,15 @@ struct QuickPickOverlay: View {
                                         }
                                 }
                             }
-                            .padding(6)
+                            .padding(8)
                         }
-                        .frame(maxHeight: 340)
+                        // As tall as its rows, up to a limit: a scroll view alone takes all it's offered.
+                        .frame(height: min(400, CGFloat(state.results.count) * 46 + 16))
                         .onChange(of: state.selectedIndex) { _, index in proxy.scrollTo(index) }
                     }
                 }
             }
-            .frame(width: 580)
+            .frame(width: 640)
             .glassEffect(.regular, in: .rect(cornerRadius: Theme.panelCorner))
             .shadow(color: .black.opacity(0.18), radius: 30, y: 12)
             .padding(.top, 70)
@@ -192,36 +191,45 @@ struct QuickPickRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if let fileURL = item.fileURL {
-                FileIconView(url: fileURL, size: 16)
-                    .frame(width: 18)
-                    .foregroundStyle(isSelected ? .primary : .secondary)
-            } else if let systemImage = item.systemImage {
-                Image(systemName: systemImage)
-                    .frame(width: 18)
-                    .foregroundStyle(isSelected ? .primary : .secondary)
+            Group {
+                if let fileURL = item.fileURL {
+                    FileIconView(url: fileURL, size: 20)
+                } else if let systemImage = item.systemImage {
+                    Image(systemName: systemImage)
+                        .font(.orbit(.control, weight: .medium))
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .frame(width: 28, height: 28)
+                        .background(Theme.activeFill, in: .rect(cornerRadius: Theme.smallCorner, style: .continuous))
+                }
             }
-            Text(item.title)
-                .lineLimit(1)
-                .layoutPriority(1)
-            if let subtitle = item.subtitle {
-                Text(subtitle)
-                    .foregroundStyle(.secondary)
+            .frame(width: 28, height: 28)
+            // Title over the dimmed detail (category, folder), like a Spotlight result.
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.title)
+                    .font(.orbit(.control, weight: .medium))
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                if let subtitle = item.subtitle {
+                    Text(subtitle)
+                        .font(.orbit(.caption))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
             if let trailing = item.trailing {
-                Text(trailing)
-                    .font(.orbit(.body, design: .rounded))
-                    .foregroundStyle(.secondary)
+                if trailing.first.map({ "⌃⌥⇧⌘".contains($0) }) == true {
+                    KeyCaps(trailing)
+                } else {
+                    Text(trailing)
+                        .font(.orbit(.body))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
-        .font(.orbit(.control))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(isSelected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.corner))
+        .padding(.horizontal, 8)
+        .frame(minHeight: 44)
+        .background(isSelected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.corner, style: .continuous))
         .contentShape(.rect)
     }
 }
-

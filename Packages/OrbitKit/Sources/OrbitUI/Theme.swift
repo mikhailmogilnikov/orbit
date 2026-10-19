@@ -18,8 +18,10 @@ public enum TypeScale: CGFloat, Sendable {
     case body = 12
     /// Text fields, menus and primary rows.
     case control = 13
-    /// Page titles and the palette's query.
+    /// Page titles.
     case title = 15
+    /// The quick pick's query, as large as Spotlight's (D161).
+    case large = 20
     /// The welcome screens' name.
     case display = 28
 }
