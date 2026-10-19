@@ -139,6 +139,40 @@ final class ProjectWindows {
         }
     }
 
+    /// Files waiting for their project's window to open it.
+    @ObservationIgnored private var pendingFiles: [URL: [URL]] = [:]
+
+    /// A file from Finder or `orbit` (D142): in the window whose project has
+    /// it, else its project (the git repository around it, or its folder) opens first.
+    func openFile(_ url: URL) {
+        let file = url.standardizedFileURL
+        if let id = order.first(where: { hosts[$0]?.workspace.root.map { file.path.hasPrefix($0.path + "/") } == true }),
+           let host = hosts[id] {
+            NSApp.activate()
+            windows[id]?.window?.makeKeyAndOrderFront(nil)
+            host.workspace.openFile(file)
+            return
+        }
+        let folder = Self.project(of: file)
+        pendingFiles[folder, default: []].append(file)
+        open(folder)
+    }
+
+    func rootDidChange(_ host: PluginHost) {
+        guard let root = host.workspace.root?.standardizedFileURL, let files = pendingFiles.removeValue(forKey: root) else { return }
+        for file in files { host.workspace.openFile(file) }
+    }
+
+    private static func project(of file: URL) -> URL {
+        let folder = file.deletingLastPathComponent().standardizedFileURL
+        var candidate = folder
+        while candidate.path != "/" {
+            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent(".git").path) { return candidate }
+            candidate = candidate.deletingLastPathComponent()
+        }
+        return folder
+    }
+
     /// File → New Window: the welcome screen.
     func newWindow() { openNewWindow(nil) }
 

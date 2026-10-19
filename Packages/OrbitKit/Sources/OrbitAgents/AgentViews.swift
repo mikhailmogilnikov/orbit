@@ -428,6 +428,7 @@ private struct ChangesBarSlot: View {
 struct IsolationBar: View {
     let session: AgentSession
     @State private var isCreatingPullRequest = false
+    @State private var pushFailure: String?
 
     var body: some View {
         let count = session.unappliedChanges.count
@@ -459,6 +460,18 @@ struct IsolationBar: View {
             }
             if let url = session.isolatedCopy?.pullRequest {
                 PullRequestBadge(session: session, url: url)
+                if session.unpushedChanges > 0, session.pullRequestStatus?.state != .merged, session.pullRequestStatus?.state != .closed {
+                    Button(session.isPushing ? "Pushing…" : "Push \(session.unpushedChanges)") {
+                        Task {
+                            do { try await session.pushToPullRequest() } catch { pushFailure = error.localizedDescription }
+                        }
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(session.isPushing || session.status == .working)
+                    .help(session.status == .working
+                        ? "Wait for the agent to finish"
+                        : "Commit the \(session.unpushedChanges) file\(session.unpushedChanges == 1 ? "" : "s") changed since the last push and push them to the pull request")
+                }
             } else if session.isolatedCopy != nil {
                 Button("Create PR") { isCreatingPullRequest = true }
                     .buttonStyle(.glass)
@@ -472,6 +485,11 @@ struct IsolationBar: View {
         }
         .sheet(isPresented: $isCreatingPullRequest) {
             CreatePullRequestSheet(session: session)
+        }
+        .alert("Couldn't push to the pull request", isPresented: Binding { pushFailure != nil } set: { if !$0 { pushFailure = nil } }) {
+            Button("OK") {}
+        } message: {
+            Text(pushFailure ?? "")
         }
         .controlSize(.small)
         .padding(.horizontal, 14)

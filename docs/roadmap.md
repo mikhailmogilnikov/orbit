@@ -176,6 +176,13 @@
 - Merge conflicts in the editor (D134): Accept Current / Incoming / Both per block, Accept All, Mark as Resolved
 - Blame column beside the line numbers (D135, ⌥⌘B): author and age per commit run, click for the commit
 - History of any branch with search and a graph, ref badges (D136)
+- Task errors in Problems and as squiggles (D137): tsc, clang / Swift / Go, Rust, ESLint
+- Running tasks in the status bar with Show / Restart / Stop; monorepo packages' scripts in Run Task… (D138)
+- Box selection by ⌥-drag (D139); Format Selection keeps only the selection's changes (D140)
+- Large files open light (D141): no highlighting, LSP, git markers or blame, with Turn On
+- `orbit .` from a terminal (D142): Orbit → Install 'orbit' Command…; files open in their project's window
+- Built-in browser (D143): Open Browser… and a running task's "Open localhost:5173 in Orbit", back / forward / reload, Web Inspector
+- Push later agent turns to the pull request (D144)
 - All agents overview (D130): every window's chats in the status bar's popover (⌃⌘A), Allow / Deny there and in notifications
 - Queued messages and review notes kept across launches (D131)
 - Rewind Chat and Files (D132): the message and what followed leave the chat, the message returns to the composer, the agent is told to disregard them
@@ -233,7 +240,7 @@ Everything below is known to be missing; nothing here is in progress.
   the first one not; RubyGems / NuGet / opam packages can't be installed (D57)
 
 **Formatting**
-- Format selection / range and format on type
+- Format on type; Format Selection (D140) formats the whole file and keeps only the selection's changes
 - Running more than one tool in a row (Prettier, then ESLint fixes); ESLint
   is only used when nothing else formats the file
 - Presets for languages Orbit has no server for (ktfmt / ktlint,
@@ -251,10 +258,9 @@ Everything below is known to be missing; nothing here is in progress.
   (diffs, agent transcripts) aren't colored
 - Completion placeholders drawn as tokens (they're only selected)
 - Squiggles that follow edits before the server republishes
-- Multiple carets: no column (box) selection by ⌥-drag; indentation rules,
+- Multiple carets: indentation rules,
   bracket pairs and completion work only with one caret (D105); bracket
   match counts brackets in strings and comments
-- Large files (under the 50 MB limit, D106) open without any lighter mode: highlighting and LSP run as usual
 
 **Git and terminal**
 - Remote branches in the history's menu (All shows them); a three-pane
@@ -379,9 +385,9 @@ Everything below is known to be missing; nothing here is in progress.
   the next edit.
 - Agents overview and notification actions (D130): unverified on a Mac and with real agents (the popover from the status bar, the window coming forward, Allow from a notification while Orbit is behind).
 - Rewind (D132): unverified with a real agent (does it follow the note to disregard the rewound part?).
-- Create PR (D133): the git and `gh` path runs in the tests against a local remote and a stand-in `gh`; against GitHub, and the sheet and badge, unverified. A later agent turn doesn't update the pull request.
+- Create PR (D133): the git and `gh` path runs in the tests against a local remote and a stand-in `gh`; against GitHub, and the sheet and badge, unverified. Later turns are pushed with Push N (D144), also unverified against GitHub.
 - Releases (D129): no release made yet — the first `make release` (keychain access for the Sparkle key) and an update from one release to the next are unverified; Gatekeeper's first-launch prompt for an ad hoc build.
-- Tasks (D128): unverified on a Mac (typing into a shell that's still starting, e.g. with a slow prompt; ⌃C then restart of a dev server; ⌘R reaching the menu from the terminal and the chat). No problem matchers, no running-task indicator, root package only.
+- Tasks (D128): unverified on a Mac (typing into a shell that's still starting, e.g. with a slow prompt; ⌃C then restart of a dev server; ⌘R reaching the menu from the terminal and the chat). Problem matchers (D137) cover tsc, clang / Swift / Go, Rust and ESLint only (no Python tracebacks, Vite / esbuild boxes, Jest); a fixed error stays listed until the task reruns.
 - ⌘K (D127): unverified on a Mac and with a real agent (the popover's place above the selection, how Claude Code's plan mode and Codex's read-only mode answer the prompt, the time a warm agent takes).
 - Folder watching (D126): unverified on a Mac (latency in the tree, CPU while a terminal build runs in the project).
 - Review comments (D125): unverified on a Mac and with a real agent (the popover's place under a block and its keys, the note in the block's bar and the chip off blocks, the bar above the composer). Notes aren't saved across launches; a note follows its code only when the code is unchanged.
@@ -418,6 +424,8 @@ Everything below is known to be missing; nothing here is in progress.
   the UI.
 - Side-by-side diffs (D111): unverified on a Mac (row heights with long
   wrapped lines on one side, the header toggle).
+- `orbit` command, browser (D142, D143): unverified on a Mac (the password prompt for /usr/local/bin, a file opening a new window and then its tab; the browser tab's toolbar, retry while a dev server starts, Inspect Element, tabs restored at launch). The browser has no tabs of its own, no find in page and no device sizes.
+- Editor (D139–D141): unverified on a Mac (⌥-drag over wrapped lines and folds, autoscroll while dragging; the large-file banner; Format Selection with each formatter). The running-task status item (D138) is unverified too.
 - Git (D134–D136): unverified on a Mac (the conflict blocks and their bar,
   the blame column's width beside wide line numbers and folds, the graph's
   lines meeting between sidebar rows and its colors in light and dark).

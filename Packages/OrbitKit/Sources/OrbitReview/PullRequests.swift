@@ -46,6 +46,32 @@ extension IsolatedCopies {
         }.value
     }
 
+    func unpushedChanges(in copy: IsolatedCopy) async -> Int {
+        let directory = copy.directory
+        let paths = await Self.changedPaths(in: copy)
+        guard !paths.isEmpty else { return 0 }
+        return await Task.detached {
+            let status = (try? Shell.run("/usr/bin/git", ["status", "--porcelain", "--"] + paths, in: directory)) ?? ""
+            return status.split(separator: "\n").count
+        }.value
+    }
+
+    /// Later turns' changes: committed on the branch made by `publish` and pushed, which updates the pull request.
+    func pushUpdate(_ copy: IsolatedCopy, message: String, environment: [String: String]) async throws {
+        let directory = copy.directory
+        let paths = await Self.changedPaths(in: copy)
+        guard !paths.isEmpty else { return }
+        try await Task.detached {
+            let git = { (arguments: [String]) in try Shell.run("/usr/bin/git", arguments, in: directory, environment: environment) }
+            _ = try git(["add", "-A", "--"] + paths)
+            // Nothing new staged: only a push left over from a failed attempt, if any.
+            if (try? git(["diff", "--cached", "--quiet"])) == nil {
+                _ = try git(["commit", "-m", message])
+            }
+            _ = try git(["push"])
+        }.value
+    }
+
     private static func changedPaths(in copy: IsolatedCopy) async -> [String] {
         await Task.detached {
             let root = copy.directory.standardizedFileURL.path + "/"

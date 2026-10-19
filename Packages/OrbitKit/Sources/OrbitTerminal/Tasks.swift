@@ -9,12 +9,102 @@ struct ProjectTask: Identifiable, Hashable, Sendable {
     /// Where it was found ("package.json", "Makefile", …).
     var source: String
     var detail: String?
+    /// The package it belongs to in a monorepo, relative to the project ("" for the project's own).
+    var directory = ""
 
     var id: String { "\(source):\(name)" }
 }
 
 enum ProjectTasks {
+    /// The project's own tasks, then each workspace package's scripts (D138).
     static func find(in root: URL) -> [ProjectTask] {
+        var tasks = tasks(in: root)
+        let json = try? String(contentsOf: root.appendingPathComponent("package.json"), encoding: .utf8)
+        let pnpm = try? String(contentsOf: root.appendingPathComponent("pnpm-workspace.yaml"), encoding: .utf8)
+        let patterns = workspacePatterns(packageJSON: json, pnpmWorkspace: pnpm)
+        guard !patterns.isEmpty else { return tasks }
+        let runner = packageManager(json: json ?? "") { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }
+        for directory in packageDirectories(patterns, in: root) {
+            guard let text = try? String(contentsOf: root.appendingPathComponent(directory).appendingPathComponent("package.json"), encoding: .utf8) else { continue }
+            tasks += packageScripts(text, runner: runner).map { task in
+                var task = task
+                task.source = "\(directory)/package.json"
+                task.directory = directory
+                return task
+            }
+        }
+        return tasks
+    }
+
+    /// npm / Yarn / Bun `workspaces` (a list, or `{"packages": […]}`) and pnpm's `packages:`.
+    static func workspacePatterns(packageJSON: String?, pnpmWorkspace: String?) -> [String] {
+        var patterns: [String] = []
+        if let packageJSON, let object = try? JSONSerialization.jsonObject(with: Data(packageJSON.utf8)) as? [String: Any] {
+            if let list = object["workspaces"] as? [String] { patterns += list }
+            if let nested = object["workspaces"] as? [String: Any], let list = nested["packages"] as? [String] { patterns += list }
+        }
+        if let pnpmWorkspace {
+            var inPackages = false
+            for line in pnpmWorkspace.split(separator: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if !line.hasPrefix(" "), !line.hasPrefix("\t"), !line.hasPrefix("-") {
+                    inPackages = trimmed.hasPrefix("packages:")
+                    continue
+                }
+                guard inPackages, trimmed.hasPrefix("-") else { continue }
+                let value = trimmed.dropFirst().trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+                if !value.isEmpty { patterns.append(value) }
+            }
+        }
+        return patterns
+    }
+
+    /// Folders with a package.json the patterns match, relative and sorted;
+    /// `*` is one folder, `**` any depth (up to four), `!` excludes.
+    static func packageDirectories(_ patterns: [String], in root: URL) -> [String] {
+        let manager = FileManager.default
+        func children(_ relative: String) -> [String] {
+            let url = relative.isEmpty ? root : root.appendingPathComponent(relative)
+            let names = (try? manager.contentsOfDirectory(atPath: url.path)) ?? []
+            return names.filter { name in
+                guard !name.hasPrefix("."), name != "node_modules" else { return false }
+                var isDirectory: ObjCBool = false
+                return manager.fileExists(atPath: url.appendingPathComponent(name).path, isDirectory: &isDirectory) && isDirectory.boolValue
+            }
+            .map { relative.isEmpty ? $0 : "\(relative)/\($0)" }
+        }
+        func expand(_ segments: ArraySlice<String>, from relative: String, depth: Int) -> [String] {
+            guard let segment = segments.first else { return [relative] }
+            let rest = segments.dropFirst()
+            switch segment {
+            case "**":
+                guard depth < 4 else { return expand(rest, from: relative, depth: depth) }
+                return expand(rest, from: relative, depth: depth) + children(relative).flatMap { expand(segments, from: $0, depth: depth + 1) }
+            case let wildcard where wildcard.contains("*"):
+                let parts = wildcard.split(separator: "*", omittingEmptySubsequences: false).map(String.init)
+                return children(relative).filter { path in
+                    let name = (path as NSString).lastPathComponent
+                    return name.hasPrefix(parts.first ?? "") && name.hasSuffix(parts.last ?? "")
+                }
+                .flatMap { expand(rest, from: $0, depth: depth) }
+            default:
+                return expand(rest, from: relative.isEmpty ? segment : "\(relative)/\(segment)", depth: depth)
+            }
+        }
+        func matches(_ pattern: String) -> Set<String> {
+            let segments = pattern.trimmingCharacters(in: CharacterSet(charactersIn: "/")).split(separator: "/").map(String.init).filter { $0 != "." }
+            return Set(expand(segments[...], from: "", depth: 0).filter { !$0.isEmpty })
+        }
+        var included = Set<String>()
+        for pattern in patterns where !pattern.hasPrefix("!") { included.formUnion(matches(pattern)) }
+        for pattern in patterns where pattern.hasPrefix("!") { included.subtract(matches(String(pattern.dropFirst()))) }
+        return included
+            .filter { manager.fileExists(atPath: root.appendingPathComponent($0).appendingPathComponent("package.json").path) }
+            .sorted()
+    }
+
+    /// The tasks of one folder.
+    static func tasks(in root: URL) -> [ProjectTask] {
         func read(_ name: String) -> String? {
             try? String(contentsOf: root.appendingPathComponent(name), encoding: .utf8)
         }

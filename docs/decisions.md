@@ -146,6 +146,14 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D134. Merge conflicts are resolved in the editor
 - D135. Blame for every line, beside the line numbers
 - D136. History of any branch, searchable, with a graph
+- D137. Tasks' errors go to Problems and the editor
+- D138. Running tasks in the status bar; tasks of monorepo packages
+- D139. Box selection by ⌥-drag
+- D140. Format Selection: the whole file formatted, only the selection's changes kept
+- D141. Large files open in a light mode
+- D142. `orbit` in the terminal opens folders and files
+- D143. A built-in browser for dev servers, in editor tabs
+- D144. Later agent turns are pushed to the pull request
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2994,3 +3002,103 @@ History showed the current branch's last 200 commits. Now:
 - Commits expand in place (the row's chevron) into their files; the file
   rows carry the graph's passing lines, so it doesn't break. Rows are
   exactly as tall as their graph cell.
+
+### D137. Tasks' errors go to Problems and the editor
+
+A task's tab reads what it prints (`TaskOutputParser`, Terminal plugin):
+`tsc` (both forms), `file:line:col: error|warning: …` (clang, Swift, Go
+without a severity, `tsc --pretty`), Rust's `error[E…]` + `--> file:line:col`
+and ESLint's stylish blocks (a file path line, then `line:col  error  …  rule`).
+Colors and cursor moves are stripped; a lone `\r` (a progress bar) replaces
+the line. A line counts only when its file exists (relative to the task's
+folder, then the project), so log lines that look like errors don't.
+`note:` / `help:` lines are skipped; at most 1000 per task.
+
+Problems are per tab and from its last run: running the task again, a
+cleared screen (watch modes) or closing the tab drops them. They reach the
+Languages plugin through a new `TaskProblems` service (plugins don't import
+each other): the Problems panel and `diagnostics(for:)` (so the editor's
+squiggles) merge them with the servers', minus those a server reports too
+(same line and message: `tsc` and tsserver).
+
+### D138. Running tasks in the status bar; tasks of monorepo packages
+
+Whether a task still runs is the terminal's foreground process group
+(not observable), so the store looks every second while there are task
+tabs, and stops when there are none or the window closed. The status bar
+shows "▶ dev" (or "▶ 2 tasks") with a menu per task: Show Output, Restart,
+Stop (⌃C); a running task's tab icon is a green ▶.
+
+Run Task… also lists each workspace package's scripts: patterns from
+`workspaces` in package.json (a list or `{packages: […]}`) and from
+pnpm-workspace.yaml's `packages:`; `*` is one folder, `**` any depth up to
+four, `!` excludes, `node_modules` and hidden folders never count. Such a task
+starts its tab in the package's folder with the root's package manager; its
+source reads `apps/web/package.json`.
+
+### D139. Box selection by ⌥-drag
+
+⌥-click still adds or removes a caret (D105); dragging from it selects the
+same columns (by pointer position, so tabs and wide characters line up as
+drawn) on every line between: a caret per line when the drag is straight
+down, else a piece of each line, clamped to short lines' ends. It's the
+multiple selections STTextView already edits; the line starts are taken
+once at the press.
+
+### D140. Format Selection: the whole file formatted, only the selection's changes kept
+
+Prettier, Ruff, gofmt and the servers format whole files the same way;
+range formatting is spotty. So with text selected, ⌃⇧I (and Format Selection
+in the editor menu) formats the whole text as usual, then keeps only the
+changed lines touching the selected ones (`LineDiff.changes(from:to:within:)`;
+a block the same size on both sides is taken line by line). The result goes
+in as one edit over just the differing span, so the caret and scroll outside
+it stay. The toast says "Formatted selection · Prettier".
+
+### D141. Large files open in a light mode
+
+A file over 2 MB, over 50,000 lines or with a line over 20,000 characters
+(minified code) is a `LargeFile`, checked once at load. The editor then has
+no syntax highlighting, language server (it isn't even opened there), inlay
+hints, sticky scroll, indent guides, git markers or blame, and format on save
+is skipped; a minified file wraps lines, so layout stays with the visible
+part. A banner says why, with Turn On for everything (the document's
+`usesAllFeatures`, for as long as it's open). Agent changes still show inline:
+reviewing them is the point (D7). The 50 MB limit (D106) stays for opening at all.
+
+### D142. `orbit` in the terminal opens folders and files
+
+Orbit → Install 'orbit' Command… writes a small shell script to
+/usr/local/bin/orbit (asking for the password when the folder is root's). The
+script checks its paths exist and runs `open -b dev.orbit.app "$@"`: by bundle
+id rather than a symlink into the app, so it keeps working when Orbit moves or
+updates. No argument means `.`. Folders open as before (D102). A file opens in
+the window whose project contains it; otherwise its project opens first (the
+git repository around it, else its folder) and then the file. No `file:line`
+yet: `open` can't pass it.
+
+### D143. A built-in browser for dev servers, in editor tabs
+
+A page is an editor tab (kind `browser`, one per host and port), so it splits,
+sits beside code and comes back with the window like any tab, from the Preview
+plugin (`WebPreviewing` service). The tab's WKWebView lives as long as the tab
+(state and scroll survive tab switches) and stops when the tab closes. A slim
+bar has back, forward, reload / stop, the address and Open in Default
+Browser; right-click → Inspect Element opens Safari's Web Inspector. A local
+page that can't connect (a dev server still starting) retries every 2 s for a
+minute. `target=_blank` stays in the tab.
+
+Tasks remember the first local address they print (Vite's "Local:",
+Next's, `0.0.0.0` becomes localhost; `LocalServers` service): the running-task
+menu has "Open localhost:5173 in Orbit", and Open Browser… (View) lists those
+first, then this window's recent pages. Not a general browser: no tabs inside
+it, no find, no device sizes.
+
+### D144. Later agent turns are pushed to the pull request
+
+After Create PR (D133), each turn's end (and the badge's minute refresh)
+counts the agent's files whose changes aren't committed in the copy; the bar
+then shows Push N. It commits them on the pull request's branch, with the
+last request's first line as the subject, and pushes (`git push`), which
+updates the PR. Hidden once the PR is merged or closed.
+

@@ -20,6 +20,13 @@ public final class TextDocument: Identifiable {
     public var format: TextFileFormat = .default
     private var savedFormat: TextFileFormat = .default
 
+    /// Why the editor goes light on this file (D141); nil for an ordinary one.
+    public private(set) var largeFile: LargeFile?
+    /// "Turn On" in the large-file banner: every feature, slow or not.
+    public var usesAllFeatures = false
+    /// Highlighting, the language server, blame and git markers are off.
+    public var isLimited: Bool { largeFile != nil && !usesAllFeatures }
+
     public nonisolated var id: URL { url }
     public var isDirty: Bool { text != savedText || format != savedFormat }
 
@@ -35,6 +42,7 @@ public final class TextDocument: Identifiable {
             let (contents, format) = encoding == nil
                 ? try TextFile.read(url)
                 : try TextFile.decode(Data(contentsOf: url), as: encoding)
+            largeFile = LargeFile.check(contents)
             text = contents
             savedText = contents
             self.format = format
@@ -195,5 +203,49 @@ public final class DocumentStore {
 
     public func syncWithDisk() {
         for document in open.values { document.syncWithDisk() }
+    }
+}
+
+/// A file too big for the editor's heavier features (D141): highlighting,
+/// language servers and line diffs would make typing lag.
+public enum LargeFile: Equatable, Sendable {
+    case size(Int)
+    case lines(Int)
+    /// Minified code: one line longer than this many characters.
+    case longLine(Int)
+
+    public static let maxBytes = 2 << 20
+    public static let maxLines = 50_000
+    public static let maxLineLength = 20_000
+
+    public static func check(_ text: String) -> LargeFile? {
+        let utf8 = text.utf8
+        if utf8.count > maxBytes { return .size(utf8.count) }
+        var lines = 1, length = 0, longest = 0
+        for byte in utf8 {
+            if byte == 0x0A {
+                lines += 1
+                length = 0
+            } else if byte & 0xC0 != 0x80 {
+                length += 1
+                longest = max(longest, length)
+            }
+        }
+        if lines > maxLines { return .lines(lines) }
+        return longest > maxLineLength ? .longLine(longest) : nil
+    }
+
+    /// Wrapping keeps a minified line's layout to the visible part.
+    public var wantsWrapping: Bool {
+        if case .longLine = self { return true }
+        return false
+    }
+
+    public var summary: String {
+        switch self {
+        case .size(let bytes): "Large file (\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)))"
+        case .lines(let count): "Large file (\(count.formatted()) lines)"
+        case .longLine(let length): "Very long line (\(length.formatted()) characters)"
+        }
     }
 }

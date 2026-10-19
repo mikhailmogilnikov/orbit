@@ -136,7 +136,7 @@ final class LanguageManager: LanguageIntelligence {
         }
         guard let root else { return }
 
-        let documents = workspace.documents.open.values.filter { $0.loadError == nil }
+        let documents = workspace.documents.open.values.filter { $0.loadError == nil && !$0.isLimited }
         let files = documents.map { (url: $0.url, text: $0.text) } + checkedFiles(excluding: Set(documents.map(\.url)), in: root)
         var wanted: [ServerKey: [(url: URL, text: String)]] = [:]
         for file in files {
@@ -551,6 +551,7 @@ final class LanguageManager: LanguageIntelligence {
 
     /// The editor's way to apply edits to open files; the editor plugin starts after this one.
     @ObservationIgnored var editing: () -> SourceEditing? = { nil }
+    @ObservationIgnored var tasks: () -> TaskProblems? = { nil }
 
     private func runningServer(for url: URL) -> LanguageServer? {
         languageKey(for: url).flatMap { servers[$0] }
@@ -633,7 +634,7 @@ final class LanguageManager: LanguageIntelligence {
 
     /// The repo's formatter (Prettier, Ruff… or one set in `.orbit/settings.json`)
     /// if there is one, else the server, indented per `.editorconfig` (D60, D61).
-    func format(_ url: URL) async -> FormatOutcome {
+    func format(_ url: URL, lines: ClosedRange<Int>?) async -> FormatOutcome {
         guard let document = workspace.documents.existingDocument(for: url) else { return .failed("The file isn't open.") }
         let environment = await environment.value
         let choice: FormatterChoice
@@ -653,12 +654,12 @@ final class LanguageManager: LanguageIntelligence {
             } catch {
                 return .failed(error.localizedDescription, formatter: formatter.name)
             }
+            let kept = lines.map { LineDiff.changes(from: text, to: formatted, within: $0) } ?? formatted
             // Typed into while it ran: those keystrokes win.
-            guard document.text == text, formatted != text else { return FormatOutcome(formatter: formatter.name) }
-            let string = text as NSString
-            let end = SourcePosition(offset: string.length, in: SourcePosition.lineStarts(of: string))
-            let whole = SourceEdit(range: SourceRange(start: SourcePosition(line: 0, character: 0), end: end), newText: formatted)
-            guard apply(WorkspaceEdit(files: [url.standardizedFileURL: [whole]])) else { return .failed("The file couldn't be changed.", formatter: formatter.name) }
+            guard document.text == text, kept != text else { return FormatOutcome(formatter: formatter.name) }
+            guard apply(WorkspaceEdit(files: [url.standardizedFileURL: [Self.replacement(of: text, with: kept)]])) else {
+                return .failed("The file couldn't be changed.", formatter: formatter.name)
+            }
             return FormatOutcome(formatter: formatter.name, changed: true)
         case .server:
             let nothing = "Nothing formats .\(url.pathExtension) files here: the language server can't, and the project has no formatter Orbit recognizes (\(FormatterPreset.all.map(\.name).joined(separator: ", "))). Set one for this file type in .orbit/settings.json — Settings → Languages → Formatting."
@@ -673,9 +674,35 @@ final class LanguageManager: LanguageIntelligence {
                 return .failed("It couldn't format this file.", formatter: name)
             }
             guard !edits.isEmpty else { return FormatOutcome(formatter: name) }
-            guard apply(WorkspaceEdit(files: [url.standardizedFileURL: edits])) else { return .failed("The file couldn't be changed.", formatter: name) }
+            var change = edits
+            if let lines {
+                let text = document.text
+                let kept = LineDiff.changes(from: text, to: SourceEdit.apply(edits, to: text), within: lines)
+                guard kept != text else { return FormatOutcome(formatter: name) }
+                change = [Self.replacement(of: text, with: kept)]
+            }
+            guard apply(WorkspaceEdit(files: [url.standardizedFileURL: change])) else { return .failed("The file couldn't be changed.", formatter: name) }
             return FormatOutcome(formatter: name, changed: true)
         }
+    }
+
+    /// One edit over just the part that differs: the caret and scroll stay put outside it.
+    nonisolated static func replacement(of old: String, with new: String) -> SourceEdit {
+        let a = Array(old.utf16), b = Array(new.utf16)
+        var prefix = 0
+        while prefix < a.count, prefix < b.count, a[prefix] == b[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < a.count - prefix, suffix < b.count - prefix, a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
+        // Never between the halves of a surrogate pair (an emoji).
+        while prefix > 0, UTF16.isTrailSurrogate(a[min(prefix, a.count - 1)]), prefix < a.count { prefix -= 1 }
+        while suffix > 0, UTF16.isTrailSurrogate(a[a.count - suffix]) { suffix -= 1 }
+        let starts = SourcePosition.lineStarts(of: old as NSString)
+        let range = SourceRange(
+            start: SourcePosition(offset: prefix, in: starts),
+            end: SourcePosition(offset: a.count - suffix, in: starts)
+        )
+        let text = String(decoding: b[prefix..<(b.count - suffix)], as: UTF16.self)
+        return SourceEdit(range: range, newText: text)
     }
 
     /// The language server, or the one of the file's servers it leaves formatting to (Vue's, D74).
@@ -722,6 +749,9 @@ final class LanguageManager: LanguageIntelligence {
         var byFile: [URL: [Diagnostic]] = [:]
         for server in servers.values {
             for (url, diagnostics) in server.diagnostics where !diagnostics.isEmpty { byFile[url, default: []] += diagnostics }
+        }
+        for file in tasks()?.problems ?? [] {
+            byFile[file.url] = Self.adding(file.diagnostics, to: byFile[file.url] ?? [])
         }
         return byFile.map { url, diagnostics in FileProblems(url: url, diagnostics: diagnostics.sorted { $0.range.start < $1.range.start }) }
         .sorted { lhs, rhs in
@@ -798,7 +828,15 @@ final class LanguageManager: LanguageIntelligence {
 
     func diagnostics(for url: URL) -> [Diagnostic] {
         let file = url.standardizedFileURL
-        return keys(for: url).flatMap { servers[$0]?.diagnostics[file] ?? [] }
+        let reported = keys(for: url).flatMap { servers[$0]?.diagnostics[file] ?? [] }
+        guard let printed = tasks()?.problems.first(where: { $0.url == file }) else { return reported }
+        return Self.adding(printed.diagnostics, to: reported)
+    }
+
+    /// A task's errors beside the servers', without the ones a server reports too (`tsc` and tsserver).
+    nonisolated static func adding(_ printed: [Diagnostic], to reported: [Diagnostic]) -> [Diagnostic] {
+        let known = Set(reported.map { "\($0.range.start.line):\($0.message)" })
+        return reported + printed.filter { !known.contains("\($0.range.start.line):\($0.message)") }
     }
 
     /// ESLint, Tailwind… running beside the file's language server, for the status bar.

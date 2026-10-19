@@ -11,7 +11,7 @@ struct ProblemsPanel: View {
     var body: some View {
         let problems = manager.problems
         if problems.isEmpty {
-            EmptyStateView("No Problems", systemImage: "checkmark.circle", message: "Errors and warnings in open files and files the agent changed show up here.")
+            EmptyStateView("No Problems", systemImage: "checkmark.circle", message: "Errors and warnings in open files, files the agent changed and the output of tasks (⌃⌘R) show up here.")
         } else {
             List {
                 ForEach(problems) { file in

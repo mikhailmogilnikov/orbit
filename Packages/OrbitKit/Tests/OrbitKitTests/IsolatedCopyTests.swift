@@ -109,5 +109,14 @@ import Testing
         // The project itself stays on its branch, its draft untouched.
         #expect(try git("rev-parse", "--abbrev-ref", "HEAD", in: project) == "main\n")
         #expect(try String(contentsOf: project.appendingPathComponent("wip.txt"), encoding: .utf8) == "user's draft")
+
+        // A later turn (D144): only its change is pushed, as a commit on the same branch.
+        #expect(await isolation.unpushedChanges(in: copy) == 0)
+        try "ONE!".write(to: copy.directory.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        #expect(await isolation.unpushedChanges(in: copy) == 1)
+        try await isolation.pushUpdate(copy, message: "Louder", environment: environment)
+        #expect(try git("log", "-1", "--format=%s", "orbit/test", in: remote) == "Louder\n")
+        #expect(try git("diff", "--name-only", "orbit/test~1", "orbit/test", in: remote) == "a.txt\n")
+        #expect(await isolation.unpushedChanges(in: copy) == 0)
     }
 }

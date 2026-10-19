@@ -254,6 +254,20 @@ public final class EditorPlugin: OrbitPlugin {
         ) {
             ActiveEditor.shared.coordinator?.formatDocument()
         })
+        // ⌃⇧I does it too while text is selected; this is where it's found (D140).
+        context.commands.register(OrbitCommand(
+            id: "editor.formatSelection",
+            title: "Format Selection",
+            category: "Code",
+            systemImage: "text.alignleft",
+            editorMenu: EditorMenuPlacement(.edit) {
+                guard let coordinator = ActiveEditor.shared.coordinator, let textView = coordinator.textView as? OrbitTextView,
+                      textView.selectionRanges.contains(where: { $0.length > 0 }) else { return false }
+                return coordinator.languages?.canFormat(coordinator.document.url) == true
+            }
+        ) {
+            ActiveEditor.shared.coordinator?.formatDocument()
+        })
         // On demand, for projects whose linter doesn't order imports (D81); ⌃⌥O as VS Code's ⇧⌥O types a letter here.
         context.commands.register(OrbitCommand(
             id: "editor.organizeImports",
@@ -493,7 +507,8 @@ public final class EditorPlugin: OrbitPlugin {
         func save() {
             if quietly { try? document.save() } else { Self.save(document) }
         }
-        guard let languages, languages.server(for: document.url) != nil || options.formatsOnSave && languages.canFormat(document.url) else {
+        guard let languages, !document.isLimited,
+              languages.server(for: document.url) != nil || options.formatsOnSave && languages.canFormat(document.url) else {
             save()
             return
         }
@@ -564,6 +579,12 @@ struct FileEditorView: View {
             } else if document.diskConflict != nil {
                 DiskConflictBanner(document: document, isComparing: $isComparing)
             }
+            if let largeFile = document.largeFile, !document.usesAllFeatures {
+                LargeFileBanner(largeFile: largeFile) { document.usesAllFeatures = true }
+            }
+            // A large file gets plain text editing: no server, colors, blame or git markers (D141).
+            let limited = document.isLimited
+            let languages = limited ? nil : languages
             if let languages, let offer = languages.installOffer(for: url) {
                 LanguageInstallBanner(offer: offer, install: { languages.installServer(for: url) }, decline: { languages.declineInstall(for: url) })
             }
@@ -605,20 +626,21 @@ struct FileEditorView: View {
                     onRemoveComment: { reviewComments?.remove($0) },
                     reveal: workspace.pendingReveal.flatMap { $0.url == url ? ($0.line, $0.column) : nil },
                     onRevealHandled: { workspace.pendingReveal = nil },
-                    gitBaseline: gitBaseline,
-                    blame: options.showsBlame ? blameProvider : nil,
+                    gitBaseline: limited ? nil : gitBaseline,
+                    blame: options.showsBlame && !limited ? blameProvider : nil,
                     blameGeneration: versionControl?.baselineGeneration ?? 0,
                     fontSize: Preferences.shared.codeFontSize,
-                    wrapsLines: options.wrapsLines,
+                    wrapsLines: options.wrapsLines || (limited && document.largeFile?.wantsWrapping == true),
                     highlightsCurrentLine: options.highlightsCurrentLine,
                     diagnostics: languages?.diagnostics(for: url) ?? [],
                     languages: languages,
-                    showsInlayHints: options.showsInlayHints,
-                    showsStickyScroll: options.showsStickyScroll,
-                    showsIndentGuides: options.showsIndentGuides,
+                    showsInlayHints: options.showsInlayHints && !limited,
+                    showsStickyScroll: options.showsStickyScroll && !limited,
+                    showsIndentGuides: options.showsIndentGuides && !limited,
                     inlayHintsRevision: languages?.inlayHintsRevision(for: url) ?? 0,
                     onOpenLocation: { workspace.open($0) },
                     grammarRevision: GrammarRegistry.shared.revision,
+                    highlights: !limited,
                     workspaceRoot: workspace.root,
                     indentation: EditorIndentation.shared.indentation(for: url),
                     takesFocus: workspace.quietTabID != EditorTab.file(url).id,
@@ -647,6 +669,35 @@ struct FileEditorView: View {
         .onChange(of: document.diskConflict == nil) { _, resolved in
             if resolved { isComparing = false }
         }
+    }
+}
+
+/// Over a file the editor goes light on (D141): what's off, and a way to turn it all on.
+struct LargeFileBanner: View {
+    let largeFile: LargeFile
+    let turnOn: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "gauge.with.dots.needle.67percent")
+                .foregroundStyle(.secondary)
+            Text(largeFile.summary)
+                .font(.orbit(.body, weight: .medium))
+            Text("Highlighting, the language server and git markers are off to keep typing fast.")
+                .font(.orbit(.body))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+            Button("Turn On", action: turnOn)
+                .buttonStyle(.glass)
+                .help("Turn every editor feature on for this file; typing may lag")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Theme.subtleFill)
+        .overlay(alignment: .bottom) { Divider() }
     }
 }
 

@@ -848,6 +848,23 @@ final class AgentSession: Identifiable {
     func refreshPullRequest() async {
         guard let copy = isolatedCopy, let url = copy.pullRequest, let isolation else { return }
         pullRequestStatus = await isolation.pullRequestStatus(url, in: copy, environment: await environment())
+        unpushedChanges = await isolation.unpushedChanges(in: copy)
+    }
+
+    /// Files changed since the pull request's last push: Push offers them (D144).
+    private(set) var unpushedChanges = 0
+    private(set) var isPushing = false
+
+    func pushToPullRequest() async throws {
+        guard let copy = isolatedCopy, copy.pullRequest != nil, let isolation, !isPushing else { return }
+        isPushing = true
+        defer { isPushing = false }
+        // The request that led to these changes, as the commit's subject.
+        let request = entries.last { $0.kind == .user && !$0.text.isEmpty }?.text
+            .split(whereSeparator: \.isNewline).first.map { String($0.prefix(72)) }
+        try await isolation.pushUpdate(copy, message: request ?? "More changes from the agent", environment: await environment())
+        notice("Pushed the latest changes to the pull request")
+        await refreshPullRequest()
     }
 
     /// A branch name from the chat's title: "orbit/fix-login-redirect".
@@ -865,6 +882,7 @@ final class AgentSession: Identifiable {
     func refreshUnappliedChanges() async {
         guard let copy = isolatedCopy, let isolation else { return }
         unappliedChanges = await isolation.unappliedChanges(in: copy)
+        if copy.pullRequest != nil { unpushedChanges = await isolation.unpushedChanges(in: copy) }
     }
 
     /// Brings the copy's changes into the project, where they show inline for review.

@@ -213,13 +213,15 @@ extension CodeEditor.Coordinator {
 
     // MARK: Formatting (⌃⇧I)
 
+    /// With text selected, only its lines change (D140).
     func formatDocument() {
         // Always asked, even when it can't: it says why and where to set a formatter up.
-        guard let languages, let scrollView = textView?.enclosingScrollView else {
+        guard let languages, let textView = textView as? OrbitTextView, let scrollView = textView.enclosingScrollView else {
             NSSound.beep()
             return
         }
         let url = document.url
+        let lines = Self.lines(of: textView.selectionRanges.filter { $0.length > 0 }, in: (textView.text ?? "") as NSString)
         // Only slow formatters (a cold Node start) say they're working.
         let working = Task {
             try? await Task.sleep(for: .milliseconds(250))
@@ -227,7 +229,7 @@ extension CodeEditor.Coordinator {
             EditorToast.show("Formatting…", busy: true, over: scrollView, hideAfter: nil)
         }
         Task {
-            let outcome = await languages.format(url)
+            let outcome = await languages.format(url, lines: lines)
             working.cancel()
             if let failure = outcome.failure {
                 EditorToast.hide()
@@ -238,8 +240,20 @@ extension CodeEditor.Coordinator {
                 return
             }
             let name = outcome.formatter ?? "Formatter"
-            EditorToast.show(outcome.changed ? "Formatted · \(name)" : "Already formatted · \(name)", over: scrollView)
+            let what = lines == nil ? "" : " selection"
+            EditorToast.show(outcome.changed ? "Formatted\(what) · \(name)" : "Already formatted · \(name)", over: scrollView)
         }
+    }
+
+    /// The lines from the first selection's to the last one's; nil without a selection.
+    static func lines(of selections: [NSRange], in text: NSString) -> ClosedRange<Int>? {
+        guard let first = selections.map(\.location).min(), let end = selections.map(NSMaxRange).max() else { return nil }
+        let starts = InlineDiffController.lineStarts(of: text)
+        func line(_ offset: Int) -> Int { starts.lastIndex { $0 <= min(offset, text.length) } ?? 0 }
+        var last = line(end)
+        // Selected up to the start of a line: that line isn't part of it.
+        if last > line(first), starts[last] == end { last -= 1 }
+        return line(first)...last
     }
 }
 

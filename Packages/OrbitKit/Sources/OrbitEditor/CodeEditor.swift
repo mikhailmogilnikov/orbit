@@ -38,6 +38,8 @@ struct CodeEditor: NSViewRepresentable {
     var onOpenLocation: (SourceLocation) -> Void = { _ in }
     /// `GrammarRegistry.revision`: a grammar was installed, re-pick this file's.
     var grammarRevision = 0
+    /// Off in a large file (D141).
+    var highlights = true
     /// For `.editorconfig`.
     var workspaceRoot: URL?
     /// Picked in the status bar; nil until the file's is detected.
@@ -76,7 +78,7 @@ struct CodeEditor: NSViewRepresentable {
         )
 
         let coordinator = context.coordinator
-        coordinator.updateGrammar(revision: grammarRevision, in: textView)
+        coordinator.updateGrammar(revision: highlights ? grammarRevision : -1, in: textView)
         (textView as? OrbitTextView)?.syntaxLanguage = GrammarCatalog.shared.language(
             for: document.url, firstLine: StaticHighlighter.firstLine(of: document.text)
         )
@@ -192,7 +194,7 @@ struct CodeEditor: NSViewRepresentable {
         }
         if textView.isHorizontallyResizable == wrapsLines { textView.isHorizontallyResizable = !wrapsLines }
         if textView.highlightSelectedLine != highlightsCurrentLine { textView.highlightSelectedLine = highlightsCurrentLine }
-        coordinator.updateGrammar(revision: grammarRevision, in: textView)
+        coordinator.updateGrammar(revision: highlights ? grammarRevision : -1, in: textView)
         coordinator.setGitBaseline(gitBaseline)
         coordinator.updateBlame(blame, generation: blameGeneration)
         coordinator.inlineDiff.onKeep = onKeep
@@ -488,7 +490,7 @@ struct CodeEditor: NSViewRepresentable {
         func updateGrammar(revision: Int, in textView: STTextView) {
             guard grammarRevision != revision else { return }
             grammarRevision = revision
-            let grammar = Grammar.matching(document.url, firstLine: StaticHighlighter.firstLine(of: document.text))
+            let grammar = revision < 0 ? nil : Grammar.matching(document.url, firstLine: StaticHighlighter.firstLine(of: document.text))
             guard grammar?.key != highlighter?.key else { return }
             if let highlighter { textView.removePlugin(highlighter.id) }
             highlighter = grammar.map { (textView.addPlugin(SyntaxHighlightPlugin(palette: palette, grammar: $0)), $0.key) }
@@ -893,11 +895,67 @@ final class OrbitTextView: STTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        box = nil
         if event.modifierFlags.contains(.command), onCommandClick?(convert(event.locationInWindow, from: nil)) == true { return }
         // ⌥-click as in VS Code and Cursor, ⌃⇧-click as in Xcode: add a caret, or remove one.
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if event.clickCount == 1, modifiers == .option {
+            // ⌥-drag from here selects a box (D139).
+            box = (contentPoint(event), InlineDiffController.lineStarts(of: (text ?? "") as NSString), (text ?? "" as String).utf16.count)
+        }
         if event.clickCount == 1, modifiers == .option || modifiers == [.control, .shift], toggleCaret(at: event) { return }
         super.mouseDown(with: event)
+    }
+
+    /// Where a ⌥-drag started (content coordinates) and the text's line starts then.
+    private var box: (anchor: CGPoint, lineStarts: [Int], length: Int)?
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let box, event.modifierFlags.contains(.option) else { return super.mouseDragged(with: event) }
+        selectBox(from: box.anchor, to: contentPoint(event), lineStarts: box.lineStarts, length: box.length)
+        autoscroll(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        box = nil
+        super.mouseUp(with: event)
+    }
+
+    private func contentPoint(_ event: NSEvent) -> CGPoint {
+        let point = convert(event.locationInWindow, from: nil)
+        return CGPoint(x: point.x - contentFrame.minX, y: point.y - contentFrame.minY)
+    }
+
+    /// The same columns on every line between the two points: carets when
+    /// they're straight above each other, else a piece of each line.
+    private func selectBox(from anchor: CGPoint, to point: CGPoint, lineStarts: [Int], length: Int) {
+        let manager = textLayoutManager
+        let content = textContentManager
+        let start = manager.documentRange.location
+        func offset(at point: CGPoint) -> Int? {
+            manager.textSelectionNavigation.textSelections(
+                interactingAt: point, inContainerAt: start, anchors: [], modifiers: [],
+                selecting: false, bounds: manager.usageBoundsForTextContainer
+            ).first?.textRanges.first.map { content.offset(from: start, to: $0.location) }
+        }
+        func line(_ offset: Int) -> Int { lineStarts.lastIndex { $0 <= offset } ?? 0 }
+        guard let from = offset(at: CGPoint(x: 0, y: min(anchor.y, point.y))),
+              let to = offset(at: CGPoint(x: 0, y: max(anchor.y, point.y))) else { return }
+        let left = min(anchor.x, point.x), right = max(anchor.x, point.x)
+        var ranges: [NSRange] = []
+        for index in line(from)...line(to) {
+            let lineStart = lineStarts[index]
+            let lineEnd = index + 1 < lineStarts.count ? lineStarts[index + 1] - 1 : length
+            guard let location = content.location(start, offsetBy: lineStart),
+                  let fragment = manager.textLayoutFragment(for: location) else { continue }
+            let frame = fragment.layoutFragmentFrame
+            let y = frame.minY + (fragment.textLineFragments.first?.typographicBounds.midY ?? frame.height / 2)
+            let lower = min(max(offset(at: CGPoint(x: left, y: y)) ?? lineStart, lineStart), lineEnd)
+            let upper = min(max(offset(at: CGPoint(x: right, y: y)) ?? lineEnd, lower), lineEnd)
+            ranges.append(NSRange(location: lower, length: upper - lower))
+        }
+        guard !ranges.isEmpty else { return }
+        selectionRanges = ranges
     }
 
     private func toggleCaret(at event: NSEvent) -> Bool {

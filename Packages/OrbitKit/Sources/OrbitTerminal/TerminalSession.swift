@@ -16,11 +16,14 @@ final class TerminalSession: Identifiable {
     @ObservationIgnored private(set) var agentTerminal: AgentTerminal?
     /// Set for a task's own tab (D128): its title stays the command.
     @ObservationIgnored private(set) var taskID: String?
+    /// A task's errors and warnings, read from what it prints (D137).
+    @ObservationIgnored private(set) var output: TaskOutputParser?
+    @ObservationIgnored var onProblems: (TerminalSession) -> Void = { _ in }
     @ObservationIgnored let view: OrbitTerminalView
     @ObservationIgnored var onExit: (TerminalSession) -> Void = { _ in }
     @ObservationIgnored private var delegate: Delegate?
 
-    init(directory: URL, task: ProjectTask? = nil) {
+    init(directory: URL, task: ProjectTask? = nil, root: URL? = nil) {
         let shell = Self.loginShell
         title = task?.command ?? (shell as NSString).lastPathComponent
         taskID = task?.id
@@ -28,6 +31,10 @@ final class TerminalSession: Identifiable {
         let delegate = Delegate(session: self)
         self.delegate = delegate
         view.processDelegate = delegate
+        if task != nil {
+            output = TaskOutputParser(directories: [directory] + (root.map { [$0] } ?? []))
+            view.onData = { [weak self] bytes in self?.read(bytes) }
+        }
 
         var env = ShellEnvironment.withoutHostAgentVariables()
         env["TERM"] = "xterm-256color"
@@ -114,6 +121,10 @@ final class TerminalSession: Identifiable {
     /// Types a command into the shell, as if typed: it stays in the history
     /// and the output stays in the tab. A command still running gets ⌃C first.
     func type(_ command: String) {
+        if output != nil {
+            output?.reset()
+            onProblems(self)
+        }
         guard isBusy else { return view.send(txt: command + "\r") }
         view.send([3])
         Task { [weak self] in
@@ -124,6 +135,17 @@ final class TerminalSession: Identifiable {
             }
             self?.view.send(txt: command + "\r")
         }
+    }
+
+    private func read(_ bytes: ArraySlice<UInt8>) {
+        guard let revision = output?.revision else { return }
+        output?.feed(bytes)
+        if output?.revision != revision { onProblems(self) }
+    }
+
+    /// ⌃C to what runs in it, as if typed.
+    func interrupt() {
+        if isBusy { view.send([3]) }
     }
 
     func terminate() {

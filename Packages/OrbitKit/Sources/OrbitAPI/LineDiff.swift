@@ -131,6 +131,34 @@ public enum LineDiff {
 }
 
 extension LineDiff {
+    /// `old` with only the changes of `new` that touch `lines` (0-based, in
+    /// `old`): formatting a selection by formatting the whole file (D140).
+    public static func changes(from old: String, to new: String, within lines: ClosedRange<Int>) -> String {
+        let oldLines = self.lines(old), newLines = self.lines(new)
+        var result: [String] = []
+        var o = 0
+        for block in changeBlocks(oldLines: oldLines, newLines: newLines) {
+            result += oldLines[o..<block.old.lowerBound]
+            // An insertion touches the lines it sits between.
+            let touches = block.old.isEmpty
+                ? lines.lowerBound <= block.old.lowerBound && block.old.lowerBound <= lines.upperBound + 1
+                : block.old.lowerBound <= lines.upperBound && lines.lowerBound < block.old.upperBound
+            if touches, block.old.count == block.new.count {
+                // Line for line (reindented, respaced): just the selected ones.
+                for (offset, line) in block.old.enumerated() {
+                    result.append(lines.contains(line) ? newLines[block.new.lowerBound + offset] : oldLines[line])
+                }
+            } else {
+                result += touches ? newLines[block.new] : oldLines[block.old]
+            }
+            o = block.old.upperBound
+        }
+        result += oldLines[o...]
+        return result.joined(separator: "\n")
+    }
+}
+
+extension LineDiff {
     /// Three-way line merge: both sides' changes to `base` applied together.
     /// `nil` when they touch the same or adjacent lines (like git, adjacent
     /// edits count as a conflict — their order can't be told safely).

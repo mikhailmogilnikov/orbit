@@ -21,6 +21,14 @@ public final class TerminalPlugin: OrbitPlugin {
         self.store = store
         context.services.register(AgentTerminalHosting.self, store)
         context.services.register(TerminalOpening.self, store)
+        context.services.register(TaskProblems.self, store.problems)
+        context.services.register(LocalServers.self, store)
+        let services = context.services
+        store.browser = { services.resolve(WebPreviewing.self) }
+
+        ui.addStatusItem(StatusItem(id: "tasks.running", placement: .leading, order: 40, isVisible: { !store.runningTasks.isEmpty }) {
+            RunningTasksStatus(store: store)
+        })
 
         ui.addBottomPanel(PanelContribution(id: TerminalStore.panelID, title: "Terminal", systemImage: "terminal") {
             TerminalPanel(store: store)
@@ -160,6 +168,12 @@ final class TerminalStore: TerminalOpening {
         workspace.root.map(ProjectTasks.find(in:)) ?? []
     }
 
+    let problems = TaskProblemStore()
+    @ObservationIgnored var browser: () -> WebPreviewing? = { nil }
+    /// Task tabs with something running in them now, for the status bar (D138).
+    private(set) var runningTasks: [TerminalSession.ID] = []
+    @ObservationIgnored private var watchingTasks: Task<Void, Never>?
+
     /// In the task's own tab; running it again restarts it there.
     func run(_ task: ProjectTask) {
         guard let root = workspace.root else { return }
@@ -168,18 +182,42 @@ final class TerminalStore: TerminalOpening {
         if let open = sessions.first(where: { $0.taskID == task.id && $0.isRunning }) {
             session = open
         } else {
-            session = TerminalSession(directory: root, task: task)
+            let directory = task.directory.isEmpty ? root : root.appendingPathComponent(task.directory)
+            session = TerminalSession(directory: directory, task: task, root: root)
             session.onExit = { [weak self] session in self?.remove(session) }
+            session.onProblems = { [weak self] session in self?.problems.update(session.id, session.output?.problems ?? [:]) }
             sessions.append(session)
         }
         selectedID = session.id
         ui.revealBottomPanel(Self.panelID)
         session.type(task.command)
         focusSelected()
+        watchTasks()
     }
 
     func isRunning(_ task: ProjectTask) -> Bool {
         sessions.contains { $0.taskID == task.id && $0.isBusy }
+    }
+
+    /// Whether a task still runs isn't observable (the terminal's foreground
+    /// process), so it's looked at every second while there are task tabs.
+    private func watchTasks() {
+        guard watchingTasks == nil else { return }
+        watchingTasks = Task { [weak self] in
+            while let self, !workspace.isClosed, sessions.contains(where: \.isTask) {
+                let running = sessions.filter { $0.isTask && $0.isBusy }.map(\.id)
+                if running != runningTasks { runningTasks = running }
+                try? await Task.sleep(for: .seconds(1))
+            }
+            self?.runningTasks = []
+            self?.watchingTasks = nil
+        }
+    }
+
+    func reveal(_ session: TerminalSession) {
+        selectedID = session.id
+        ui.revealBottomPanel(Self.panelID)
+        focusSelected()
     }
 
     private var isShown: Bool {
@@ -222,6 +260,8 @@ final class TerminalStore: TerminalOpening {
     private func remove(_ session: TerminalSession, automatic: Bool = false) {
         guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
         sessions.remove(at: index)
+        problems.remove(session.id)
+        runningTasks.removeAll { $0 == session.id }
         if selectedID == session.id {
             selectedID = sessions.isEmpty ? nil : sessions[min(index, sessions.count - 1)].id
         }
@@ -244,6 +284,7 @@ final class TerminalStore: TerminalOpening {
     private static let keptAgentTabs = 5
 
     func terminateAll() {
+        watchingTasks?.cancel()
         for session in sessions { session.terminate() }
         sessions.removeAll()
     }
@@ -251,6 +292,14 @@ final class TerminalStore: TerminalOpening {
     /// The view may only now be entering the window; focus on the next pass.
     func focusSelected() {
         DispatchQueue.main.async { [weak self] in self?.selected?.focus() }
+    }
+}
+
+extension TerminalStore: LocalServers {
+    /// The running tasks' dev servers, the newest tab first.
+    var localURLs: [URL] {
+        var seen = Set<URL>()
+        return sessions.reversed().filter { runningTasks.contains($0.id) }.compactMap(\.output?.localURL).filter { seen.insert($0).inserted }
     }
 }
 
@@ -335,7 +384,7 @@ struct TerminalTabs: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
                         ForEach(store.sessions) { session in
-                            TerminalTab(session: session, isSelected: session.id == store.selectedID) {
+                            TerminalTab(session: session, isSelected: session.id == store.selectedID, isRunningTask: store.runningTasks.contains(session.id)) {
                                 store.select(session)
                             } close: {
                                 store.close(session)
@@ -354,15 +403,16 @@ struct TerminalTabs: View {
 private struct TerminalTab: View {
     let session: TerminalSession
     let isSelected: Bool
+    var isRunningTask = false
     let select: () -> Void
     let close: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: session.isAgent ? "sparkles" : session.isTask ? "play" : "terminal")
+            Image(systemName: session.isAgent ? "sparkles" : isRunningTask ? "play.fill" : session.isTask ? "play" : "terminal")
                 .font(.orbit(.micro))
-                .foregroundStyle(session.isAgent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .foregroundStyle(session.isAgent ? AnyShapeStyle(.tint) : isRunningTask ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             Text(session.title)
                 .font(.orbit(.caption))
                 .lineLimit(1)
@@ -418,5 +468,35 @@ private struct TerminalHost: NSViewRepresentable {
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
+    }
+}
+
+/// "▶ dev" while a task runs (two or more: "▶ 2 tasks"); click for its tab, Restart or Stop.
+private struct RunningTasksStatus: View {
+    let store: TerminalStore
+
+    var body: some View {
+        let running = store.runningTasks.compactMap { id in store.sessions.first { $0.id == id } }
+        Menu {
+            ForEach(running) { session in
+                Section(session.title) {
+                    Button("Show Output") { store.reveal(session) }
+                    if let url = session.output?.localURL, let browser = store.browser() {
+                        Button("Open \(url.host() ?? "")\(url.port.map { ":\($0)" } ?? "") in Orbit") { browser.openBrowser(url) }
+                    }
+                    Button("Restart") { session.type(session.title) }
+                    Button("Stop") { session.interrupt() }
+                }
+            }
+        } label: {
+            Label(running.count == 1 ? running[0].title : "\(running.count) tasks", systemImage: "play.fill")
+                .font(.orbit(.caption))
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Running tasks")
     }
 }

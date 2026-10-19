@@ -168,8 +168,9 @@ public protocol LanguageIntelligence: AnyObject {
     /// The number of files changed, or why it failed.
     func rename(at position: SourcePosition, in url: URL, to newName: String) async -> Result<Int, RenameFailure>
     func canFormat(_ url: URL) -> Bool
-    /// Formats the whole file with the repo's formatter or the server.
-    func format(_ url: URL) async -> FormatOutcome
+    /// Formats the file with the repo's formatter or the server; with `lines`
+    /// (0-based), only the changes there are kept (D140).
+    func format(_ url: URL, lines: ClosedRange<Int>?) async -> FormatOutcome
     /// The code actions set to run on save (`codeActionsOnSave`, D81): ESLint's fixes by default.
     func runSaveActions(_ url: URL) async
     /// Runs the first action of each kind (`source.organizeImports`…) the file's servers offer; how many ran.
@@ -194,6 +195,10 @@ public protocol LanguageIntelligence: AnyObject {
 
     /// Regions that can be folded; nil when the file's server can't tell (the editor folds by indentation then).
     func foldingRanges(in url: URL) async -> [FoldingRange]?
+}
+
+extension LanguageIntelligence {
+    public func format(_ url: URL) async -> FormatOutcome { await format(url, lines: nil) }
 }
 
 /// Lines that can be folded away: `startLine` stays visible, the lines after it through `endLine` hide.

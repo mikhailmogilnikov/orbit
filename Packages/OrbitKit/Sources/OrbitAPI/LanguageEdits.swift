@@ -146,3 +146,12 @@ public struct FileProblems: Sendable, Hashable, Identifiable {
         self.diagnostics = diagnostics
     }
 }
+
+/// Errors and warnings a task printed (a build, `tsc`, a linter), read from
+/// its terminal (D137). Implemented by the Terminal plugin; the Problems
+/// panel and the editor's squiggles show them beside the language servers'.
+@MainActor
+public protocol TaskProblems: AnyObject {
+    /// From each task's last run, by file.
+    var problems: [FileProblems] { get }
+}

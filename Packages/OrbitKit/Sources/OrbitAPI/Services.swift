@@ -113,6 +113,19 @@ public protocol TerminalOpening: AnyObject {
     func openTerminal(in directory: URL)
 }
 
+/// The built-in browser (D143), implemented by the Preview plugin: a page in an editor tab.
+@MainActor
+public protocol WebPreviewing: AnyObject {
+    func openBrowser(_ url: URL)
+}
+
+/// Addresses running tasks printed (`http://localhost:5173/`), newest first,
+/// for the browser's address list (D143). Implemented by the Terminal plugin.
+@MainActor
+public protocol LocalServers: AnyObject {
+    var localURLs: [URL] { get }
+}
+
 /// Find in Project limited to a folder (the explorer's Find in Folder).
 @MainActor
 public protocol ProjectSearching: AnyObject {
@@ -265,6 +278,10 @@ public protocol AgentIsolation: AnyObject {
     /// GitHub pull request (`gh`); returns its URL. `environment` gives `gh` the user's PATH.
     func publish(_ copy: IsolatedCopy, branch: String, title: String, body: String, environment: [String: String]) async throws -> URL
     func pullRequestStatus(_ url: URL, in copy: IsolatedCopy, environment: [String: String]) async -> PullRequestStatus?
+    /// Files the agent changed since the pull request's last push (D144).
+    func unpushedChanges(in copy: IsolatedCopy) async -> Int
+    /// Those changes as one more commit on the pull request's branch, pushed.
+    func pushUpdate(_ copy: IsolatedCopy, message: String, environment: [String: String]) async throws
     /// Deletes every copy except these (left behind by a crash, or by a
     /// session whose agent never started).
     func discardCopies(except kept: [IsolatedCopy])

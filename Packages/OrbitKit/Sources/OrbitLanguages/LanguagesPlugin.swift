@@ -24,6 +24,7 @@ public final class LanguagesPlugin: OrbitPlugin {
         let services = context.services
         manager.editing = { services.resolve(SourceEditing.self) }
         manager.changes = { services.resolve(ChangeTracking.self) }
+        manager.tasks = { services.resolve(TaskProblems.self) }
 
         context.ui.addStatusItem(StatusItem(
             id: "languages.status", placement: .trailing, order: 10,

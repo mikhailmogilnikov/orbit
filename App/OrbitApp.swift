@@ -59,6 +59,7 @@ struct ProjectWindowView: View {
             .onAppear { ProjectWindows.shared.windowAppeared(openWindow: openWindow) }
             .onChange(of: host.workspace.root, initial: true) { _, root in
                 if let root { RecentFolders.shared.note(root) }
+                ProjectWindows.shared.rootDidChange(host)
                 ProjectWindows.shared.saveOpenFolders()
             }
     }
@@ -81,8 +82,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             for url in urls {
                 var isFolder: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder), isFolder.boolValue else { continue }
-                ProjectWindows.shared.open(url)
+                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { continue }
+                // A file (`orbit src/main.swift`, D142): in the window of its project.
+                if isFolder.boolValue { ProjectWindows.shared.open(url) } else { ProjectWindows.shared.openFile(url) }
             }
         }
     }
@@ -107,6 +109,8 @@ struct OrbitMenus: Commands {
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { Updater.shared.checkForUpdates() }
                 .disabled(!Updater.isEnabled)
+            Button("Install 'orbit' Command…") { CommandLineTool.install() }
+                .help("Adds `orbit` to /usr/local/bin: `orbit .` opens a folder from the terminal")
         }
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { host?.ui.showSettings() }
