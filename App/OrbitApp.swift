@@ -9,6 +9,7 @@ struct OrbitApp: App {
         // Tooltips name buttons and their shortcuts (D67); macOS's ~1 s wait hid them.
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
         Self.forgetMinimumWindowFrames()
+        _ = Updater.shared
     }
 
     /// Windows of D101's first builds saved their minimum size (no default
@@ -103,6 +104,10 @@ struct OrbitMenus: Commands {
 
     var body: some Commands {
         // Settings open inside the main window (see SettingsScreen), not as a separate one.
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { Updater.shared.checkForUpdates() }
+                .disabled(!Updater.isEnabled)
+        }
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { host?.ui.showSettings() }
             .keyboardShortcut(",", modifiers: .command)

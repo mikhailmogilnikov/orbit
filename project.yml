@@ -8,6 +8,10 @@ options:
 packages:
   OrbitKit:
     path: Packages/OrbitKit
+  # Updates from GitHub Releases (D129).
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
 
 targets:
   Orbit:
@@ -18,6 +22,7 @@ targets:
     dependencies:
       - package: OrbitKit
         product: OrbitKit
+      - package: Sparkle
     settings:
       base:
         PRODUCT_NAME: Orbit
@@ -34,6 +39,7 @@ targets:
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         # Agents spawn arbitrary CLIs, so the App Sandbox is off (direct distribution).
         ENABLE_APP_SANDBOX: NO
+        # scripts/release.sh turns it on (with App/Orbit.entitlements) for a Developer ID build.
         ENABLE_HARDENED_RUNTIME: NO
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual

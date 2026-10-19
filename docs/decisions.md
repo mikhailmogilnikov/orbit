@@ -131,6 +131,14 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D119. Changed files name their chat; an empty chat lists what the composer takes
 - D120. The chat catches up with Claude Code: pinned plan, timed thoughts, Esc / ↑ / ⇧Tab, mode in view
 - D121. Output follows only from the bottom of the transcript
+- D122. Tool calls fold like Claude Code: quiet lines, runs as "Ran 4 commands"
+- D123. Explorer folders open and close without animation
+- D124. The usage popover: context first, plan limits for Claude and Codex, remembered
+- D125. Review comments: notes on agent changes in the editor, sent to the chat together
+- D126. The open folder is watched: changes made outside Orbit show up by themselves; the window title is the project's name
+- D127. ⌘K edits the selection with a hidden agent; the result is an inline agent change
+- D128. Tasks: the project's scripts run from a picker, each in its own terminal tab
+- D129. Releases: Sparkle updates from GitHub Releases; ad hoc signing until a Developer ID
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2540,6 +2548,7 @@ view (`TranscriptRow.rows`), the transcript keeps every call; the group
 takes its first call's id, so a card growing into a group keeps its place.
 Edits, commands, failed calls and calls asking for permission are never
 folded: those are what the user reviews or acts on.
+→ D122: every kind folds now; only calls asking for permission stay out.
 
 ### D117. One type scale for the UI (`Font.orbit`)
 
@@ -2618,6 +2627,7 @@ it had that Orbit lacked, now in the Agents plugin:
 - **Mode in view**: a button beside the options shows the mode (icon and
   name, tinted when it isn't the asking default) and picks one from a
   menu. It stays in the options popover too.
+  → D122: removed; the options popover alone sets the mode (⇧Tab still cycles it).
 - **Deny, then say why**: denying a permission focuses the composer with
   "Tell <agent> what to do instead…" — Claude Code's "No, and tell Claude
   what to do differently" without a separate field.
@@ -2651,3 +2661,214 @@ size change, so output arriving while you read above moved what you read.
   of the last 150 rows with "Show Earlier" was tried: no guessed heights,
   but the author preferred the lazy stack, so the guessed heights stay
   as a known gap.
+
+### D122. Tool calls fold like Claude Code: quiet lines, runs as "Ran 4 commands"
+
+Even with reads folded (D116) a turn was a stack of framed cards — every
+command, edit and thought its own box — and the answer got lost among
+them. Now as in Claude Code's desktop chat:
+
+- A tool call is one secondary line ("Read Transcript.swift ›"), no frame,
+  no icon, no check mark when it succeeds (only a spinner, a red ✕, the
+  diff counts). It opens into its details; diffs no longer open by
+  default — changes are reviewed inline in the editor (D7).
+- Two or more calls in a row, with the thoughts between them, fold into
+  one line: "Read 3 files, ran 2 commands ›" (kinds in the order they
+  came, "N failed" in red, the running call and a spinner while folded).
+  It opens into a framed list of the calls, a line each.
+- Only a call asking for permission keeps a frame and stays out of the
+  fold, so the question is never hidden; answered, it folds with the rest.
+- A call opens only when there's something to see: no chevron for a
+  command that printed nothing and succeeded, or whose command is its
+  title (`TranscriptEntry.hasDetails`); fenced output ("```console") is
+  taken apart, an empty fence counts as nothing.
+- Color where it carries meaning: code in a title's backticks ("Run
+  `make build`") in code type and full color on the gray line; the
+  command (as bash), fenced output and the code blocks of replies are
+  colored by the editor's highlighter, now also reachable by a fence's
+  language (`SyntaxHighlighting.highlight(_:language:)`, `HighlightedCode`).
+- Your messages are a tinted bubble on the right, so a turn's start is
+  easy to find among the agent's lines.
+- Replies may carry HTML `<details><summary>…</summary>…</details>` (Codex
+  folds its screenshots so) and images alone on a line (`![alt](path)`):
+  `MarkdownText` folds the first like GitHub and shows local images (a
+  click opens them); remote or missing ones show their alt text.
+- The separate mode button by the composer (D120) is gone: the options
+  button already sets the mode, two controls for one setting was clutter.
+
+### D123. Explorer folders open and close without animation
+
+Sometimes a copy of the previously selected file's row stayed drawn over
+the tree, highlight and all, overlapping the rows that moved under it
+(seen right after clicking a folder). A click on a folder both toggles it
+— animated, so the outline view slides rows in and out — and moves the
+highlight (`listRowBackground`) from the file's row to the folder's; the
+row reconfigured mid-animation was left behind as a stale view.
+
+Expanding and collapsing are now instant (`FileTreeModel.setExpanded`,
+animations disabled), on a row click and on the chevron alike — as in
+VS Code and Cursor. Unverified that this was the only trigger: it showed
+up only now and then.
+
+### D124. The usage popover: context first, plan limits for Claude and Codex, remembered
+
+The ring's popover was a plain list, and plan limits showed only after
+Claude happened to report one in that chat. Now:
+
+- **Layout**: the agent and model with the plan's name; the context as a
+  large ring with its percentage, tokens used and left, and **Compact**
+  (`/compact`, when the agent offers it and is idle); then plan limits —
+  a bar each, "Resets in 2h 14m · 18:40", a note ("Using extra usage",
+  "Close to the limit"), "Updated 3 minutes ago"; then this chat's cost and
+  tokens. A window whose reset time passed shows as empty again.
+- **The ring** shows its percentage from half full, and a dot (orange,
+  red when reached) when a plan limit is at 90% or reached.
+- **Claude**: the adapter forwards Claude Code's `rate_limit_event`s
+  (`_claude/rateLimit` in `usage_update`), one window at a time. The full
+  picture only comes from `/usage`, an experimental SDK call that prints
+  Markdown into the chat — not used.
+- **Codex**: codex-acp reads the limits from the app server but gives
+  them only to `/status` as text. Codex itself writes them into its
+  session logs with every turn (`token_count` → `rate_limits`: windows,
+  plan, credits), so `CodexLimits` reads the newest log's tail
+  (`$CODEX_HOME` or `~/.codex/sessions`): no network, no credentials.
+  Read when a chat opens, after each turn and when the popover opens;
+  **Full Status** sends `/status` for the rest.
+- **Remembered** (`LimitsMemory`, UserDefaults per agent): a new chat
+  shows the last limits before its first reply; a newer report wins.
+  Replayed history never updates them.
+- Other agents report no limits; the popover says so.
+
+### D125. Review comments: notes on agent changes in the editor, sent to the chat together
+
+Reviewing had only Keep and Undo; "this is wrong, redo it" meant switching
+to the chat and describing the place by hand. Now, like a GitHub review:
+
+- **Writing**: each change block's bar gets a comment button left of
+  Undo; ⌥⌘/ (Review menu, the editor's menu) comments the block at the
+  caret, else the selected lines of any code. A popover takes the note:
+  Return adds, ⌥↩ breaks the line, Cancel / Esc drop the edit, clicking
+  away keeps it (Xcode's notes do the same). A block with a note shows it
+  in its bar; a note off any block (kept since, or on plain code) hangs at
+  the end of its first line. Clicking either reopens it (Save / Delete).
+- **Sending**: the notes wait above the composer ("3 comments for the
+  agent", expandable, click a row to open its place) with Discard and
+  Send. Send makes **one message** to the open chat: each note under its
+  file, current lines and code, and the lines the agent removed there.
+  A working chat queues it (D88); a chat whose agent isn't up yet gets it
+  in the composer. "Send Review Comments to Agent" is a command too.
+- **Anchoring**: a note keeps the code it was written on and finds it
+  again nearest its old line after edits above (`ReviewComment.located`);
+  code that's gone falls back to the old line.
+- **Model**: `ReviewComments` in OrbitAPI, implemented by the Agents
+  plugin (one store per window); the editor reads and writes notes
+  through it and shows no comment button without it.
+
+Not kept across launches, and one store per window rather than per chat:
+the chat that's open when Send is pressed gets them all.
+
+### D126. The open folder is watched: changes made outside Orbit show up by themselves; the window title is the project's name
+
+`Workspace.fileSystemGeneration` was bumped only by Orbit's own actions
+(agent tool calls, git, explorer and search operations, Refresh Explorer):
+a file added in Finder or a terminal never appeared in the tree.
+
+`FolderWatcher` (Explorer plugin, one per window) runs an FSEvents stream
+on the open folder and calls `workspace.fileSystemDidChange()` — the tree's
+open folders reload, git badges and open files (D33's disk sync) follow.
+Ignored: `.git/` internals (our own `git status` rewrites the index: it
+would loop), the insides of `node_modules/` and `.build/` (thousands of
+events per install or build; the folder itself appearing is seen), and
+`.DS_Store`. At most one refresh a second while Orbit is in front, one
+every three seconds behind it (a build in a terminal shouldn't keep git
+busy), and a pending one runs at once when Orbit comes back to the front.
+
+The window's title is just the project's name: the active file's path in
+the subtitle made the Dock's window list (and the Window menu) unreadably
+long, and the title bar is hidden anyway (D42).
+
+### D127. ⌘K edits the selection with a hidden agent; the result is an inline agent change
+
+Cursor's most used feature after the chat: select code, say what to do,
+see the change in place. **Edit with Agent… (⌘K**, the editor's menu,
+Agents menu):
+
+- A popover over the selection takes the instruction (Return runs, Esc /
+  Cancel stops). Without a selection it writes code at the caret: into a
+  blank caret line, else on a new line after it.
+- It runs on `AgentCompletion` (the hidden, read-only session that writes
+  commit messages): the default agent, low effort, read-only mode, kept
+  warm (prewarmed when the popover opens). The prompt gives the file's
+  path, the lines (or 8 lines around the insertion point) and asks for
+  only the code in one fenced block; the agent may read the project.
+- The reply's first fenced block replaces the lines **in the buffer**
+  (unsaved, like typing), after `recordBaseline` of the buffer: it shows
+  as an agent change with Keep / Undo and a comment button (D7, D125), so
+  nothing new had to be built for reviewing it.
+- If those lines changed while the agent worked, nothing is applied and
+  the popover says so. Clicking away hides the popover; the agent keeps
+  going and its edit still lands.
+
+Not a chat: no follow-ups ("make it shorter") yet — run ⌘K again on the
+result. Uses the default agent's model, not a picker of its own.
+
+### D128. Tasks: the project's scripts run from a picker, each in its own terminal tab
+
+Running `npm run dev` or `make test` meant opening a terminal and typing it.
+Now **Run Task… (⌃⌘R)** lists what the project defines, and **Run Last
+Task (⌘R**, Xcode's Run key) repeats the last one (the picker when there's
+none yet).
+
+- **Found, not configured** (`ProjectTasks`, read when the picker opens):
+  package.json scripts with the lockfile's tool (bun, pnpm, yarn, else
+  `packageManager`, else npm), Makefile targets (with `## description`;
+  no variables, patterns or file targets), deno.json tasks, composer.json
+  scripts, and the usual commands of Package.swift, Cargo.toml and go.mod.
+  Anything else goes in `.orbit/settings.json`: `"tasks": {"name":
+  "command"}` or a list of `{"name", "command"}`; the empty picker points
+  there.
+- **Run in a terminal tab of its own**, titled with the command and
+  marked with a play icon: a login shell in the project with the command
+  typed in, so its output stays, ↑ brings it back and the shell's
+  environment (nvm, PATH) is the user's. Running the task again restarts
+  it in the same tab: ⌃C first when something is still running there
+  (the pty's foreground group isn't the shell), then the command.
+- It lives in the Terminal plugin: tasks are terminal tabs, no service
+  needed.
+
+Not done: problem matchers (errors in the output → Problems), a status
+bar indicator of running tasks, tasks of nested packages in a monorepo.
+
+### D129. Releases: Sparkle updates from GitHub Releases; ad hoc signing until a Developer ID
+
+The author ran Debug builds from the repo. Now a release is three commands
+(`scripts/release.sh`, wrapped by the Makefile):
+
+- `make release-setup` (once): Sparkle's `generate_keys` makes the EdDSA
+  key pair — the private half stays in the login keychain, the public one
+  is written into `App/Info.plist` (`SUPublicEDKey`) to commit.
+- `make release VERSION=0.2.0`: a Release build with that version and the
+  commit count as build number, zipped with `ditto`, and an `appcast.xml`
+  from Sparkle's `generate_appcast` (signs the zip with the keychain key;
+  only the newest release is listed — Sparkle needs nothing more).
+- `make release-publish VERSION=0.2.0`: `gh release create v0.2.0` with
+  the zip and the appcast, notes generated from the commits.
+
+**Hosting**: the repo is public, so GitHub Releases serve both files;
+`SUFeedURL` points at `releases/latest/download/appcast.xml`, so the
+newest release's appcast is always the one read. Automatic daily checks
+are on (`SUEnableAutomaticChecks`, no first-launch question); **Check for
+Updates…** sits in the app menu.
+
+**Signing**: the author has no Developer ID yet (only someone else's
+certificates on this Mac), so builds are signed ad hoc without the
+hardened runtime: Gatekeeper asks once on the first launch (right click →
+Open); Sparkle checks updates by their EdDSA signature, which doesn't need
+a Developer ID. With one, `DEVELOPER_ID` and `TEAM_ID` in the environment
+switch the same script to a hardened build with `App/Orbit.entitlements`
+(`disable-library-validation`: grammar dylibs compiled on the Mac, D71),
+notarization through the `orbit-notary` keychain profile and stapling.
+
+The updater doesn't start in Debug builds or while `SUPublicEDKey` is
+empty, so a development build never replaces itself. Sparkle is pinned
+exactly (2.10.0): the generated project's Package.resolved isn't in git.

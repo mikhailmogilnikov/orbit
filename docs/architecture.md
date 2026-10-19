@@ -38,7 +38,8 @@ other**. Cross-plugin features go through service protocols declared in
 `OrbitAPI` (e.g. `ChangeTracking`, implemented by Review, used by Editor and
 Agents; `AgentCompletion`, implemented by Agents, used by Git for commit
 messages; `AgentTasks`, implemented by Agents, used by Languages to hand a
-setup task to the chat; `AgentTerminalHosting`, implemented by Terminal, used by
+setup task to the chat; `ReviewComments`, implemented by Agents, used by
+Editor for notes on agent changes; `AgentTerminalHosting`, implemented by Terminal, used by
 Agents to run commands).
 
 ## Plugin model

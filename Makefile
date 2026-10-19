@@ -2,7 +2,7 @@ DERIVED := .build/xcode
 CONFIG ?= Debug
 APP := $(DERIVED)/Build/Products/$(CONFIG)/Orbit.app
 
-.PHONY: project build run test test-languages test-language-installs import-lspconfig import-grammars release clean
+.PHONY: project build run test test-languages test-language-installs import-lspconfig import-grammars release release-setup release-publish clean
 
 project:
 	xcodegen generate --quiet
@@ -67,8 +67,15 @@ import-grammars:
 		Packages/OrbitKit/Sources/OrbitAPI/Resources/Grammars.json; \
 	status=$$?; rm -rf $$tmp; exit $$status
 
+# Releases with Sparkle updates (D129); see scripts/release.sh.
+release-setup:
+	scripts/release.sh setup
+
 release:
-	$(MAKE) build CONFIG=Release
+	scripts/release.sh build $(VERSION)
+
+release-publish:
+	scripts/release.sh publish $(VERSION)
 
 # Also the package's own build: it can keep a stale file list after new
 # source files arrive (types in new files "not found" by swift test).

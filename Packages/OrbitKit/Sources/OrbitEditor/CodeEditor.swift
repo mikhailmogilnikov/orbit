@@ -11,6 +11,10 @@ struct CodeEditor: NSViewRepresentable {
     var hunks: [DiffHunk] = []
     var onKeep: (DiffHunk) -> Void = { _ in }
     var onRevert: (DiffHunk) -> Void = { _ in }
+    /// The file's review notes (D125); nil when there's no agent to send them to.
+    var comments: [ReviewComment]?
+    var onSaveComment: (ReviewComment) -> Void = { _ in }
+    var onRemoveComment: (ReviewComment.ID) -> Void = { _ in }
     /// 0-based line (and UTF-16 column) to scroll to once; `onRevealHandled` clears the request.
     var reveal: (line: Int, column: Int?)?
     var onRevealHandled: () -> Void = {}
@@ -187,7 +191,10 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.setGitBaseline(gitBaseline)
         coordinator.inlineDiff.onKeep = onKeep
         coordinator.inlineDiff.onRevert = onRevert
-        coordinator.inlineDiff.update(hunks: hunks, revision: document.revision)
+        coordinator.inlineDiff.url = document.url
+        coordinator.inlineDiff.onSaveComment = comments == nil ? nil : onSaveComment
+        coordinator.inlineDiff.onRemoveComment = onRemoveComment
+        coordinator.inlineDiff.update(hunks: hunks, comments: comments ?? [], revision: document.revision)
         coordinator.languages = languages
         coordinator.symbolHighlights.languages = languages
         coordinator.definitionLink.languages = languages
@@ -240,6 +247,8 @@ struct CodeEditor: NSViewRepresentable {
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
         ActiveEditor.shared.remove(coordinator)
         coordinator.closePopups()
+        coordinator.inlineDiff.closeComment()
+        coordinator.inlineEditPopover?.close()
         coordinator.rememberViewState()
         EditorViewStates.flush()
         OpenEditors.shared.unregister(coordinator)
@@ -250,6 +259,8 @@ struct CodeEditor: NSViewRepresentable {
         let document: TextDocument
         var focusRequest: Int?
         let inlineDiff = InlineDiffController()
+        /// ⌘K's instruction popover (D127).
+        var inlineEditPopover: NSPopover?
         let diagnosticsController = DiagnosticsController()
         lazy var symbolHighlights = SymbolHighlightController(geometry: diagnosticsController)
         lazy var bracketMatch = BracketMatchController(geometry: diagnosticsController)
@@ -539,6 +550,19 @@ struct CodeEditor: NSViewRepresentable {
             // `byLines` doesn't count a trailing empty line segment.
             if location > 0, text.character(at: location - 1) == 0x0A { return line }
             return max(0, line - 1)
+        }
+
+        /// 0-based lines the selection touches (a selection ending at a line's start leaves that line out).
+        var selectedLines: ClosedRange<Int> {
+            guard let textView else { return 0...0 }
+            let text = (textView.text ?? "") as NSString
+            let starts = InlineDiffController.lineStarts(of: text)
+            let range = textView.textSelection
+            func line(_ offset: Int) -> Int { max(0, (starts.lastIndex { $0 <= min(offset, text.length) } ?? 0)) }
+            let first = line(range.location)
+            var last = line(range.location + range.length)
+            if range.length > 0, last > first, starts[last] == range.location + range.length { last -= 1 }
+            return first...last
         }
 
         func reveal(line: Int, column: Int? = nil) {

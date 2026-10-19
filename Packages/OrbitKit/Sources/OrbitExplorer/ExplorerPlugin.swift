@@ -10,10 +10,15 @@ public final class ExplorerPlugin: OrbitPlugin {
         systemImage: "folder"
     )
 
+    private var watcher: FolderWatcher?
+
     public init() {}
+
+    public func deactivate() { watcher = nil }
 
     public func activate(_ context: PluginContext) {
         let workspace = context.workspace
+        watcher = FolderWatcher(workspace: workspace)
         let model = FileTreeModel(workspace: workspace, services: context.services)
         context.ui.addSidebarPanel(PanelContribution(id: "explorer", title: "Explorer", systemImage: "folder", order: 0) {
             ExplorerView(model: model, workspace: workspace, commands: context.commands, decorations: context.services.resolve(FileStatusProviding.self))
@@ -219,11 +224,18 @@ final class FileTreeModel {
     /// Cursor; otherwise the selection is the active file.
     var selectedFolder: URL?
 
-    /// Children load before the animation, so the rows below don't shift
-    /// while a half-filled folder opens.
     func toggle(_ folder: FileNode) {
-        if !folder.isExpanded { folder.loadChildren() }
-        withAnimation(.snappy(duration: 0.2)) { folder.isExpanded.toggle() }
+        setExpanded(folder, !folder.isExpanded)
+    }
+
+    /// Instant, as in VS Code: the list's animated row inserts, racing the
+    /// highlight moving to the clicked folder, left a stale copy of the
+    /// previously selected row drawn over the tree (D123).
+    func setExpanded(_ folder: FileNode, _ expanded: Bool) {
+        if expanded { folder.loadChildren() }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { folder.isExpanded = expanded }
     }
 
     /// The highlighted row: drawn by the rows themselves, always gray (D96).
@@ -763,10 +775,7 @@ struct FileChildren: View {
             if child.isDirectory {
                 DisclosureGroup(isExpanded: Binding(
                     get: { child.isExpanded },
-                    set: { expanded in
-                        if expanded { child.loadChildren() }
-                        child.isExpanded = expanded
-                    }
+                    set: { model.setExpanded(child, $0) }
                 )) {
                     FileChildren(node: child, model: model, workspace: workspace, decorations: decorations)
                 } label: {

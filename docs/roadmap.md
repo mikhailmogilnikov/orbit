@@ -173,7 +173,14 @@
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
 - Output follows only from the bottom of the chat; scrolled up, what you read stays put (D121)
-- Chat like Claude Code (D120): pinned plan, "Thought for 8s", Esc stops, ↑/↓ history, ⇧Tab and a mode button, focus after Deny, jump to latest, copy a reply
+- Releases (D129): `make release-setup` / `make release VERSION=…` / `make release-publish`, Sparkle updates from GitHub Releases, Check for Updates…; ad hoc signed until there's a Developer ID
+- Tasks (D128): Run Task… ⌃⌘R lists package.json scripts, Make targets, deno / composer / Swift / Cargo / Go commands and `.orbit/settings.json` tasks; each runs in its own terminal tab, ⌘R reruns the last
+- ⌘K Edit with Agent (D127): an instruction for the selection or the caret, the hidden agent's code lands as an inline agent change
+- The open folder is watched (D126): files added, removed or changed outside Orbit show up in the tree, git and open files
+- Review comments (D125): notes on agent change blocks or any lines (⌥⌘/), listed above the composer, sent to the chat as one message
+- Usage popover (D124): context ring with Compact, Claude and Codex plan limits with resets, remembered across chats
+- Tool calls fold like Claude Code (D122): quiet lines, runs of calls and thoughts as "Ran 4 commands ›"; your messages as bubbles on the right; commands and reply code blocks highlighted
+- Chat like Claude Code (D120): pinned plan, "Thought for 8s", Esc stops, ↑/↓ history, ⇧Tab, focus after Deny, jump to latest, copy a reply
 - Changed files show which chat changed them when several are open; key hints in an empty chat (D119)
 - Tool cards: file names open the file at its change, +/− in the header; permission keys ⌘↩ / ⌃⌘↩ / ⌃⌘⌫; a bar for another chat waiting for approval (D118)
 - One type scale for UI text, `Font.orbit(_:)` in OrbitUI (D117)
@@ -193,7 +200,7 @@
 1. Own extension registry (GitHub repo with `index.json`, PR to publish) for
    extensions Zed's catalog can't carry (languages, agents, code plugins)
 2. Code plugins in TypeScript via JavaScriptCore, same package format
-3. Release build, notarization, Sparkle updates
+3. Developer ID signing and notarization (the script is ready for it, D129)
 
 ## Not implemented yet
 Everything below is known to be missing; nothing here is in progress.
@@ -363,6 +370,13 @@ Everything below is known to be missing; nothing here is in progress.
   relative images); no side-by-side preview (no split editor); preview tabs
   aren't restored on launch; code colors don't change with the theme until
   the next edit.
+- Releases (D129): no release made yet — the first `make release` (keychain access for the Sparkle key) and an update from one release to the next are unverified; Gatekeeper's first-launch prompt for an ad hoc build.
+- Tasks (D128): unverified on a Mac (typing into a shell that's still starting, e.g. with a slow prompt; ⌃C then restart of a dev server; ⌘R reaching the menu from the terminal and the chat). No problem matchers, no running-task indicator, root package only.
+- ⌘K (D127): unverified on a Mac and with a real agent (the popover's place above the selection, how Claude Code's plan mode and Codex's read-only mode answer the prompt, the time a warm agent takes).
+- Folder watching (D126): unverified on a Mac (latency in the tree, CPU while a terminal build runs in the project).
+- Review comments (D125): unverified on a Mac and with a real agent (the popover's place under a block and its keys, the note in the block's bar and the chip off blocks, the bar above the composer). Notes aren't saved across launches; a note follows its code only when the code is unchanged.
+- Usage popover (D124): unverified on a Mac; Claude limits only as its events come (one window each), Codex limits only as fresh as its last logged turn.
+- Tool call folding (D122): unverified on a Mac and with a real agent (the line spacing, a running command folded away while its output streams).
 - Transcript (D121): rows are a `LazyVStack`, so rows not made yet have guessed heights; scrolling up a long chat can still shift as they come in. Streaming while scrolled up is unverified on a Mac.
 - Chat like Claude Code (D120): unverified on a Mac and with a real agent (⇧Tab reaching the field as backtab, Esc and ↑ beside the text field's own keys, the pinned plan's height, the copy button's place, the jump button while streaming).
 - Chat attribution and hints (D119): unverified on a Mac (the agent icon beside the stats and the hover buttons, the hints grid under the greeting).

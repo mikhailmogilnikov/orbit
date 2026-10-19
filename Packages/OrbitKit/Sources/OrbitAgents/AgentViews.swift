@@ -300,6 +300,7 @@ struct SessionView: View {
             if let waiting = store.sessions.first(where: { $0.id != session.id && $0.hasPendingPermission }) {
                 WaitingSessionBar(session: waiting) { store.selectedID = waiting.id }
             }
+            ReviewCommentsBar(store: store)
             if session.isIsolated {
                 IsolationBar(session: session)
             } else if let changes = store.changes {
@@ -380,7 +381,7 @@ private struct TranscriptRows: View {
         ForEach(TranscriptRow.rows(session.entries)) { row in
             switch row {
             case .entry(let entry): EntryView(entry: entry, session: session)
-            case .group(let entries): ToolGroupCard(entries: entries, reveal: session.reveal)
+            case .group(let entries): ToolGroupView(entries: entries, reveal: session.reveal)
             }
         }
     }
@@ -525,7 +526,7 @@ struct EntryView: View {
         case .thought:
             ThoughtView(entry: entry)
         case .tool:
-            ToolCallCard(entry: entry, reveal: session.reveal)
+            ToolCallRow(entry: entry, reveal: session.reveal)
         case .plan:
             PlanView(items: entry.plan)
         case .notice:
@@ -733,27 +734,16 @@ struct UserMessageView: View {
     @State private var isHovering = false
     @State private var isConfirming = false
 
+    /// A bubble on the right, like Claude Code, so each turn's start is easy to find.
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !entry.attachments.isEmpty {
-                AttachmentChips(attachments: entry.attachments)
-            }
-            if !entry.text.isEmpty {
-                Text(entry.text)
-                    .textSelection(.enabled)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.tint.opacity(0.08), in: .rect(cornerRadius: Theme.corner))
-        .overlay(alignment: .topTrailing) {
+        HStack(alignment: .top, spacing: 6) {
+            Spacer(minLength: 40)
             if entry.checkpoint != nil, isHovering || isConfirming {
                 Button {
                     isConfirming = true
                 } label: {
                     Image(systemName: "arrow.uturn.backward")
-                        .font(.caption.weight(.semibold))
+                        .font(.orbit(.caption, weight: .semibold))
                         .frame(width: 22, height: 22)
                         .contentShape(.rect)
                 }
@@ -762,10 +752,26 @@ struct UserMessageView: View {
                 .controlSize(.small)
                 .disabled(!session.canRestore)
                 .help(session.canRestore ? "Restore files to before this message" : "Wait for the agent to finish")
-                .padding(5)
                 .transition(.opacity)
             }
+            VStack(alignment: .leading, spacing: 6) {
+                if !entry.attachments.isEmpty {
+                    AttachmentChips(attachments: entry.attachments)
+                }
+                // Replayed prompts end in a newline, an empty last line in the bubble.
+                let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    Text(text)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.tint.opacity(0.16), in: .rect(cornerRadius: 12))
         }
+        .padding(.top, 6)
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
         }
@@ -925,72 +931,79 @@ struct PinnedPlanView: View {
     }
 }
 
-struct ToolCallCard: View {
+/// A tool call as one quiet line ("Read Transcript.swift ›") that opens into
+/// its details, like Claude Code; framed only while it asks for permission.
+struct ToolCallRow: View {
     let entry: TranscriptEntry
     /// Opens a file the call touched in the editor.
     var reveal: ((String) -> Void)?
+    /// A line in a group's frame, padded like its neighbours.
+    var inGroup = false
     @State private var isExpanded: Bool?
 
     var body: some View {
         let expanded = isExpanded ?? defaultExpanded
+        let asking = entry.permission?.isPending == true
+        let inset: CGFloat = inGroup || asking ? 10 : 0
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.snappy(duration: 0.2)) { isExpanded = !expanded }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: icon)
-                        .font(.orbit(.caption, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16)
-                    Text(entry.title.isEmpty ? entry.toolKind.capitalized : entry.title)
-                        .font(.orbit(.body, weight: .medium))
+                HStack(spacing: 6) {
+                    Text(Self.styledTitle(entry.title.isEmpty ? entry.toolKind.capitalized : entry.title))
+                        .font(.orbit(.body))
+                        .foregroundStyle(asking ? .primary : .secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Spacer(minLength: 4)
-                    if let stats = diffStats {
-                        DiffStatBadge(added: stats.added, removed: stats.removed)
-                    }
-                    statusIcon
                     if hasDetails {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.tertiary)
                             .rotationEffect(.degrees(expanded ? 90 : 0))
                     }
+                    Spacer(minLength: 4)
+                    if let resolution = entry.permission?.resolution {
+                        Text(resolution)
+                            .font(.orbit(.caption))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                    if let stats = diffStats {
+                        DiffStatBadge(added: stats.added, removed: stats.removed)
+                    }
+                    statusIcon
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+                .padding(.horizontal, inset)
+                .padding(.vertical, inset > 0 ? 7 : 1)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
 
             if expanded && hasDetails {
-                Divider().opacity(0.6)
                 details
+                    .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
+                    .padding(.horizontal, inset)
+                    .padding(.top, 2)
+                    .padding(.bottom, inset > 0 ? 8 : 2)
             }
 
             if let permission = entry.permission, permission.isPending {
                 Divider().opacity(0.6)
                 PermissionBar(request: permission)
-            } else if let resolution = entry.permission?.resolution {
-                Text(resolution)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 6)
             }
         }
-        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.corner))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.corner)
-                .strokeBorder(entry.permission?.isPending == true ? AnyShapeStyle(.orange.opacity(0.6)) : AnyShapeStyle(Theme.hairline))
-        )
+        .background(asking ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.corner))
+        .overlay {
+            if asking {
+                RoundedRectangle(cornerRadius: Theme.corner).strokeBorder(.orange.opacity(0.6))
+            }
+        }
     }
 
     /// Live commands stay open while they run and when they fail.
     private var defaultExpanded: Bool {
         if let terminal = entry.terminal, terminal.exitStatus?.succeeded != true { return true }
-        return entry.permission?.isPending == true || entry.contents.contains { if case .diff = $0 { true } else { false } }
+        return entry.permission?.isPending == true
     }
 
     /// Summed over the call's diffs; nil when it has none.
@@ -1004,26 +1017,42 @@ struct ToolCallCard: View {
         return total
     }
 
-    private var hasDetails: Bool {
-        !entry.contents.isEmpty || !entry.output.isEmpty || entry.command != nil || entry.terminal != nil
+    private var hasDetails: Bool { entry.hasDetails }
+
+    /// Code in backticks ("Run `make build`") in code type and full color,
+    /// so the command stands out of the gray line.
+    static func styledTitle(_ title: String) -> AttributedString {
+        var result = AttributedString()
+        for (index, part) in title.split(separator: "`", omittingEmptySubsequences: false).enumerated() where !part.isEmpty {
+            var run = AttributedString(part)
+            if index % 2 == 1 {
+                run.font = .orbit(.code)
+                run.foregroundColor = .primary
+            }
+            result += run
+        }
+        return result
     }
 
     @ViewBuilder private var details: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let command = entry.command, command != entry.title {
-                Text(command)
-                    .font(.orbit(.caption, design: .monospaced))
+            if let command = entry.shownCommand {
+                HighlightedCode(command, language: "bash")
+                    .font(.orbit(.code))
                     .textSelection(.enabled)
                     .lineLimit(6)
             }
+            ForEach(entry.shownTexts, id: \.self) { text in
+                HighlightedCode(text.code, language: text.language)
+                    .font(.orbit(.code))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(20)
+                    .textSelection(.enabled)
+            }
             ForEach(entry.contents) { content in
                 switch content {
-                case .text(let text):
-                    Text(text)
-                        .font(.orbit(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(20)
-                        .textSelection(.enabled)
+                case .text:
+                    EmptyView()
                 case .diff(let path, let old, let new):
                     VStack(alignment: .leading, spacing: 4) {
                         DiffFileLink(path: path, reveal: reveal)
@@ -1046,28 +1075,14 @@ struct ToolCallCard: View {
                 .defaultScrollAnchor(.bottom)
             }
         }
-        .padding(10)
-    }
-
-    private var icon: String {
-        switch entry.toolKind {
-        case "read": "doc.text"
-        case "edit": "pencil"
-        case "delete": "trash"
-        case "move": "arrow.right.doc.on.clipboard"
-        case "search": "magnifyingglass"
-        case "execute": "terminal"
-        case "think": "brain"
-        case "fetch": "globe"
-        case "switch_mode": "arrow.triangle.branch"
-        default: "wrench.and.screwdriver"
-        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder private var statusIcon: some View {
         switch entry.status {
         case "completed":
-            Image(systemName: "checkmark").font(.orbit(.micro, weight: .bold)).foregroundStyle(.green)
+            EmptyView()
         case "failed":
             Image(systemName: "xmark").font(.orbit(.micro, weight: .bold)).foregroundStyle(.red)
         default:
@@ -1135,60 +1150,64 @@ private struct DiffFileLink: View {
     }
 }
 
-/// Consecutive reads and searches as one line; expands into their cards.
-struct ToolGroupCard: View {
+/// A run of tool calls as one line ("Ran 4 commands ›") that opens into a
+/// framed list of them, like Claude Code.
+struct ToolGroupView: View {
     let entries: [TranscriptEntry]
     var reveal: ((String) -> Void)?
     @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let running = entries.last { $0.kind == .tool && $0.isRunning }
+        let failed = entries.count { $0.kind == .tool && $0.status == "failed" }
+        VStack(alignment: .leading, spacing: 6) {
             Button {
                 withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: entries.allSatisfy { $0.toolKind == "read" } ? "doc.text" : "magnifyingglass")
-                        .font(.orbit(.caption, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16)
+                HStack(spacing: 6) {
                     Text(TranscriptRow.summary(entries))
-                        .font(.orbit(.body, weight: .medium))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    if !isExpanded, let last = entries.last {
-                        Text(last.title)
-                            .font(.orbit(.body))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: 4)
-                    if entries.contains(where: \.isRunning) {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "checkmark").font(.orbit(.micro, weight: .bold)).foregroundStyle(.green)
-                    }
                     Image(systemName: "chevron.right")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    if failed > 0 {
+                        Text("\(failed) failed")
+                            .foregroundStyle(.red)
+                    }
+                    if !isExpanded, let running {
+                        Text(running.plainTitle)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        ProgressView().controlSize(.mini)
+                    }
+                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+                .font(.orbit(.body))
+                .padding(.vertical, 1)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .help(isExpanded ? "Hide the steps" : entries.map(\.title).joined(separator: "\n"))
+            .help(isExpanded ? "Hide the steps" : "Show the steps")
 
             if isExpanded {
-                Divider().opacity(0.6)
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(entries) { ToolCallCard(entry: $0, reveal: reveal) }
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                        if index > 0 { Divider().opacity(0.6) }
+                        if entry.kind == .thought {
+                            ThoughtView(entry: entry)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                        } else {
+                            ToolCallRow(entry: entry, reveal: reveal, inGroup: true)
+                        }
+                    }
                 }
-                .padding(6)
+                .overlay(RoundedRectangle(cornerRadius: Theme.corner).strokeBorder(Theme.hairline))
             }
         }
-        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.corner))
-        .overlay(RoundedRectangle(cornerRadius: Theme.corner).strokeBorder(Theme.hairline))
     }
 }
 
@@ -1407,7 +1426,6 @@ struct Composer: View {
                 .fixedSize()
                 .help("Attach files or images (or drop them here)")
                 SessionOptionsButton(session: session, store: store)
-                ModeButton(session: session)
                 Spacer()
                 if !session.usage.isEmpty {
                     UsageButton(session: session)

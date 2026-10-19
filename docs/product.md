@@ -73,7 +73,11 @@ agents and review their work.
   name opens the file at its change.
 - **Inline diff review:** banner above the file ("N agent changes +a −r",
   prev/next, Undo All / Keep All); per block Undo ⌥⌘⌫ / Keep ⌥⌘↩, navigate
-  ⌥⌘↑/↓; accept/reject everything ⇧⌘↩ / ⇧⌘⌫.
+  ⌥⌘↑/↓; accept/reject everything ⇧⌘↩ / ⇧⌘⌫. A block's comment button (or
+  ⌥⌘/ on any lines) writes a note for the agent; notes gather above the
+  composer and go to the chat as one message (Send). ⌘K asks the agent to
+  rewrite the selection (or write code at the caret); the result shows as
+  an agent change to Keep or Undo.
 - **Changed files** sit above the agent composer: "N files changed +a −r"
   with Undo All / Keep All and "review next"; it expands into the files
   (click opens the file at its first change, hover shows per-file Undo/Keep).

@@ -19,4 +19,6 @@ public struct SyntaxSpan: Sendable, Hashable {
 public protocol SyntaxHighlighting: AnyObject {
     /// Spans for `text` read as the language of `url`'s extension; empty when unknown.
     func highlight(_ text: String, as url: URL) async -> [SyntaxSpan]
+    /// Spans for `text` in the language a code fence names ("swift", "bash"); empty when unknown.
+    func highlight(_ text: String, language: String) async -> [SyntaxSpan]
 }

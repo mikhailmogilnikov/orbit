@@ -14,8 +14,19 @@ final class InlineDiffController {
     weak var textView: STTextView?
     var onKeep: ((DiffHunk) -> Void)?
     var onRevert: ((DiffHunk) -> Void)?
+    /// Review notes for the agent (D125); nil without an agent to send them to.
+    var onSaveComment: ((ReviewComment) -> Void)?
+    var onRemoveComment: ((ReviewComment.ID) -> Void)?
+    var url: URL?
 
     private(set) var hunks: [DiffHunk] = []
+    /// The file's notes with the lines they're on now.
+    private(set) var comments: [(comment: ReviewComment, lines: ClosedRange<Int>)] = []
+    private var commentsSignature: Int?
+    private var commentPopover: NSPopover?
+    /// Note popovers and their delegates, kept until they finished closing
+    /// (a popover holds its delegate weakly; one replaced mid-close still saves).
+    private var openPopovers: [ObjectIdentifier: (popover: NSPopover, delegate: CommentPopoverDelegate)] = [:]
     private var lineStarts: [Int] = [0]
     private var lineHeight: CGFloat = 16
     private var appliedSignature: Int?
@@ -41,21 +52,35 @@ final class InlineDiffController {
 
     // MARK: Updating
 
-    /// Applies the current hunks. Cheap when nothing changed.
-    func update(hunks: [DiffHunk], revision: Int) {
+    /// Applies the current hunks and notes. Cheap when nothing changed.
+    func update(hunks: [DiffHunk], comments: [ReviewComment], revision: Int) {
         var hasher = Hasher()
         hasher.combine(hunks)
         hasher.combine(revision)
         let signature = hasher.finalize()
-        guard signature != appliedSignature else { return }
-        appliedSignature = signature
-        self.hunks = hunks
-        applySpacing()
+        hasher.combine(comments)
+        let withComments = hasher.finalize()
+        guard signature != appliedSignature || withComments != commentsSignature else { return }
+        commentsSignature = withComments
+        if !comments.isEmpty, let text = textView?.text {
+            let lines = LineDiff.lines(text)
+            self.comments = comments.map { ($0, $0.located(in: lines)) }
+        } else {
+            self.comments = []
+        }
+        if signature != appliedSignature {
+            appliedSignature = signature
+            self.hunks = hunks
+            applySpacing()
+        }
         layoutOverlays()
     }
 
     /// Call after the text view's whole string was replaced (attributes reset).
-    func invalidate() { appliedSignature = nil }
+    func invalidate() {
+        appliedSignature = nil
+        commentsSignature = nil
+    }
 
     /// Index of the change block at or after `line`.
     func hunk(near line: Int) -> DiffHunk? {
@@ -141,7 +166,7 @@ final class InlineDiffController {
         guard !isApplying, let textView else { return }
         for view in overlays { view.removeFromSuperview() }
         overlays.removeAll()
-        guard !hunks.isEmpty else { return }
+        guard !hunks.isEmpty || !comments.isEmpty else { return }
 
         let content = textView.contentFrame
         let width = max(textView.bounds.width, content.maxX) - content.minX
@@ -197,17 +222,120 @@ final class InlineDiffController {
             }
 
             guard top != .greatestFiniteMagnitude, visible.contains(CGPoint(x: visible.midX, y: bottom)) else { continue }
+            let note = comment(for: hunk)
+            var frame = CGRect.zero
             let actions = NSHostingView(rootView: HunkActions(
+                comment: onSaveComment == nil ? nil : (note?.text ?? ""),
                 keep: { [weak self] in self?.onKeep?(hunk) },
-                revert: { [weak self] in self?.onRevert?(hunk) }
+                revert: { [weak self] in self?.onRevert?(hunk) },
+                editComment: { [weak self] in
+                    guard let self else { return }
+                    editComment(note ?? newComment(on: hunk), anchor: frame)
+                }
             ))
             let size = actions.fittingSize
             let anchorX = textView.visibleRect.maxX - size.width - 12
             // Bottom-right corner of the block, hanging just below it like Cursor.
-            actions.frame = CGRect(x: anchorX, y: bottom, width: size.width, height: size.height)
+            frame = CGRect(x: anchorX, y: bottom, width: size.width, height: size.height)
+            actions.frame = frame
             add(actions, below: false)
         }
+
+        // Notes away from any change block (kept since, or on plain code) hang off their first line.
+        for (comment, lines) in comments where !hunks.contains(where: { anchorLines(of: $0).overlaps(lines) }) {
+            guard let line = lineRect(lines.lowerBound), line.intersects(visible) else { continue }
+            var frame = CGRect.zero
+            let chip = NSHostingView(rootView: CommentChip(text: comment.text) { [weak self] in
+                self?.editComment(comment, anchor: frame)
+            })
+            let size = chip.fittingSize
+            frame = CGRect(x: textView.visibleRect.maxX - size.width - 12, y: line.midY - size.height / 2, width: size.width, height: size.height)
+            chip.frame = frame
+            add(chip, below: false)
+        }
     }
+
+    // MARK: Review notes
+
+    /// The lines a block's note is anchored to: its new lines, or the line
+    /// after a deletion.
+    private func anchorLines(of hunk: DiffHunk) -> ClosedRange<Int> {
+        hunk.added > 0
+            ? hunk.newRange.lowerBound...(hunk.newRange.upperBound - 1)
+            : hunk.newRange.lowerBound...hunk.newRange.lowerBound
+    }
+
+    private func comment(for hunk: DiffHunk) -> ReviewComment? {
+        let anchor = anchorLines(of: hunk)
+        return comments.first { $0.lines.overlaps(anchor) }?.comment
+    }
+
+    private func newComment(on hunk: DiffHunk) -> ReviewComment {
+        let anchor = anchorLines(of: hunk)
+        let removed = hunk.lines.filter { $0.kind == .removed }.map(\.text).joined(separator: "\n")
+        return ReviewComment(url: url ?? URL(fileURLWithPath: "/"), lines: anchor, code: code(anchor), removed: removed)
+    }
+
+    private func code(_ lines: ClosedRange<Int>) -> String {
+        let all = LineDiff.lines(textView?.text ?? "")
+        guard lines.lowerBound < all.count else { return "" }
+        return all[lines.lowerBound...min(lines.upperBound, all.count - 1)].joined(separator: "\n")
+    }
+
+    /// ⌥⌘/: the note of the block or note at these lines, else a new one on them.
+    func comment(on lines: ClosedRange<Int>) {
+        guard onSaveComment != nil, let textView else { return }
+        let existing = comments.first { $0.lines.overlaps(lines) }?.comment
+        let hunk = hunks.first { anchorLines(of: $0).overlaps(lines) }
+        let note = existing ?? hunk.map(newComment(on:))
+            ?? ReviewComment(url: url ?? URL(fileURLWithPath: "/"), lines: lines, code: code(lines))
+        let anchorLine = hunk.map { anchorLines(of: $0).upperBound } ?? lines.upperBound
+        let rect = lineRect(anchorLine) ?? CGRect(x: textView.visibleRect.midX, y: textView.visibleRect.midY, width: 1, height: 1)
+        textView.scrollToVisible(rect.insetBy(dx: 0, dy: -60))
+        editComment(note, anchor: CGRect(x: rect.minX, y: rect.minY, width: max(1, min(rect.width, 240)), height: rect.height))
+    }
+
+    private func editComment(_ comment: ReviewComment, anchor: CGRect) {
+        guard let textView, textView.window != nil else { return }
+        commentPopover?.close()
+        let draft = CommentDraft(text: comment.text)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = NSHostingController(rootView: ReviewCommentEditor(
+            initialText: comment.text,
+            isNew: comment.text.isEmpty,
+            onChange: { draft.text = $0 },
+            finish: { [weak popover] outcome in
+                draft.outcome = outcome
+                popover?.close()
+            }
+        ).tint(Theme.accent))
+        // Clicking away keeps what was written, like Xcode's notes; Cancel and Esc don't.
+        let key = ObjectIdentifier(popover)
+        let delegate = CommentPopoverDelegate { [weak self] in
+            guard let self else { return }
+            openPopovers[key] = nil
+            if commentPopover.map(ObjectIdentifier.init) == key { commentPopover = nil }
+            switch draft.outcome {
+            case .cancel: break
+            case .delete: onRemoveComment?(comment.id)
+            case .save:
+                var saved = comment
+                saved.text = draft.text
+                // An empty note that was never saved needs no removal.
+                if !saved.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !comment.text.isEmpty {
+                    onSaveComment?(saved)
+                }
+            }
+        }
+        openPopovers[key] = (popover, delegate)
+        popover.delegate = delegate
+        commentPopover = popover
+        popover.show(relativeTo: anchor, of: textView, preferredEdge: .maxY)
+    }
+
+    func closeComment() { commentPopover?.close() }
 
     private func add(_ view: NSView, below: Bool) {
         guard let textView else { return }
@@ -232,7 +360,7 @@ final class InlineDiffController {
     }
 
     /// Rect of a line's text in text-view coordinates (excluding paragraph gaps).
-    private func lineRect(_ line: Int) -> CGRect? {
+    func lineRect(_ line: Int) -> CGRect? {
         guard let textView, let storage, line >= 0, line < lineStarts.count else { return nil }
         // The empty line after a trailing newline has no paragraph: it sits one line below the last.
         if lineStarts[line] >= storage.length, line > 0 {
@@ -338,11 +466,28 @@ final class RemovedLinesView: NSView {
 }
 
 struct HunkActions: View {
+    /// The block's note (empty: none yet); nil hides the button.
+    let comment: String?
     let keep: () -> Void
     let revert: () -> Void
+    let editComment: () -> Void
 
     var body: some View {
         HStack(spacing: 1) {
+            if let comment {
+                Button(action: editComment) {
+                    if comment.isEmpty {
+                        Image(systemName: "text.bubble").foregroundStyle(.secondary)
+                    } else {
+                        Label(comment, systemImage: "text.bubble.fill")
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: 180, alignment: .leading)
+                    }
+                }
+                .help(comment.isEmpty ? "Comment for the agent (⌥⌘/)" : comment)
+                Divider().frame(height: 12)
+            }
             Button(action: revert) {
                 Text("Undo ").foregroundStyle(.primary) + Text("⌥⌘⌫").foregroundStyle(.secondary)
             }
@@ -369,5 +514,92 @@ struct HunkActionStyle: ButtonStyle {
             .padding(.vertical, 3)
             .background(configuration.isPressed ? Color.primary.opacity(0.12) : .clear, in: .rect(cornerRadius: 4))
             .contentShape(.rect)
+    }
+}
+
+/// A note away from any change block, at the end of its line.
+struct CommentChip: View {
+    let text: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(text, systemImage: "text.bubble.fill")
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 200, alignment: .leading)
+        }
+        .buttonStyle(HunkActionStyle())
+        .font(.orbit(.micro, weight: .medium))
+        .background(.regularMaterial, in: .rect(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
+        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+        .help(text)
+    }
+}
+
+private final class CommentPopoverDelegate: NSObject, NSPopoverDelegate {
+    let onClose: @MainActor () -> Void
+    init(onClose: @escaping @MainActor () -> Void) { self.onClose = onClose }
+    func popoverDidClose(_ notification: Notification) { onClose() }
+}
+
+@MainActor
+private final class CommentDraft {
+    var text: String
+    var outcome = ReviewCommentEditor.Outcome.save
+    init(text: String) { self.text = text }
+}
+
+/// The popover a note is written in.
+struct ReviewCommentEditor: View {
+    enum Outcome { case save, cancel, delete }
+
+    let isNew: Bool
+    let onChange: (String) -> Void
+    let finish: (Outcome) -> Void
+    @State private var text: String
+    @FocusState private var isFocused: Bool
+
+    init(initialText: String, isNew: Bool, onChange: @escaping (String) -> Void, finish: @escaping (Outcome) -> Void) {
+        self.isNew = isNew
+        self.onChange = onChange
+        self.finish = finish
+        _text = State(initialValue: initialText)
+    }
+
+    private var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Comment for the agent", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.orbit(.body))
+                .lineLimit(3...10)
+                .focused($isFocused)
+                .onSubmit { if !isEmpty { finish(.save) } }
+                .onExitCommand { finish(.cancel) }
+                .onChange(of: text) { _, new in onChange(new) }
+            HStack(spacing: 8) {
+                if !isNew {
+                    Button("Delete", role: .destructive) { finish(.delete) }
+                        .buttonStyle(.glass)
+                }
+                Text("Sent with the others from the chat")
+                    .font(.orbit(.caption))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Button("Cancel") { finish(.cancel) }
+                    .buttonStyle(.glass)
+                Button(isNew ? "Add" : "Save") { finish(.save) }
+                    .buttonStyle(.glassProminent)
+                    .disabled(isEmpty && isNew)
+            }
+            .controlSize(.small)
+        }
+        .padding(12)
+        .frame(width: 360)
+        .onAppear { isFocused = true }
     }
 }

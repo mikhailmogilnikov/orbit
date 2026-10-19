@@ -28,6 +28,7 @@ public final class AgentsPlugin: OrbitPlugin {
         let tasks = AgentTaskService(store: store, ui: ui)
         self.tasks = tasks
         context.services.register(AgentTasks.self, tasks)
+        context.services.register(ReviewComments.self, store.reviewComments)
 
         ui.addSettingsPane(SettingsPane(
             id: "agents", title: "Agents", systemImage: "sparkles", order: 20,
@@ -98,6 +99,17 @@ public final class AgentsPlugin: OrbitPlugin {
         })
 
         store.registerProviderCommands()
+
+        context.commands.register(OrbitCommand(
+            id: "agents.sendReviewComments",
+            title: "Send Review Comments to Agent",
+            category: "Review",
+            systemImage: "paperplane",
+            isEnabled: { !store.reviewComments.comments.isEmpty }
+        ) {
+            ui.revealInspectorPanel("agents")
+            store.sendReviewComments()
+        })
 
         context.commands.register(OrbitCommand(
             id: "agents.stop",
@@ -179,6 +191,8 @@ final class AgentStore {
     private var providerCommandIDs: [String] = []
     /// The changed-files list above the composer is expanded.
     var isChangesExpanded = false
+    /// Notes from the editor waiting to go to a chat (D125).
+    let reviewComments = ReviewCommentStore()
     /// The chat whose turn last changed each file: with parallel chats, the list says whose change it is.
     private(set) var changeAuthors: [URL: AgentSession.ID] = [:]
 
@@ -522,6 +536,18 @@ final class AgentStore {
     }
 
     func focusComposer() { focusRequest += 1 }
+
+    /// All review notes as one message to the open chat (a new one when there's none).
+    func sendReviewComments() {
+        let comments = reviewComments.comments
+        guard !comments.isEmpty else { return }
+        if selected == nil { newChat() }
+        guard let session = selected else { return }
+        let documents = workspace.documents
+        session.deliver(ReviewCommentPrompt.text(for: comments, root: workspace.root) { documents.currentText(of: $0) })
+        reviewComments.removeAll()
+        focusComposer()
+    }
 
     // MARK: Installed agents
 

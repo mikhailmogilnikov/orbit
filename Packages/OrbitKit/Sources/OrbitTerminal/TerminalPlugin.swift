@@ -64,6 +64,30 @@ public final class TerminalPlugin: OrbitPlugin {
             }
         })
         context.commands.register(OrbitCommand(
+            id: "tasks.run",
+            title: "Run Task…",
+            category: "Terminal",
+            systemImage: "play",
+            shortcut: KeyboardShortcut("r", modifiers: [.command, .control]),
+            isEnabled: { context.workspace.root != nil }
+        ) {
+            Self.pickTask(store: store, ui: ui, commands: context.commands)
+        })
+        context.commands.register(OrbitCommand(
+            id: "tasks.runLast",
+            title: "Run Last Task",
+            category: "Terminal",
+            systemImage: "arrow.clockwise",
+            shortcut: KeyboardShortcut("r", modifiers: .command),
+            isEnabled: { context.workspace.root != nil }
+        ) {
+            if let task = store.lastTask {
+                store.run(task)
+            } else {
+                Self.pickTask(store: store, ui: ui, commands: context.commands)
+            }
+        })
+        context.commands.register(OrbitCommand(
             id: "terminal.kill",
             title: "Kill Terminal",
             category: "Terminal",
@@ -76,6 +100,35 @@ public final class TerminalPlugin: OrbitPlugin {
 
     public func deactivate() {
         store?.terminateAll()
+    }
+
+    @MainActor
+    private static func pickTask(store: TerminalStore, ui: UIRegistry, commands: CommandRegistry) {
+        let tasks = store.tasks()
+        ui.presentQuickPick(QuickPick(id: "tasks", placeholder: "Run a task", initialSelection: store.lastTask?.id) { query in
+            guard !tasks.isEmpty else {
+                return [QuickPickItem(
+                    id: "none", title: AttributedString("No tasks found: add \"tasks\" to .orbit/settings.json"),
+                    subtitle: "Scripts in package.json, Makefile targets, Swift, Cargo and Go are found by themselves",
+                    systemImage: "gearshape"
+                ) { commands.run("editor.openProjectSettings") }]
+            }
+            let matched: [(task: ProjectTask, positions: [Int], score: Int)] = tasks.compactMap { task in
+                guard let match = FuzzyMatch.match(query, in: task.name) ?? FuzzyMatch.match(query, in: task.command).map({ .init(score: $0.score - 5, positions: []) })
+                else { return nil }
+                return (task, match.positions, match.score)
+            }
+            let ordered = query.isEmpty ? matched : matched.sorted { $0.score > $1.score }
+            return ordered.map { entry in
+                QuickPickItem(
+                    id: entry.task.id,
+                    title: FuzzyMatch.highlighted(entry.task.name, positions: entry.positions),
+                    subtitle: entry.task.detail.map { $0 == entry.task.command ? $0 : "\(entry.task.command) · \($0)" } ?? entry.task.command,
+                    systemImage: store.isRunning(entry.task) ? "play.circle.fill" : "play",
+                    trailing: entry.task.source
+                ) { store.run(entry.task) }
+            }
+        })
     }
 }
 
@@ -97,6 +150,37 @@ final class TerminalStore: TerminalOpening {
     }
 
     var selected: TerminalSession? { sessions.first { $0.id == selectedID } }
+
+    // MARK: Tasks (D128)
+
+    /// Run Last Task's.
+    private(set) var lastTask: ProjectTask?
+
+    func tasks() -> [ProjectTask] {
+        workspace.root.map(ProjectTasks.find(in:)) ?? []
+    }
+
+    /// In the task's own tab; running it again restarts it there.
+    func run(_ task: ProjectTask) {
+        guard let root = workspace.root else { return }
+        lastTask = task
+        let session: TerminalSession
+        if let open = sessions.first(where: { $0.taskID == task.id && $0.isRunning }) {
+            session = open
+        } else {
+            session = TerminalSession(directory: root, task: task)
+            session.onExit = { [weak self] session in self?.remove(session) }
+            sessions.append(session)
+        }
+        selectedID = session.id
+        ui.revealBottomPanel(Self.panelID)
+        session.type(task.command)
+        focusSelected()
+    }
+
+    func isRunning(_ task: ProjectTask) -> Bool {
+        sessions.contains { $0.taskID == task.id && $0.isBusy }
+    }
 
     private var isShown: Bool {
         ui.isBottomPanelVisible && (ui.selectedBottomPanel ?? ui.bottomPanels.first?.id) == Self.panelID
@@ -276,7 +360,7 @@ private struct TerminalTab: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: session.isAgent ? "sparkles" : "terminal")
+            Image(systemName: session.isAgent ? "sparkles" : session.isTask ? "play" : "terminal")
                 .font(.orbit(.micro))
                 .foregroundStyle(session.isAgent ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             Text(session.title)

@@ -122,9 +122,29 @@ final class AgentSession: Identifiable {
             sessionID = saved.sessionID
             updatedAt = saved.updatedAt
         }
+        if let remembered = LimitsMemory.load(provider.id) { usage.apply(limits: remembered) }
+        refreshLimits()
     }
 
     private let lostCopy: Bool
+
+    /// Codex keeps its limits in its own logs; other agents report them as they run.
+    func refreshLimits() {
+        guard provider.id == "codex-acp" else { return }
+        Task {
+            guard let limits = await CodexLimits.latest() else { return }
+            usage.apply(limits: limits)
+            if let snapshot = usage.limitsSnapshot { LimitsMemory.save(snapshot, for: provider.id) }
+        }
+    }
+
+    /// One of the agent's own commands ("/compact"), sent as a message.
+    func run(command name: String) {
+        guard status == .ready else { return }
+        send(text: "/\(name)", attachments: [])
+    }
+
+    func offers(command name: String) -> Bool { slashCommands.contains { $0.name == name } }
 
     /// What it takes to open this conversation again later.
     var saved: SavedSession? {
@@ -269,6 +289,16 @@ final class AgentSession: Identifiable {
         attachments = []
     }
 
+    /// A message made outside the composer (review comments): sent now, after
+    /// the running turn, or left in the composer while the agent isn't up.
+    func deliver(_ text: String) {
+        switch status {
+        case .ready: send(text: text, attachments: [])
+        case .working: queue.append(QueuedMessage(text: text, attachments: []))
+        default: draft = draft.isEmpty ? text : draft + "\n\n" + text
+        }
+    }
+
     func removeQueued(_ id: QueuedMessage.ID) {
         queue.removeAll { $0.id == id }
     }
@@ -385,6 +415,7 @@ final class AgentSession: Identifiable {
                 attention = .failed(describe(error))
             }
             await projectTracker?.endAgentTurn()
+            refreshLimits()
             closeThought()
             turnStartedAt = nil
             if status == .working {
@@ -483,7 +514,10 @@ final class AgentSession: Identifiable {
                 configOptions[index].currentValue = mode
             }
         case "usage_update":
-            usage.apply(update: update)
+            usage.apply(update: update, includesLimits: !isReplaying)
+            if update["_meta"]?["_claude/rateLimit"] != nil, !isReplaying, let snapshot = usage.limitsSnapshot {
+                LimitsMemory.save(snapshot, for: provider.id)
+            }
         case "config_option_update":
             applyConfigOptions(update["configOptions"])
         case "session_info_update":

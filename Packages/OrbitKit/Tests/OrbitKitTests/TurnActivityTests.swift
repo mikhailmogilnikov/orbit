@@ -70,20 +70,48 @@ import Testing
         return entry
     }
 
-    @Test func groupsRunsOfQuietCalls() {
+    @Test func foldsRunsOfToolCallsAndThoughts() {
         let user = TranscriptEntry(kind: .user, text: "go")
-        let r1 = tool("read"), r2 = tool("read"), s1 = tool("search", "in_progress"), edit = tool("edit"), r3 = tool("read")
-        let rows = TranscriptRow.rows([user, r1, r2, s1, edit, r3])
-        #expect(rows.map(\.id) == [user.id, r1.id, edit.id, r3.id])
+        let r1 = tool("read"), think = TranscriptEntry(kind: .thought), x1 = tool("execute", "failed"), x2 = tool("execute", "in_progress")
+        let answer = TranscriptEntry(kind: .agent, text: "done"), r2 = tool("read")
+        let rows = TranscriptRow.rows([user, r1, think, x1, x2, answer, r2])
+        #expect(rows.map(\.id) == [user.id, r1.id, answer.id, r2.id])
         guard case .group(let group) = rows[1] else { Issue.record("no group"); return }
-        #expect(group.map(\.id) == [r1.id, r2.id, s1.id])
-        #expect(TranscriptRow.summary(group) == "Read 2 files · 1 search")
-        guard case .entry = rows[3] else { Issue.record("a lone read is grouped"); return }
+        #expect(group.map(\.id) == [r1.id, think.id, x1.id, x2.id])
+        #expect(TranscriptRow.summary(group) == "Read a file, ran 2 commands")
+        guard case .entry = rows[3] else { Issue.record("a lone call is grouped"); return }
     }
 
-    @Test func failedCallsStayVisible() {
-        let rows = TranscriptRow.rows([tool("read"), tool("read", "failed"), tool("read")])
-        #expect(rows.count == 3)
+    @Test func callsAskingForPermissionStayOut() async throws {
+        let asking = tool("edit", "pending")
+        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<JSONValue, Error>) in
+            asking.permission = PermissionRequest(options: [], continuation: continuation)
+            #expect(TranscriptRow.rows([tool("read"), tool("read"), asking, tool("read")]).count == 3)
+            asking.permission?.cancel()
+        }
+    }
+
+    @Test func emptyCallsHaveNothingToOpen() {
+        let quiet = tool("execute")
+        quiet.title = "`make build`"
+        quiet.command = "make build"
+        quiet.contents = [.text("```console\n\n```")]
+        #expect(!quiet.hasDetails)
+        quiet.contents = [.text("```console\nok\n```")]
+        #expect(quiet.shownTexts == [FencedText("```console\nok\n```")])
+        #expect(quiet.shownTexts.first?.language == "console" && quiet.shownTexts.first?.code == "ok")
+        #expect(quiet.hasDetails)
+    }
+
+    @Test func titlesSetCodeApart() {
+        let title = ToolCallRow.styledTitle("Run `make build` now")
+        #expect(String(title.characters) == "Run make build now")
+        #expect(title.runs.count == 3)
+    }
+
+    @Test func summaryNamesEveryKind() {
+        let entries = [tool("search"), tool("search"), tool("edit"), tool("fetch"), tool("think")]
+        #expect(TranscriptRow.summary(entries) == "Searched 2 times, edited a file, fetched a page, used a tool")
     }
 }
 
@@ -112,13 +140,5 @@ import Testing
     @Test func planProgressCountsDoneSteps() {
         let items = [PlanItem(content: "a", status: "completed"), PlanItem(content: "b", status: "in_progress"), PlanItem(content: "c", status: "pending")]
         #expect(PlanItem.progress(items) == "1 of 3 done")
-    }
-
-    @Test func modeIconsReadTheModeName() {
-        #expect(ModeButton.icon(for: "plan", name: "Plan Mode") == "list.bullet.clipboard")
-        #expect(ModeButton.icon(for: "acceptEdits", name: "Accept Edits") == "pencil")
-        #expect(ModeButton.icon(for: "bypassPermissions", name: "Bypass Permissions") == "bolt")
-        #expect(ModeButton.icon(for: "default", name: "Default") == "hand.raised")
-        #expect(ModeButton.isCautious("default") && !ModeButton.isCautious("acceptEdits"))
     }
 }

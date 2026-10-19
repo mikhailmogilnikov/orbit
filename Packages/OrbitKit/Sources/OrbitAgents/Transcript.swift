@@ -50,6 +50,55 @@ final class TranscriptEntry: Identifiable {
     }
 
     var isRunning: Bool { status == "pending" || status == "in_progress" }
+
+    /// The title without the Markdown backticks agents put around commands.
+    var plainTitle: String { title.replacingOccurrences(of: "`", with: "") }
+
+    /// The command, when the title doesn't already say it.
+    var shownCommand: String? {
+        guard let command = command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty,
+              command != plainTitle.trimmingCharacters(in: .whitespaces) else { return nil }
+        return command
+    }
+
+    /// Text contents worth opening the call for, code fences taken apart.
+    var shownTexts: [FencedText] {
+        contents.compactMap { content in
+            guard case .text(let text) = content else { return nil }
+            let fenced = FencedText(text)
+            return fenced.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : fenced
+        }
+    }
+
+    /// False when opening the call would show nothing (a quiet command's
+    /// "Done", a title repeated): such calls get no chevron.
+    var hasDetails: Bool {
+        if shownCommand != nil || !shownTexts.isEmpty || !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        if contents.contains(where: { if case .diff = $0 { true } else { false } }) { return true }
+        guard let terminal else { return false }
+        return !terminal.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || terminal.exitStatus.map { !$0.succeeded } ?? true
+    }
+}
+
+/// A tool's text output; agents often wrap it in a code fence ("```console").
+struct FencedText: Hashable {
+    var language: String
+    var code: String
+
+    init(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var lines = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count >= 2, let first = lines.first, first.hasPrefix("```"), lines.last?.hasPrefix("```") == true else {
+            language = ""
+            code = text
+            return
+        }
+        language = first.dropFirst(3).trimmingCharacters(in: .whitespaces)
+        lines.removeFirst()
+        lines.removeLast()
+        code = lines.joined(separator: "\n")
+    }
 }
 
 enum ToolContent: Identifiable {
@@ -232,14 +281,14 @@ struct ConfigOption: Identifiable, Hashable, Codable {
     }
 }
 
-/// A transcript row: an entry, or a run of quiet tool calls (reads, searches)
-/// shown as one line so a long turn doesn't become a wall of cards.
+/// A transcript row: an entry, or a run of tool calls (and the thoughts
+/// between them) folded into one line, like Claude Code's "Ran 4 commands".
 @MainActor
 enum TranscriptRow: Identifiable {
     case entry(TranscriptEntry)
     case group([TranscriptEntry])
 
-    /// The first entry's id: a card that grows into a group keeps its place.
+    /// The first entry's id: a call that grows into a group keeps its place.
     nonisolated var id: UUID {
         switch self {
         case .entry(let entry): entry.id
@@ -247,22 +296,24 @@ enum TranscriptRow: Identifiable {
         }
     }
 
-    static let quietKinds: Set<String> = ["read", "search", "fetch"]
-
-    static func isQuiet(_ entry: TranscriptEntry) -> Bool {
-        entry.kind == .tool && quietKinds.contains(entry.toolKind) && entry.status != "failed"
-            && entry.permission == nil && entry.terminal == nil
+    /// A call waiting for permission stays out: it needs an answer.
+    static func isFoldable(_ entry: TranscriptEntry) -> Bool {
+        switch entry.kind {
+        case .thought: true
+        case .tool: entry.permission?.isPending != true
+        default: false
+        }
     }
 
     static func rows(_ entries: [TranscriptEntry]) -> [TranscriptRow] {
         var rows: [TranscriptRow] = []
         var run: [TranscriptEntry] = []
         func flush() {
-            if run.count > 1 { rows.append(.group(run)) } else { rows += run.map(TranscriptRow.entry) }
+            if run.count { $0.kind == .tool } > 1 { rows.append(.group(run)) } else { rows += run.map(TranscriptRow.entry) }
             run = []
         }
         for entry in entries {
-            if isQuiet(entry) {
+            if isFoldable(entry) {
                 run.append(entry)
             } else {
                 flush()
@@ -273,14 +324,31 @@ enum TranscriptRow: Identifiable {
         return rows
     }
 
-    /// "Read 4 files · 2 searches".
+    /// "Read 3 files, ran 2 commands", kinds in the order they came.
     static func summary(_ entries: [TranscriptEntry]) -> String {
-        let count = { (kind: String) in entries.count { $0.toolKind == kind } }
-        let reads = count("read"), searches = count("search"), fetches = count("fetch")
-        var parts: [String] = []
-        if reads > 0 { parts.append("Read \(reads) file\(reads == 1 ? "" : "s")") }
-        if searches > 0 { parts.append("\(searches) search\(searches == 1 ? "" : "es")") }
-        if fetches > 0 { parts.append("\(fetches) fetch\(fetches == 1 ? "" : "es")") }
-        return parts.joined(separator: " · ")
+        var order: [String] = []
+        var counts: [String: Int] = [:]
+        for entry in entries where entry.kind == .tool {
+            let kind = phrase(entry.toolKind, 1) == nil ? "other" : entry.toolKind
+            if counts[kind] == nil { order.append(kind) }
+            counts[kind, default: 0] += 1
+        }
+        let text = order.compactMap { phrase($0, counts[$0]!) }.joined(separator: ", ")
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    private nonisolated static func phrase(_ kind: String, _ n: Int) -> String? {
+        func count(_ noun: String) -> String { n == 1 ? "a \(noun)" : "\(n) \(noun)s" }
+        return switch kind {
+        case "read": "read \(count("file"))"
+        case "edit": "edited \(count("file"))"
+        case "delete": "deleted \(count("file"))"
+        case "move": "moved \(count("file"))"
+        case "search": n == 1 ? "searched once" : "searched \(n) times"
+        case "execute": "ran \(count("command"))"
+        case "fetch": "fetched \(count("page"))"
+        case "other": "used \(count("tool"))"
+        default: nil
+        }
     }
 }

@@ -14,13 +14,16 @@ final class TerminalSession: Identifiable {
     private(set) var isRunning = true
     /// Set when this runs an agent's command rather than the user's shell.
     @ObservationIgnored private(set) var agentTerminal: AgentTerminal?
+    /// Set for a task's own tab (D128): its title stays the command.
+    @ObservationIgnored private(set) var taskID: String?
     @ObservationIgnored let view: OrbitTerminalView
     @ObservationIgnored var onExit: (TerminalSession) -> Void = { _ in }
     @ObservationIgnored private var delegate: Delegate?
 
-    init(directory: URL) {
+    init(directory: URL, task: ProjectTask? = nil) {
         let shell = Self.loginShell
-        title = (shell as NSString).lastPathComponent
+        title = task?.command ?? (shell as NSString).lastPathComponent
+        taskID = task?.id
         view = OrbitTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
         let delegate = Delegate(session: self)
         self.delegate = delegate
@@ -98,6 +101,30 @@ final class TerminalSession: Identifiable {
     private static func terminalLines(_ text: String) -> [UInt8] { terminalLines(Array(text.utf8)) }
 
     var isAgent: Bool { agentTerminal != nil }
+    var isTask: Bool { taskID != nil }
+
+    /// Something other than the shell owns the terminal (a dev server, a build).
+    var isBusy: Bool {
+        let fd = view.process.childfd
+        guard isRunning, fd >= 0 else { return false }
+        let group = tcgetpgrp(fd)
+        return group > 0 && group != view.process.shellPid
+    }
+
+    /// Types a command into the shell, as if typed: it stays in the history
+    /// and the output stays in the tab. A command still running gets ⌃C first.
+    func type(_ command: String) {
+        guard isBusy else { return view.send(txt: command + "\r") }
+        view.send([3])
+        Task { [weak self] in
+            // Give it a moment to stop and the shell to print its prompt.
+            for _ in 0..<20 {
+                try? await Task.sleep(for: .milliseconds(100))
+                if self?.isBusy != true { break }
+            }
+            self?.view.send(txt: command + "\r")
+        }
+    }
 
     func terminate() {
         if isAgent {
@@ -136,7 +163,7 @@ final class TerminalSession: Identifiable {
     }
 
     fileprivate func setTitle(_ title: String) {
-        guard !isAgent else { return }
+        guard !isAgent, !isTask else { return }
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty { self.title = trimmed }
     }

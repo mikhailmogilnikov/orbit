@@ -54,59 +54,6 @@ struct SessionOptionsButton: View {
     }
 }
 
-/// The agent's mode, always in view (Plan, Accept Edits…): a menu, ⇧Tab in the composer cycles it.
-struct ModeButton: View {
-    let session: AgentSession
-    @State private var isHovering = false
-
-    var body: some View {
-        if let option = session.modeOption, option.choices.count > 1 {
-            Menu {
-                Picker(option.name, selection: Binding(get: { option.currentValue }, set: { session.setConfigOption(option, value: $0) })) {
-                    ForEach(option.choices, id: \.value) { choice in
-                        Label(choice.name, systemImage: Self.icon(for: choice.value, name: choice.name)).tag(choice.value)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: Self.icon(for: option.currentValue, name: option.currentName))
-                    Text(option.currentName)
-                }
-                .font(.orbit(.caption, weight: .medium))
-                .foregroundStyle(Self.isCautious(option.currentValue) ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .frame(height: 24)
-                .background(isHovering ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .capsule)
-                .contentShape(.capsule)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .onHover { isHovering = $0 }
-            .help("\(option.name): \(option.currentName) (⇧Tab for the next)")
-        }
-    }
-
-    /// The default, asking mode stays quiet; any mode that changes how the agent acts is tinted.
-    static func isCautious(_ value: String) -> Bool {
-        let value = value.lowercased()
-        return value == "default" || value.contains("ask") || value.contains("read")
-    }
-
-    static func icon(for value: String, name: String) -> String {
-        let text = (value + " " + name).lowercased()
-        if text.contains("plan") { return "list.bullet.clipboard" }
-        if text.contains("bypass") || text.contains("yolo") || text.contains("full") || text.contains("dangerous") { return "bolt" }
-        if text.contains("accept") || text.contains("edit") || text.contains("auto") { return "pencil" }
-        if text.contains("read") { return "eye" }
-        return "hand.raised"
-    }
-}
-
 /// Pages: the settings list, one setting's choices, and the models of every agent.
 struct SessionOptionsPopover: View {
     let session: AgentSession

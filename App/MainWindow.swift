@@ -165,10 +165,6 @@ struct MainWindow: View {
         return Preferences.shared.appearance
     }
 
-    private var subtitle: String {
-        workspace.activeTab?.url.map(workspace.relativePath) ?? ""
-    }
-
     private var workspaceView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarHost(panels: ui.sidebarPanels, selection: $sidebarPanelID)
@@ -184,8 +180,8 @@ struct MainWindow: View {
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.leading } action: { sidebarInset = $0 }
         }
+        // The project's name alone: the Dock's and Window menu's window lists show it.
         .navigationTitle(workspace.name)
-        .navigationSubtitle(subtitle)
         .themedWindowBackground()
         // No toolbar (hidden title bar): the tab row sits next to the traffic
         // lights and carries the window buttons, sidebar toggle included. Even

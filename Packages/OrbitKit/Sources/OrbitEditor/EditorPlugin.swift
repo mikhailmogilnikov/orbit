@@ -54,6 +54,7 @@ public final class EditorPlugin: OrbitPlugin {
                 document: workspace.documents.document(for: tab.url!),
                 workspace: workspace,
                 changes: services.resolve(ChangeTracking.self),
+                reviewComments: services.resolve(ReviewComments.self),
                 versionControl: services.resolve(VersionControlBaseline.self),
                 languages: services.resolve(LanguageIntelligence.self),
                 options: options,
@@ -385,6 +386,34 @@ public final class EditorPlugin: OrbitPlugin {
             tracker.revert(hunk, in: url)
         })
         context.commands.register(OrbitCommand(
+            id: "editor.inlineEdit",
+            title: "Edit with Agent…",
+            category: "Agents",
+            systemImage: "sparkles",
+            shortcut: KeyboardShortcut("k", modifiers: .command),
+            isEnabled: { services.resolve(AgentCompletion.self) != nil && ActiveEditor.shared.coordinator != nil },
+            editorMenu: EditorMenuPlacement(.agent) { services.resolve(AgentCompletion.self) != nil }
+        ) {
+            guard let coordinator = ActiveEditor.shared.coordinator,
+                  let completion = services.resolve(AgentCompletion.self) else { return }
+            coordinator.startInlineEdit(
+                completion: completion, changes: services.resolve(ChangeTracking.self),
+                root: workspace.root, path: workspace.relativePath(coordinator.document.url)
+            )
+        })
+        context.commands.register(OrbitCommand(
+            id: "editor.commentChange",
+            title: "Comment for Agent",
+            category: "Review",
+            systemImage: "text.bubble",
+            shortcut: KeyboardShortcut("/", modifiers: [.command, .option]),
+            isEnabled: { services.resolve(ReviewComments.self) != nil && ActiveEditor.shared.coordinator != nil },
+            editorMenu: EditorMenuPlacement(.review) { services.resolve(ReviewComments.self) != nil }
+        ) {
+            guard let coordinator = ActiveEditor.shared.coordinator else { return }
+            coordinator.inlineDiff.comment(on: coordinator.selectedLines)
+        })
+        context.commands.register(OrbitCommand(
             id: "editor.nextChange",
             title: "Next Change",
             category: "Review",
@@ -500,6 +529,7 @@ struct FileEditorView: View {
     let document: TextDocument
     let workspace: Workspace
     let changes: ChangeTracking?
+    let reviewComments: ReviewComments?
     let versionControl: VersionControlBaseline?
     let languages: LanguageIntelligence?
     let options: EditorOptions
@@ -550,6 +580,9 @@ struct FileEditorView: View {
                     hunks: hunks,
                     onKeep: { changes?.keep($0, in: url) },
                     onRevert: { changes?.revert($0, in: url) },
+                    comments: reviewComments?.comments.filter { $0.url == url.standardizedFileURL },
+                    onSaveComment: { reviewComments?.save($0) },
+                    onRemoveComment: { reviewComments?.remove($0) },
                     reveal: workspace.pendingReveal.flatMap { $0.url == url ? ($0.line, $0.column) : nil },
                     onRevealHandled: { workspace.pendingReveal = nil },
                     gitBaseline: gitBaseline,

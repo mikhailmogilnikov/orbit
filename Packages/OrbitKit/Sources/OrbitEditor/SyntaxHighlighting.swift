@@ -475,12 +475,16 @@ final class StaticHighlighter: SyntaxHighlighting {
     }
 
     /// A code fence's text (a hover's signature), by the language it names; unnamed, as `fallback`'s.
-    func highlight(_ text: String, language: String, fallback: URL) async -> [SyntaxSpan] {
+    func highlight(_ text: String, language: String, fallback: URL?) async -> [SyntaxSpan] {
         guard text.utf16.count <= Self.maxLength else { return [] }
         let captures = await Task.detached(priority: .userInitiated) {
-            Self.captures(in: text, grammar: language.isEmpty ? Grammar.matching(fallback) : Grammar.named(language))
+            Self.captures(in: text, grammar: language.isEmpty ? fallback.flatMap { Grammar.matching($0) } : Grammar.named(language))
         }.value
         return Self.spans(captures)
+    }
+
+    func highlight(_ text: String, language: String) async -> [SyntaxSpan] {
+        await highlight(text, language: language, fallback: nil)
     }
 
     private static func spans(_ captures: [(String, NSRange)]) -> [SyntaxSpan] {
