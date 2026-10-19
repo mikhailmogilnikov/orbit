@@ -183,6 +183,7 @@
 - `orbit .` from a terminal (D142): Orbit → Install 'orbit' Command…; files open in their project's window
 - Built-in browser (D143): Open Browser… and a running task's "Open localhost:5173 in Orbit", back / forward / reload, Web Inspector
 - Push later agent turns to the pull request (D144)
+- History rows on two lines with merged branch badges and a calmer graph (D156)
 - Terminal editing keys (D155): ⌥←/→, ⌘←/→, ⌥⌫, ⌘⌫, ⇧↩ new line, ⌘K clear, ⌘↑/↓ scroll
 - Fix with Agent from Problems (D147); ⌘-click `file:line` in the terminal (D148)
 - Color swatches in the gutter with the color panel (D149); Copy GitHub Link / Open on GitHub (D150)

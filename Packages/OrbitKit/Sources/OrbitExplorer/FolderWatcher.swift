@@ -107,7 +107,8 @@ final class FolderWatcher {
     /// (a build in a terminal shouldn't keep git busy), right away on coming back.
     private func schedule() {
         guard scheduled == nil else { return }
-        let interval: TimeInterval = NSApp.isActive ? 1 : 3
+        // No NSApp in the test runner.
+        let interval: TimeInterval = (NSApp as NSApplication?)?.isActive ?? true ? 1 : 3
         let delay = max(0, interval - Date().timeIntervalSince(lastRefresh))
         let item = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.refresh() }

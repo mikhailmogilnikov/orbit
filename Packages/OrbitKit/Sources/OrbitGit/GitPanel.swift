@@ -383,7 +383,7 @@ private struct HistoryRows: View {
     @Bindable var model: GitModel
     @State private var expanded: Set<String> = []
 
-    private static let laneSpacing: CGFloat = 10
+    private static let laneSpacing: CGFloat = 12
     private static let maxLanes = 8
 
     var body: some View {
@@ -442,6 +442,8 @@ private struct HistoryRows: View {
     }
 }
 
+/// Two lines (D156): the message across the whole width, then its branches,
+/// author and age; the graph runs the full height. A click lists its files.
 private struct CommitRow: View {
     let commit: GitCommit
     let model: GitModel
@@ -450,61 +452,137 @@ private struct CommitRow: View {
     let spacing: CGFloat
     let isExpanded: Bool
     let toggle: () -> Void
+    @State private var isHovered = false
+
+    static let height: CGFloat = 38
 
     var body: some View {
         HStack(spacing: 6) {
             if graphWidth > 0 {
-                GitGraphCell(row: graph, width: graphWidth, spacing: spacing)
+                GitGraphCell(row: graph, width: graphWidth, spacing: spacing,
+                             isMerge: commit.parents.count > 1, isHead: RefBadges.isHead(commit.refs))
             }
-            Image(systemName: "chevron.right")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.tertiary)
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            RefBadges(refs: commit.refs)
-            Text(commit.subject)
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            Text(commit.date, format: .relative(presentation: .named))
-                .font(.orbit(.caption))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(commit.subject.isEmpty ? commit.shortHash : commit.subject)
+                    .font(.orbit(.body))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                HStack(spacing: 4) {
+                    RefBadges(refs: commit.refs)
+                    Text("\(commit.author) · \(Self.age(commit.date))")
+                        .font(.orbit(.caption))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(-1)
+                }
+            }
+            Spacer(minLength: 0)
         }
-        .frame(height: 24)
+        .frame(height: Self.height)
+        .padding(.horizontal, 4)
+        .background(isExpanded || isHovered ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.smallCorner))
         .contentShape(.rect)
         .onTapGesture(perform: toggle)
-        .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 8))
-        .help("\(commit.shortHash) · \(commit.author) · \(commit.date.formatted(date: .abbreviated, time: .shortened))\n\(commit.subject)")
+        .onHover { isHovered = $0 }
+        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 6))
+        .help("\(commit.shortHash) · \(commit.author) · \(commit.date.formatted(date: .abbreviated, time: .shortened))\n\(commit.subject)\n\n\(isExpanded ? "Click to hide its files" : "Click to show its files")")
         .contextMenu {
+            Button(isExpanded ? "Hide Files" : "Show Files", action: toggle)
+            Divider()
             Button("Copy Commit Hash") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(commit.hash, forType: .string)
             }
+            Button("Copy Message") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(commit.subject, forType: .string)
+            }
         }
+    }
+
+    /// "now", "5m", "3h", "2d", "4w", "3mo", "2y": short enough for a narrow sidebar.
+    static func age(_ date: Date, now: Date = Date()) -> String {
+        let minutes = Int(now.timeIntervalSince(date) / 60), hours = minutes / 60, days = hours / 24
+        if minutes < 1 { return "now" }
+        if hours < 1 { return "\(minutes)m" }
+        if days < 1 { return "\(hours)h" }
+        if days < 14 { return "\(days)d" }
+        if days < 60 { return "\(days / 7)w" }
+        if days < 365 { return "\(days / 30)mo" }
+        return "\(days / 365)y"
     }
 }
 
-/// Branch and tag names on a commit, the first two shown.
-private struct RefBadges: View {
+/// Branch and tag names on a commit (D156): a local branch and its `origin/`
+/// copy are one badge with a cloud; `origin/HEAD` is left out; the checked-out
+/// branch is filled.
+struct RefBadges: View {
     let refs: [String]
 
-    var body: some View {
-        let names = refs.map { $0.replacingOccurrences(of: "HEAD -> ", with: "") }.filter { $0 != "HEAD" }
-        ForEach(names.prefix(2), id: \.self) { name in
-            let isTag = name.hasPrefix("tag: ")
-            Text(isTag ? String(name.dropFirst(5)) : name)
-                .font(.orbit(.micro, weight: .medium))
-                .lineLimit(1)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1)
-                .background((isTag ? Color.orange : Color.accentColor).opacity(0.15), in: .capsule)
-                .foregroundStyle(isTag ? Color.orange : Color.accentColor)
-                .fixedSize()
+    struct Badge: Equatable, Sendable {
+        enum Kind: Equatable { case local, remote, synced, tag }
+        var name: String
+        var kind: Kind
+        var isHead = false
+    }
+
+    nonisolated static func isHead(_ refs: [String]) -> Bool {
+        refs.contains { $0 == "HEAD" || $0.hasPrefix("HEAD -> ") }
+    }
+
+    nonisolated static func badges(_ refs: [String]) -> [Badge] {
+        var badges: [Badge] = []
+        var remotes: [String] = []
+        for ref in refs {
+            if ref == "HEAD" || ref.hasSuffix("/HEAD") { continue }
+            if ref.hasPrefix("tag: ") {
+                badges.append(Badge(name: String(ref.dropFirst(5)), kind: .tag))
+            } else if ref.hasPrefix("HEAD -> ") {
+                badges.append(Badge(name: String(ref.dropFirst(8)), kind: .local, isHead: true))
+            } else if ref.hasPrefix("origin/") || ref.hasPrefix("upstream/") {
+                remotes.append(ref)
+            } else {
+                badges.append(Badge(name: ref, kind: .local))
+            }
         }
-        if names.count > 2 {
-            Text("+\(names.count - 2)")
+        for remote in remotes {
+            let name = String(remote[remote.index(after: remote.firstIndex(of: "/")!)...])
+            if let index = badges.firstIndex(where: { $0.kind == .local && $0.name == name }) {
+                badges[index].kind = .synced
+            } else {
+                badges.append(Badge(name: remote, kind: .remote))
+            }
+        }
+        // The checked-out branch first, tags last.
+        return badges.sorted { ($0.isHead ? 0 : $0.kind == .tag ? 2 : 1) < ($1.isHead ? 0 : $1.kind == .tag ? 2 : 1) }
+    }
+
+    var body: some View {
+        let badges = Self.badges(refs)
+        ForEach(badges.prefix(2), id: \.name) { badge in
+            let color: Color = badge.kind == .tag ? .orange : badge.kind == .remote ? .secondary : .accentColor
+            HStack(spacing: 2) {
+                Image(systemName: badge.kind == .tag ? "tag.fill" : badge.kind == .remote ? "cloud" : badge.kind == .synced ? "checkmark.icloud" : "arrow.triangle.branch")
+                    .font(.system(size: 7, weight: .semibold))
+                Text(badge.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.orbit(.micro, weight: .medium))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(badge.isHead ? AnyShapeStyle(color.opacity(0.3)) : AnyShapeStyle(color.opacity(0.13)), in: .capsule)
+            .foregroundStyle(color)
+            .frame(maxWidth: 120, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .help(badge.kind == .synced ? "\(badge.name), same as on origin" : badge.isHead ? "\(badge.name) (checked out)" : badge.name)
+        }
+        if badges.count > 2 {
+            Text("+\(badges.count - 2)")
                 .font(.orbit(.micro))
                 .foregroundStyle(.tertiary)
-                .help(names.dropFirst(2).joined(separator: "\n"))
+                .help(badges.dropFirst(2).map(\.name).joined(separator: "\n"))
         }
     }
 }

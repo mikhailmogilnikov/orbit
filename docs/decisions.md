@@ -165,6 +165,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D153. The Mac stays awake while an agent works; a sound when one finishes
 - D154. A stash's files and diffs in the Source Control panel
 - D155. The terminal's editing keys, as in Terminal.app and iTerm
+- D156. History rows on two lines; one badge per branch; a calmer graph
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3010,6 +3011,7 @@ History showed the current branch's last 200 commits. Now:
   it, drawn in a narrow column (up to 8 lanes, colored by lane). Hidden
   while searching (the results aren't a connected history).
 - Branch and tag names (`%D`) show as small badges on their commits.
+  (Rows changed in D156: two lines, merged badges.)
 - Commits expand in place (the row's chevron) into their files; the file
   rows carry the graph's passing lines, so it doesn't break. Rows are
   exactly as tall as their graph cell.
@@ -3230,4 +3232,22 @@ prompt). ⌘K clears the scrollback and sends ⌃L so the shell redraws;
 (any layout), only while the terminal has focus, through a local key monitor:
 SwiftTerm's `keyDown` isn't open, and ⌘K would otherwise reach the editor's
 Edit with Agent in the menu first.
+
+### D156. History rows on two lines; one badge per branch; a calmer graph
+
+In a narrow sidebar a one-line row showed "feat: add cls-…", and a commit
+with branches showed only its badges, its message pushed out. Now a row is
+two lines, 38 pt: the message across the whole width, then the badges,
+author and a short age ("3d", "2w"); the full date, hash and message stay in
+the tooltip. The chevron is gone: a click (or Show Files) lists the files,
+and the row is shaded while open or hovered.
+
+Badges: a local branch and its `origin/` (or `upstream/`) copy are one
+badge with a cloud-check; `origin/HEAD` and `HEAD` are dropped; the checked-out
+branch comes first, filled; remote-only branches are grey with a cloud, tags
+orange; at most two, then "+N".
+
+Graph: lanes 12 pt apart (were 10), 1.6-pt round-capped lines; bends have
+vertical ends over a taller half row, so a lane change reads as one S, not a
+hook; merge commits are rings, the checked-out commit has a halo.
 

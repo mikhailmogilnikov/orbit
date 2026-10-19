@@ -71,27 +71,33 @@ enum GitGraph {
     static func color(_ lane: Int) -> Color { colors[lane % colors.count] }
 }
 
-/// One row's piece of the graph, drawn to the row's full height.
+/// One row's piece of the graph, drawn to the row's full height. Lines that
+/// change lanes bend with vertical ends, so they meet the next row's straight
+/// on; merges are rings, the checked-out commit a dot with a halo (D156).
 struct GitGraphCell: View {
     let row: GitGraphRow?
     /// Lanes passing a row that isn't a commit (an expanded file).
     var passing: [Int] = []
     let width: CGFloat
     let spacing: CGFloat
+    var isMerge = false
+    var isHead = false
 
     var body: some View {
         Canvas { context, size in
             let x = { (lane: Int) in spacing / 2 + CGFloat(lane) * spacing + 2 }
             let middle = size.height / 2
+            let lineWidth: CGFloat = 1.6
             func line(from: CGPoint, to: CGPoint, lane: Int) {
                 var path = Path()
                 path.move(to: from)
                 if from.x == to.x {
                     path.addLine(to: to)
                 } else {
-                    path.addCurve(to: to, control1: CGPoint(x: from.x, y: (from.y + to.y) / 2), control2: CGPoint(x: to.x, y: (from.y + to.y) / 2))
+                    let bend = (to.y - from.y) * 0.85
+                    path.addCurve(to: to, control1: CGPoint(x: from.x, y: from.y + bend), control2: CGPoint(x: to.x, y: to.y - bend))
                 }
-                context.stroke(path, with: .color(GitGraph.color(lane).opacity(0.8)), lineWidth: 1.5)
+                context.stroke(path, with: .color(GitGraph.color(lane)), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
             }
             guard let row else {
                 for lane in passing { line(from: CGPoint(x: x(lane), y: 0), to: CGPoint(x: x(lane), y: size.height), lane: lane) }
@@ -99,8 +105,23 @@ struct GitGraphCell: View {
             }
             for (from, to) in row.top { line(from: CGPoint(x: x(from), y: 0), to: CGPoint(x: x(to), y: middle), lane: from) }
             for (from, to) in row.bottom { line(from: CGPoint(x: x(from), y: middle), to: CGPoint(x: x(to), y: size.height), lane: to) }
-            let dot = CGRect(x: x(row.column) - 3.5, y: middle - 3.5, width: 7, height: 7)
-            context.fill(Path(ellipseIn: dot), with: .color(GitGraph.color(row.column)))
+            let color = GitGraph.color(row.column)
+            let center = CGPoint(x: x(row.column), y: middle)
+            func circle(_ radius: CGFloat) -> Path {
+                Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+            }
+            if isHead {
+                context.fill(circle(6), with: .color(color.opacity(0.3)))
+            }
+            if isMerge {
+                // A ring: the background shows through, so it reads as "joins two lines".
+                context.blendMode = .copy
+                context.fill(circle(4), with: .color(.clear))
+                context.blendMode = .normal
+                context.stroke(circle(3.4), with: .color(color), lineWidth: 1.8)
+            } else {
+                context.fill(circle(4), with: .color(color))
+            }
         }
         .frame(width: width)
         .clipped()
