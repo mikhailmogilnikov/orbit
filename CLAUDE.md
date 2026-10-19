@@ -40,7 +40,7 @@ make import-lspconfig   # regenerate the imported server table from nvim-lspconf
 make import-grammars    # regenerate the grammar table from Zed and its extension catalog (D71)
 make release-setup   # once: Sparkle's update key (D129)
 make release VERSION=0.2.0   # Release build + appcast in .build/release/0.2.0
-make release-publish VERSION=0.2.0   # GitHub release with both (asks nothing: confirm first)
+make release-publish VERSION=0.2.0   # GitHub release with both (asks nothing: confirm first; docs/releasing.md)
 make clean
 cd Packages/OrbitKit && swift build   # fast compile check of all modules
 ```
