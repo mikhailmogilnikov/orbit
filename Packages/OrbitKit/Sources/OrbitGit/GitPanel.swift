@@ -412,10 +412,10 @@ private struct HistoryRows: View {
                 .controlSize(.small)
                 .help("Message, author or hash")
         }
-        .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 4, trailing: 8))
+        .listRowInsets(EdgeInsets(top: 2, leading: 2, bottom: 4, trailing: 4))
         let graph = model.graph
         let lanes = min(Self.maxLanes, graph.map(\.laneCount).max() ?? 0)
-        let width = lanes == 0 ? 0 : CGFloat(lanes) * Self.laneSpacing + 4
+        let width = lanes == 0 ? 0 : CGFloat(lanes) * Self.laneSpacing
         ForEach(Array(model.history.enumerated()), id: \.element.id) { index, commit in
             let row = index < graph.count ? graph[index] : nil
             CommitRow(commit: commit, model: model, graph: row, graphWidth: width, spacing: Self.laneSpacing,
@@ -480,12 +480,11 @@ private struct CommitRow: View {
             Spacer(minLength: 0)
         }
         .frame(height: Self.height)
-        .padding(.horizontal, 4)
         .background(isExpanded || isHovered ? AnyShapeStyle(Theme.subtleFill) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Theme.smallCorner))
         .contentShape(.rect)
         .onTapGesture(perform: toggle)
         .onHover { isHovered = $0 }
-        .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 6))
+        .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 4))
         .help("\(commit.shortHash) · \(commit.author) · \(commit.date.formatted(date: .abbreviated, time: .shortened))\n\(commit.subject)\n\n\(isExpanded ? "Click to hide its files" : "Click to show its files")")
         .contextMenu {
             Button(isExpanded ? "Hide Files" : "Show Files", action: toggle)
@@ -619,7 +618,7 @@ private struct CommitFiles: View {
                 .padding(.leading, 14)
         }
         .frame(height: 22)
-        .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 8))
+        .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 4))
     }
 }
 

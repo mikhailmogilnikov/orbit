@@ -85,7 +85,7 @@ struct GitGraphCell: View {
 
     var body: some View {
         Canvas { context, size in
-            let x = { (lane: Int) in spacing / 2 + CGFloat(lane) * spacing + 2 }
+            let x = { (lane: Int) in spacing / 2 + CGFloat(lane) * spacing }
             let middle = size.height / 2
             let lineWidth: CGFloat = 1.6
             func line(from: CGPoint, to: CGPoint, lane: Int) {
