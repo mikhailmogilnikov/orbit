@@ -2,66 +2,57 @@ import AppKit
 import OrbitKit
 import SwiftUI
 
-/// A window without a folder, as in Cursor (D101): open or clone a project,
-/// or pick a recent one.
+/// A window without a folder (D101), laid out like Xcode 26's welcome window
+/// (D160): Orbit and what to do on the left, recent projects in a full-height
+/// column on the right.
 struct ProjectPicker: View {
     let host: PluginHost
-    @State private var showsAll = false
     @State private var isCloning = false
+    @State private var selection: URL?
 
-    private static let shownRecent = 6
+    private var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    }
 
     var body: some View {
         let recent = RecentFolders.shared.existing
-        VStack(alignment: .leading, spacing: 28) {
-            HStack(spacing: 14) {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                Spacer()
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
-                    .frame(width: 64, height: 64)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Orbit")
-                        .font(.orbit(.display, weight: .semibold))
-                    Text("Open a project to start working with agents.")
-                        .font(.orbit(.control))
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 12) {
-                PickerCard(title: "Open Folder", systemImage: "folder", shortcut: "⌘O") {
-                    host.workspace.presentOpenFolderPanel()
-                }
-                PickerCard(title: "Clone Repository", systemImage: "arrow.down.circle", shortcut: nil) {
-                    isCloning = true
-                }
-            }
-
-            if !recent.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Recent Projects")
-                            .font(.orbit(.body, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        if recent.count > Self.shownRecent {
-                            Button(showsAll ? "Show Less" : "Show All (\(recent.count))") { showsAll.toggle() }
-                                .buttonStyle(.plain)
-                                .font(.orbit(.body))
-                                .foregroundStyle(.tint)
-                        }
+                    .frame(width: 112, height: 112)
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+                Text("Orbit")
+                    .font(.orbit(.display, weight: .bold))
+                    .padding(.top, 10)
+                Text("Version \(version)")
+                    .font(.orbit(.body))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+                    .padding(.bottom, 40)
+                VStack(spacing: 4) {
+                    WelcomeAction(title: "Open Folder…", subtitle: "A project on this Mac", systemImage: "folder", shortcut: "⌘O") {
+                        host.workspace.presentOpenFolderPanel()
                     }
-                    .padding(.horizontal, 10)
-                    VStack(spacing: 0) {
-                        ForEach(showsAll ? recent : Array(recent.prefix(Self.shownRecent)), id: \.self) { folder in
-                            RecentProjectRow(folder: folder) { host.workspace.requestOpenFolder(folder) }
-                        }
+                    WelcomeAction(title: "Clone Repository…", subtitle: "Copy a Git repository and open it", systemImage: "arrow.down.to.line") {
+                        isCloning = true
                     }
                 }
+                .frame(maxWidth: 300)
+                Spacer()
             }
+            .padding(.horizontal, 32)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+                .ignoresSafeArea()
+
+            // Full height, like a sidebar: the window is the welcome window, no card in it.
+            RecentProjectsList(recent: recent, selection: $selection) { host.workspace.requestOpenFolder($0) }
+                .frame(width: 360)
+                .ignoresSafeArea(.container, edges: .top)
         }
-        .frame(width: 520)
-        .padding(.bottom, 40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .themedWindowBackground()
         .sheet(isPresented: $isCloning) {
             CloneRepositorySheet { host.workspace.requestOpenFolder($0) }
@@ -69,30 +60,35 @@ struct ProjectPicker: View {
     }
 }
 
-private struct PickerCard: View {
+/// An action row on the welcome window: a tile, what it does, its keys.
+private struct WelcomeAction: View {
     let title: String
+    let subtitle: String
     let systemImage: String
-    let shortcut: String?
+    var shortcut: String?
     let action: () -> Void
     @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 18))
-                    .foregroundStyle(.tint)
-                HStack {
+                    .font(.orbit(.title, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, height: 34)
+                    .background(Theme.activeFill, in: .rect(cornerRadius: Theme.corner, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.orbit(.control, weight: .medium))
-                    Spacer(minLength: 4)
-                    if let shortcut { KeyCaps(shortcut) }
+                        .font(.orbit(.control, weight: .semibold))
+                    Text(subtitle)
+                        .font(.orbit(.caption))
+                        .foregroundStyle(.secondary)
                 }
+                Spacer(minLength: 8)
+                if let shortcut { KeyCaps(shortcut) }
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHovering ? Theme.activeFill : Theme.subtleFill, in: .rect(cornerRadius: Theme.largeCorner))
-            .overlay(RoundedRectangle(cornerRadius: Theme.largeCorner).strokeBorder(Theme.hairline))
+            .padding(8)
+            .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.largeCorner, style: .continuous))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -100,44 +96,80 @@ private struct PickerCard: View {
     }
 }
 
-private struct RecentProjectRow: View {
-    let folder: URL
-    let open: () -> Void
-    @State private var isHovering = false
+/// Recent projects as a list: click selects, double-click or Return opens,
+/// right-click shows it in Finder or forgets it, as in Xcode.
+private struct RecentProjectsList: View {
+    let recent: [URL]
+    @Binding var selection: URL?
+    let open: (URL) -> Void
 
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: 10) {
-                Text(folder.lastPathComponent)
-                    .font(.orbit(.control))
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                Spacer(minLength: 12)
-                Text((folder.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
-                    .font(.orbit(.body))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                if isHovering {
-                    Button {
-                        RecentFolders.shared.remove(folder)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.orbit(.micro, weight: .semibold))
-                            .foregroundStyle(.secondary)
+        Group {
+            if recent.isEmpty {
+                EmptyStateView("No Recent Projects", systemImage: "clock", message: "Folders you open show up here.")
+            } else {
+                List(recent, id: \.self, selection: $selection) { folder in
+                    RecentProjectRow(folder: folder)
+                }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+                .safeAreaPadding(.top, 16)
+                .contextMenu(forSelectionType: URL.self) { folders in
+                    if let folder = folders.first {
+                        Button("Open") { open(folder) }
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                        Divider()
+                        Button("Remove from Recent Projects") { RecentFolders.shared.remove(folder) }
                     }
-                    .buttonStyle(.plain)
-                    .help("Remove from Recent Projects")
+                } primaryAction: { folders in
+                    if let folder = folders.first { open(folder) }
                 }
             }
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.corner))
-            .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .background(Theme.subtleFill)
+    }
+}
+
+private struct RecentProjectRow: View {
+    let folder: URL
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path))
+                .resizable()
+                .frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(folder.lastPathComponent)
+                    .font(.orbit(.control, weight: .semibold))
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if let branch = Self.branch(of: folder) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.orbit(.micro))
+                        Text(branch)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        Text("·")
+                    }
+                    Text((folder.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+                .font(.orbit(.caption))
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
         .help((folder.path as NSString).abbreviatingWithTildeInPath)
-        .onHover { isHovering = $0 }
+    }
+
+    /// The checked-out branch from .git/HEAD: one small read, no git process.
+    private static func branch(of folder: URL) -> String? {
+        let head = folder.appendingPathComponent(".git/HEAD")
+        guard let text = try? String(contentsOf: head, encoding: .utf8) else { return nil }
+        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard line.hasPrefix("ref: refs/heads/") else { return nil }
+        return String(line.dropFirst("ref: refs/heads/".count))
     }
 }
 

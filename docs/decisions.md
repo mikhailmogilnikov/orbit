@@ -169,6 +169,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D157. Corner, fill and badge tokens in `Theme`
 - D158. Settings laid out like System Settings: groups, tiles, header cards, pages
 - D159. System empty states; numbers and symbols animate like Apple's apps
+- D160. The welcome screen laid out like Xcode 26's welcome window
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3343,4 +3344,18 @@ changed", "N to review", the branch's ↑↓. The hand of a chat waiting for
 permission wiggles every few seconds; copy buttons and the terminal tab's
 play / terminal icon swap with the symbol replace effect. The References
 panel got the link icon: it shared Source Control's branch.
+
+### D160. The welcome screen laid out like Xcode 26's welcome window
+
+A window without a folder (D101) showed a column: the icon and name, two
+cards, then recent folders as hover rows. It's now laid out as Xcode 26's
+welcome window, filling the window itself (a card in the middle left a
+pointless frame of window around it — Xcode's is a window of its own, ours
+can't be smaller than 960 × 600): on the left the app icon, Orbit, its
+version and the actions (Open Folder… ⌘O, Clone Repository…, each with a
+tile and a line on what it does); on the right, in a full-height column
+like a sidebar, the recent projects as a list with Finder's folder icon, the name, the checked-out branch (read from
+`.git/HEAD`, no git process) and where it lives. As in Xcode, a click selects
+a project and a double-click or Return opens it; right-click opens, shows in
+Finder or removes it from the list.
 
