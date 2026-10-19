@@ -1,4 +1,5 @@
 import OrbitAPI
+import OrbitUI
 import SwiftUI
 
 /// The editor's own options; the font size is shared (`Preferences`).
@@ -88,83 +89,106 @@ struct EditorSettingsPane: View {
     @Bindable var preferences = Preferences.shared
 
     var body: some View {
-        Form {
-            ForEach(options.project.problems, id: \.self) { problem in
-                Label(problem, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+        SettingsForm {
+            if !options.project.problems.isEmpty {
+                Section {
+                    ForEach(options.project.problems, id: \.self) { problem in
+                        Label(problem, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                }
             }
             Section {
-                LabeledContent("Font size") {
-                    HStack(spacing: 8) {
-                        Slider(value: $preferences.codeFontSize, in: Preferences.codeFontSizes, step: 0.5)
-                            .frame(width: 180)
-                        Text(preferences.codeFontSize.formatted(.number.precision(.fractionLength(0...1))) + " pt")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: 44, alignment: .trailing)
-                        Button("Reset") { preferences.codeFontSize = Preferences.defaultCodeFontSize }
-                            .disabled(preferences.codeFontSize == Preferences.defaultCodeFontSize)
-                    }
+                LabeledContent("Size") {
+                    FontSizeControl(size: $preferences.codeFontSize, reset: Preferences.defaultCodeFontSize)
                 }
                 Text("let orbit = \"Hello, agents\"")
                     .font(.system(size: preferences.codeFontSize, design: .monospaced))
-                    .padding(.vertical, 6)
+                    .lineLimit(1)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
                 Toggle("Terminal uses the same size", isOn: Binding(
                     get: { preferences.terminalFontSize == nil },
                     set: { preferences.terminalFontSize = $0 ? nil : preferences.codeFontSize }
                 ))
                 if let size = preferences.terminalFontSize {
-                    LabeledContent("Terminal font size") {
-                        HStack(spacing: 8) {
-                            Slider(value: Binding(get: { size }, set: { preferences.terminalFontSize = $0 }), in: Preferences.codeFontSizes, step: 0.5)
-                                .frame(width: 180)
-                            Text(size.formatted(.number.precision(.fractionLength(0...1))) + " pt")
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                                .frame(width: 44, alignment: .trailing)
-                        }
+                    LabeledContent("Terminal size") {
+                        FontSizeControl(size: Binding(get: { size }, set: { preferences.terminalFontSize = $0 }), reset: preferences.codeFontSize)
                     }
                 }
             } header: {
                 Text("Font")
             } footer: {
-                Text("Also used by diffs, and by the terminal unless it has its own size. ⌘= ⌘- ⌘0 change it.")
+                Text("Also used by diffs. ⌘= ⌘- ⌘0 change it from anywhere.")
             }
-            Section("Display") {
+            Section("Text") {
                 OptionToggle(options: options, option: .wordWrap) { Text("Wrap long lines") }
                 OptionToggle(options: options, option: .highlightCurrentLine) { Text("Highlight the current line") }
-                OptionToggle(options: options, option: .indentGuides) { Text("Show indent guides") }
+                OptionToggle(options: options, option: .indentGuides) { Text("Indent guides") }
+            }
+            Section("Beside the Line Numbers") {
                 OptionToggle(options: options, option: .blame) {
-                    Text("Show blame (⌥⌘B)")
-                    Text("Who changed each line and when, beside the line numbers; click one for its commit.")
+                    Text("Blame")
+                    Text("Who changed each line and when; click one for its commit. ⌥⌘B")
                 }
                 OptionToggle(options: options, option: .imageThumbnails) {
-                    Text("Show images and colors beside the line numbers")
-                    Text("Thumbnails of images a line refers to (./logo.png; hover for a bigger one, click to open it) and swatches of colors it spells out (#ff5500, rgb(…); click to pick another).")
+                    Text("Images and colors")
+                    Text("Thumbnails of images a line refers to, swatches of the colors it spells out.")
                 }
+            }
+            Section("Reading Code") {
                 OptionToggle(options: options, option: .inlayHints) {
-                    Text("Show inlay hints")
+                    Text("Inlay hints")
                     Text("Types and parameter names from the language server, drawn in the code.")
                 }
                 OptionToggle(options: options, option: .stickyScroll) {
                     Text("Sticky scroll")
-                    Text("The first lines of the class and function you're scrolling through stay pinned at the top.")
+                    Text("The class and function you're scrolling through stay pinned at the top.")
                 }
                 OptionToggle(options: options, option: .pathBar) {
-                    Text("Show the path bar")
-                    Text("The file's folders and the symbol at the caret above the editor; click one for its neighbors.")
+                    Text("Path bar")
+                    Text("The file's folders and the symbol at the caret, above the editor.")
                 }
             }
             Section {
                 OptionToggle(options: options, option: .formatOnSave) {
                     Text("Format on save")
-                    Text("With the formatter the project is set up with (Prettier, Biome, Ruff…), else the language server. ⌃⇧I formats any time; Settings → Languages shows which one each file type uses.")
+                    Text("With the project's formatter (Prettier, Biome, Ruff…), else the language server. ⌃⇧I formats any time.")
                 }
+            } header: {
+                Text("Saving")
             } footer: {
-                Text("A project's .orbit/settings.json (or ~/.orbit/settings.json) can set these per project: \"editor\": { \"wordWrap\": true }. File → Open Project Settings opens it.")
+                Text("A project's .orbit/settings.json can set any of these: \"editor\": { \"wordWrap\": true }.")
             }
         }
-        .formStyle(.grouped)
+    }
+}
+
+/// A slider in points, its value, and a reset.
+private struct FontSizeControl: View {
+    @Binding var size: Double
+    let reset: Double
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Slider(value: $size, in: Preferences.codeFontSizes, step: 0.5)
+                .frame(width: 160)
+            Text(size.formatted(.number.precision(.fractionLength(0...1))) + " pt")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: 48, alignment: .trailing)
+            Button {
+                size = reset
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+            }
+            .buttonStyle(.borderless)
+            .disabled(size == reset)
+            .help("Reset to \(reset.formatted(.number.precision(.fractionLength(0...1)))) pt")
+        }
     }
 }

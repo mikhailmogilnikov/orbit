@@ -20,8 +20,9 @@ public final class GitPlugin: OrbitPlugin {
         let model = GitModel(workspace: workspace, services: context.services, settings: context.settings)
 
         ui.addSettingsPane(SettingsPane(
-            id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", order: 30,
-            keywords: ["git", "blame", "gutter", "markers", "changes"]
+            id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", tint: .orange, group: .code, order: 30,
+            summary: "What Git shows in the editor and the status bar.",
+            keywords: ["git", "blame", "gutter", "markers", "changes", "status bar"]
         ) {
             GitSettingsPane(model: model)
         })

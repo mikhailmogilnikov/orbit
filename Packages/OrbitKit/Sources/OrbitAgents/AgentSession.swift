@@ -252,7 +252,7 @@ final class AgentSession: Identifiable {
     }
 
     /// The MCP servers from Orbit's settings (D86) this agent can take. Problems
-    /// show in Settings → Agents, not here: a notice would hide the new-chat screen.
+    /// show in Settings → MCP Servers, not here: a notice would hide the new-chat screen.
     private func mcpServers(environment: [String: String], capabilities: JSONValue?) -> [JSONValue] {
         let http = capabilities?["http"]?.bool == true, sse = capabilities?["sse"]?.bool == true
         return MCPServer.load(project: project).servers.compactMap { $0.acp(environment: environment, http: http, sse: sse) }

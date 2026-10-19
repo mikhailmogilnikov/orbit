@@ -45,6 +45,11 @@ public final class ProjectSettings {
         if case .string(let value) = value(key) { value } else { nil }
     }
 
+    /// The simple values the project's own file sets, for Settings to list.
+    public var projectValues: [(key: String, value: Value)] {
+        project.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+    }
+
     /// Which file sets `key` (".orbit/settings.json"), for "Set by …" notes.
     public func origin(of key: String) -> String? {
         project[key] != nil ? Self.projectPath : user[key] != nil ? Self.userPath : nil

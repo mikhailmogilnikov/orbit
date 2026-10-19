@@ -17,39 +17,83 @@ struct LanguagesSettingsPane: View {
     }
 
     var body: some View {
-        Form {
+        let shown = shown
+        let installed = shown.filter { isAvailable($0) }
+        let missing = shown.filter { !isAvailable($0) }
+        SettingsForm {
             Section {
-                ForEach(shown, id: \.id) { config in
+                if installed.isEmpty {
+                    if manager.isLoadingRegistry {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Looking for servers…").foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text("None yet. Opening a file installs its language's server when you allow it.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                ForEach(installed, id: \.id) { config in
                     LanguageRow(manager: manager, config: config)
                 }
             } header: {
                 HStack {
-                    Text("Language servers")
+                    Text("Ready")
                     Spacer()
                     if manager.isLoadingRegistry { ProgressView().controlSize(.mini) }
                 }
             } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Servers Orbit installs come from the Mason registry and live in ~/.orbit/languages. Ones already on your Mac (Xcode's SourceKit-LSP and clangd, rust-analyzer from rustup…) are used as they are. Other languages get a server from nvim-lspconfig's catalog, offered when you open such a file; it shows here once installed. Highlighting for languages the editor doesn't have built in (Lua, Zig, Kotlin, TSX…) is compiled on the first open of such a file, into ~/.orbit/grammars.")
-                    if let error = manager.registryError {
-                        Text("Couldn't load the registry: \(error)").foregroundStyle(.orange)
+                if let error = manager.registryError {
+                    Text("Couldn't load the registry: \(error)").foregroundStyle(.orange)
+                }
+            }
+
+            if !missing.isEmpty {
+                Section {
+                    SettingsLink("Not Installed", trailing: "\(missing.count)") {
+                        SettingsForm {
+                            Section {
+                                ForEach(missing, id: \.id) { config in
+                                    LanguageRow(manager: manager, config: config)
+                                }
+                            } footer: {
+                                Text("Orbit installs servers from the Mason registry into ~/.orbit/languages. Other languages get a server from nvim-lspconfig's catalog when you open such a file.")
+                            }
+                        }
+                    } label: {
+                        Text("Not Installed")
                     }
                 }
             }
 
-            FormattingSection(manager: manager)
-
             Section {
-                HStack {
-                    Text("Servers start with the first file of their language and stop 10 minutes after the last one closes.")
-                        .foregroundStyle(.secondary)
-                    Spacer()
+                LabeledContent {
                     Button("Restart Servers") { manager.restart() }
+                } label: {
+                    Text("Running servers")
+                    Text("Each starts with the first file of its language and stops 10 minutes after the last one closes.")
                 }
+            } footer: {
+                Text("Servers already on your Mac (Xcode's SourceKit-LSP and clangd, rust-analyzer from rustup…) are used as they are. Highlighting for languages without a built-in grammar is compiled on the first open of such a file, into ~/.orbit/grammars.")
             }
         }
-        .formStyle(.grouped)
         .task { await manager.refreshInstalls() }
+    }
+
+    /// Installed by Orbit or found on the Mac: what works right now.
+    private func isAvailable(_ config: LanguageServerConfig) -> Bool {
+        manager.foundOnMachine[config.id] != nil || config.install.map { manager.receipts[$0.package] != nil } == true
+    }
+}
+
+/// What formats which files in the open folder, and where to change it (D61).
+struct FormattingSettingsPane: View {
+    let manager: LanguageManager
+
+    var body: some View {
+        SettingsForm {
+            FormattingSection(manager: manager)
+        }
     }
 }
 
@@ -69,15 +113,17 @@ private struct LanguageRow: View {
                     Text(fileTypes)
                         .font(.orbit(.micro))
                         .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .help(allFileTypes)
                 }
                 Group {
                     if let receipt {
                         Text("\(install?.package ?? "") \(receipt.version) · installed by Orbit")
                     } else if let found {
-                        Text(found)
-                            .font(.orbit(.caption, design: .monospaced))
+                        Text("On your Mac · \((found as NSString).abbreviatingWithTildeInPath)")
                             .lineLimit(1)
                             .truncationMode(.middle)
+                            .help(found)
                     } else if install != nil {
                         Text(["Not installed", install?.needs.map { "needs \($0)" }].compactMap { $0 }.joined(separator: " · "))
                     } else {
@@ -127,9 +173,18 @@ private struct LanguageRow: View {
         .padding(.vertical, 2)
     }
 
-    private var fileTypes: String {
-        (config.languages.keys.sorted().map { ".\($0)" } + config.fileNames.keys.sorted()).joined(separator: " ")
+    private var fileTypeList: [String] {
+        config.languages.keys.sorted().map { ".\($0)" } + config.fileNames.keys.sorted()
     }
+
+    /// The first few; the rest in the tooltip.
+    private var fileTypes: String {
+        let list = fileTypeList
+        let shown = list.prefix(6).joined(separator: " ")
+        return list.count > 6 ? "\(shown) +\(list.count - 6)" : shown
+    }
+
+    private var allFileTypes: String { fileTypeList.joined(separator: " ") }
 }
 
 /// What formats which files in the open folder, and where to change it (D61).
@@ -174,17 +229,29 @@ private struct FormattingSection: View {
                     .textSelection(.enabled)
             }
         } header: {
-            HStack {
-                Text("Formatting")
-                Spacer()
-                Button("Edit Project Formatters…") { manager.editFormatterSettings(project: true) }
-                    .disabled(!manager.hasFolder)
-                Button("Edit Global…") { manager.editFormatterSettings(project: false) }
-            }
-            .controlSize(.small)
+            Text("In This Project")
         } footer: {
-            Text("⌃⇧I and Format on Save use the formatter a project is set up with — \(FormatterPreset.all.map(\.name).joined(separator: ", ")) — found by its config, from the project's node_modules or virtualenv. Other files go to the language server. Any command that reads the file on stdin and prints it formatted can be set per file type in .orbit/settings.json (the project's wins over ~/.orbit/settings.json).")
+            Text("⌃⇧I and Format on Save (Editor) use the formatter the project is set up with — \(FormatterPreset.all.map(\.name).joined(separator: ", ")) — found by its config, from the project's node_modules or virtualenv. Other files go to the language server.")
         }
         .task { overview = await manager.formattingOverview() }
+        Section {
+            LabeledContent {
+                Button("Edit…") { manager.editFormatterSettings(project: true) }
+                    .disabled(!manager.hasFolder)
+            } label: {
+                Text("Project formatters")
+                Text(".orbit/settings.json").font(.orbit(.caption, design: .monospaced))
+            }
+            LabeledContent {
+                Button("Edit…") { manager.editFormatterSettings(project: false) }
+            } label: {
+                Text("Global formatters")
+                Text("~/.orbit/settings.json").font(.orbit(.caption, design: .monospaced))
+            }
+        } header: {
+            Text("Custom Formatters")
+        } footer: {
+            Text("Any command that reads the file on stdin and prints it formatted, per file type: \"formatters\": { \"sql\": \"sqlfluff format -\" }. The project's win over global ones.")
+        }
     }
 }

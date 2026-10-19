@@ -530,7 +530,7 @@ struct FormatterSettings: Sendable {
     }
 }
 
-/// What formats what in a folder, for Settings → Languages (D61).
+/// What formats what in a folder, for Settings → Formatting (D61).
 struct FormattingOverview: Sendable, Equatable {
     struct Row: Sendable, Equatable, Identifiable {
         var id: String { "\(source)|\(fileTypes)" }

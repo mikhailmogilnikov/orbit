@@ -37,10 +37,18 @@ public final class LanguagesPlugin: OrbitPlugin {
         })
 
         context.ui.addSettingsPane(SettingsPane(
-            id: "languages", title: "Languages", systemImage: "curlybraces", order: 15,
-            keywords: ["lsp", "language server", "install", "mason", "python", "rust", "go", "completion", "errors"]
+            id: "languages", title: "Languages", systemImage: "curlybraces", tint: .purple, group: .code, order: 10,
+            summary: "Language servers for completion, errors, hover and go to definition.",
+            keywords: ["lsp", "language server", "install", "mason", "python", "rust", "go", "typescript", "swift", "completion", "errors", "restart"]
         ) {
             LanguagesSettingsPane(manager: manager)
+        })
+        context.ui.addSettingsPane(SettingsPane(
+            id: "formatting", title: "Formatting", systemImage: "wand.and.sparkles", tint: .teal, group: .code, order: 20,
+            summary: "Which formatter each file type in this project uses.",
+            keywords: ["format", "formatter", "prettier", "biome", "ruff", "black", "editorconfig", "indent"]
+        ) {
+            FormattingSettingsPane(manager: manager)
         })
 
         let ui = context.ui

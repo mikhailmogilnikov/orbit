@@ -45,7 +45,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D33. Disk changes under unsaved edits
 - D34. Composer paste and mid-draft mentions
 - D35. Isolated sessions use APFS clones, not git worktrees — amends D21
-- D36. Settings as a page in the main window
+- D36. Settings as a page in the main window — layout → D158
 - D37. Extensions: data-first packages, a public registry on GitHub — themes registry → D48
 - D38. Themes and icon themes use Zed's file formats
 - D39. Themed middle, native edges (like Xcode) — archived, superseded by D40
@@ -167,6 +167,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D155. The terminal's editing keys, as in Terminal.app and iTerm
 - D156. History rows on two lines; one badge per branch; a calmer graph
 - D157. Corner, fill and badge tokens in `Theme`
+- D158. Settings laid out like System Settings: groups, tiles, header cards, pages
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -529,7 +530,7 @@ bar; swapping views costs the editors' scroll positions, but documents,
 terminals and agent sessions live outside the views and survive — closer to Cursor/VS Code, where settings
 are something you browse. Plugins contribute sections through
 `UIRegistry.addSettingsPane` with search keywords; the shell adds General,
-Keyboard Shortcuts and Plugins. Options more than one plugin reads (theme, the
+Keyboard Shortcuts and Plugins. (Sidebar groups, tiles and panes redone in D158.) Options more than one plugin reads (theme, the
 code font size used by the editor and terminal) live in `Preferences` in
 OrbitAPI; a plugin's own options stay in its `PluginSettings`. Everything
 applies live, no restart (except enabling plugins).
@@ -3289,4 +3290,41 @@ the capsule counters, the hash, "Staged", the plan name and the branch
 badges; `DisclosureChevron` is the one rotating "›" (8 pt bold) and other
 small symbols use `TypeScale.glyph`. Chat bubbles and editor banners keep their own
 tints: they aren't states.
+
+### D158. Settings laid out like System Settings: groups, tiles, header cards, pages
+
+Settings had eight panes in one flat list with grey icons; Agents and
+Languages were long sheets (defaults, installed, the whole registry, custom
+agents, MCP servers in one form), the project and About hid in General. Now it
+follows macOS 26/27 System Settings, still inside the window (D36):
+
+- **Sidebar**: the open project on top, like the Apple Account row (its pane
+  lists what `.orbit/settings.json` overrides, with Open / Create). Then
+  groups (`SettingsGroup`): app — General, Appearance, Notifications; code —
+  Editor, Languages, Formatting, Source Control; agents — Agents, MCP Servers;
+  customization — Keyboard Shortcuts, Extensions, Plugins. Each pane has a
+  colored tile (`SettingsPane.tint`, `SettingsTile`: white symbol on a
+  gradient squircle).
+- **Pane**: a top bar with back / forward in a glass capsule (⌘[ ⌘], a
+  history of panes and pages) and the title; the page scrolls under it
+  (`safeAreaBar`, so it fades out there). The form is at most 720 pt wide,
+  centered. Its first card is the pane's tile, name and one-line summary
+  (`SettingsForm` reads `settingsPaneInfo` from the shell).
+- **Split up**: Appearance left General (mode as three window thumbnails in
+  the picked themes' colors, then themes and icons); Notifications left
+  Agents; MCP Servers and Formatting got their own panes; General is about
+  Orbit itself (version and updates, the `orbit` command, the global
+  settings file and folder).
+- **Pages instead of sheets**: rows with "›" (`SettingsLink`) open a page
+  in the same pane — Get More Agents (the registry, with search), Add a
+  Custom Agent, Not Installed language servers, the extension catalog (from
+  Extensions and from Appearance → Browse Themes). The Installed / Catalog
+  tabs are gone; the try-on bar's Catalog opens the catalog page.
+- Editor's options are grouped by where they show: Font (size, preview,
+  terminal size), Text, Beside the Line Numbers, Reading Code, Saving.
+  Language rows show at most six file types (+N, all in the tooltip) and one
+  status line; agents and extensions get icons on tiles too.
+
+Plugins build panes from `SettingsForm`, `SettingsLink`, `SettingsLabel` and
+`SettingsSearchField` in OrbitUI, so a plugin's pane looks like the rest.
 

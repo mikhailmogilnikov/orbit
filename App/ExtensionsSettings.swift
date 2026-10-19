@@ -2,29 +2,33 @@ import OrbitKit
 import SwiftUI
 
 /// Settings → Extensions: what's installed, and Zed's catalog of themes and
-/// icon themes to try on and install (D48).
+/// icon themes to try on and install (D48) as a page of its own (D158).
 struct ExtensionsSettings: View {
     enum Tab: String { case installed, catalog }
 
+    /// Set to "catalog" to open the catalog page when the pane appears (the try-on bar's Catalog).
     static let tabKey = "orbit.extensionsTab"
     @AppStorage(ExtensionsSettings.tabKey) private var tab = Tab.installed
+    @Environment(SettingsNavigator.self) private var navigator: SettingsNavigator?
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $tab) {
-                Text("Installed").tag(Tab.installed)
-                Text("Catalog").tag(Tab.catalog)
+        InstalledExtensionsView()
+            .onAppear {
+                guard tab == .catalog else { return }
+                tab = .installed
+                navigator?.push("Catalog") { ExtensionCatalogPage() }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .padding(.top, 2)
-            .padding(.bottom, 14)
-            switch tab {
-            case .installed: InstalledExtensionsView()
-            case .catalog: ExtensionCatalogView()
-            }
-        }
+    }
+}
+
+/// The catalog as a Settings page: it lays itself out (a pinned try-on panel over a long list).
+struct ExtensionCatalogPage: View {
+    var body: some View {
+        ExtensionCatalogView()
+            .contentMargins(.horizontal, 0, for: .scrollContent)
+            .frame(maxWidth: 760)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
     }
 }
 
@@ -35,7 +39,7 @@ struct InstalledExtensionsView: View {
     private var catalog: ExtensionCatalog { .shared }
 
     var body: some View {
-        Form {
+        SettingsForm {
             Section {
                 ForEach(extensions.installed) { item in
                     LabeledContent {
@@ -55,31 +59,40 @@ struct InstalledExtensionsView: View {
                             }
                         }
                     } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 10) {
+                            let isIcons = item.iconThemeCount > 0 && item.themeCount == 0
+                            SettingsTile(isIcons ? "doc.richtext.fill" : "paintpalette.fill", tint: isIcons ? .orange : .purple, size: 22)
+                            VStack(alignment: .leading, spacing: 1) {
                                 Text(item.manifest.name)
                                 Text(Self.summary(of: item))
-                                    .font(.orbit(.micro))
+                                    .font(.orbit(.caption))
                                     .foregroundStyle(.secondary)
                                 if let failure = catalog.failures[item.id] {
                                     Text(failure)
-                                        .font(.orbit(.micro))
+                                        .font(.orbit(.caption))
                                         .foregroundStyle(.red)
                                 }
                             }
-                        } icon: {
-                            Image(systemName: item.iconThemeCount > 0 && item.themeCount == 0 ? "doc.richtext" : "paintpalette")
                         }
                     }
                     .contextMenu {
                         if !item.isBuiltin { menuItems(for: item) }
                     }
                 }
-            } footer: {
-                HStack {
-                    Text("Find more in the Catalog, or drop an extension folder into ~/.orbit/extensions — it loads right away.")
-                    Spacer()
+            } header: {
+                Text("Installed")
+            }
+            Section {
+                SettingsLink("Catalog") {
+                    ExtensionCatalogPage()
+                } label: {
+                    SettingsLabel("Browse the Catalog", subtitle: "Zed's themes and icon themes; try one on before installing it", systemImage: "square.grid.2x2.fill", tint: .blue)
+                }
+                LabeledContent {
                     Button("Open Folder") { NSWorkspace.shared.open(Extensions.userDirectory) }
+                } label: {
+                    Text("Your own extensions")
+                    Text("Drop an extension folder into ~/.orbit/extensions; it loads right away.")
                 }
             }
             if !extensions.problems.isEmpty {
@@ -100,7 +113,6 @@ struct InstalledExtensionsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     @ViewBuilder

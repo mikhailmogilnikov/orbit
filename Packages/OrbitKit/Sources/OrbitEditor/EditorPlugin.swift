@@ -39,8 +39,9 @@ public final class EditorPlugin: OrbitPlugin {
         let options = EditorOptions(settings: context.settings, project: workspace.settings)
 
         context.ui.addSettingsPane(SettingsPane(
-            id: "editor", title: "Editor", systemImage: "chevron.left.forwardslash.chevron.right", order: 10,
-            keywords: ["font", "size", "wrap", "line", "highlight", "inlay", "hints", "types", "parameters"]
+            id: "editor", title: "Editor", systemImage: "chevron.left.forwardslash.chevron.right", tint: .blue, group: .code, order: 0,
+            summary: "The code font, what the editor shows beside the code, and saving.",
+            keywords: ["font", "size", "terminal", "wrap", "line", "highlight", "inlay", "hints", "types", "parameters", "blame", "sticky", "path bar", "breadcrumbs", "indent", "format on save", "thumbnails", "colors"]
         ) {
             EditorSettingsPane(options: options)
         })

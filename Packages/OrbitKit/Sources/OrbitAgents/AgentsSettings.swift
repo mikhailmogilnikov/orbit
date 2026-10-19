@@ -8,7 +8,9 @@ struct AgentsSettingsPane: View {
     private var registry: AgentRegistry { store.registry }
 
     var body: some View {
-        Form {
+        let installed = Set(store.providers.map(\.id))
+        let available = registry.agents.filter { !installed.contains($0.id) }
+        SettingsForm {
             if let preferred = store.preferredProvider {
                 Section {
                     let project = store.workspace.settings
@@ -25,40 +27,32 @@ struct AgentsSettingsPane: View {
                             Text("Set by \(origin) (\"agents.default\")").foregroundStyle(.orange)
                         } else if let wanted = project.string("agents.default") {
                             Text("“\(wanted)” in settings.json isn't an installed agent").foregroundStyle(.orange)
+                        } else {
+                            Text("Also writes commit messages. Starting another agent makes it the default.")
                         }
                     }
                     .disabled(store.projectProvider != nil)
                     let isolatedOrigin = project.bool("agents.isolated") != nil ? project.origin(of: "agents.isolated") : nil
                     Toggle(isOn: $store.isolatedByDefault) {
-                        Text("Start sessions in an isolated copy")
-                        Text("The agent works in its own copy of the project; Apply brings its changes back for review.")
+                        Text("Work in an isolated copy")
+                        Text("The agent edits its own copy of the project; Apply brings its changes back for review.")
                         if let isolatedOrigin {
                             Text("Set by \(isolatedOrigin) (\"agents.isolated\")").foregroundStyle(.orange)
                         }
                     }
                     .disabled(isolatedOrigin != nil)
-                    Toggle(isOn: $store.notifies) {
-                        Text("Notify when an agent finishes or needs you")
-                        Text("While Orbit is in the background: a notification, and a count on the Dock icon.")
-                    }
-                    Toggle(isOn: $store.playsSound) {
-                        Text("Play a sound when an agent finishes")
-                        Text("In the background, when there's no notification to make one.")
-                    }
                     Toggle(isOn: $store.keepsAwake) {
                         Text("Keep the Mac awake while an agent works")
                         Text("Stops idle sleep during a turn. Closing the lid still puts it to sleep.")
                     }
                 } header: {
-                    Text("New sessions")
-                } footer: {
-                    Text("The default agent also writes commit messages. Starting another agent makes it the default.")
+                    Text("New Chats")
                 }
             }
 
             Section {
                 if store.providers.isEmpty {
-                    Text("No agents yet. Install one below.")
+                    Text("No agents yet.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(store.providers) { provider in
@@ -69,8 +63,46 @@ struct AgentsSettingsPane: View {
             }
 
             Section {
-                let installed = Set(store.providers.map(\.id))
-                let available = registry.agents.filter { !installed.contains($0.id) }
+                SettingsLink("Get More Agents", trailing: registry.isLoading && available.isEmpty ? nil : "\(available.count)") {
+                    RegistryAgentsPage(store: store)
+                } label: {
+                    SettingsLabel("Get More Agents", subtitle: "From the ACP registry, the list Zed and JetBrains IDEs use", systemImage: "arrow.down.circle.fill", tint: .blue)
+                }
+                SettingsLink("Custom Agent") {
+                    CustomAgentPage()
+                } label: {
+                    SettingsLabel("Add a Custom Agent", subtitle: "Any program that speaks the Agent Client Protocol", systemImage: "terminal.fill", tint: .gray)
+                }
+            }
+        }
+        .task {
+            // Hand-edited manifests show up without a restart.
+            store.reloadProviders()
+            await registry.refresh()
+        }
+    }
+}
+
+/// Agents in the registry that aren't installed yet.
+private struct RegistryAgentsPage: View {
+    let store: AgentStore
+    @State private var query = ""
+    private var registry: AgentRegistry { store.registry }
+
+    var body: some View {
+        let installed = Set(store.providers.map(\.id))
+        let query = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let available = registry.agents.filter { agent in
+            !installed.contains(agent.id) && (query.isEmpty
+                || agent.name.lowercased().contains(query)
+                || (agent.description ?? "").lowercased().contains(query)
+                || (agent.authors ?? []).joined(separator: " ").lowercased().contains(query))
+        }
+        SettingsForm {
+            Section {
+                SettingsSearchField("Search agents", text: $query)
+            }
+            Section {
                 if available.isEmpty {
                     HStack {
                         if registry.isLoading {
@@ -81,6 +113,8 @@ struct AgentsSettingsPane: View {
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button("Try Again") { Task { await registry.refresh() } }
+                        } else if !query.isEmpty {
+                            Text("No agents match “\(query)”.").foregroundStyle(.secondary)
                         } else {
                             Text("Every agent in the registry is installed.").foregroundStyle(.secondary)
                         }
@@ -89,17 +123,19 @@ struct AgentsSettingsPane: View {
                 ForEach(available) { agent in
                     RegistryAgentRow(store: store, agent: agent)
                 }
-            } header: {
-                Text("Available")
             } footer: {
                 Text("From the ACP registry, the list Zed and JetBrains IDEs use. Downloaded agents live in ~/.orbit/agents.")
             }
+        }
+        .task { await registry.refresh() }
+    }
+}
 
-            MCPServersSection(store: store)
-
+/// How to add an agent by hand: a JSON file in ~/.orbit/agents.
+private struct CustomAgentPage: View {
+    var body: some View {
+        SettingsForm {
             Section {
-                Text("Any agent that speaks the Agent Client Protocol can also be added by hand, with a JSON file in `~/.orbit/agents/`:")
-                    .foregroundStyle(.secondary)
                 Text("""
                 {
                   "id": "my-agent",
@@ -112,23 +148,54 @@ struct AgentsSettingsPane: View {
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
-                HStack {
-                    Spacer()
+                LabeledContent {
                     Button("Open Agents Folder") {
                         let directory = AgentProvider.configDirectory
                         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                         NSWorkspace.shared.open(directory)
                     }
+                } label: {
+                    Text("~/.orbit/agents")
+                        .font(.orbit(.body, design: .monospaced))
                 }
             } header: {
-                Text("Custom agents")
+                Text("A JSON File per Agent")
+            } footer: {
+                Text("Any agent that speaks the Agent Client Protocol can be added this way. It shows up in Installed right away.")
             }
         }
-        .formStyle(.grouped)
-        .task {
-            // Hand-edited manifests show up without a restart.
-            store.reloadProviders()
-            await registry.refresh()
+    }
+}
+
+/// Notifications for agents working while Orbit is in the background.
+struct NotificationSettingsPane: View {
+    @Bindable var store: AgentStore
+
+    var body: some View {
+        SettingsForm {
+            Section {
+                Toggle(isOn: $store.notifies) {
+                    Text("Notify when an agent finishes or needs you")
+                    Text("A notification, with Allow and Deny for permission requests, and a count on the Dock icon.")
+                }
+                Toggle(isOn: $store.playsSound) {
+                    Text("Play a sound when an agent finishes")
+                    Text("When there's no notification to make one.")
+                }
+            } footer: {
+                Text("Only while Orbit is in the background. macOS can turn Orbit's notifications off in System Settings → Notifications.")
+            }
+        }
+    }
+}
+
+/// MCP servers from `.orbit/settings.json` (D86), given to every agent.
+struct MCPServersPane: View {
+    let store: AgentStore
+
+    var body: some View {
+        SettingsForm {
+            MCPServersSection(store: store)
         }
     }
 }
@@ -141,7 +208,7 @@ private struct MCPServersSection: View {
     var body: some View {
         Section {
             if loaded.servers.isEmpty && loaded.problems.isEmpty {
-                Text("None yet.").foregroundStyle(.secondary)
+                Text("None yet. Add them to a settings file below.").foregroundStyle(.secondary)
             }
             ForEach(loaded.servers) { server in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -170,23 +237,31 @@ private struct MCPServersSection: View {
                     .foregroundStyle(.orange)
             }
         } header: {
-            HStack {
-                Text("MCP Servers")
-                Spacer()
-                Button("Edit Project Servers…") { edit(store.workspace.root.map(MCPServer.projectFile)) }
-                    .disabled(store.workspace.root == nil)
-                Button("Edit Global…") { edit(MCPServer.userFile) }
-            }
-            .controlSize(.small)
+            Text("Servers")
         } footer: {
-            Text("""
-            Every agent gets these in new chats, besides the servers it sets up itself (Claude Code's, Codex's own config). \
-            “mcpServers” in .orbit/settings.json, the format of Claude Code's .mcp.json and Cursor's mcp.json; \
-            the project's win over global ones by name. Remote (URL) servers reach only agents that support them.
-            """)
+            Text("Besides the servers each agent sets up itself (Claude Code's, Codex's own config). Remote (URL) servers reach only agents that support them.")
         }
         .task(id: store.workspace.root) { reload() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in reload() }
+        Section {
+            LabeledContent {
+                Button("Edit…") { edit(store.workspace.root.map(MCPServer.projectFile)) }
+                    .disabled(store.workspace.root == nil)
+            } label: {
+                Text("Project servers")
+                Text(".orbit/settings.json").font(.orbit(.caption, design: .monospaced))
+            }
+            LabeledContent {
+                Button("Edit…") { edit(MCPServer.userFile) }
+            } label: {
+                Text("Global servers")
+                Text("~/.orbit/settings.json").font(.orbit(.caption, design: .monospaced))
+            }
+        } header: {
+            Text("Configuration")
+        } footer: {
+            Text("“mcpServers”, in the format of Claude Code's .mcp.json and Cursor's mcp.json. The project's win over global ones by name.")
+        }
     }
 
     private func reload() {
@@ -212,10 +287,11 @@ private struct InstalledAgentRow: View {
         let registry = store.registry
         let isMissing = store.missing.contains(provider.id)
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            AgentIcon(provider: provider, size: 14)
+            AgentIcon(provider: provider, size: 15)
                 .foregroundStyle(.secondary)
-                .frame(width: 18)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                .frame(width: 28, height: 28)
+                .background(Theme.activeFill, in: .rect(cornerRadius: Theme.smallCorner, style: .continuous))
+                .alignmentGuide(.firstTextBaseline) { $0[.top] + 18 }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(provider.name)
@@ -288,10 +364,11 @@ private struct RegistryAgentRow: View {
     var body: some View {
         let registry = store.registry
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            RegistryAgentIcon(agent: agent, size: 14)
+            RegistryAgentIcon(agent: agent, size: 15)
                 .foregroundStyle(.secondary)
-                .frame(width: 18)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                .frame(width: 28, height: 28)
+                .background(Theme.activeFill, in: .rect(cornerRadius: Theme.smallCorner, style: .continuous))
+                .alignmentGuide(.firstTextBaseline) { $0[.top] + 18 }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(agent.name)

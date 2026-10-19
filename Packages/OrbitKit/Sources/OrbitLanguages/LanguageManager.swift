@@ -662,7 +662,7 @@ final class LanguageManager: LanguageIntelligence {
             }
             return FormatOutcome(formatter: formatter.name, changed: true)
         case .server:
-            let nothing = "Nothing formats .\(url.pathExtension) files here: the language server can't, and the project has no formatter Orbit recognizes (\(FormatterPreset.all.map(\.name).joined(separator: ", "))). Set one for this file type in .orbit/settings.json — Settings → Languages → Formatting."
+            let nothing = "Nothing formats .\(url.pathExtension) files here: the language server can't, and the project has no formatter Orbit recognizes (\(FormatterPreset.all.map(\.name).joined(separator: ", "))). Set one for this file type in .orbit/settings.json — Settings → Formatting."
             guard let server = await formattingServer(url) else { return .failed(nothing) }
             if server.state == .starting {
                 return .failed("The \(server.config.name) language server is still starting. Try again in a moment.")

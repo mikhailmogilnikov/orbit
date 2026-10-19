@@ -31,10 +31,25 @@ public final class AgentsPlugin: OrbitPlugin {
         context.services.register(ReviewComments.self, store.reviewComments)
 
         ui.addSettingsPane(SettingsPane(
-            id: "agents", title: "Agents", systemImage: "sparkles", order: 20,
-            keywords: ["claude", "codex", "gemini", "install", "registry", "default", "isolated", "copy", "custom", "acp", "login"]
+            id: "agents", title: "Agents", systemImage: "sparkles", tint: .indigo, group: .agents, order: 0,
+            summary: "The agent new chats start with, and the agents you have.",
+            keywords: ["claude", "codex", "gemini", "cursor", "install", "registry", "default", "isolated", "copy", "custom", "acp", "login", "awake", "sleep", "update"]
         ) {
             AgentsSettingsPane(store: store)
+        })
+        ui.addSettingsPane(SettingsPane(
+            id: "mcp", title: "MCP Servers", systemImage: "server.rack", tint: .cyan, group: .agents, order: 10,
+            summary: "Tools every agent gets in new chats.",
+            keywords: ["mcp", "tools", "servers", "model context protocol", ".mcp.json"]
+        ) {
+            MCPServersPane(store: store)
+        })
+        ui.addSettingsPane(SettingsPane(
+            id: "notifications", title: "Notifications", systemImage: "bell.badge.fill", tint: .red, group: .app, order: 2,
+            summary: "When an agent finishes or needs you while Orbit is in the background.",
+            keywords: ["notify", "notification", "sound", "dock", "badge", "alert"]
+        ) {
+            NotificationSettingsPane(store: store)
         })
 
         ui.addInspectorPanel(PanelContribution(id: "agents", title: "Agents", systemImage: "sparkles", order: 0) {

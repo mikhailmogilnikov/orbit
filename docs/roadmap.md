@@ -3,11 +3,12 @@
 ## Done
 - App shell: navigator / tabs / inspector / status bar, command palette, menus from commands, settings
 - Plugin kernel (UI, commands, services registries; enable/disable)
-- Settings screen inside the window (⌘,):
-  searchable sections on the left, plugins add their own (`SettingsPane`);
-  General (theme), Editor (font size shared with terminal, wrap, current line),
-  Agents (default agent, isolated by default, installed / custom agents),
-  Source Control (gutter markers, blame), Keyboard Shortcuts, Plugins
+- Settings screen inside the window (⌘,), laid out like System Settings (D158):
+  the project on top (its .orbit/settings.json overrides), then groups —
+  General, Appearance, Notifications · Editor, Languages, Formatting, Source Control ·
+  Agents, MCP Servers · Keyboard Shortcuts, Extensions, Plugins; colored tiles,
+  a header card per pane, rows that open pages (Get More Agents, the theme catalog),
+  back / forward (⌘[ ⌘]), search; plugins add panes (`SettingsPane`, `SettingsForm`)
 - Explorer (lazy file tree)
 - Editor: STTextView, line numbers, tree-sitter highlighting, save
 - Agents over ACP: Claude Code, Codex, Cursor, Grok Build, OpenCode (D52), custom JSON agents; parallel sessions;
@@ -80,7 +81,7 @@
 - Settings redesign: theme and icon theme settings moved to General, toolbar removed
 - Composer usage ring (D46): context fill; popover with plan limits (Claude), cost and tokens
 - Extensions catalog (D48): Zed's themes and icon themes in Settings → Extensions →
-  Catalog (search, try on, install, update, uninstall); try-on bar over the editor
+  Browse the Catalog (search, try on, install, update, uninstall); try-on bar over the editor
 - LSP (D54): Languages plugin runs sourcekit-lsp (Swift) and
   typescript-language-server (TS/JS) lazily per project; squiggles, hover
   (rest the pointer), ⌘-click / ⌃⌘J go to definition, ⌘' next problem,
@@ -405,6 +406,7 @@ Everything below is known to be missing; nothing here is in progress.
 - Chat like Claude Code (D120): unverified on a Mac and with a real agent (⇧Tab reaching the field as backtab, Esc and ↑ beside the text field's own keys, the pinned plan's height, the copy button's place, the jump button while streaming).
 - Chat attribution and hints (D119): unverified on a Mac (the agent icon beside the stats and the hover buttons, the hints grid under the greeting).
 - Tool card links and permission keys (D118): unverified on a Mac and with a real agent (the link's hover, keys reaching the buttons from the editor and the composer, the waiting bar).
+- Settings like System Settings (D158): checked on a Mac in a preview copy (both modes, every pane, search, pages, back); not checked: a narrow window, VoiceOver, sidebar selection while the window is key.
 - Theme tokens (D157): unverified on a Mac (hovers a touch stronger, palette and tab-switcher rows 9 → 10, composer 16 → 18, popovers 12 → 14, leading chevrons 9 → 8 pt, the usage popover's plan badge smaller, the explorer's drop target outlined).
 - Type scale (D117): unverified on a Mac (bars over the composer, bottom panel and terminal tabs went 11.5 → 11, the model popover's rows 12.5 → 13, the palette's query 16 → 15).
 - Folded reads (D116): unverified on a Mac and with a real agent (the card's look, expanding while calls stream in).

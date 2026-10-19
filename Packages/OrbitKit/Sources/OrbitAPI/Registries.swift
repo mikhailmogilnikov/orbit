@@ -53,13 +53,33 @@ public struct PanelBadge: Sendable, Hashable {
     }
 }
 
+/// The sidebar's blocks in Settings, top to bottom, like System Settings'
+/// groups; panes sort by `order` inside their group.
+public enum SettingsGroup: Int, Comparable, Sendable {
+    /// The app itself: General, Appearance, Notifications.
+    case app
+    /// Writing code: Editor, Languages, Formatting, Source Control.
+    case code
+    /// Agents and what they get: Agents, MCP Servers.
+    case agents
+    /// Making Orbit yours: Keyboard Shortcuts, Extensions, Plugins.
+    case customization
+
+    public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
 /// A section of the Settings screen. Plugins add their own; the shell adds
-/// General, Keyboard Shortcuts and Plugins.
+/// General, Appearance, Keyboard Shortcuts, Extensions and Plugins.
 public struct SettingsPane: Identifiable {
     public let id: String
     public let title: String
     public let systemImage: String
+    /// The tile behind the icon (sidebar, the pane's header), as in System Settings.
+    public let tint: Color
+    public let group: SettingsGroup
     public let order: Int
+    /// One line under the title in the pane's header.
+    public let summary: String?
     /// Extra words the settings search matches (option names).
     public let keywords: [String]
     public let makeView: @MainActor () -> AnyView
@@ -68,14 +88,20 @@ public struct SettingsPane: Identifiable {
         id: String,
         title: String,
         systemImage: String,
+        tint: Color = .gray,
+        group: SettingsGroup = .customization,
         order: Int = 100,
+        summary: String? = nil,
         keywords: [String] = [],
         @ViewBuilder view: @escaping @MainActor () -> V
     ) {
         self.id = id
         self.title = title
         self.systemImage = systemImage
+        self.tint = tint
+        self.group = group
         self.order = order
+        self.summary = summary
         self.keywords = keywords
         makeView = { AnyView(view()) }
     }
@@ -208,7 +234,7 @@ public final class UIRegistry {
 
     public func addSettingsPane(_ pane: SettingsPane) {
         settingsPanes.append(pane)
-        settingsPanes.sort { $0.order < $1.order }
+        settingsPanes.sort { ($0.group, $0.order) < ($1.group, $1.order) }
     }
 
     public func showSettings(_ paneID: String? = nil) {

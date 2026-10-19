@@ -133,7 +133,7 @@ try it.
 
 ## Publishing
 
-Settings → Extensions → Catalog lists Zed's extension catalog, so a theme or
+Settings → Extensions → Browse the Catalog lists Zed's extension catalog, so a theme or
 icon theme published for Zed (see Zed's docs on publishing extensions) shows
 up in Orbit too, ready to try on and install, and in the theme selector
 (⌃⌘T). Name a family's light and dark themes alike ("Name Dark" / "Name
