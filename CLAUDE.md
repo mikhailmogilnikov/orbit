@@ -121,6 +121,7 @@ examples/extensions/      sample extensions (theme, icon theme)
 - Icon-only buttons get a `.help` tooltip; when a command does the same,
   use `commands.help(id)` ("Find References (⇧⌘R)") so it carries the
   shortcut, and link a panel to the command showing it with `.command(id)` (D67).
+- Alerts and open/save panels: `runSheetModal()`, not `runModal()` (D162).
 - Keep comment density low; explain *why*, not *what*.
 
 ## Gotchas

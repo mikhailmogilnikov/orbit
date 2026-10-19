@@ -279,7 +279,7 @@ struct LanguageStatus: View {
         let alert = NSAlert()
         alert.messageText = "Couldn't save the choice"
         alert.informativeText = failure
-        alert.runModal()
+        alert.runSheetModal()
     }
 
     private static func isUnavailable(_ state: LanguageServerState) -> Bool {
@@ -333,7 +333,7 @@ struct LanguageStatus: View {
         let agent = agent()
         if agent != nil { alert.addButton(withTitle: "Ask Agent to Set Up") }
         alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
+        switch alert.runSheetModal() {
         case .alertFirstButtonReturn: Task { await manager.install(config.id) }
         case .alertSecondButtonReturn: ui.showSettings("languages")
         case .alertThirdButtonReturn where agent != nil:
@@ -352,7 +352,7 @@ struct LanguageStatus: View {
         let agent = agent()
         if agent != nil { alert.addButton(withTitle: "Ask Agent to Set Up") }
         alert.addButton(withTitle: "OK")
-        switch alert.runModal() {
+        switch alert.runSheetModal() {
         case .alertFirstButtonReturn: commands.run("languages.restart")
         case .alertSecondButtonReturn where agent != nil: _ = agent?.draftTask(manager.setUpPrompt(for: url, problem: message))
         default: break

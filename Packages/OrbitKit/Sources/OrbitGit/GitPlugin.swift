@@ -136,7 +136,7 @@ public final class GitPlugin: OrbitPlugin {
                     let alert = NSAlert()
                     alert.messageText = "No link for this file"
                     alert.informativeText = "The repository has no remote on a web host, or the file isn't in it."
-                    alert.runModal()
+                    alert.runSheetModal()
                     return
                 }
                 use(url)

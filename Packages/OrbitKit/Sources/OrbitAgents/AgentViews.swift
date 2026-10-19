@@ -1669,7 +1669,7 @@ struct Composer: View {
         panel.canChooseDirectories = false
         panel.directoryURL = session.cwd
         panel.prompt = "Attach"
-        guard panel.runModal() == .OK else { return }
+        guard panel.runSheetModal() == .OK else { return }
         for url in panel.urls { session.attach(.from(fileURL: url)) }
     }
 

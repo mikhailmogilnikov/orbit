@@ -344,7 +344,7 @@ final class GitModel {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         alert.buttons[0].hasDestructiveAction = true
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard alert.runSheetModal() == .alertFirstButtonReturn else { return }
         perform { try $0.dropStash(stash) }
     }
 
@@ -518,7 +518,7 @@ final class GitModel {
         alert.addButton(withTitle: "Discard")
         alert.addButton(withTitle: "Cancel")
         alert.buttons[0].hasDestructiveAction = true
-        return alert.runModal() == .alertFirstButtonReturn
+        return alert.runSheetModal() == .alertFirstButtonReturn
     }
 }
 

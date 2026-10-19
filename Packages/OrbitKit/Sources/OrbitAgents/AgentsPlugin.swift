@@ -487,7 +487,7 @@ final class AgentStore {
         alert.addButton(withTitle: "Cancel")
         let discard = alert.addButton(withTitle: "Close and Delete Copy")
         discard.hasDestructiveAction = true
-        return alert.runModal() == .alertSecondButtonReturn
+        return alert.runSheetModal() == .alertSecondButtonReturn
     }
 
     /// Earlier conversations in this folder that aren't open in a tab, newest first.

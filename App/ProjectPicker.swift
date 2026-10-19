@@ -223,7 +223,7 @@ private struct CloneRepositorySheet: View {
         panel.canCreateDirectories = true
         panel.prompt = "Clone Here"
         panel.message = "Choose where to put the repository."
-        guard panel.runModal() == .OK, let parent = panel.url else { return }
+        guard panel.runSheetModal() == .OK, let parent = panel.url else { return }
         let name = URL(string: address)?.deletingPathExtension().lastPathComponent
             ?? (address as NSString).lastPathComponent.replacingOccurrences(of: ".git", with: "")
         let destination = parent.appendingPathComponent(name.isEmpty ? "repository" : name)

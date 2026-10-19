@@ -40,7 +40,7 @@ struct DiskConflictBanner: View {
         do {
             try document.keepMine()
         } catch {
-            NSAlert(error: error).runModal()
+            NSAlert(error: error).runSheetModal()
         }
     }
 }
@@ -64,7 +64,7 @@ struct DiskDeletedBanner: View {
             Button("Close") { workspace.requestClose(EditorTab.file(document.url).id) }
                 .buttonStyle(.glass)
             Button("Save") {
-                do { try document.save() } catch { NSAlert(error: error).runModal() }
+                do { try document.save() } catch { NSAlert(error: error).runSheetModal() }
             }
             .buttonStyle(.glassProminent)
             .help("Write this text back to disk")
@@ -111,7 +111,7 @@ struct DiskConflictComparison: View {
                     .buttonStyle(.glass)
                     .keyboardShortcut(.cancelAction)
                 Button("Keep Mine") {
-                    do { try document.keepMine() } catch { NSAlert(error: error).runModal() }
+                    do { try document.keepMine() } catch { NSAlert(error: error).runSheetModal() }
                 }
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)

@@ -406,6 +406,7 @@ Everything below is known to be missing; nothing here is in progress.
 - Chat like Claude Code (D120): unverified on a Mac and with a real agent (⇧Tab reaching the field as backtab, Esc and ↑ beside the text field's own keys, the pinned plan's height, the copy button's place, the jump button while streaming).
 - Chat attribution and hints (D119): unverified on a Mac (the agent icon beside the stats and the hover buttons, the hints grid under the greeting).
 - Tool card links and permission keys (D118): unverified on a Mac and with a real agent (the link's hover, keys reaching the buttons from the editor and the composer, the waiting bar).
+- Sheets (D162): the open panel checked on a Mac as a sheet; alerts (delete, discard, unsaved changes, install failures) not raised live yet.
 - Palette like Spotlight (D161): checked on a Mac (dark); the theme selector's rows and plugins' picks with long titles not looked at.
 - Welcome screen like Xcode's (D160): checked on a Mac in both modes; Return on a selected project and the context menu not tried.
 - Empty states and animations (D159): empty panels checked on a Mac; the digit rolls and the waiting hand's wiggle not seen live yet (need changing counts and a real permission prompt).

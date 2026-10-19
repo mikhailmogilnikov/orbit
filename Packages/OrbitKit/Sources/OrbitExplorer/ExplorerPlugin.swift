@@ -376,7 +376,7 @@ final class FileTreeModel {
             alert.showsSuppressionButton = true
             alert.suppressionButton?.title = "Don't ask again"
         }
-        let confirmed = alert.runModal() == .alertFirstButtonReturn
+        let confirmed = alert.runSheetModal() == .alertFirstButtonReturn
         if confirmed, alert.suppressionButton?.state == .on { UserDefaults.standard.set(true, forKey: Self.skipsTrashConfirmationKey) }
         return confirmed
     }
@@ -420,7 +420,7 @@ final class FileTreeModel {
         let alert = NSAlert()
         alert.messageText = problems.count == 1 ? "An item couldn't be \(verb)" : "Some items couldn't be \(verb)"
         alert.informativeText = problems.joined(separator: "\n")
-        alert.runModal()
+        alert.runSheetModal()
     }
 
     private static let skipsConfirmationKey = "orbit.explorer.skipMoveConfirmation"
@@ -438,7 +438,7 @@ final class FileTreeModel {
         alert.addButton(withTitle: "Cancel")
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = "Don't ask again"
-        let confirmed = alert.runModal() == .alertFirstButtonReturn
+        let confirmed = alert.runSheetModal() == .alertFirstButtonReturn
         if confirmed, alert.suppressionButton?.state == .on { UserDefaults.standard.set(true, forKey: skipsConfirmationKey) }
         return confirmed
     }
@@ -1189,7 +1189,7 @@ struct OpenWithMenu: View {
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.allowedContentTypes = [.application]
         panel.prompt = "Open"
-        guard panel.runModal() == .OK, let app = panel.url else { return }
+        guard panel.runSheetModal() == .OK, let app = panel.url else { return }
         NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
     }
 }

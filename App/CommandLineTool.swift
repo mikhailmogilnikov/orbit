@@ -1,4 +1,5 @@
 import AppKit
+import OrbitKit
 
 /// `orbit .` in a terminal (D142): a small script in /usr/local/bin that hands
 /// its paths to Orbit by bundle id, so it keeps working when the app moves.
@@ -45,7 +46,7 @@ enum CommandLineTool {
         let alert = NSAlert()
         alert.messageText = "The 'orbit' command is installed"
         alert.informativeText = "In a terminal, `orbit .` opens the current folder in Orbit; `orbit path/to/file` opens a file in its project."
-        alert.runModal()
+        alert.runSheetModal()
     }
 
     private static func quoted(_ path: String) -> String {
@@ -57,6 +58,6 @@ enum CommandLineTool {
         alert.messageText = "Couldn't install the 'orbit' command"
         alert.informativeText = message
         alert.alertStyle = .warning
-        alert.runModal()
+        alert.runSheetModal()
     }
 }

@@ -179,7 +179,7 @@ public final class Workspace {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Open"
-        if panel.runModal() == .OK, let url = panel.url { requestOpenFolder(url) }
+        if panel.runSheetModal() == .OK, let url = panel.url { requestOpenFolder(url) }
     }
 
     /// Opening a folder for the user: in a new window while this one shows a
@@ -727,12 +727,12 @@ public final class Workspace {
         let discard = alert.addButton(withTitle: "Don't Save")
         discard.keyEquivalent = "d"
         discard.keyEquivalentModifierMask = .command
-        switch alert.runModal() {
+        switch alert.runSheetModal() {
         case .alertFirstButtonReturn:
             do {
                 for document in dirty { try document.save() }
             } catch {
-                NSAlert(error: error).runModal()
+                NSAlert(error: error).runSheetModal()
                 return false
             }
             return true

@@ -554,12 +554,12 @@ public final class EditorPlugin: OrbitPlugin {
             alert.informativeText = "Saving replaces the version on disk with yours. Use Compare in the banner to take parts of it instead."
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Save Anyway")
-            guard alert.runModal() == .alertSecondButtonReturn else { return }
+            guard alert.runSheetModal() == .alertSecondButtonReturn else { return }
         }
         do {
             try document.save()
         } catch {
-            NSAlert(error: error).runModal()
+            NSAlert(error: error).runSheetModal()
         }
     }
 

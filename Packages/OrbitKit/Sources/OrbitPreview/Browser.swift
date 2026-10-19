@@ -126,7 +126,7 @@ final class BrowserPage: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) async {
         let alert = NSAlert()
         alert.messageText = message
-        alert.runModal()
+        alert.runSheetModal()
     }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) async -> Bool {
@@ -134,7 +134,7 @@ final class BrowserPage: NSObject, WKNavigationDelegate, WKUIDelegate {
         alert.messageText = message
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
+        return alert.runSheetModal() == .alertFirstButtonReturn
     }
 }
 

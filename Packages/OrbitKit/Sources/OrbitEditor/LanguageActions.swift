@@ -152,7 +152,7 @@ extension CodeEditor.Coordinator {
                 let alert = NSAlert()
                 alert.messageText = "Couldn't apply “\(action.title)”"
                 alert.informativeText = failure
-                alert.runModal()
+                alert.runSheetModal()
             }
         }
     }
@@ -198,7 +198,7 @@ extension CodeEditor.Coordinator {
                     let alert = NSAlert()
                     alert.messageText = "Couldn't rename “\(target.placeholder)”"
                     alert.informativeText = failure.message
-                    alert.runModal()
+                    alert.runSheetModal()
                 }
             }
         } cancel: { [weak popover] in
@@ -236,7 +236,7 @@ extension CodeEditor.Coordinator {
                 let alert = NSAlert()
                 alert.messageText = outcome.formatter.map { "\($0) couldn't format “\(url.lastPathComponent)”" } ?? "Couldn't format “\(url.lastPathComponent)”"
                 alert.informativeText = failure
-                alert.runModal()
+                alert.runSheetModal()
                 return
             }
             let name = outcome.formatter ?? "Formatter"

@@ -171,6 +171,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D159. System empty states; numbers and symbols animate like Apple's apps
 - D160. The welcome screen laid out like Xcode 26's welcome window
 - D161. Command palette and Open Quickly look like Spotlight
+- D162. Alerts and open panels are sheets on the window
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3370,4 +3371,17 @@ Spotlight: a 640-pt glass panel with a 20-pt query and magnifier
 their own icon), the title over a dimmed detail line — a command's
 category, a file's folder — and shortcuts as key caps. The result list is
 as tall as its rows, up to 400 pt, instead of always taking the maximum.
+
+### D162. Alerts and open panels are sheets on the window
+
+28 places ran `NSAlert.runModal()` / `NSOpenPanel.runModal()`: a separate
+dialog in the middle of the screen that blocks the whole app. macOS puts
+these on the document window as sheets (Pages' "Save changes?"). Every call
+now goes through `runSheetModal()` (OrbitAPI/SheetModal.swift): the alert or
+panel slides down from the key window, and the caller still waits for the
+answer — `beginSheetModal` stops a modal session run for the sheet — so code
+written for `runModal()` (confirmations inside window closing, quitting,
+discarding) works unchanged. With no window to hang it on, or a sheet
+already showing, it falls back to a plain dialog. New alerts and panels
+should use `runSheetModal()` too.
 
