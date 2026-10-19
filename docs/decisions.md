@@ -168,6 +168,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D156. History rows on two lines; one badge per branch; a calmer graph
 - D157. Corner, fill and badge tokens in `Theme`
 - D158. Settings laid out like System Settings: groups, tiles, header cards, pages
+- D159. System empty states; numbers and symbols animate like Apple's apps
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3327,4 +3328,19 @@ follows macOS 26/27 System Settings, still inside the window (D36):
 
 Plugins build panes from `SettingsForm`, `SettingsLink`, `SettingsLabel` and
 `SettingsSearchField` in OrbitUI, so a plugin's pane looks like the rest.
+
+### D159. System empty states; numbers and symbols animate like Apple's apps
+
+`EmptyStateView` drew its own icon, title and message in 25 places; it now
+wraps SwiftUI's `ContentUnavailableView`, so empty panels have the system's
+type and spacing, and buttons go into its actions (Initialize Repository,
+Browse Agents, Try Again) instead of floating below. Settings search shows
+`ContentUnavailableView.search`.
+
+Nothing animated before. Now counts roll their digits (`numericText`): badges
+(`Badge(count:)`, the Problems count), `DiffStatBadge`'s +a −r, "N files
+changed", "N to review", the branch's ↑↓. The hand of a chat waiting for
+permission wiggles every few seconds; copy buttons and the terminal tab's
+play / terminal icon swap with the symbol replace effect. The References
+panel got the link icon: it shared Source Control's branch.
 

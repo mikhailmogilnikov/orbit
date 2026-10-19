@@ -97,7 +97,7 @@ struct SettingsScreen: View {
                                 .id(current.id)
                         }
                     } else {
-                        EmptyStateView("No Results", systemImage: "magnifyingglass", message: "No settings match “\(query)”.")
+                        ContentUnavailableView.search(text: query)
                     }
                 }
                 .contentMargins(.horizontal, margin, for: .scrollContent)

@@ -425,6 +425,7 @@ private struct TerminalTab: View {
         HStack(spacing: 5) {
             Image(systemName: session.isAgent ? "sparkles" : isRunningTask ? "play.fill" : session.isTask ? "play" : "terminal")
                 .font(.orbit(.micro))
+                .contentTransition(.symbolEffect(.replace))
                 .foregroundStyle(session.isAgent ? AnyShapeStyle(.tint) : isRunningTask ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             Text(session.title)
                 .font(.orbit(.caption))

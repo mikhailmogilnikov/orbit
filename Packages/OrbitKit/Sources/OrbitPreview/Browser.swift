@@ -227,16 +227,13 @@ struct BrowserView: View {
             ZStack {
                 BrowserHost(page: page)
                 if let failure = page.failure {
-                    VStack(spacing: 12) {
-                        EmptyStateView(
-                            "Can't Open the Page", systemImage: "wifi.exclamationmark",
-                            message: page.url.map(BrowserPage.isLocal) == true ? "\(failure)\nIs the dev server running? Orbit tries again while it starts." : failure
-                        )
-                        .fixedSize(horizontal: false, vertical: true)
+                    EmptyStateView(
+                        "Can't Open the Page", systemImage: "wifi.exclamationmark",
+                        message: page.url.map(BrowserPage.isLocal) == true ? "\(failure)\nIs the dev server running? Orbit tries again while it starts." : failure
+                    ) {
                         Button("Try Again") { page.reload() }
                             .buttonStyle(.glass)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .nativeSurface(.background)
                 }
             }

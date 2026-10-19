@@ -110,10 +110,10 @@ struct ReferencesPanel: View {
             if model.isSearching {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.symbol == nil {
-                EmptyStateView("No References", systemImage: "arrow.triangle.branch",
+                EmptyStateView("No References", systemImage: "link",
                                message: "Put the caret on a symbol and choose Code ▸ Find References (⇧⌃⌘F).")
             } else {
-                EmptyStateView("No References", systemImage: "arrow.triangle.branch", message: "The language server found no uses of it. If it's still indexing the project, try again in a moment.")
+                EmptyStateView("No References", systemImage: "link", message: "The language server found no uses of it. If it's still indexing the project, try again in a moment.")
             }
         } else {
             VStack(spacing: 0) {

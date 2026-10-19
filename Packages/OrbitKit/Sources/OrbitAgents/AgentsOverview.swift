@@ -209,6 +209,7 @@ private struct AgentOverviewRow: View {
         case .waiting(let request):
             Label(request.title, systemImage: "hand.raised.fill")
                 .foregroundStyle(.orange)
+                .symbolEffect(.wiggle, options: .repeat(.periodic(delay: 3)))
         case .working(let since):
             if let since {
                 TimelineView(.periodic(from: since, by: 1)) { context in

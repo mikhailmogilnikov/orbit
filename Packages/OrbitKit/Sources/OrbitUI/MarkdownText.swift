@@ -323,6 +323,7 @@ struct CodeBlockView: View {
                     Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
                 } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .contentTransition(.symbolEffect(.replace))
                         .font(.orbit(.micro))
                 }
                 .buttonStyle(.borderless)

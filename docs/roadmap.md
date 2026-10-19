@@ -406,6 +406,7 @@ Everything below is known to be missing; nothing here is in progress.
 - Chat like Claude Code (D120): unverified on a Mac and with a real agent (⇧Tab reaching the field as backtab, Esc and ↑ beside the text field's own keys, the pinned plan's height, the copy button's place, the jump button while streaming).
 - Chat attribution and hints (D119): unverified on a Mac (the agent icon beside the stats and the hover buttons, the hints grid under the greeting).
 - Tool card links and permission keys (D118): unverified on a Mac and with a real agent (the link's hover, keys reaching the buttons from the editor and the composer, the waiting bar).
+- Empty states and animations (D159): empty panels checked on a Mac; the digit rolls and the waiting hand's wiggle not seen live yet (need changing counts and a real permission prompt).
 - Settings like System Settings (D158): checked on a Mac in a preview copy (both modes, every pane, search, pages, back); not checked: a narrow window, VoiceOver, sidebar selection while the window is key.
 - Theme tokens (D157): unverified on a Mac (hovers a touch stronger, palette and tab-switcher rows 9 → 10, composer 16 → 18, popovers 12 → 14, leading chevrons 9 → 8 pt, the usage popover's plan badge smaller, the explorer's drop target outlined).
 - Type scale (D117): unverified on a Mac (bars over the composer, bottom panel and terminal tabs went 11.5 → 11, the model popover's rows 12.5 → 13, the palette's query 16 → 15).

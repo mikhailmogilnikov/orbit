@@ -109,7 +109,7 @@ public final class LanguagesPlugin: OrbitPlugin {
             return caret
         }
 
-        ui.addBottomPanel(PanelContribution(id: "references", title: "References", systemImage: "arrow.triangle.branch", order: 55, badge: {
+        ui.addBottomPanel(PanelContribution(id: "references", title: "References", systemImage: "link", order: 55, badge: {
             references.count > 0 ? PanelBadge(references.count) : nil
         }) {
             ReferencesPanel(model: references, workspace: workspace)
@@ -119,7 +119,7 @@ public final class LanguagesPlugin: OrbitPlugin {
             id: "languages.findReferences",
             title: "Find References",
             category: "Code",
-            systemImage: "arrow.triangle.branch",
+            systemImage: "link",
             shortcut: KeyboardShortcut("r", modifiers: [.command, .shift]),
             editorMenu: EditorMenuPlacement(.navigate) {
                 Self.activeFile(workspace).map { manager.server(for: $0) != nil } ?? false

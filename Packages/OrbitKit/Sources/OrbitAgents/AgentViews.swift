@@ -10,17 +10,14 @@ struct AgentsPanel: View {
             if store.workspace.root == nil {
                 EmptyStateView("No Folder Open", systemImage: "folder", message: "Agents work inside a project folder.")
             } else if store.providers.isEmpty {
-                VStack(spacing: 14) {
-                    EmptyStateView(
-                        "No Agents Installed",
-                        systemImage: "sparkles",
-                        message: "Install Claude Code, Codex, Gemini CLI or another ACP agent to start a chat."
-                    )
+                EmptyStateView(
+                    "No Agents Installed",
+                    systemImage: "sparkles",
+                    message: "Install Claude Code, Codex, Gemini CLI or another ACP agent to start a chat."
+                ) {
                     Button("Browse Agents") { store.ui.showSettings("agents") }
                         .buttonStyle(.glassProminent)
                 }
-                .padding(24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 SessionTabs(store: store)
                 Divider()
@@ -137,6 +134,8 @@ struct SessionChip: View {
         } else if session.hasPendingPermission {
             Image(systemName: "hand.raised.fill")
                 .foregroundStyle(.orange)
+                // A nudge every few seconds: this chat waits for you.
+                .symbolEffect(.wiggle, options: .repeat(.periodic(delay: 3)))
                 .frame(width: 13)
         } else {
             AgentIcon(provider: session.provider, size: 13)
@@ -594,6 +593,8 @@ struct TurnSummaryView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Text("\(files.count) file\(files.count == 1 ? "" : "s") changed")
+                                .contentTransition(.numericText(value: Double(files.count)))
+                                .animation(.snappy, value: files.count)
                                 .lineLimit(1)
                             DisclosureChevron(isExpanded: isExpanded)
                                 .foregroundStyle(.tertiary)
@@ -695,6 +696,7 @@ struct AgentMessageView: View {
                         Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
                     } label: {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .contentTransition(.symbolEffect(.replace))
                             .font(.orbit(.caption))
                             .frame(width: 22, height: 22)
                             .contentShape(.rect)

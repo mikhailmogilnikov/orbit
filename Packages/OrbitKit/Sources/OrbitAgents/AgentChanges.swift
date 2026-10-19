@@ -21,6 +21,8 @@ struct AgentChangesBar: View {
                         DisclosureChevron(isExpanded: store.isChangesExpanded)
                             .foregroundStyle(.secondary)
                         Text("\(files.count) file\(files.count == 1 ? "" : "s") changed")
+                            .contentTransition(.numericText(value: Double(files.count)))
+                            .animation(.snappy, value: files.count)
                             .font(.orbit(.caption, weight: .medium))
                         DiffStatBadge(added: stats.reduce(0) { $0 + $1.added }, removed: stats.reduce(0) { $0 + $1.removed })
                     }
@@ -127,6 +129,8 @@ struct PendingChangesStatus: View {
         if count > 0 {
             Button(action: action) {
                 Label("\(count) to review", systemImage: "plusminus")
+                    .contentTransition(.numericText(value: Double(count)))
+                    .animation(.snappy, value: count)
                     .font(.orbit(.micro))
                     .foregroundStyle(.orange)
                     .contentShape(.rect)

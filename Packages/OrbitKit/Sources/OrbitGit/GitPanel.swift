@@ -13,13 +13,11 @@ struct GitPanel: View {
             case .loading:
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
             case .notRepository:
-                VStack(spacing: 14) {
-                    EmptyStateView("No Git Repository", systemImage: "arrow.triangle.branch", message: "This folder isn't under version control.")
-                        .frame(maxHeight: 180)
+                EmptyStateView("No Git Repository", systemImage: "arrow.triangle.branch", message: "This folder isn't under version control.") {
                     Button("Initialize Repository") { model.initialize() }
                         .buttonStyle(.glass)
+                        .tint(nil)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready:
                 VStack(spacing: 0) {
                     GitHeader(model: model)
@@ -90,6 +88,8 @@ private struct GitHeader: View {
             if model.status.ahead > 0 || model.status.behind > 0 {
                 Text(syncLabel)
                     .font(.orbit(.caption).monospacedDigit())
+                    .contentTransition(.numericText())
+                    .animation(.snappy, value: syncLabel)
                     .foregroundStyle(.secondary)
                     .fixedSize()
                     .help("\(model.status.ahead) to push, \(model.status.behind) to pull")

@@ -208,11 +208,21 @@ public struct DiffStatBadge: View {
 
     public var body: some View {
         HStack(spacing: 4) {
-            if added > 0 { Text("+\(added)").foregroundStyle(Theme.added) }
-            if removed > 0 { Text("−\(removed)").foregroundStyle(Theme.removed) }
+            if added > 0 {
+                Text("+\(added)")
+                    .foregroundStyle(Theme.added)
+                    .contentTransition(.numericText(value: Double(added)))
+            }
+            if removed > 0 {
+                Text("−\(removed)")
+                    .foregroundStyle(Theme.removed)
+                    .contentTransition(.numericText(value: Double(removed)))
+            }
         }
         .font(.orbit(.caption, weight: .medium, design: .monospaced))
         .monospacedDigit()
+        .animation(.snappy, value: added)
+        .animation(.snappy, value: removed)
     }
 }
 
@@ -222,6 +232,8 @@ public struct Badge<Label: View>: View {
     let tint: Color?
     let prominent: Bool
     let label: Label
+    /// A count's value, so a change rolls the digits (D159).
+    var value: Double?
 
     public init(tint: Color? = nil, prominent: Bool = false, @ViewBuilder label: () -> Label) {
         self.tint = tint
@@ -234,6 +246,8 @@ public struct Badge<Label: View>: View {
             .font(.orbit(.micro, weight: .medium))
             .monospacedDigit()
             .lineLimit(1)
+            .contentTransition(value.map { .numericText(value: $0) } ?? .identity)
+            .animation(.snappy, value: value)
             .foregroundStyle(tint ?? .secondary)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
@@ -253,6 +267,7 @@ extension Badge where Label == Text {
 
     public init(count: Int, tint: Color? = nil) {
         self.init(count < 1000 ? "\(count)" : "999+", tint: tint)
+        value = Double(count)
     }
 }
 
@@ -295,33 +310,35 @@ public struct IconButton: View {
     }
 }
 
-public struct EmptyStateView: View {
+/// An empty panel: the system's own `ContentUnavailableView` (D159), so it
+/// reads like Finder's and Xcode's, with optional buttons under the message.
+public struct EmptyStateView<Actions: View>: View {
     let systemImage: String
     let title: String
     let message: String?
+    let actions: Actions
 
-    public init(_ title: String, systemImage: String, message: String? = nil) {
+    public init(_ title: String, systemImage: String, message: String? = nil, @ViewBuilder actions: () -> Actions) {
         self.title = title
         self.systemImage = systemImage
         self.message = message
+        self.actions = actions()
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .font(.orbit(.display, weight: .light))
-                .foregroundStyle(.tertiary)
-            Text(title)
-                .font(.orbit(.control, weight: .bold))
-                .foregroundStyle(.secondary)
-            if let message {
-                Text(message)
-                    .font(.orbit(.body))
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
-            }
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
+            if let message { Text(message) }
+        } actions: {
+            actions
         }
-        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension EmptyStateView where Actions == EmptyView {
+    public init(_ title: String, systemImage: String, message: String? = nil) {
+        self.init(title, systemImage: systemImage, message: message) { EmptyView() }
     }
 }
