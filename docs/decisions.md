@@ -179,6 +179,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D169. The sidebar switcher is Xcode's navigator bar
 - D170. A quieter status bar
 - D171. Source Control looks like Xcode's navigator
+- D172. Problems and References read like Xcode's issue navigator
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3492,3 +3493,12 @@ sections. Two pieces now match Xcode and the rest of Orbit:
   section headers, file rows and the history controls. Rows get zero insets,
   and the views above use that margin minus the padding menus and icon
   buttons put around their symbols, so the glyphs line up, not the frames.
+
+### D172. Problems and References read like Xcode's issue navigator
+
+Both panels group their rows by file under one header (`FileGroupHeader`):
+a chevron, the file's icon, name and folder, and a count badge tinted by
+the file's worst problem (red, yellow, blue). A click anywhere on the header
+folds the file. Rows start under the file's icon and have no lines between
+them. Warnings are yellow, as in Xcode and the status bar (D170); the rows
+had them orange.

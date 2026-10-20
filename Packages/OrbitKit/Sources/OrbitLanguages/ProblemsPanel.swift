@@ -9,6 +9,7 @@ struct ProblemsPanel: View {
     let workspace: Workspace
     /// Hands problems to a new chat (D147); nil without the Agents plugin.
     var fix: (([FileProblems]) -> Void)?
+    @State private var collapsed: Set<URL> = []
 
     var body: some View {
         let problems = manager.problems
@@ -17,11 +18,14 @@ struct ProblemsPanel: View {
         } else {
             List {
                 ForEach(problems) { file in
-                    Section {
+                    Section(isExpanded: FileGroupHeader.expansion(of: file.url, in: $collapsed)) {
                         ForEach(Array(file.diagnostics.enumerated()), id: \.offset) { _, problem in
                             ProblemRow(problem: problem, fix: fix.map { fix in { fix([FileProblems(url: file.url, diagnostics: [problem])]) } }) {
                                 workspace.openFile(file.url, line: problem.range.start.line)
                             }
+                            // Under the file's icon, without lines between, like Xcode's issues.
+                            .padding(.leading, FileGroupHeader.rowIndent)
+                            .listRowSeparator(.hidden)
                             .contextMenu {
                                 if let fix {
                                     Button("Fix with Agent") { fix([FileProblems(url: file.url, diagnostics: [problem])]) }
@@ -36,19 +40,8 @@ struct ProblemsPanel: View {
                             }
                         }
                     } header: {
-                        HStack(spacing: 6) {
-                            FileIconView(url: file.url, size: 13)
-                            Text(file.url.lastPathComponent)
-                                .fontWeight(.medium)
-                            Text(workspace.relativePath(file.url.deletingLastPathComponent()))
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                            Text("\(file.diagnostics.count)")
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                        .font(.orbit(.caption))
+                        FileGroupHeader(url: file.url, count: file.diagnostics.count, tint: Self.tint(for: file),
+                                        workspace: workspace, collapsed: $collapsed)
                     }
                 }
             }
@@ -59,6 +52,13 @@ struct ProblemsPanel: View {
 }
 
 extension ProblemsPanel {
+    /// The file's count takes the color of its worst problem.
+    static func tint(for file: FileProblems) -> Color {
+        let severities = file.diagnostics.map(\.severity)
+        if severities.contains(.error) { return .red }
+        return severities.contains(.warning) ? .yellow : .blue
+    }
+
     static func errorsOnly(_ file: FileProblems) -> FileProblems? {
         let errors = file.diagnostics.filter { $0.severity == .error }
         return errors.isEmpty ? nil : FileProblems(url: file.url, diagnostics: errors)
@@ -117,8 +117,54 @@ private struct ProblemRow: View {
     private var color: Color {
         switch problem.severity {
         case .error: .red
-        case .warning: .orange
+        case .warning: .yellow
         case .information, .hint: .blue
+        }
+    }
+}
+
+/// A file's header in Problems and References, like a file in Xcode's issue
+/// navigator: chevron, icon, name, folder, and a count badge (D172). A click
+/// anywhere on it folds the file's rows.
+struct FileGroupHeader: View {
+    /// Rows start under the file's icon: past the chevron and its gap.
+    static let rowIndent: CGFloat = 16
+
+    let url: URL
+    let count: Int
+    var tint: Color?
+    let workspace: Workspace
+    @Binding var collapsed: Set<URL>
+
+    var body: some View {
+        let isExpanded = !collapsed.contains(url)
+        HStack(spacing: 6) {
+            DisclosureChevron(isExpanded: isExpanded)
+                .foregroundStyle(.tertiary)
+                .frame(width: 10)
+            FileIconView(url: url, size: 13)
+            Text(url.lastPathComponent)
+                .fontWeight(.medium)
+                .foregroundStyle(.primary)
+            Text(workspace.relativePath(url.deletingLastPathComponent()))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.head)
+            Badge(count: count, tint: tint)
+            Spacer(minLength: 0)
+        }
+        .font(.orbit(.caption))
+        .contentShape(.rect)
+        .onTapGesture {
+            withAnimation(.snappy(duration: 0.2)) { Self.expansion(of: url, in: $collapsed).wrappedValue.toggle() }
+        }
+    }
+
+    static func expansion(of url: URL, in collapsed: Binding<Set<URL>>) -> Binding<Bool> {
+        Binding {
+            !collapsed.wrappedValue.contains(url)
+        } set: { isExpanded in
+            if isExpanded { collapsed.wrappedValue.remove(url) } else { collapsed.wrappedValue.insert(url) }
         }
     }
 }

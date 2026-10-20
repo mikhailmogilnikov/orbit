@@ -104,6 +104,7 @@ final class ReferencesModel {
 struct ReferencesPanel: View {
     let model: ReferencesModel
     let workspace: Workspace
+    @State private var collapsed: Set<URL> = []
 
     var body: some View {
         if model.files.isEmpty {
@@ -121,15 +122,17 @@ struct ReferencesPanel: View {
                 Divider()
                 List {
                     ForEach(model.files) { file in
-                        Section {
+                        Section(isExpanded: FileGroupHeader.expansion(of: file.url, in: $collapsed)) {
                             ForEach(file.references) { reference in
                                 ReferenceRow(reference: reference, isOpened: model.opened == reference.id) {
                                     model.opened = reference.id
                                     workspace.open(reference.location)
                                 }
+                                .padding(.leading, FileGroupHeader.rowIndent)
+                                .listRowSeparator(.hidden)
                             }
                         } header: {
-                            ReferenceFileHeader(url: file.url, count: file.references.count, workspace: workspace)
+                            FileGroupHeader(url: file.url, count: file.references.count, workspace: workspace, collapsed: $collapsed)
                         }
                     }
                 }
@@ -155,26 +158,6 @@ struct ReferencesPanel: View {
         .font(.orbit(.caption))
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-    }
-}
-
-private struct ReferenceFileHeader: View {
-    let url: URL
-    let count: Int
-    let workspace: Workspace
-
-    var body: some View {
-        HStack(spacing: 6) {
-            FileIconView(url: url, size: 13)
-            Text(url.lastPathComponent)
-                .fontWeight(.medium)
-            Text(workspace.relativePath(url.deletingLastPathComponent()))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.head)
-            Badge(count: count)
-        }
-        .font(.orbit(.caption))
     }
 }
 
