@@ -985,8 +985,13 @@ struct TabBar: View {
         HStack(spacing: 2) {
             ForEach(group.tabs) { tab in
                 item(tab)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
         }
+        // Tabs slide into place on open, close and a dropped reorder. Only the
+        // id order is animated, never the live drag: TabDrag draws its own chip
+        // and line from the frames the tabs report (D91).
+        .animation(.snappy(duration: 0.22), value: group.tabs.map(\.id))
         .opacity(isFocused ? 1 : 0.65)
         .padding(.horizontal, 8)
         // The free space after the tabs is title bar: it drags the window.

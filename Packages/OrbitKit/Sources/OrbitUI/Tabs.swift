@@ -9,7 +9,7 @@ extension Theme {
 public struct TabChip<Icon: View>: View {
     let title: String
     let isActive: Bool
-    /// A dot in place of the close button while not hovered (unsaved edits).
+    /// A dot after the title (unsaved edits).
     let isDirty: Bool
     /// A preview tab's title is italic, as in VS Code (D94).
     let isPreview: Bool
@@ -18,6 +18,7 @@ public struct TabChip<Icon: View>: View {
     /// Nil for a tab that can't be closed: no close button.
     let onClose: (() -> Void)?
     @State private var isHovering = false
+    @State private var isCloseHovering = false
 
     public init(
         _ title: String,
@@ -38,38 +39,58 @@ public struct TabChip<Icon: View>: View {
     }
 
     public var body: some View {
+        let canClose = onClose != nil
         HStack(spacing: 6) {
-            icon
-                .font(.orbit(.micro))
+            // As in Xcode 26, the icon turns into the close button under the pointer.
+            ZStack {
+                if let onClose, isHovering {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.orbit(.glyph, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 16, height: 16)
+                            .background(isCloseHovering ? Theme.activeFill : .clear, in: .circle)
+                            .contentShape(.circle)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isCloseHovering = $0 }
+                    .help("Close Tab (⌘W)")
+                    .transition(.opacity)
+                } else {
+                    icon
+                        .font(.orbit(.micro))
+                        .transition(.opacity)
+                }
+            }
+            .frame(minWidth: 16, minHeight: 16)
             Text(title)
                 .font(.orbit(.body, weight: isActive ? .medium : .regular))
                 .italic(isPreview)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .lineLimit(1)
-            ZStack {
-                if let onClose, isHovering || (isActive && !isDirty) {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.orbit(.glyph, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 14, height: 14)
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Close Tab (⌘W)")
-                } else if isDirty {
-                    Circle().fill(.secondary).frame(width: 6, height: 6)
-                }
+            if isDirty {
+                Circle()
+                    .fill(.secondary)
+                    .frame(width: 6, height: 6)
+                    .help("Unsaved changes")
             }
-            .frame(width: onClose == nil && !isDirty ? 0 : 14)
         }
-        .padding(.leading, 10)
-        .padding(.trailing, onClose == nil && !isDirty ? 4 : 6)
+        .padding(.leading, canClose ? 6 : 10)
+        .padding(.trailing, 10)
         .frame(height: 26)
-        .background(isActive ? Theme.activeFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+        .background {
+            if isActive {
+                // The current tab is a raised piece of glass, like Safari 26's.
+                Color.clear.glassEffect(.regular, in: .rect(cornerRadius: Theme.corner, style: .continuous))
+            } else if isHovering {
+                RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Theme.hoverFill)
+            }
+        }
         .contentShape(.rect)
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .animation(.snappy(duration: 0.2), value: isActive)
     }
 }
 

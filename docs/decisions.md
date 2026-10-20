@@ -175,6 +175,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D163. The chat: Claude Code's flow, Apple's look
 - D166. The empty editor: quiet, like Xcode's "No Editor"
 - D167. Terminal sessions are a list beside the output
+- D168. Tabs like Xcode 26 and Safari 26
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3438,3 +3439,18 @@ the panel tabs, with New Terminal (+) beside Hide on the trailing side, and
 the sessions are a list on the right of the terminal, like VS Code's, shown
 once there are two or more (one terminal needs no list). A panel's
 `accessory` now sits on the header's trailing side for every panel.
+
+### D168. Tabs like Xcode 26 and Safari 26
+
+`TabChip` (editor and chat tabs) now looks like Apple's:
+- The current tab is a raised piece of Liquid Glass; others get a hover fill.
+- The icon turns into the close button under the pointer, as in Xcode, so
+  the trailing edge stays still; unsaved edits are a dot after the title.
+- Tabs fade and scale in and out and slide into place when the order
+  changes.
+
+The drag (D91) is untouched: it stays our own gesture with the window held
+still over a tab, and only the tab order is animated, never the drag
+itself. `TabDrag` draws its own chip and line from the frames the tabs
+report, so an animated row under a live drag would put the line in the
+wrong place.
