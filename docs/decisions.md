@@ -3487,3 +3487,8 @@ sections. Two pieces now match Xcode and the rest of Orbit:
   commit's files.
 - The commit message field is glass like the chat's composer (D163) instead
   of a filled box with a hairline. Commit stays the prominent button under it.
+- Everything sits on one leading and one trailing edge, the sidebar list's
+  own 16-pt margin (`GitRowInsets.edge`): the branch row, the commit box,
+  section headers, file rows and the history controls. Rows get zero insets,
+  and the views above use that margin minus the padding menus and icon
+  buttons put around their symbols, so the glyphs line up, not the frames.

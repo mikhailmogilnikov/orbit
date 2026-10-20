@@ -113,7 +113,9 @@ private struct GitHeader: View {
             .fixedSize()
             .help("Fetch, Refresh")
         }
-        .padding(.horizontal, 12)
+        // Menus and icon buttons pad their symbols; this puts the glyphs on the edge.
+        .padding(.leading, GitRowInsets.edge - 2)
+        .padding(.trailing, GitRowInsets.edge - 3)
         .padding(.bottom, 6)
         .alert("New Branch", isPresented: $isNamingBranch) {
             TextField("Branch name", text: $newBranch)
@@ -172,7 +174,7 @@ private struct CommitBox: View {
             .disabled(!model.canCommit || model.isBusy)
             .help(model.status.staged.isEmpty ? "Stage every change and commit" : "Commit staged changes")
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, GitRowInsets.edge)
         .padding(.bottom, 8)
         // Get the agent running while the user looks at their changes.
         .onAppear { if !model.status.files.isEmpty { model.messageAgent?.prewarm() } }
@@ -227,7 +229,7 @@ private struct ErrorBanner: View {
         }
         .padding(8)
         .background(.orange.opacity(0.1), in: .rect(cornerRadius: Theme.smallCorner))
-        .padding(.horizontal, 10)
+        .padding(.horizontal, GitRowInsets.edge)
         .padding(.bottom, 8)
     }
 }
@@ -361,6 +363,7 @@ private struct StashRow: View {
             }
         }
         .contentShape(.rect)
+        .listRowInsets(GitRowInsets.row)
         .onHover { isHovered = $0 }
         .onTapGesture(count: 2) { isExpanded.toggle() }
         .contextMenu {
@@ -410,7 +413,7 @@ private struct HistoryRows: View {
                 .controlSize(.small)
                 .help("Message, author or hash")
         }
-        .listRowInsets(EdgeInsets(top: 2, leading: 2, bottom: 4, trailing: 4))
+        .listRowInsets(EdgeInsets(top: 2, leading: -4, bottom: 4, trailing: 0))
         let graph = model.graph
         let lanes = min(Self.maxLanes, graph.map(\.laneCount).max() ?? 0)
         let width = lanes == 0 ? 0 : CGFloat(lanes) * Self.laneSpacing
@@ -482,7 +485,7 @@ private struct CommitRow: View {
         .contentShape(.rect)
         .onTapGesture(perform: toggle)
         .onHover { isHovered = $0 }
-        .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 4))
+        .listRowInsets(GitRowInsets.row)
         .help("\(commit.shortHash) · \(commit.author) · \(commit.date.formatted(date: .abbreviated, time: .shortened))\n\(commit.subject)\n\n\(isExpanded ? "Click to hide its files" : "Click to show its files")")
         .contextMenu {
             Button(isExpanded ? "Hide Files" : "Show Files", action: toggle)
@@ -612,7 +615,7 @@ private struct CommitFiles: View {
                 .padding(.leading, 14)
         }
         .frame(height: 22)
-        .listRowInsets(EdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 4))
+        .listRowInsets(GitRowInsets.row)
     }
 }
 
@@ -669,6 +672,9 @@ private struct SectionHeader<Actions: View>: View {
             Spacer()
             actions
         }
+        // Section headers run wider than rows in a sidebar list.
+        .padding(.leading, 2)
+        .padding(.trailing, 9)
         .contentShape(.rect)
         .onTapGesture {
             guard let isExpanded else { return }
@@ -717,6 +723,7 @@ private struct ChangeRow: View {
             StatusLetter(kind: kind)
         }
         .contentShape(.rect)
+        .listRowInsets(GitRowInsets.fileRow)
         .onHover { isHovered = $0 }
         .onTapGesture { model.openDiff(file, staged: section == .staged) }
         .contextMenu {
@@ -753,6 +760,16 @@ private struct StatusLetter: View {
             .frame(width: 16, height: 16)
             .background(kind.color.opacity(0.15), in: .rect(cornerRadius: Theme.tinyCorner, style: .continuous))
     }
+}
+
+/// One edge for everything in the panel (D171): list rows sit on the list's
+/// own margin, and the header and commit box above use the same one.
+enum GitRowInsets {
+    static let row = EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
+    /// A file icon is narrower than its 16-pt frame; its glyph goes on the edge.
+    static let fileRow = EdgeInsets(top: 0, leading: -2, bottom: 0, trailing: 0)
+    /// The sidebar list's own horizontal margin, where those rows start.
+    static let edge: CGFloat = 16
 }
 
 extension GitFileStatus.Kind {
