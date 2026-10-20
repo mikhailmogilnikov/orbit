@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS — tests and app build
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+      - name: Install tools
+        # SwiftTerm's shaders need the Metal Toolchain.
+        run: |
+          brew install xcodegen
+          xcodebuild -downloadComponent MetalToolchain
+          git config --global user.name CI
+          git config --global user.email ci@localhost
+      - uses: actions/cache@v4
+        with:
+          path: |
+            Packages/OrbitKit/.build
+            .build/xcode/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Packages/OrbitKit/Package.resolved', 'project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: Test
+        run: make test
+      - name: Build the app
+        run: make build
+
+  linux:
+    # The language-server client also builds on Linux (D55); servers aren't
+    # installed here, so their integration tests skip themselves.
+    name: Linux — language-server client
+    runs-on: ubuntu-latest
+    container: swift:6.2-noble
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        working-directory: Packages/OrbitKit
+        run: swift test --filter "LanguageServer|Completion"

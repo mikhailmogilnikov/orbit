@@ -214,6 +214,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D202. Every caret gets the typing rules; linked tags, Expand Selection, squiggles that move
 - D203. Formatters in a row from settings; format on type
 - D204. Remote branches in History; a file at a commit, with its blame
+- D206. GPL-3.0, and the files an open-source repo is expected to have
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4233,3 +4234,25 @@ a pull would bring, needed All), and blame was only of the working file.
   a hairline. A run's menu shows its commit's changes or opens the file
   **before** that commit (`<hash>^`), walking a line's history back one
   change at a time. Read-only; Open File goes to the working copy.
+
+### D206. GPL-3.0, and the files an open-source repo is expected to have
+
+The repo was public with no license (so legally nobody could use or
+contribute to it), no README and no CI.
+
+- **License: GPL-3.0.** Not a free pick: the editor is built on STTextView,
+  which is GPL-3.0 unless you buy a commercial license, and a distributed
+  app linking it has to be GPL-compatible. A permissive license (MIT) would
+  only become possible by paying for STTextView or replacing it.
+- **Community files** in the root: `README.md` (what Orbit is, install,
+  build), `CONTRIBUTING.md` (the codebase's rules in short: plugins, one
+  host per window, strict concurrency, `Theme`), `CODE_OF_CONDUCT.md`
+  (adopts the Contributor Covenant 2.1 by reference), `SECURITY.md`
+  (private advisories; Orbit isn't sandboxed and updates itself, so this
+  matters). Issue forms ask for the macOS / Orbit version and the `.ips`.
+- **CI** (`.github/workflows/ci.yml`): on macOS 26, `make test` and
+  `make build`; on Linux, the language-server client (D55), whose server
+  tests skip without servers. Dependabot watches Actions and SwiftPM pins
+  monthly; Sparkle's exact pin in `project.yml` stays manual.
+- `.editorconfig` states what the code already does: 4 spaces, LF, tabs
+  only in the Makefile.

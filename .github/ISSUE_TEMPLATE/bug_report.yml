@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in Orbit doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a folder…
+        2. …
+  - type: input
+    id: orbit
+    attributes:
+      label: Orbit version
+      description: Orbit → About Orbit
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent, if one was involved
+      placeholder: Claude Code 2.x, Codex…
+  - type: textarea
+    id: logs
+    attributes:
+      label: Crash report or logs
+      description: For a crash, attach the newest `~/Library/Logs/DiagnosticReports/Orbit-*.ips`. Screenshots help for anything visual.
