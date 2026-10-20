@@ -1166,32 +1166,46 @@ struct PanelBadgeView: View {
     }
 }
 
-/// Status-bar buttons that open or hide each bottom panel, like Xcode's
-/// debug-area toggle; the shown one is tinted.
+/// The status bar's leading end, as quiet as Xcode's: one button that shows or
+/// hides the bottom area (its tabs say what's in it), and the errors or
+/// warnings a panel reports, which open that panel (D170).
 private struct BottomPanelToggles: View {
     let ui: UIRegistry
 
     var body: some View {
         HStack(spacing: 10) {
+            Button {
+                ui.isBottomPanelVisible.toggle()
+            } label: {
+                Image(systemName: "rectangle.bottomthird.inset.filled")
+                    .font(.orbit(.caption))
+                    .foregroundStyle(ui.isBottomPanelVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help(ui.isBottomPanelVisible ? "Hide Panel" : "Show Panel")
+            .accessibilityLabel(ui.isBottomPanelVisible ? "Hide Panel" : "Show Panel")
             ForEach(ui.bottomPanels) { panel in
-                let isShown = ui.isBottomPanelVisible && (ui.selectedBottomPanel ?? ui.bottomPanels.first?.id) == panel.id
-                Button {
-                    ui.toggleBottomPanel(panel.id)
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: panel.systemImage)
-                        if let badge = panel.badge?() {
+                if let badge = panel.badge?(), badge.style != .plain {
+                    Button {
+                        ui.revealBottomPanel(panel.id)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: badge.style == .error ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(badge.style == .error ? .red : .yellow)
                             Text("\(badge.count)")
                                 .monospacedDigit()
-                                .foregroundStyle(badge.style == .error ? .red : badge.style == .warning ? .orange : .secondary)
+                                .contentTransition(.numericText(value: Double(badge.count)))
+                                .foregroundStyle(.secondary)
                         }
+                        .font(.orbit(.caption))
+                        .animation(.snappy, value: badge.count)
+                        .contentShape(.rect)
                     }
-                    .font(.orbit(.caption))
-                    .foregroundStyle(isShown ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                    .contentShape(.rect)
+                    .buttonStyle(.plain)
+                    .help(panelHelp(panel))
+                    .transition(.opacity)
                 }
-                .buttonStyle(.plain)
-                .help(panelHelp(panel, isShown ? "Hide \(panel.title)" : "Show \(panel.title)"))
             }
         }
     }
@@ -1206,7 +1220,6 @@ struct StatusBar: View {
         HStack(spacing: 14) {
             if !ui.bottomPanels.isEmpty {
                 BottomPanelToggles(ui: ui)
-                Divider().frame(height: 12)
             }
             ForEach(items.filter { $0.placement == .leading }) { $0.makeView() }
             Spacer()

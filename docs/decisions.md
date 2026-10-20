@@ -177,6 +177,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D167. Terminal sessions are a list beside the output
 - D168. Tabs like Xcode 26 and Safari 26
 - D169. The sidebar switcher is Xcode's navigator bar
+- D170. A quieter status bar
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3465,3 +3466,13 @@ color when the theme has none, D97), the others secondary and brightening
 under the pointer. They're read out by the panel's name (VoiceOver used to
 guess from the symbol: "Move", "Divide"). The tree itself was already the
 system's sidebar list and stays as it is.
+
+### D170. A quieter status bar
+
+The status bar's leading end had a button per bottom panel (Problems,
+References, Terminal, each with its count) — the same tabs the bottom area
+shows above it. Like Xcode's, it now has one button that shows or hides the
+bottom area, plus the errors or warnings a panel reports (a red octagon or
+yellow triangle with the count), which open that panel. Plain counts
+(references found) stay on the panel's tab, and the divider after the
+toggles is gone.
