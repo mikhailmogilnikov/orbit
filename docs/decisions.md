@@ -176,6 +176,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D166. The empty editor: quiet, like Xcode's "No Editor"
 - D167. Terminal sessions are a list beside the output
 - D168. Tabs like Xcode 26 and Safari 26
+- D169. The sidebar switcher is Xcode's navigator bar
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3454,3 +3455,13 @@ still over a tab, and only the tab order is animated, never the drag
 itself. `TabDrag` draws its own chip and line from the frames the tabs
 report, so an animated row under a live drag would put the line in the
 wrong place.
+
+### D169. The sidebar switcher is Xcode's navigator bar
+
+The Explorer / Search / Source Control buttons above the sidebar were
+symbols on a tinted rounded fill. They are now bare symbols as in Xcode 26's
+navigator bar: the selected one filled and in the accent color (the text
+color when the theme has none, D97), the others secondary and brightening
+under the pointer. They're read out by the panel's name (VoiceOver used to
+guess from the symbol: "Move", "Divide"). The tree itself was already the
+system's sidebar list and stays as it is.

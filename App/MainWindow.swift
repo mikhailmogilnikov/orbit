@@ -225,21 +225,28 @@ struct SidebarHost: View {
     }
 }
 
+/// A navigator button, like Xcode 26's: a bare symbol, the selected one filled
+/// in the accent color, the others brightening under the pointer (D169).
 struct PanelTabButton: View {
     let panel: PanelContribution
     let isSelected: Bool
     let action: () -> Void
+    @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
             Image(systemName: panel.systemImage)
-                .font(.orbit(.control, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .symbolVariant(isSelected ? .fill : .none)
+                .font(.orbit(.control, weight: .medium))
+                .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 .frame(maxWidth: .infinity, minHeight: 26)
-                .background(isSelected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .accessibilityLabel(panel.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .help(panelHelp(panel))
     }
 }
