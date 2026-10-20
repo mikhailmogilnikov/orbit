@@ -1081,8 +1081,8 @@ struct TabItem: View {
     }
 }
 
-/// The bottom area's top row: a tab per panel (with its count), the shown
-/// panel's own controls (terminal tabs), and Hide.
+/// The bottom area's top row: a tab per panel (with its count), then on the
+/// trailing side the shown panel's own controls (New Terminal) and Hide.
 struct BottomPanelHeader: View {
     let ui: UIRegistry
     let current: PanelContribution
@@ -1094,13 +1094,11 @@ struct BottomPanelHeader: View {
                     ui.revealBottomPanel(panel.id)
                 }
             }
-            if let accessory = current.makeAccessory {
-                Divider()
-                    .frame(height: 14)
-                    .padding(.horizontal, 6)
-                accessory()
-            }
             Spacer(minLength: 0)
+            if let accessory = current.makeAccessory {
+                accessory()
+                    .foregroundStyle(.secondary)
+            }
             IconButton("chevron.down", help: "Hide Panel") {
                 ui.isBottomPanelVisible = false
             }

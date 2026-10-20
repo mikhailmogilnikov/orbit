@@ -174,6 +174,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D162. Alerts and open panels are sheets on the window
 - D163. The chat: Claude Code's flow, Apple's look
 - D166. The empty editor: quiet, like Xcode's "No Editor"
+- D167. Terminal sessions are a list beside the output
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3427,3 +3428,13 @@ line on what to do, and four shortcuts as plain text in a grid centered
 on its own width, names on the left and their keys on the right in menu glyphs, both brightening
 under the pointer. No card, no key caps, no version (it's in About). The
 same view without a folder offers Open Folder first.
+
+### D167. Terminal sessions are a list beside the output
+
+The bottom area's header held the panel tabs (Problems, References,
+Terminal) and, after a divider, every terminal's tab: two kinds of tab in one
+row, and with a few terminals it ran out of room. Now the header has only
+the panel tabs, with New Terminal (+) beside Hide on the trailing side, and
+the sessions are a list on the right of the terminal, like VS Code's, shown
+once there are two or more (one terminal needs no list). A panel's
+`accessory` now sits on the header's trailing side for every panel.

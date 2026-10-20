@@ -33,7 +33,7 @@ public final class TerminalPlugin: OrbitPlugin {
         ui.addBottomPanel(PanelContribution(id: TerminalStore.panelID, title: "Terminal", systemImage: "terminal") {
             TerminalPanel(store: store)
         }.accessory {
-            TerminalTabs(store: store)
+            IconButton("plus", help: "New Terminal (⌃⇧`)") { store.newSession() }
         }.command("terminal.toggle"))
 
         context.commands.register(OrbitCommand(
@@ -370,14 +370,19 @@ struct TerminalPanel: View {
     let store: TerminalStore
 
     var body: some View {
-        // The session tabs are in the bottom area's header (`TerminalTabs`).
-        VStack(spacing: 0) {
+        HStack(spacing: 0) {
             if let session = store.selected {
                 TerminalHost(session: session, fontSize: Preferences.shared.effectiveTerminalFontSize)
                     .padding(.leading, 8)
                     .padding(.top, 4)
             } else {
                 Spacer()
+            }
+            // Sessions get a list of their own beside the output, like VS Code's,
+            // so they never mix with the panel tabs above (D167).
+            if store.sessions.count > 1 {
+                TerminalList(store: store)
+                    .frame(width: 180)
             }
         }
         .background(Theme.terminalBackground)
@@ -388,28 +393,27 @@ struct TerminalPanel: View {
     }
 }
 
-struct TerminalTabs: View {
+struct TerminalList: View {
     let store: TerminalStore
 
     var body: some View {
-        HStack(spacing: 2) {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {
-                        ForEach(store.sessions) { session in
-                            TerminalTab(session: session, isSelected: session.id == store.selectedID, isRunningTask: store.runningTasks.contains(session.id)) {
-                                store.select(session)
-                            } close: {
-                                store.close(session)
-                            }
-                            .id(session.id)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 1) {
+                    ForEach(store.sessions) { session in
+                        TerminalTab(session: session, isSelected: session.id == store.selectedID, isRunningTask: store.runningTasks.contains(session.id)) {
+                            store.select(session)
+                        } close: {
+                            store.close(session)
                         }
+                        .id(session.id)
                     }
                 }
-                .scrollsToActiveTab(store.selectedID, in: proxy)
+                .padding(6)
             }
-            IconButton("plus", help: "New Terminal (⌃⇧`)") { store.newSession() }
+            .scrollsToActiveTab(store.selectedID, in: proxy)
         }
+        .overlay(alignment: .leading) { Divider() }
     }
 }
 
@@ -431,7 +435,7 @@ private struct TerminalTab: View {
                 .font(.orbit(.caption))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(maxWidth: 180, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .opacity(session.isAgent && !session.isRunning ? 0.6 : 1)
             Button(action: close) {
                 Image(systemName: "xmark")

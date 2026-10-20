@@ -408,6 +408,7 @@ Everything below is known to be missing; nothing here is in progress.
 - Tool card links and permission keys (D118): unverified on a Mac and with a real agent (the link's hover, keys reaching the buttons from the editor and the composer, the waiting bar).
 - Chat look (D163): checked on a Mac with Codex (icons, the card, the inline diff, the pie, the "+"); a permission prompt, a running command's Stop and a failed call not seen yet.
 - Empty editor (D166): checked in the preview copy.
+- Terminal list (D167): checked in the preview copy with three shells; tasks and agent terminals in the list not looked at.
 - Sheets (D162): the open panel checked on a Mac as a sheet; alerts (delete, discard, unsaved changes, install failures) not raised live yet.
 - Palette like Spotlight (D161): checked on a Mac (dark); the theme selector's rows and plugins' picks with long titles not looked at.
 - Welcome screen like Xcode's (D160): checked on a Mac in both modes; Return on a selected project and the context menu not tried.
