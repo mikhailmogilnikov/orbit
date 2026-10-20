@@ -180,6 +180,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D170. A quieter status bar
 - D171. Source Control looks like Xcode's navigator
 - D172. Problems and References read like Xcode's issue navigator
+- D173. Editor popups are Liquid Glass
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3516,3 +3517,13 @@ the file's worst problem (red, yellow, blue). A click anywhere on the header
 folds the file. Rows start under the file's icon and have no lines between
 them. Warnings are yellow, as in Xcode and the status bar (D170); the rows
 had them orange.
+
+### D173. Editor popups are Liquid Glass
+
+Hover, completion and signature help (`FloatingPanel`) sat on the popover
+material with an 8-pt corner and a separator-colored border. They now have
+an `NSGlassEffectView` behind their content with `Theme.corner`, like
+macOS 26's own menus, and no border: the glass draws its own edge. The
+content still lives in a plain container on top, so the panels' views are
+unchanged. The current line, its number and the ruler already follow the
+color theme and stay as they are.

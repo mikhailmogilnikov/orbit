@@ -21,16 +21,14 @@ class FloatingPanel: NSPanel {
         animationBehavior = .none
         hidesOnDeactivate = true
 
-        let background = NSVisualEffectView()
-        background.material = .popover
-        background.blendingMode = .behindWindow
-        background.state = .active
-        background.wantsLayer = true
-        background.layer?.cornerRadius = 8
-        background.layer?.cornerCurve = .continuous
-        background.layer?.masksToBounds = true
-        background.layer?.borderWidth = 0.5
-        contentView = background
+        // Liquid Glass behind the content, like the system's own menus on
+        // macOS 26 (D173); subclasses add their views to the container on top.
+        let container = NSView()
+        let glass = NSGlassEffectView(frame: container.bounds)
+        glass.cornerRadius = Theme.corner
+        glass.autoresizingMask = [.width, .height]
+        container.addSubview(glass)
+        contentView = container
     }
 
     @available(*, unavailable)
@@ -47,9 +45,6 @@ class FloatingPanel: NSPanel {
         if appearance != window.effectiveAppearance {
             appearance = window.effectiveAppearance
         }
-        var border: CGColor?
-        window.effectiveAppearance.performAsCurrentDrawingAppearance { border = NSColor.separatorColor.cgColor }
-        contentView?.layer?.borderColor = border
         setFrame(Self.fitted(frame, on: window.screen), display: true)
         if parent !== window {
             parent?.removeChildWindow(self)
