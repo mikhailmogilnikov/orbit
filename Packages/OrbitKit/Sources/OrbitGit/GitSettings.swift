@@ -6,21 +6,16 @@ struct GitSettingsPane: View {
 
     var body: some View {
         SettingsForm {
-            Section("Editor") {
+            Section {
                 Toggle(isOn: $model.showsChangeMarkers) {
                     Text("Change markers")
                     Text("Bars beside the line numbers for lines changed and not yet staged.")
                 }
-            }
-            Section {
-                Toggle(isOn: $model.showsBlame) {
-                    Text("Blame for the current line")
-                    Text("Who last changed the line with the caret, and when.")
-                }
+                .settingsItem("changeMarkers")
             } header: {
-                Text("Status Bar")
+                Text("Editor")
             } footer: {
-                Text("Blame for every line, beside the line numbers, is in Editor.")
+                Text("Blame and file history are in Git Lens.")
             }
         }
     }

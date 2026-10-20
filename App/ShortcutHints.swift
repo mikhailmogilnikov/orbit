@@ -13,7 +13,7 @@ struct CommandHintOverlay: View {
             if let shown {
                 HStack(spacing: 8) {
                     Text(shown.title)
-                        .font(.orbit(.body, weight: .medium))
+                        .orbitFont(.body, weight: .medium)
                         .foregroundStyle(.secondary)
                     KeyCaps(shown.shortcut.displayString)
                 }
@@ -49,6 +49,7 @@ final class CheatSheetState {
 /// The status bar's keyboard button and its popover.
 struct CheatSheetButton: View {
     let commands: CommandRegistry
+    let ui: UIRegistry
     @Bindable private var state = CheatSheetState.shared
 
     var body: some View {
@@ -57,80 +58,133 @@ struct CheatSheetButton: View {
             isShown.wrappedValue.toggle()
         } label: {
             Image(systemName: "keyboard")
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .foregroundStyle(isShown.wrappedValue ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .help("Keyboard Shortcuts")
+        .accessibilityLabel("Keyboard Shortcuts")
         .popover(isPresented: isShown, arrowEdge: .top) {
-            ShortcutCheatSheet(commands: commands)
+            ShortcutCheatSheet(commands: commands) {
+                isShown.wrappedValue = false
+                ui.showSettings("shortcuts")
+            }
         }
     }
 }
 
+/// Every shortcut in a narrow searchable list (D175): a click on a key
+/// records a new one right there, as in Settings; searching also lists
+/// commands without a key, so one can be given.
 struct ShortcutCheatSheet: View {
     let commands: CommandRegistry
+    let openSettings: () -> Void
+    @State private var query = ""
+    @State private var recording: String?
+    @State private var notice: (id: String, text: String)?
+    @FocusState private var isSearchFocused: Bool
 
-    private struct Entry: Identifiable {
-        var id: String
-        var title: String
-        var keys: String
-    }
-
-    private var groups: [(category: String, entries: [Entry])] {
-        var result: [(String, [Entry])] = [("General", [
-            Entry(id: "shell.palette", title: "Command Palette", keys: "⇧⌘P"),
-            Entry(id: "shell.settings", title: "Settings", keys: "⌘,"),
-        ])]
+    private var sections: [(category: String, commands: [OrbitCommand])] {
+        let query = query.trimmingCharacters(in: .whitespaces).lowercased()
+        var result: [(String, [OrbitCommand])] = []
         for category in commands.categories {
-            let entries = commands.all
-                .filter { $0.category == category }
-                .compactMap { command in command.displayShortcut.map { Entry(id: command.id, title: command.title, keys: $0.displayString) } }
-            if entries.isEmpty { continue }
-            if let index = result.firstIndex(where: { $0.0 == category }) {
-                result[index].1 += entries
-            } else {
-                result.append((category, entries))
+            let matching = commands.all.filter { command in
+                guard command.category == category else { return false }
+                guard !query.isEmpty else { return command.displayShortcut != nil }
+                return command.title.lowercased().contains(query) || category.lowercased().contains(query)
+                    || (command.displayShortcut?.displayString.lowercased().contains(query) ?? false)
             }
+            if !matching.isEmpty { result.append((category, matching)) }
         }
         return result
     }
 
+    /// Keys that aren't commands: the shell's own and the mouse.
+    private static let extras: [(title: String, keys: String)] = [
+        ("Command Palette", "⇧⌘P"),
+        ("Settings", "⌘,"),
+        ("Go to Definition", "⌘-click"),
+        ("Completion", "⌃Space"),
+        ("Actions Here", "Right-click"),
+    ]
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 300), spacing: 28, alignment: .top)], alignment: .leading, spacing: 18) {
-                    ForEach(groups, id: \.category) { group in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(group.category)
-                                .font(.orbit(.caption, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.bottom, 2)
-                            ForEach(group.entries) { entry in
-                                HStack(spacing: 8) {
-                                    Text(entry.title)
-                                        .font(.orbit(.body))
-                                        .lineLimit(1)
-                                    Spacer(minLength: 8)
-                                    KeyCaps(entry.keys)
-                                }
+        VStack(spacing: 0) {
+            SettingsSearchField("Search shortcuts", text: $query)
+                .focused($isSearchFocused)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            Divider()
+            List {
+                ForEach(sections, id: \.category) { section in
+                    Section(section.category) {
+                        ForEach(section.commands) { row($0) }
+                    }
+                }
+                let extras = Self.extras.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }
+                if !extras.isEmpty {
+                    Section("More") {
+                        ForEach(extras, id: \.title) { extra in
+                            HStack {
+                                Text(extra.title)
+                                Spacer(minLength: 8)
+                                Text(extra.keys)
+                                    .orbitFont(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
                 }
-                Divider()
-                HStack(spacing: 18) {
-                    Text("⌘-click  go to definition")
-                    Text("⌥Esc or ⌃Space  completion")
-                    Text("Right-click  actions here")
-                }
-                .font(.orbit(.caption))
-                .foregroundStyle(.secondary)
             }
-            .padding(20)
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            Divider()
+            HStack {
+                Text("Click a key to change it")
+                    .orbitFont(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button("Keyboard Settings…", action: openSettings)
+                    .buttonStyle(.link)
+                    .orbitFont(.caption)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
-        .frame(width: 900)
-        .frame(maxHeight: 620)
+        .orbitFont(.body)
+        .frame(width: 360, height: 460)
+        .onAppear { isSearchFocused = true }
+        .onDisappear { recording = nil }
+    }
+
+    private func row(_ command: OrbitCommand) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(command.title)
+                    .lineLimit(1)
+                if let notice, notice.id == command.id {
+                    Text(notice.text)
+                        .orbitFont(.micro)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            ShortcutRecorder(
+                shortcut: command.displayShortcut,
+                isRecording: recording == command.id,
+                start: {
+                    recording = command.id
+                    notice = nil
+                },
+                finish: { result in
+                    recording = nil
+                    if let result {
+                        notice = ShortcutsSettings.assign(result, to: command, in: commands).map { (command.id, $0) }
+                    }
+                }
+            )
+        }
     }
 }

@@ -16,7 +16,7 @@ final class SymbolHighlightController {
     private var highlights: [SymbolHighlight] = []
     /// `highlights` as offsets of the current text.
     private var ranges: [NSRange] = []
-    private var overlays: [NSView] = []
+    private let overlays = OverlaySet()
     private var request: Task<Void, Never>?
     private var isLayoutScheduled = false
 
@@ -63,7 +63,6 @@ final class SymbolHighlightController {
         highlights = []
         ranges = []
         onChange?([])
-        for view in overlays { view.removeFromSuperview() }
         overlays.removeAll()
     }
 
@@ -85,8 +84,7 @@ final class SymbolHighlightController {
     }
 
     private func layoutOverlays() {
-        for view in overlays { view.removeFromSuperview() }
-        overlays.removeAll()
+        defer { overlays.commit() }
         guard let textView, !ranges.isEmpty else { return }
         let manager = textView.textLayoutManager
         let contentManager = textView.textContentManager
@@ -99,11 +97,14 @@ final class SymbolHighlightController {
             let shown = NSIntersectionRange(range, NSRange(location: lower, length: max(0, upper - lower)))
             guard shown.length > 0 else { continue }
             for rect in geometry.rects(for: shown) where rect.intersects(visible) {
-                let view = HighlightView(frame: rect.insetBy(dx: -1, dy: 0))
-                view.color = highlight.isWrite ? colors.write : colors.read
+                let frame = rect.insetBy(dx: -1, dy: 0)
+                let color = highlight.isWrite ? colors.write : colors.read
                 // Under the text (and the caret line), over the background.
-                textView.addSubview(view, positioned: .below, relativeTo: nil)
-                overlays.append(view)
+                overlays.place(frame, color, frame: frame, in: textView, below: true) {
+                    let view = HighlightView(frame: frame)
+                    view.color = color
+                    return view
+                }
             }
         }
     }

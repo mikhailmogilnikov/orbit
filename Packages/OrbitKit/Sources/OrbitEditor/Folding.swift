@@ -46,7 +46,7 @@ final class FoldingController: NSObject, NSTextContentStorageDelegate {
     private var hidden = IndexSet()
     private var lineCount = 1
     private var request: Task<Void, Never>?
-    private var overlays: [NSView] = []
+    private let overlays = OverlaySet()
     private var isLayoutScheduled = false
 
     init(geometry: DiagnosticsController) {
@@ -520,11 +520,10 @@ final class FoldingController: NSObject, NSTextContentStorageDelegate {
     }
 
     private func layoutOverlays() {
-        for view in overlays { view.removeFromSuperview() }
-        overlays.removeAll()
+        defer { overlays.commit() }
         guard let textView, let string = geometry.string else { return }
         let visible = textView.visibleRect.insetBy(dx: 0, dy: -200)
-        let font = NSFont.monospacedSystemFont(ofSize: ((textView.font.pointSize) * 0.88).rounded(), weight: .regular)
+        let font = NSFont(descriptor: textView.font.fontDescriptor, size: (textView.font.pointSize * 0.88).rounded()) ?? textView.font
         for fold in folds {
             // The header's last character; an empty header line has none, use its line break.
             let lineEnd = fold.location - 1
@@ -534,16 +533,19 @@ final class FoldingController: NSObject, NSTextContentStorageDelegate {
             guard NSMaxRange(anchor) <= string.length, let rect = geometry.rects(for: anchor).first, rect.intersects(visible) else { continue }
             let x = lineEnd > lineStart ? rect.maxX + 4 : rect.minX
             let width = ceil(("⋯" as NSString).size(withAttributes: [.font: font]).width) + 12
-            let view = FoldPlaceholderView(frame: CGRect(x: x, y: rect.minY + 1, width: width, height: max(rect.height - 2, 1)).integral, font: font, colors: colors)
-            view.onClick = { [weak self] in
-                guard let self, folds.contains(fold) else { return }
-                animate(fold, folding: false) {
-                    folds.removeAll { $0 == fold }
-                    foldsDidChange(around: fold)
+            let frame = CGRect(x: x, y: rect.minY + 1, width: width, height: max(rect.height - 2, 1)).integral
+            let colors = colors
+            overlays.place(fold, font, colors.text, colors.background, frame: frame, in: textView) {
+                let view = FoldPlaceholderView(frame: frame, font: font, colors: colors)
+                view.onClick = { [weak self] in
+                    guard let self, folds.contains(fold) else { return }
+                    animate(fold, folding: false) {
+                        folds.removeAll { $0 == fold }
+                        foldsDidChange(around: fold)
+                    }
                 }
+                return view
             }
-            textView.addSubview(view)
-            overlays.append(view)
         }
     }
 }

@@ -52,7 +52,7 @@ struct ShortcutsSettings: View {
     @State private var notice: (id: String, text: String)?
 
     /// Keys the shell handles itself, not commands: they can't be reassigned.
-    private static let fixed: [(title: String, systemImage: String, keys: KeyboardShortcut)] = [
+    static let fixed: [(title: String, systemImage: String, keys: KeyboardShortcut)] = [
         ("Command Palette", "command", KeyboardShortcut("p", modifiers: [.command, .shift])),
         ("Settings", "gearshape", KeyboardShortcut(",", modifiers: .command)),
     ]
@@ -100,6 +100,7 @@ struct ShortcutsSettings: View {
                 Section(category) {
                     ForEach(commands.filter { $0.category == category }) { command in
                         row(command)
+                            .settingsItem(command.id)
                     }
                 }
             }
@@ -140,32 +141,36 @@ struct ShortcutsSettings: View {
                 Label(command.title, systemImage: command.systemImage ?? "command")
                 if let notice, notice.id == command.id {
                     Text(notice.text)
-                        .font(.orbit(.micro))
+                        .orbitFont(.micro)
                         .foregroundStyle(.orange)
                 }
             }
         }
     }
 
-    /// `.some(nil)` removes the key. A key another command had moves here.
     private func assign(_ result: KeyboardShortcut?, to command: OrbitCommand) {
+        notice = Self.assign(result, to: command, in: host.commands).map { (command.id, $0) }
+    }
+
+    /// `.some(nil)` removes the key. A key another command had moves here.
+    /// Returns what to tell the user (a fixed key, a key taken from others).
+    /// Shared with the shortcuts popover (D175).
+    static func assign(_ result: KeyboardShortcut?, to command: OrbitCommand, in registry: CommandRegistry) -> String? {
         let bindings = KeyBindings.shared
         guard let shortcut = result else {
             bindings.set(nil, for: command.id)
-            return
+            return nil
         }
-        if let fixed = Self.fixed.first(where: { $0.keys == shortcut }) {
+        if let fixed = fixed.first(where: { $0.keys == shortcut }) {
             NSSound.beep()
-            notice = (command.id, "\(shortcut.displayString) opens \(fixed.title) and can't be reassigned.")
-            return
+            return "\(shortcut.displayString) opens \(fixed.title) and can't be reassigned."
         }
-        let others = host.commands.all.filter { $0.id != command.id && ($0.shortcut == shortcut || $0.editorShortcut == shortcut) }
+        let others = registry.all.filter { $0.id != command.id && ($0.shortcut == shortcut || $0.editorShortcut == shortcut) }
         for other in others { bindings.set(nil, for: other.id) }
         if shortcut == command.defaultDisplayShortcut { bindings.reset(command.id) } else { bindings.set(shortcut, for: command.id) }
-        if !others.isEmpty {
-            let names = others.map { "“\($0.title)”" }.joined(separator: ", ")
-            notice = (command.id, "Taken from \(names), which has no shortcut now.")
-        }
+        guard !others.isEmpty else { return nil }
+        let names = others.map { "“\($0.title)”" }.joined(separator: ", ")
+        return "Taken from \(names), which has no shortcut now."
     }
 }
 
@@ -183,7 +188,7 @@ struct ShortcutRecorder: View {
             Group {
                 if isRecording {
                     Text("Press keys…")
-                        .font(.orbit(.caption, weight: .medium))
+                        .orbitFont(.caption, weight: .medium)
                         .foregroundStyle(Theme.accent)
                         .frame(minHeight: 18)
                         .padding(.horizontal, 6)
@@ -238,45 +243,5 @@ struct ShortcutRecorder: View {
     private func stopListening() {
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         monitors = []
-    }
-}
-
-struct PluginsSettings: View {
-    let host: PluginHost
-
-    var body: some View {
-        SettingsForm {
-            if host.needsRestart {
-                Section {
-                    LabeledContent {
-                        Button("Quit Orbit") { NSApp.terminate(nil) }
-                    } label: {
-                        Label("Restart Orbit to apply plugin changes.", systemImage: "arrow.clockwise.circle.fill")
-                            .foregroundStyle(.orange)
-                    }
-                }
-            }
-            Section {
-                ForEach(host.entries) { entry in
-                    Toggle(isOn: Binding(
-                        get: { entry.isEnabled },
-                        set: { host.setEnabled($0, pluginID: entry.id) }
-                    )) {
-                        SettingsLabel(entry.manifest.name, subtitle: entry.manifest.summary, systemImage: entry.manifest.systemImage, tint: Self.tint(for: entry.id))
-                    }
-                }
-            } header: {
-                Text("Built In")
-            } footer: {
-                Text("A plugin that's off isn't loaded at all; turning one on or off takes effect after a restart.")
-            }
-        }
-    }
-
-    /// Steady per plugin, varied across the list, like System Settings' icons.
-    private static func tint(for id: String) -> Color {
-        let palette: [Color] = [.blue, .purple, .orange, .teal, .indigo, .pink, .green, .cyan, .red, .mint]
-        let sum = id.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        return palette[sum % palette.count]
     }
 }

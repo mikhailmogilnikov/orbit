@@ -111,10 +111,9 @@ struct ReferencesPanel: View {
             if model.isSearching {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.symbol == nil {
-                EmptyStateView("No References", systemImage: "link",
-                               message: "Put the caret on a symbol and choose Code ▸ Find References (⇧⌃⌘F).")
+                PanelEmptyState("No References", message: "Put the caret on a symbol and choose Code ▸ Find References (⇧⌃⌘F).")
             } else {
-                EmptyStateView("No References", systemImage: "link", message: "The language server found no uses of it. If it's still indexing the project, try again in a moment.")
+                PanelEmptyState("No References", message: "None found. If the language server is still indexing, try again in a moment.")
             }
         } else {
             VStack(spacing: 0) {
@@ -149,13 +148,13 @@ struct ReferencesPanel: View {
             Text("\(count) \(count == 1 ? "reference" : "references") to")
                 .foregroundStyle(.secondary)
             Text(model.symbol ?? "symbol")
-                .font(.orbit(.code, weight: .semibold))
+                .orbitFont(.code, weight: .semibold)
             Text("in \(files) \(files == 1 ? "file" : "files")")
                 .foregroundStyle(.secondary)
             Spacer()
             if model.isSearching { ProgressView().controlSize(.mini) }
         }
-        .font(.orbit(.caption))
+        .orbitFont(.caption)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
     }
@@ -174,7 +173,7 @@ private struct ReferenceRow: View {
                     .foregroundStyle(.tertiary)
                     .frame(minWidth: 26, alignment: .trailing)
                 Text(highlighted)
-                    .font(.orbit(.code))
+                    .orbitFont(.code)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)

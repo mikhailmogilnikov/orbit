@@ -203,7 +203,7 @@ private struct PlainCodeView: View {
 
     var body: some View {
         Text(colored)
-            .font(.orbit(.code))
+            .orbitFont(.code)
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
             .task(id: code) {
@@ -314,38 +314,62 @@ struct CodeBlockView: View {
     let language: String
     let code: String
     @State private var copied = false
+    @State private var isHovering = false
+
+    /// Plain output ("text", no fence language) needs no name over it (D163).
+    private var label: String? {
+        let name = language.lowercased()
+        return ["", "text", "txt", "plaintext", "plain", "output", "console"].contains(name) ? nil : language
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(language.isEmpty ? "code" : language)
-                    .font(.orbit(.micro, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(code, forType: .string)
-                    copied = true
-                    Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
-                } label: {
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .contentTransition(.symbolEffect(.replace))
-                        .font(.orbit(.micro))
+            if let label {
+                HStack {
+                    Text(label)
+                        .orbitFont(.micro, weight: .medium)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    copyButton
                 }
-                .buttonStyle(.borderless)
-                .help("Copy")
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                Divider().opacity(0.5)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            Divider().opacity(0.5)
             ScrollView(.horizontal, showsIndicators: false) {
                 HighlightedCode(code, language: language)
-                    .font(.orbit(.code))
+                    .orbitFont(.code)
                     .textSelection(.enabled)
                     .padding(10)
             }
         }
+        // Without a header, Copy shows over the code's corner on hover, as in Xcode.
+        .overlay(alignment: .topTrailing) {
+            if label == nil, isHovering || copied {
+                copyButton
+                    .padding(6)
+                    .transition(.opacity)
+            }
+        }
         .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
         .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(Theme.hairline))
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+    }
+
+    private var copyButton: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(code, forType: .string)
+            copied = true
+            Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                .contentTransition(.symbolEffect(.replace))
+                .orbitFont(.micro)
+        }
+        .buttonStyle(.borderless)
+        .help("Copy")
+        .accessibilityLabel("Copy")
     }
 }

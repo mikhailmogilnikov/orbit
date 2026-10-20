@@ -53,8 +53,9 @@ struct ProjectWindowView: View {
         MainWindow(host: host)
             // Close Folder gives the window a new host: its layout state starts over with it.
             .id(ObjectIdentifier(host))
+            .orbitTextSize(Preferences.shared.interfaceTextSize)
             .frame(minWidth: 960, minHeight: 600)
-            .tint(Theme.accent)
+            .tint(Theme.controlTint)
             .background(ProjectWindowReader(id: id))
             .onAppear { ProjectWindows.shared.windowAppeared(openWindow: openWindow) }
             .onChange(of: host.workspace.root, initial: true) { _, root in
@@ -66,6 +67,21 @@ struct ProjectWindowView: View {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Orbit has its own tabs; the system's window tabs only added
+        // "Show Tab Bar" and "Show All Tabs" to View (D176).
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Themes and icon sets from the catalog, once a day (D186); agents and
+        // language servers update from their plugins.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(40))
+            await ExtensionCatalog.shared.updateInstalled()
+        }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         MainActor.assumeIsolated { ProjectWindows.shared.confirmQuit() ? .terminateNow : .terminateCancel }
     }
@@ -94,74 +110,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-}
-
-/// Menus are generated from the command registry, so plugin commands get
-/// real menu items and shortcuts for free.
-struct OrbitMenus: Commands {
-    /// The main window's (D101): menus and their shortcuts act on it.
-    private var host: PluginHost? { ProjectWindows.shared.activeHost }
-    private var all: [OrbitCommand] { host?.commands.all ?? [] }
-    private static let builtInCategories: Set<String> = ["File", "Code", "Agents", "Review", "Git", "Terminal", "Appearance", "Help", "View"]
-
-    var body: some Commands {
-        // Settings open inside the main window (see SettingsScreen), not as a separate one.
-        CommandGroup(after: .appInfo) {
-            Button("Check for Updates…") { Updater.shared.checkForUpdates() }
-                .disabled(!Updater.isEnabled)
-            Button("Install 'orbit' Command…") { CommandLineTool.install() }
-                .help("Adds `orbit` to /usr/local/bin: `orbit .` opens a folder from the terminal")
-        }
-        CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { host?.ui.showSettings() }
-            .keyboardShortcut(",", modifiers: .command)
-        }
-        CommandGroup(replacing: .newItem) {
-            items(in: "File", excluding: ["editor.save", "editor.saveAll", "editor.closeTab"])
-        }
-        CommandGroup(after: .newItem) {
-            OpenRecentMenu()
-        }
-        CommandGroup(replacing: .saveItem) {
-            items(ids: ["editor.save", "editor.saveAll", "editor.closeTab"])
-        }
-        CommandGroup(after: .sidebar) {
-            Button("Command Palette…") { if let host { CommandPalette.toggle(in: host) } }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
-            items(ids: ["shell.toggleSidebar", "shell.toggleAgents", "shell.selectTheme"])
-            items(ids: ["editor.zoomIn", "editor.zoomOut", "editor.zoomReset"])
-            Divider()
-            items(ids: ["shell.splitEditor", "shell.moveTabToOtherSide", "shell.focusOtherSide", "shell.joinEditors"])
-            Divider()
-            items(ids: ["shell.focusEditor", "shell.focusSecondSide", "shell.nextTab", "shell.previousTab", "shell.reopenClosedTab"])
-            items(ids: ["shell.goBack", "shell.goForward", "shell.recentTab"])
-            Divider()
-        }
-        // Language features (D59): navigation, fixes, rename, formatting, problems.
-        CommandGroup(after: .help) { items(in: "Help") }
-        CommandMenu("Code") { items(in: "Code") }
-        CommandMenu("Agents") { items(in: "Agents") }
-        CommandMenu("Review") { items(in: "Review") }
-        CommandMenu("Git") { items(in: "Git") }
-        CommandMenu("Terminal") { items(in: "Terminal") }
-        CommandMenu("Plugins") {
-            ForEach(all.filter { !Self.builtInCategories.contains($0.category) }) { command in
-                CommandButton(command: command, commands: host?.commands)
-            }
-        }
-    }
-
-    private func items(in category: String, excluding: Set<String> = []) -> some View {
-        ForEach(all.filter { $0.category == category && !excluding.contains($0.id) }) { command in
-            CommandButton(command: command, commands: host?.commands)
-        }
-    }
-
-    private func items(ids: [String]) -> some View {
-        ForEach(ids.compactMap { id in all.first { $0.id == id } }) { command in
-            CommandButton(command: command, commands: host?.commands)
-        }
-    }
 }
 
 struct CommandButton: View {

@@ -371,11 +371,11 @@ struct RenameField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Rename “\(original)” everywhere")
-                .font(.orbit(.micro))
+                .orbitFont(.micro)
                 .foregroundStyle(.secondary)
             TextField("New name", text: $name)
                 .textFieldStyle(.roundedBorder)
-                .font(.orbit(.control, design: .monospaced))
+                .orbitFont(.control, design: .monospaced)
                 .frame(width: 260)
                 .focused($focused)
                 .onSubmit { commit(name.trimmingCharacters(in: .whitespaces)) }

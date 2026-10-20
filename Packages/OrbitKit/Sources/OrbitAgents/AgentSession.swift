@@ -34,6 +34,7 @@ final class AgentSession: Identifiable {
     private(set) var isApplying = false
     /// Where the agent runs: its copy when isolated.
     var cwd: URL { isolatedCopy?.directory ?? project }
+
     var title: String { didSet { if title != oldValue { onChange() } } }
     private(set) var status: Status = .dormant
     /// Called when what's worth remembering changed (id, title, activity).
@@ -215,7 +216,7 @@ final class AgentSession: Identifiable {
             let client = try ACPClient(
                 command: provider.command,
                 environment: env,
-                currentDirectory: cwd,
+                currentDirectory: provider.launchDirectory(for: cwd),
                 onNotification: { method, params in continuation.yield(.notification(method, params)) },
                 onRequest: { method, params in
                     try await withCheckedThrowingContinuation { reply in
@@ -1084,7 +1085,7 @@ final class AgentSession: Identifiable {
         if message.localizedCaseInsensitiveContains("auth"), let hint = provider.loginHint {
             return "\(message)\n\(hint)"
         }
-        if let rpc = error as? JSONRPCError, rpc.code == JSONRPCError.processExited.code, !stderrTail.isEmpty {
+        if let rpc = error as? JSONRPCError, rpc.code == JSONRPCError.processExited.code, !stderrTail.isEmpty, !message.contains("\n") {
             return "\(message)\n" + stderrTail.split(separator: "\n").suffix(3).joined(separator: "\n")
         }
         return message

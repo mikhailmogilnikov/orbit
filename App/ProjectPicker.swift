@@ -24,10 +24,10 @@ struct ProjectPicker: View {
                     .frame(width: 112, height: 112)
                     .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
                 Text("Orbit")
-                    .font(.orbit(.display, weight: .bold))
+                    .orbitFont(.display, weight: .bold)
                     .padding(.top, 10)
                 Text("Version \(version)")
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .foregroundStyle(.secondary)
                     .padding(.top, 2)
                     .padding(.bottom, 40)
@@ -73,15 +73,15 @@ private struct WelcomeAction: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
-                    .font(.orbit(.title, weight: .medium))
+                    .orbitFont(.title, weight: .medium)
                     .foregroundStyle(.secondary)
                     .frame(width: 34, height: 34)
                     .background(Theme.activeFill, in: .rect(cornerRadius: Theme.corner, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.orbit(.control, weight: .semibold))
+                        .orbitFont(.control, weight: .semibold)
                     Text(subtitle)
-                        .font(.orbit(.caption))
+                        .orbitFont(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
@@ -140,12 +140,12 @@ private struct RecentProjectRow: View {
                 .frame(width: 32, height: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(folder.lastPathComponent)
-                    .font(.orbit(.control, weight: .semibold))
+                    .orbitFont(.control, weight: .semibold)
                     .lineLimit(1)
                 HStack(spacing: 4) {
                     if let branch = Self.branch(of: folder) {
                         Image(systemName: "arrow.triangle.branch")
-                            .font(.orbit(.micro))
+                            .orbitFont(.micro)
                         Text(branch)
                             .lineLimit(1)
                             .layoutPriority(1)
@@ -155,7 +155,7 @@ private struct RecentProjectRow: View {
                         .lineLimit(1)
                         .truncationMode(.head)
                 }
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .foregroundStyle(.secondary)
             }
         }
@@ -184,7 +184,7 @@ private struct CloneRepositorySheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Clone Repository")
-                .font(.orbit(.control, weight: .bold))
+                .orbitFont(.control, weight: .bold)
             TextField("Repository URL", text: $address, prompt: Text("https://github.com/owner/repo.git"))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 400)
@@ -192,7 +192,7 @@ private struct CloneRepositorySheet: View {
                 .onSubmit(clone)
             if let failure {
                 Text(failure)
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .foregroundStyle(.red)
                     .lineLimit(4)
                     .textSelection(.enabled)

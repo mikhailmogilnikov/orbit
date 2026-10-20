@@ -8,7 +8,8 @@ public final class TerminalPlugin: OrbitPlugin {
         id: "orbit.terminal",
         name: "Terminal",
         summary: "Integrated terminal in the bottom panel.",
-        systemImage: "terminal"
+        systemImage: "terminal",
+        tint: Color(white: 0.16)
     )
 
     private var store: TerminalStore?
@@ -17,7 +18,23 @@ public final class TerminalPlugin: OrbitPlugin {
 
     public func activate(_ context: PluginContext) {
         let ui = context.ui
-        let store = TerminalStore(workspace: context.workspace, ui: ui)
+        let options = TerminalOptions(settings: context.settings)
+        let store = TerminalStore(workspace: context.workspace, ui: ui, options: options)
+        ui.addSettingsPane(SettingsPane(
+            id: "terminal", title: "Terminal", systemImage: "apple.terminal.fill", tint: Color(white: 0.16), group: .code, order: 40,
+            summary: "The shell new tabs start, the font, the cursor and the keyboard.",
+            keywords: ["shell", "zsh", "bash", "fish", "cursor", "caret", "option", "meta", "alt", "scrollback", "history", "font"],
+            items: { [
+                SettingsItem("shell", "Shell", keywords: ["zsh", "bash", "fish", "login shell"]),
+                SettingsItem("fontSize", "Terminal font size", keywords: ["font", "size", "zoom"]),
+                SettingsItem("cursor", "Cursor shape", keywords: ["caret", "block", "bar", "underline", "beam"]),
+                SettingsItem("cursorBlinks", "Blinking cursor", keywords: ["caret", "blink"]),
+                SettingsItem("optionAsMeta", "Use Option as Meta key", keywords: ["alt", "meta", "emacs", "vim", "escape"]),
+                SettingsItem("scrollback", "Scrollback", keywords: ["history", "lines", "buffer"]),
+            ] }
+        ) {
+            TerminalSettingsPane(options: options)
+        })
         self.store = store
         context.services.register(AgentTerminalHosting.self, store)
         context.services.register(TerminalOpening.self, store)
@@ -110,6 +127,13 @@ public final class TerminalPlugin: OrbitPlugin {
         store?.terminateAll()
     }
 
+    public func deactivationWarning() -> String? {
+        guard let store, !store.sessions.isEmpty else { return nil }
+        let tasks = store.runningTasks.count
+        if tasks > 0 { return tasks == 1 ? "A running task stops." : "\(tasks) running tasks stop." }
+        return store.sessions.count == 1 ? "The open terminal closes." : "\(store.sessions.count) open terminals close."
+    }
+
     @MainActor
     private static func pickTask(store: TerminalStore, ui: UIRegistry, commands: CommandRegistry) {
         let tasks = store.tasks()
@@ -149,12 +173,18 @@ final class TerminalStore: TerminalOpening {
 
     private let workspace: Workspace
     private let ui: UIRegistry
+    private let options: TerminalOptions
     private(set) var sessions: [TerminalSession] = []
     var selectedID: TerminalSession.ID?
 
-    init(workspace: Workspace, ui: UIRegistry) {
+    init(workspace: Workspace, ui: UIRegistry, options: TerminalOptions) {
         self.workspace = workspace
         self.ui = ui
+        self.options = options
+        options.onChange = { [weak self] in
+            guard let self else { return }
+            for session in sessions { options.apply(to: session.view) }
+        }
     }
 
     var selected: TerminalSession? { sessions.first { $0.id == selectedID } }
@@ -165,7 +195,10 @@ final class TerminalStore: TerminalOpening {
     private(set) var lastTask: ProjectTask?
 
     func tasks() -> [ProjectTask] {
-        workspace.root.map(ProjectTasks.find(in:)) ?? []
+        let templates = Extensions.shared.taskFiles.flatMap { file in
+            (try? Data(contentsOf: file.url)).flatMap { try? TaskTemplate.parse($0, source: file.extensionName) } ?? []
+        }
+        return workspace.root.map { ProjectTasks.find(in: $0, templates: templates) } ?? []
     }
 
     let problems = TaskProblemStore()
@@ -183,7 +216,8 @@ final class TerminalStore: TerminalOpening {
             session = open
         } else {
             let directory = task.directory.isEmpty ? root : root.appendingPathComponent(task.directory)
-            session = TerminalSession(directory: directory, task: task, root: root)
+            session = TerminalSession(directory: directory, task: task, root: root, shell: options.effectiveShell)
+            options.apply(to: session.view)
             session.onExit = { [weak self] session in self?.remove(session) }
             session.onProblems = { [weak self] session in self?.problems.update(session.id, session.output?.problems ?? [:]) }
             linkFiles(session)
@@ -248,7 +282,8 @@ final class TerminalStore: TerminalOpening {
     var hasShell: Bool { sessions.contains { !$0.isAgent } }
 
     func newSession(in directory: URL? = nil) {
-        let session = TerminalSession(directory: directory ?? workspace.root ?? URL(fileURLWithPath: NSHomeDirectory()), root: workspace.root)
+        let session = TerminalSession(directory: directory ?? workspace.root ?? URL(fileURLWithPath: NSHomeDirectory()), root: workspace.root, shell: options.effectiveShell)
+        options.apply(to: session.view)
         session.onExit = { [weak self] session in self?.remove(session) }
         linkFiles(session)
         sessions.append(session)
@@ -355,6 +390,7 @@ extension TerminalStore: AgentTerminalHosting {
 
     @discardableResult
     private func add(_ session: TerminalSession) -> TerminalSession {
+        options.apply(to: session.view)
         session.onExit = { [weak self] _ in self?.pruneAgentSessions() }
         linkFiles(session)
         sessions.append(session)
@@ -372,7 +408,7 @@ struct TerminalPanel: View {
     var body: some View {
         HStack(spacing: 0) {
             if let session = store.selected {
-                TerminalHost(session: session, fontSize: Preferences.shared.effectiveTerminalFontSize)
+                TerminalHost(session: session, fontSize: Preferences.shared.effectiveTerminalFontSize, fontFamily: Preferences.shared.codeFontFamily)
                     .padding(.leading, 8)
                     .padding(.top, 4)
             } else {
@@ -428,18 +464,18 @@ private struct TerminalTab: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: session.isAgent ? "sparkles" : isRunningTask ? "play.fill" : session.isTask ? "play" : "terminal")
-                .font(.orbit(.micro))
+                .orbitFont(.micro)
                 .contentTransition(.symbolEffect(.replace))
                 .foregroundStyle(session.isAgent ? AnyShapeStyle(.tint) : isRunningTask ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
             Text(session.title)
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .opacity(session.isAgent && !session.isRunning ? 0.6 : 1)
             Button(action: close) {
                 Image(systemName: "xmark")
-                    .font(.orbit(.glyph, weight: .bold))
+                    .orbitFont(.glyph, weight: .bold)
                     .frame(width: 14, height: 14)
                     .contentShape(.rect)
             }
@@ -465,6 +501,7 @@ private struct TerminalTab: View {
 private struct TerminalHost: NSViewRepresentable {
     let session: TerminalSession
     let fontSize: Double
+    let fontFamily: String?
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
@@ -474,8 +511,9 @@ private struct TerminalHost: NSViewRepresentable {
 
     func updateNSView(_ container: NSView, context: Context) {
         if session.view.superview !== container { attach(to: container) }
-        if session.view.font.pointSize != fontSize {
-            session.view.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let font = Preferences.codeFont(family: fontFamily, size: fontSize)
+        if session.view.font.pointSize != fontSize || session.view.font.fontName != font.fontName {
+            session.view.font = font
         }
     }
 
@@ -508,7 +546,7 @@ private struct RunningTasksStatus: View {
             }
         } label: {
             Label(running.count == 1 ? running[0].title : "\(running.count) tasks", systemImage: "play.fill")
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .lineLimit(1)
                 .foregroundStyle(.secondary)
         }

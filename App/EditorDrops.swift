@@ -123,7 +123,7 @@ struct TabDragOverlay: View {
                         Image(systemName: tab.systemImage).foregroundStyle(.tint)
                     }
                     Text(tab.title)
-                        .font(.orbit(.body, weight: .medium))
+                        .orbitFont(.body, weight: .medium)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 10)

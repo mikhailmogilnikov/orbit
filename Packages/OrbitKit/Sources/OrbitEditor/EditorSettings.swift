@@ -9,7 +9,7 @@ import SwiftUI
 final class EditorOptions {
     /// The options a settings file can set, by their key in the "editor" section.
     enum Option: String, CaseIterable {
-        case wordWrap, highlightCurrentLine, formatOnSave, inlayHints, stickyScroll, pathBar, indentGuides, blame, imageThumbnails
+        case wordWrap, highlightCurrentLine, formatOnSave, inlayHints, stickyScroll, pathBar, indentGuides, blame, imageThumbnails, autoClose
 
         /// Their names in Orbit's own defaults (older than the file).
         var storageKey: String {
@@ -21,22 +21,44 @@ final class EditorOptions {
             case .stickyScroll: "showsStickyScroll"
             case .pathBar: "showsBreadcrumbs"
             case .indentGuides: "showsIndentGuides"
-            case .blame: "showsBlame"
+            // A new key: D135's column was off by default, the line's blame is on (D187).
+            case .blame: "showsInlineBlame"
             case .imageThumbnails: "showsImageThumbnails"
+            case .autoClose: "closesBrackets"
             }
         }
 
-        var defaultValue: Bool { self != .wordWrap && self != .formatOnSave && self != .blame }
+        var defaultValue: Bool { self != .wordWrap && self != .formatOnSave }
         var fileKey: String { "editor.\(rawValue)" }
     }
+
+    enum AutoSave: String, CaseIterable, Identifiable {
+        case off, afterDelay, onFocusChange
+        nonisolated var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .off: "Off"
+            case .afterDelay: "After a Second"
+            case .onFocusChange: "When Switching Away"
+            }
+        }
+    }
+
+    /// D180.
+    var autoSave: AutoSave { didSet { settings.set(autoSave.rawValue, for: "autoSave") } }
 
     private var chosen: [Option: Bool]
     @ObservationIgnored private let settings: PluginSettings
     @ObservationIgnored let project: ProjectSettings
+    /// For "Turn On for This Project" (D183).
+    @ObservationIgnored let workspace: Workspace
 
-    init(settings: PluginSettings, project: ProjectSettings) {
+    init(settings: PluginSettings, workspace: Workspace) {
         self.settings = settings
-        self.project = project
+        self.workspace = workspace
+        project = workspace.settings
+        autoSave = settings.string("autoSave").flatMap(AutoSave.init) ?? .off
         chosen = Dictionary(uniqueKeysWithValues: Option.allCases.map { ($0, settings.bool($0.storageKey, default: $0.defaultValue)) })
     }
 
@@ -60,7 +82,7 @@ final class EditorOptions {
     var showsStickyScroll: Bool { get { self[.stickyScroll] } set { self[.stickyScroll] = newValue } }
     var showsBreadcrumbs: Bool { get { self[.pathBar] } set { self[.pathBar] = newValue } }
     var showsIndentGuides: Bool { get { self[.indentGuides] } set { self[.indentGuides] = newValue } }
-    /// Who changed each line, beside the line numbers (D135).
+    /// Who last changed the caret's line, after its end (D187).
     var showsBlame: Bool { get { self[.blame] } set { self[.blame] = newValue } }
     var showsImageThumbnails: Bool { get { self[.imageThumbnails] } set { self[.imageThumbnails] = newValue } }
 }
@@ -73,20 +95,30 @@ struct OptionToggle<Label: View>: View {
 
     var body: some View {
         let origin = options.origin(of: option)
-        Toggle(isOn: Binding(get: { options[option] }, set: { options[option] = $0 })) {
+        // Only the switch is disabled: the row still takes a right-click to change the project's file.
+        LabeledContent {
+            Toggle("", isOn: Binding(get: { options[option] }, set: { options[option] = $0 }))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(origin != nil)
+        } label: {
             label()
             if let origin {
-                Text("Set by \(origin) (\"\(option.fileKey)\")")
-                    .foregroundStyle(.orange)
+                ProjectOverrideNote(key: option.fileKey, origin: origin)
             }
         }
-        .disabled(origin != nil)
+        .contentShape(.rect)
+        .projectSetting(option.fileKey, in: options.workspace)
+        .settingsItem(option.rawValue)
     }
 }
 
 struct EditorSettingsPane: View {
     @Bindable var options: EditorOptions
+    var hasBlame: () -> Bool = { true }
     @Bindable var preferences = Preferences.shared
+    /// Listed once: asking AppKit for every family on each redraw is slow.
+    @State private var families: [String] = []
 
     var body: some View {
         SettingsForm {
@@ -99,46 +131,66 @@ struct EditorSettingsPane: View {
                 }
             }
             Section {
+                Picker("Family", selection: $preferences.codeFontFamily) {
+                    Text("SF Mono").tag(String?.none)
+                    if !families.isEmpty { Divider() }
+                    ForEach(families, id: \.self) { family in
+                        Text(family).tag(Optional(family))
+                    }
+                }
+                .settingsItem("fontFamily")
+                if preferences.codeFontFamily != nil {
+                    Toggle(isOn: $preferences.codeLigatures) {
+                        Text("Ligatures")
+                        Text("-> != => drawn as one sign, in fonts that have them (Fira Code, JetBrains Mono).")
+                    }
+                    .settingsItem("ligatures")
+                }
+                Picker("Line height", selection: $preferences.codeLineHeight) {
+                    ForEach(Preferences.lineHeights, id: \.self) { height in
+                        Text(height == 1 ? "Single" : height.formatted(.number.precision(.fractionLength(1)))).tag(height)
+                    }
+                }
+                .settingsItem("lineHeight")
                 LabeledContent("Size") {
                     FontSizeControl(size: $preferences.codeFontSize, reset: Preferences.defaultCodeFontSize)
                 }
+                .settingsItem("fontSize")
                 Text("let orbit = \"Hello, agents\"")
-                    .font(.system(size: preferences.codeFontSize, design: .monospaced))
+                    .font(Font(preferences.codeFont()))
                     .lineLimit(1)
                     .padding(.vertical, 8)
                     .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
-                Toggle("Terminal uses the same size", isOn: Binding(
-                    get: { preferences.terminalFontSize == nil },
-                    set: { preferences.terminalFontSize = $0 ? nil : preferences.codeFontSize }
-                ))
-                if let size = preferences.terminalFontSize {
-                    LabeledContent("Terminal size") {
-                        FontSizeControl(size: Binding(get: { size }, set: { preferences.terminalFontSize = $0 }), reset: preferences.codeFontSize)
-                    }
-                }
             } header: {
                 Text("Font")
             } footer: {
-                Text("Also used by diffs. ⌘= ⌘- ⌘0 change it from anywhere.")
+                Text("Also used by diffs and, unless it has its own size, the terminal. ⌘= ⌘- ⌘0 change it from anywhere.")
             }
             Section("Text") {
                 OptionToggle(options: options, option: .wordWrap) { Text("Wrap long lines") }
                 OptionToggle(options: options, option: .highlightCurrentLine) { Text("Highlight the current line") }
                 OptionToggle(options: options, option: .indentGuides) { Text("Indent guides") }
+                OptionToggle(options: options, option: .autoClose) {
+                    Text("Close brackets and quotes")
+                    Text("Typing ( [ { \" adds the closing one; typing it again steps over it.")
+                }
             }
             Section("Beside the Line Numbers") {
-                OptionToggle(options: options, option: .blame) {
-                    Text("Blame")
-                    Text("Who changed each line and when; click one for its commit. ⌥⌘B")
-                }
                 OptionToggle(options: options, option: .imageThumbnails) {
                     Text("Images and colors")
                     Text("Thumbnails of images a line refers to, swatches of the colors it spells out.")
                 }
             }
             Section("Reading Code") {
+                // Git Lens draws it (D194); without it there's nothing to switch.
+                if hasBlame() {
+                    OptionToggle(options: options, option: .blame) {
+                        Text("Blame")
+                        Text("Who last changed the caret's line and when, faded after its end; hover it for the commit. ⌥⌘B")
+                    }
+                }
                 OptionToggle(options: options, option: .inlayHints) {
                     Text("Inlay hints")
                     Text("Types and parameter names from the language server, drawn in the code.")
@@ -153,6 +205,36 @@ struct EditorSettingsPane: View {
                 }
             }
             Section {
+                Picker(selection: $preferences.defaultIndentation.spaces) {
+                    Text("Spaces").tag(true)
+                    Text("Tabs").tag(false)
+                } label: {
+                    Text("Indent with")
+                }
+                .pickerStyle(.segmented)
+                .settingsItem("indentation")
+                Picker(preferences.defaultIndentation.spaces ? "Width" : "Tab width", selection: $preferences.defaultIndentation.size) {
+                    ForEach([2, 3, 4, 8], id: \.self) { size in
+                        Text("\(size) columns").tag(size)
+                    }
+                }
+            } header: {
+                Text("Indentation")
+            } footer: {
+                Text("For files nothing else decides: no .editorconfig and no indented lines yet. The status bar shows each file's indentation and changes it.")
+            }
+            Section {
+                Picker(selection: $options.autoSave) {
+                    ForEach(EditorOptions.AutoSave.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                } label: {
+                    Text("Auto save")
+                    Text(options.autoSave == .onFocusChange
+                        ? "When Orbit goes to the background or you switch tabs."
+                        : "Without formatting; Format on Save still runs on ⌘S.")
+                }
+                .settingsItem("autoSave")
                 OptionToggle(options: options, option: .formatOnSave) {
                     Text("Format on save")
                     Text("With the project's formatter (Prettier, Biome, Ruff…), else the language server. ⌃⇧I formats any time.")
@@ -163,32 +245,6 @@ struct EditorSettingsPane: View {
                 Text("A project's .orbit/settings.json can set any of these: \"editor\": { \"wordWrap\": true }.")
             }
         }
-    }
-}
-
-/// A slider in points, its value, and a reset.
-private struct FontSizeControl: View {
-    @Binding var size: Double
-    let reset: Double
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Slider(value: $size, in: Preferences.codeFontSizes, step: 0.5)
-                .frame(width: 160)
-            Text(size.formatted(.number.precision(.fractionLength(0...1))) + " pt")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize()
-                .frame(minWidth: 48, alignment: .trailing)
-            Button {
-                size = reset
-            } label: {
-                Image(systemName: "arrow.counterclockwise")
-            }
-            .buttonStyle(.borderless)
-            .disabled(size == reset)
-            .help("Reset to \(reset.formatted(.number.precision(.fractionLength(0...1)))) pt")
-        }
+        .task { families = Preferences.monospacedFamilies }
     }
 }

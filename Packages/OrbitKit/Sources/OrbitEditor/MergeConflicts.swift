@@ -5,7 +5,7 @@ import SwiftUI
 
 /// One `<<<<<<< … ======= … >>>>>>>` block a merge, rebase or stash pop left
 /// in a file (D134). Lines are 0-based.
-struct MergeConflict: Equatable {
+struct MergeConflict: Hashable {
     var start: Int
     /// "Current": what the branch you're on has (HEAD).
     var current: Range<Int>
@@ -110,28 +110,29 @@ extension InlineDiffController {
     func layoutConflicts(visible: CGRect, width: CGFloat, contentX: CGFloat) {
         guard let textView, !conflicts.isEmpty else { return }
         let incomingColor = NSColor.systemBlue
-        func band(_ lines: Range<Int>, _ color: NSColor) -> CGRect? {
-            guard !lines.isEmpty, let first = lineRect(lines.lowerBound), let last = lineRect(lines.upperBound - 1) else { return nil }
+        func band(_ lines: Range<Int>, _ color: NSColor) {
+            guard !lines.isEmpty, let first = lineRect(lines.lowerBound), let last = lineRect(lines.upperBound - 1) else { return }
             let rect = CGRect(x: contentX, y: first.minY, width: width, height: last.maxY - first.minY)
-            guard rect.intersects(visible) else { return rect }
-            add(ChangeBackgroundView(frame: rect, color: color), below: true)
-            return rect
+            guard rect.intersects(visible) else { return }
+            overlays.place("conflict band", lines, color, frame: rect, in: textView, below: true) {
+                ChangeBackgroundView(frame: rect, color: color)
+            }
         }
         for conflict in conflicts {
             guard let top = lineRect(conflict.start), let bottom = lineRect(conflict.end) else { continue }
             guard CGRect(x: contentX, y: top.minY, width: width, height: bottom.maxY - top.minY).intersects(visible) else { continue }
             for marker in [conflict.start, conflict.separator, conflict.end] + (conflict.base.map { [$0.lowerBound - 1] } ?? []) {
-                _ = band(marker..<(marker + 1), .secondaryLabelColor)
+                band(marker..<(marker + 1), .secondaryLabelColor)
             }
-            _ = band(conflict.current, colors.added)
-            if let base = conflict.base { _ = band(base, .systemGray) }
-            _ = band(conflict.incoming, incomingColor)
-            let actions = NSHostingView(rootView: ConflictActions(
+            band(conflict.current, colors.added)
+            if let base = conflict.base { band(base, .systemGray) }
+            band(conflict.incoming, incomingColor)
+            let actions = overlays.view(for: "conflict actions", conflict) ?? NSHostingView(rootView: ConflictActions(
                 currentLabel: conflict.currentLabel, incomingLabel: conflict.incomingLabel
             ) { [weak self] choice in self?.onResolveConflict?(conflict, choice) })
-            let size = actions.fittingSize
-            actions.frame = CGRect(x: textView.visibleRect.maxX - size.width - 12, y: top.midY - size.height / 2, width: size.width, height: size.height)
-            add(actions, below: false)
+            let size = actions.frame.size == .zero ? actions.fittingSize : actions.frame.size
+            let frame = CGRect(x: textView.visibleRect.maxX - size.width - 12, y: top.midY - size.height / 2, width: size.width, height: size.height)
+            overlays.place("conflict actions", conflict, frame: frame, in: textView) { actions }
         }
     }
 }
@@ -153,7 +154,7 @@ struct ConflictActions: View {
                 .help("Keep both: current, then incoming")
         }
         .buttonStyle(HunkActionStyle())
-        .font(.orbit(.micro, weight: .medium))
+        .orbitFont(.micro, weight: .medium)
         .padding(.horizontal, 2)
         .background(.regularMaterial, in: .rect(cornerRadius: Theme.smallCorner))
         .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(.separator))
@@ -174,7 +175,7 @@ struct ConflictBanner: View {
             Image(systemName: count > 0 ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(count > 0 ? Theme.conflict : .green)
             Text(count > 0 ? "\(count) merge conflict\(count == 1 ? "" : "s")" : "No conflicts left")
-                .font(.orbit(.body, weight: .medium))
+                .orbitFont(.body, weight: .medium)
             if count > 0 {
                 HStack(spacing: 0) {
                     IconButton("chevron.up", help: "Previous conflict") { coordinator?.revealConflict(forward: false) }

@@ -178,7 +178,7 @@ struct InlineEditPrompt: View {
                     text: $model.instruction, axis: .vertical
                 )
                 .textFieldStyle(.plain)
-                .font(.orbit(.body))
+                .orbitFont(.body)
                 .lineLimit(1...6)
                 .focused($isFocused)
                 .disabled(model.state == .running)
@@ -206,12 +206,12 @@ struct InlineEditPrompt: View {
                 Button(model.state == .running ? "Stop" : "Cancel", action: close)
                     .buttonStyle(.glass)
                 Button(action: model.run) {
-                    Text(model.state == .running ? "Working" : "Generate ") + Text("↩").foregroundStyle(.secondary)
+                    Text("\(model.state == .running ? "Working" : "Generate ")\(Text("↩").foregroundStyle(.secondary))")
                 }
                 .buttonStyle(.glassProminent)
                 .disabled(!model.canRun)
             }
-            .font(.orbit(.caption))
+            .orbitFont(.caption)
             .controlSize(.small)
         }
         .padding(12)
@@ -242,7 +242,7 @@ extension CodeEditor.Coordinator {
         popover.contentViewController = NSHostingController(rootView: InlineEditPrompt(model: model) { [weak popover] in
             model.cancel()
             popover?.close()
-        }.tint(Theme.accent))
+        }.tint(Theme.controlTint))
         model.onDone = { [weak self, weak popover] in
             popover?.close()
             self?.reveal(line: target.lines.lowerBound)

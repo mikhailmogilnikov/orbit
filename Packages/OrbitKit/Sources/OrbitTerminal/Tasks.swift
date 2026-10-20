@@ -15,10 +15,61 @@ struct ProjectTask: Identifiable, Hashable, Sendable {
     var id: String { "\(source):\(name)" }
 }
 
+/// A task an extension offers (D195), in `tasks.json`:
+///
+///     { "tasks": [ { "name": "deploy", "command": "fly deploy", "when": "fly.toml", "detail": "Fly.io" } ] }
+///
+/// `when` names files (one, or a list: any of them) that must be at the
+/// project's top for it to be offered; without it, every project gets it.
+struct TaskTemplate: Decodable, Hashable, Sendable {
+    var name: String
+    var command: String
+    var when: [String]
+    var detail: String?
+    /// The extension's name, shown as where the task comes from.
+    var source = ""
+
+    private enum CodingKeys: String, CodingKey { case name, command, when, detail }
+
+    init(name: String, command: String, when: [String] = [], detail: String? = nil, source: String) {
+        self.name = name
+        self.command = command
+        self.when = when
+        self.detail = detail
+        self.source = source
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        command = try container.decode(String.self, forKey: .command)
+        detail = try container.decodeIfPresent(String.self, forKey: .detail)
+        if let list = try? container.decodeIfPresent([String].self, forKey: .when) {
+            when = list
+        } else {
+            when = try container.decodeIfPresent(String.self, forKey: .when).map { [$0] } ?? []
+        }
+    }
+
+    static func parse(_ data: Data, source: String) throws -> [TaskTemplate] {
+        struct File: Decodable { var tasks: [TaskTemplate] }
+        return try JSONDecoder().decode(File.self, from: data).tasks.map { template in
+            var template = template
+            template.source = source
+            return template
+        }
+    }
+}
+
 enum ProjectTasks {
-    /// The project's own tasks, then each workspace package's scripts (D138).
-    static func find(in root: URL) -> [ProjectTask] {
+    /// The project's own tasks, each workspace package's scripts (D138), then
+    /// what extensions offer for it (D195).
+    static func find(in root: URL, templates: [TaskTemplate] = []) -> [ProjectTask] {
         var tasks = tasks(in: root)
+        tasks += templates.filter { template in
+            template.when.isEmpty || template.when.contains { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }
+        }
+        .map { ProjectTask(name: $0.name, command: $0.command, source: $0.source, detail: $0.detail) }
         let json = try? String(contentsOf: root.appendingPathComponent("package.json"), encoding: .utf8)
         let pnpm = try? String(contentsOf: root.appendingPathComponent("pnpm-workspace.yaml"), encoding: .utf8)
         let patterns = workspacePatterns(packageJSON: json, pnpmWorkspace: pnpm)

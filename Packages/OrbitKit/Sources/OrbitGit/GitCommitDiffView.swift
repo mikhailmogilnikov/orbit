@@ -2,12 +2,15 @@ import OrbitAPI
 import OrbitUI
 import SwiftUI
 
-/// Read-only diff of one file in a commit, opened from History.
+/// Read-only diff of one file in a commit, opened from History; or of the
+/// file against a branch or commit ("Compare with…", D189).
 struct GitCommitDiffView: View {
     let model: GitModel
     let tab: EditorTab
 
     @State private var commit: GitCommit?
+    /// What a compare tab shows the file against.
+    @State private var revision: String?
     @State private var file: GitCommitFile?
     @State private var hunks: [DiffHunk] = []
     @State private var lineCount = 0
@@ -24,7 +27,10 @@ struct GitCommitDiffView: View {
             } else if isBinary {
                 EmptyStateView("Binary File", systemImage: "doc", message: "Binary changes can't be shown as text.")
             } else if hunks.isEmpty {
-                EmptyStateView("No Text Changes", systemImage: "doc.text", message: "Only file mode changed.")
+                EmptyStateView(
+                    revision == nil ? "No Text Changes" : "No Differences", systemImage: "doc.text",
+                    message: revision.map { "The file is the same as on \(Self.short($0))." } ?? "Only file mode changed."
+                )
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -51,18 +57,24 @@ struct GitCommitDiffView: View {
             FileIconView(url: url)
                 .foregroundStyle(.secondary)
             Text(url.lastPathComponent)
-                .font(.orbit(.body, weight: .medium))
+                .orbitFont(.body, weight: .medium)
             if let old = file?.oldPath {
                 Text("from \(old)")
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
             }
+            if let revision {
+                Text("compared with")
+                    .orbitFont(.body)
+                    .foregroundStyle(.secondary)
+                Badge { Text(Self.short(revision)).monospaced() }
+            }
             if let commit {
                 Badge { Text(commit.shortHash).monospaced() }
                 Text(commit.subject)
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .help("\(commit.subject)\n\(commit.author), \(commit.date.formatted(date: .abbreviated, time: .shortened))")
@@ -80,14 +92,29 @@ struct GitCommitDiffView: View {
         .padding(.vertical, 6)
     }
 
+    private static func short(_ revision: String) -> String {
+        revision.count == 40 && revision.allSatisfy(\.isHexDigit) ? String(revision.prefix(7)) : revision
+    }
+
     private func load() async {
-        guard let result = await model.commitDiff(for: tab) else {
-            isLoaded = true
-            return
+        let sides: (old: GitRepository.Side, new: GitRepository.Side)
+        if tab.kind == GitModel.compareKind {
+            guard let result = await model.compareDiff(for: tab) else {
+                isLoaded = true
+                return
+            }
+            revision = result.revision
+            sides = result.sides
+        } else {
+            guard let result = await model.commitDiff(for: tab) else {
+                isLoaded = true
+                return
+            }
+            commit = result.commit
+            file = result.file
+            sides = result.sides
         }
-        commit = result.commit
-        file = result.file
-        guard case .text(let old) = result.sides.old, case .text(let new) = result.sides.new else {
+        guard case .text(let old) = sides.old, case .text(let new) = sides.new else {
             isBinary = true
             isLoaded = true
             return

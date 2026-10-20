@@ -11,6 +11,16 @@ public struct AgentCommand: Sendable, Hashable, Codable {
         self.arguments = arguments
         self.environment = environment
     }
+
+    private enum CodingKeys: String, CodingKey { case executable, arguments, environment }
+
+    /// Arguments and environment may be left out of a hand-written manifest.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        executable = try container.decode(String.self, forKey: .executable)
+        arguments = try container.decodeIfPresent([String].self, forKey: .arguments) ?? []
+        environment = try container.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
+    }
 }
 
 /// Thin typed layer over JSON-RPC for the Agent Client Protocol.

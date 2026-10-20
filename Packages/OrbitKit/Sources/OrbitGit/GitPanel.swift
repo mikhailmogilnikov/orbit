@@ -74,16 +74,17 @@ private struct GitHeader: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Image(systemName: "chevron.down")
-                        .font(.orbit(.glyph, weight: .bold))
+                        .orbitFont(.glyph, weight: .bold)
                         .foregroundStyle(.secondary)
                 }
-                .font(.orbit(.body, weight: .medium))
+                .orbitFont(.body, weight: .medium)
                 .contentShape(.rect)
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .help("Switch Branch (\(model.branchTitle))")
+            .accessibilityLabel("Branch \(model.branchTitle)")
 
             if model.status.ahead > 0 || model.status.behind > 0 {
                 Text(syncLabel)
@@ -144,7 +145,7 @@ private struct CommitBox: View {
             HStack(alignment: .top, spacing: 4) {
                 TextField(model.isGenerating ? "Writing a message…" : "Message (⌘↩ to commit)", text: $model.commitMessage, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .lineLimit(1...8)
                     .disabled(model.isGenerating)
                 if let agent = model.messageAgent {
@@ -197,7 +198,7 @@ private struct GenerateButton: View {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "sparkles")
-                        .font(.orbit(.caption, weight: .medium))
+                        .orbitFont(.caption, weight: .medium)
                         .foregroundStyle(.tint)
                 }
             }
@@ -206,6 +207,7 @@ private struct GenerateButton: View {
         }
         .buttonStyle(.plain)
         .help(isGenerating ? "Stop" : "Generate Commit Message with \(agentName)")
+        .accessibilityLabel(isGenerating ? "Stop" : "Generate Commit Message")
     }
 }
 
@@ -219,7 +221,7 @@ private struct ErrorBanner: View {
                 .foregroundStyle(.orange)
             ScrollView {
                 Text(message)
-                    .font(.orbit(.caption, design: .monospaced))
+                    .orbitFont(.caption, design: .monospaced)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -357,7 +359,7 @@ private struct StashRow: View {
                 IconButton("tray.and.arrow.up", help: "Pop (apply and delete)") { model.applyStash(stash, drop: true) }
             } else {
                 Text(stash.date, format: .relative(presentation: .named))
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -399,15 +401,26 @@ private struct HistoryRows: View {
                             Text(branch).tag(GitModel.HistoryScope.branch(branch))
                         }
                     }
+                    // GitLens's file and line history (D189).
+                    let activePath = model.workspace.activeTab?.url.flatMap(model.repositoryPath)
+                    if activePath != nil || model.historyScope.path != nil {
+                        Divider()
+                        if let activePath, model.historyScope != .file(activePath) {
+                            Label("This File: \((activePath as NSString).lastPathComponent)", systemImage: "doc").tag(GitModel.HistoryScope.file(activePath))
+                        }
+                        if model.historyScope.path != nil {
+                            Label(scopeTitle, systemImage: "doc").tag(model.historyScope)
+                        }
+                    }
                 }
                 .pickerStyle(.inline)
             } label: {
                 Label(scopeTitle, systemImage: "arrow.triangle.branch")
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .help("Which branches' history to show")
+            .help("Which branches' history to show, or one file's")
             TextField("Search commits", text: $model.historyQuery)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
@@ -421,7 +434,12 @@ private struct HistoryRows: View {
             let row = index < graph.count ? graph[index] : nil
             CommitRow(commit: commit, model: model, graph: row, graphWidth: width, spacing: Self.laneSpacing,
                       isExpanded: expanded.contains(commit.hash)) {
-                if expanded.remove(commit.hash) == nil { expanded.insert(commit.hash) }
+                // One file's history: a commit opens what it changed in that file.
+                if let path = model.historyScope.path {
+                    model.openDiff(GitCommitFile(status: .modified, path: path, oldPath: nil), in: commit)
+                } else if expanded.remove(commit.hash) == nil {
+                    expanded.insert(commit.hash)
+                }
             }
             if expanded.contains(commit.hash) {
                 CommitFiles(commit: commit, model: model, passing: row?.continuing ?? [], graphWidth: width, spacing: Self.laneSpacing)
@@ -429,7 +447,7 @@ private struct HistoryRows: View {
         }
         if model.history.isEmpty, !model.historyQuery.isEmpty {
             Text("No commits match")
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .foregroundStyle(.secondary)
         }
     }
@@ -439,6 +457,9 @@ private struct HistoryRows: View {
         case .current: "Current"
         case .all: "All"
         case .branch(let name): name
+        case .file(let path): (path as NSString).lastPathComponent
+        case .lines(let path, let lines):
+            "\((path as NSString).lastPathComponent):\(lines.lowerBound)\(lines.count > 1 ? "–\(lines.upperBound)" : "")"
         }
     }
 }
@@ -465,13 +486,13 @@ private struct CommitRow: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(commit.subject.isEmpty ? commit.shortHash : commit.subject)
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 HStack(spacing: 4) {
                     RefBadges(refs: commit.refs)
                     Text("\(commit.author) · \(Self.age(commit.date))")
-                        .font(.orbit(.caption))
+                        .orbitFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -565,7 +586,7 @@ struct RefBadges: View {
             OrbitUI.Badge(tint: color, prominent: badge.isHead) {
                 HStack(spacing: 2) {
                     Image(systemName: badge.kind == .tag ? "tag.fill" : badge.kind == .remote ? "cloud" : badge.kind == .synced ? "checkmark.icloud" : "arrow.triangle.branch")
-                        .font(.orbit(.glyph, weight: .semibold))
+                        .orbitFont(.glyph, weight: .semibold)
                     Text(badge.name)
                         .truncationMode(.middle)
                 }
@@ -576,7 +597,7 @@ struct RefBadges: View {
         }
         if badges.count > 2 {
             Text("+\(badges.count - 2)")
-                .font(.orbit(.micro))
+                .orbitFont(.micro)
                 .foregroundStyle(.tertiary)
                 .help(badges.dropFirst(2).map(\.name).joined(separator: "\n"))
         }
@@ -755,7 +776,7 @@ private struct StatusLetter: View {
 
     var body: some View {
         Text(String(kind.rawValue))
-            .font(.orbit(.micro, weight: .bold, design: .monospaced))
+            .orbitFont(.micro, weight: .bold, design: .monospaced)
             .foregroundStyle(kind.color)
             .frame(width: 16, height: 16)
             .background(kind.color.opacity(0.15), in: .rect(cornerRadius: Theme.tinyCorner, style: .continuous))

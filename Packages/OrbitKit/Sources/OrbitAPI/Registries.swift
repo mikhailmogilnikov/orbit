@@ -15,6 +15,8 @@ public struct PanelContribution: Identifiable {
     public private(set) var makeAccessory: (@MainActor () -> AnyView)?
     /// The command that shows the panel: its shortcut goes in the panel button's tooltip.
     public private(set) var commandID: String?
+    /// The plugin that added it (D194); nil for the shell's.
+    public internal(set) var pluginID: String?
 
     public init<V: View>(
         id: String, title: String, systemImage: String, order: Int = 100,
@@ -68,6 +70,22 @@ public enum SettingsGroup: Int, Comparable, Sendable {
     public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
+/// One option inside a Settings pane, so search can find it and point at its
+/// row (D177). The row marks itself with `.settingsItem(id)` (OrbitUI).
+public struct SettingsItem: Identifiable, Hashable, Sendable {
+    /// Unique inside its pane; the row's `.settingsItem` uses the same.
+    public let id: String
+    public let title: String
+    /// Other words for it ("soft wrap" for Wrap long lines).
+    public let keywords: [String]
+
+    public init(_ id: String, _ title: String, keywords: [String] = []) {
+        self.id = id
+        self.title = title
+        self.keywords = keywords
+    }
+}
+
 /// A section of the Settings screen. Plugins add their own; the shell adds
 /// General, Appearance, Keyboard Shortcuts, Extensions and Plugins.
 public struct SettingsPane: Identifiable {
@@ -82,6 +100,10 @@ public struct SettingsPane: Identifiable {
     public let summary: String?
     /// Extra words the settings search matches (option names).
     public let keywords: [String]
+    /// The options search lists under the pane; asked each time, so they can follow what's installed.
+    public let items: @MainActor () -> [SettingsItem]
+    /// The plugin that added it; nil for the shell's panes (D184, D194).
+    public internal(set) var pluginID: String?
     public let makeView: @MainActor () -> AnyView
 
     public init<V: View>(
@@ -93,6 +115,7 @@ public struct SettingsPane: Identifiable {
         order: Int = 100,
         summary: String? = nil,
         keywords: [String] = [],
+        items: @escaping @MainActor () -> [SettingsItem] = { [] },
         @ViewBuilder view: @escaping @MainActor () -> V
     ) {
         self.id = id
@@ -103,6 +126,7 @@ public struct SettingsPane: Identifiable {
         self.order = order
         self.summary = summary
         self.keywords = keywords
+        self.items = items
         makeView = { AnyView(view()) }
     }
 }
@@ -111,6 +135,8 @@ public struct SettingsPane: Identifiable {
 /// so a plugin can override how e.g. Markdown files are shown.
 public struct EditorProvider: Identifiable {
     public let id: String
+    /// The plugin that added it (D194); nil for the shell's.
+    public internal(set) var pluginID: String?
     public let priority: Int
     public let accepts: @MainActor (EditorTab) -> Bool
     public let makeView: @MainActor (EditorTab) -> AnyView
@@ -133,6 +159,8 @@ public struct EditorProvider: Identifiable {
 /// command's title and shortcut as its tooltip.
 public struct EditorAction: Identifiable {
     public let id: String
+    /// The plugin that added it (D194); nil for the shell's.
+    public internal(set) var pluginID: String?
     public let commandID: String
     public let systemImage: String
     public let order: Int
@@ -150,6 +178,8 @@ public struct EditorAction: Identifiable {
 public struct StatusItem: Identifiable {
     public enum Placement: Sendable { case leading, trailing }
     public let id: String
+    /// The plugin that added it (D194); nil for the shell's.
+    public internal(set) var pluginID: String?
     public let placement: Placement
     public let order: Int
     /// The status bar is shown only while at least one item has something to say.
@@ -171,35 +201,31 @@ public struct StatusItem: Identifiable {
     }
 }
 
+/// Everything plugins added to the window's UI, shared by their registries.
 @MainActor
 @Observable
-public final class UIRegistry {
-    public private(set) var sidebarPanels: [PanelContribution] = []
-    public private(set) var inspectorPanels: [PanelContribution] = []
-    /// Panels under the editor (terminal, …); one is shown at a time.
-    public private(set) var bottomPanels: [PanelContribution] = []
+final class UIState {
+    var sidebarPanels: [PanelContribution] = []
+    var inspectorPanels: [PanelContribution] = []
+    var bottomPanels: [PanelContribution] = []
     // Remembered across launches (D80).
-    public var isBottomPanelVisible = UserDefaults.standard.bool(forKey: "orbit.bottomPanelVisible") {
+    var isBottomPanelVisible = UserDefaults.standard.bool(forKey: "orbit.bottomPanelVisible") {
         didSet { UserDefaults.standard.set(isBottomPanelVisible, forKey: "orbit.bottomPanelVisible") }
     }
-    public var selectedBottomPanel: String? = UserDefaults.standard.string(forKey: "orbit.bottomPanel") {
+    var selectedBottomPanel: String? = UserDefaults.standard.string(forKey: "orbit.bottomPanel") {
         didSet { UserDefaults.standard.set(selectedBottomPanel, forKey: "orbit.bottomPanel") }
     }
-    public private(set) var editorProviders: [EditorProvider] = []
-    public private(set) var statusItems: [StatusItem] = []
-    public private(set) var editorActions: [EditorAction] = []
-    public private(set) var settingsPanes: [SettingsPane] = []
-    /// The Settings screen covers the window while shown.
-    public var isSettingsVisible = false
-    public var selectedSettingsPane: String?
-
-    /// UI requests from plugins to the shell (e.g. "reveal the Agents panel").
-    public var requestedSidebarPanel: String?
-    public var requestedInspectorPanel: String?
-    /// The quick pick overlay on screen, if any.
-    public private(set) var quickPick: QuickPick?
-
-    init() {}
+    var editorProviders: [EditorProvider] = []
+    var statusItems: [StatusItem] = []
+    var editorActions: [EditorAction] = []
+    var settingsPanes: [SettingsPane] = []
+    var extensionSources: [(owner: String?, source: any ExtensionSource)] = []
+    var requestedExtensionKind: ExtensionKind?
+    var isSettingsVisible = false
+    var selectedSettingsPane: String?
+    var requestedSidebarPanel: String?
+    var requestedInspectorPanel: String?
+    var quickPick: QuickPick?
 
     func removeAll() {
         sidebarPanels = []
@@ -209,32 +235,140 @@ public final class UIRegistry {
         statusItems = []
         editorActions = []
         settingsPanes = []
+        extensionSources = []
         quickPick = nil
     }
 
+    /// A plugin turned off (D194): whatever it added goes with it.
+    func remove(owner: String) {
+        sidebarPanels.removeAll { $0.pluginID == owner }
+        inspectorPanels.removeAll { $0.pluginID == owner }
+        bottomPanels.removeAll { $0.pluginID == owner }
+        editorProviders.removeAll { $0.pluginID == owner }
+        statusItems.removeAll { $0.pluginID == owner }
+        editorActions.removeAll { $0.pluginID == owner }
+        settingsPanes.removeAll { $0.pluginID == owner }
+        extensionSources.removeAll { $0.owner == owner }
+    }
+}
+
+/// The window's panels, tabs, status bar and Settings panes. Each plugin gets
+/// its own registry over the same contents, stamping what it adds with its
+/// id, so turning it off takes all of it away (D194); once it's off, what it
+/// still tries to add is dropped.
+@MainActor
+public final class UIRegistry {
+    let state: UIState
+    /// Whose contributions this registry adds; nil for the shell's.
+    let owner: String?
+    private let lifetime: PluginLifetime?
+
+    init() {
+        state = UIState()
+        owner = nil
+        lifetime = nil
+    }
+
+    init(sharing registry: UIRegistry, owner: String, lifetime: PluginLifetime) {
+        state = registry.state
+        self.owner = owner
+        self.lifetime = lifetime
+    }
+
+    private var accepts: Bool { lifetime?.isActive ?? true }
+
+    private func owned<T>(_ value: T, _ stamp: (inout T, String?) -> Void) -> T {
+        var value = value
+        stamp(&value, owner)
+        return value
+    }
+
+    public var sidebarPanels: [PanelContribution] { state.sidebarPanels }
+    public var inspectorPanels: [PanelContribution] { state.inspectorPanels }
+    /// Panels under the editor (terminal, …); one is shown at a time.
+    public var bottomPanels: [PanelContribution] { state.bottomPanels }
+    public var isBottomPanelVisible: Bool {
+        get { state.isBottomPanelVisible }
+        set { state.isBottomPanelVisible = newValue }
+    }
+    public var selectedBottomPanel: String? {
+        get { state.selectedBottomPanel }
+        set { state.selectedBottomPanel = newValue }
+    }
+    public var editorProviders: [EditorProvider] { state.editorProviders }
+    public var statusItems: [StatusItem] { state.statusItems }
+    public var editorActions: [EditorAction] { state.editorActions }
+    public var settingsPanes: [SettingsPane] { state.settingsPanes }
+    /// What plugins let the user install, listed together in Settings → Extensions (D192).
+    public var extensionSources: [any ExtensionSource] { state.extensionSources.map(\.source) }
+    /// The kind Settings → Extensions shows next ("Get More Agents" in the Agents pane).
+    public var requestedExtensionKind: ExtensionKind? {
+        get { state.requestedExtensionKind }
+        set { state.requestedExtensionKind = newValue }
+    }
+    /// The Settings screen covers the window while shown.
+    public var isSettingsVisible: Bool {
+        get { state.isSettingsVisible }
+        set { state.isSettingsVisible = newValue }
+    }
+    public var selectedSettingsPane: String? {
+        get { state.selectedSettingsPane }
+        set { state.selectedSettingsPane = newValue }
+    }
+    /// UI requests from plugins to the shell (e.g. "reveal the Agents panel").
+    public var requestedSidebarPanel: String? {
+        get { state.requestedSidebarPanel }
+        set { state.requestedSidebarPanel = newValue }
+    }
+    public var requestedInspectorPanel: String? {
+        get { state.requestedInspectorPanel }
+        set { state.requestedInspectorPanel = newValue }
+    }
+    /// The quick pick overlay on screen, if any.
+    public var quickPick: QuickPick? { state.quickPick }
+
+    func removeAll() { state.removeAll() }
+
     public func addSidebarPanel(_ panel: PanelContribution) {
-        sidebarPanels.append(panel)
-        sidebarPanels.sort { $0.order < $1.order }
+        guard accepts else { return }
+        state.sidebarPanels.append(owned(panel) { $0.pluginID = $1 })
+        state.sidebarPanels.sort { $0.order < $1.order }
     }
 
     public func addInspectorPanel(_ panel: PanelContribution) {
-        inspectorPanels.append(panel)
-        inspectorPanels.sort { $0.order < $1.order }
+        guard accepts else { return }
+        state.inspectorPanels.append(owned(panel) { $0.pluginID = $1 })
+        state.inspectorPanels.sort { $0.order < $1.order }
     }
 
     public func addBottomPanel(_ panel: PanelContribution) {
-        bottomPanels.append(panel)
-        bottomPanels.sort { $0.order < $1.order }
+        guard accepts else { return }
+        state.bottomPanels.append(owned(panel) { $0.pluginID = $1 })
+        state.bottomPanels.sort { $0.order < $1.order }
     }
 
     public func addEditorProvider(_ provider: EditorProvider) {
-        editorProviders.append(provider)
-        editorProviders.sort { $0.priority > $1.priority }
+        guard accepts else { return }
+        state.editorProviders.append(owned(provider) { $0.pluginID = $1 })
+        state.editorProviders.sort { $0.priority > $1.priority }
     }
 
     public func addSettingsPane(_ pane: SettingsPane) {
-        settingsPanes.append(pane)
-        settingsPanes.sort { ($0.group, $0.order) < ($1.group, $1.order) }
+        guard accepts else { return }
+        state.settingsPanes.append(owned(pane) { $0.pluginID = $1 })
+        state.settingsPanes.sort { ($0.group, $0.order) < ($1.group, $1.order) }
+    }
+
+    public func addExtensionSource(_ source: any ExtensionSource) {
+        guard accepts else { return }
+        state.extensionSources.append((owner, source))
+        state.extensionSources.sort { $0.source.kind < $1.source.kind }
+    }
+
+    /// Settings → Extensions, filtered to one kind.
+    public func showExtensions(_ kind: ExtensionKind?) {
+        requestedExtensionKind = kind
+        showSettings("extensions")
     }
 
     public func showSettings(_ paneID: String? = nil) {
@@ -243,17 +377,19 @@ public final class UIRegistry {
     }
 
     public func addEditorAction(_ action: EditorAction) {
-        editorActions.append(action)
-        editorActions.sort { $0.order < $1.order }
+        guard accepts else { return }
+        state.editorActions.append(owned(action) { $0.pluginID = $1 })
+        state.editorActions.sort { $0.order < $1.order }
     }
 
     public func addStatusItem(_ item: StatusItem) {
-        statusItems.append(item)
-        statusItems.sort { $0.order < $1.order }
+        guard accepts else { return }
+        state.statusItems.append(owned(item) { $0.pluginID = $1 })
+        state.statusItems.sort { $0.order < $1.order }
     }
 
     public func provider(for tab: EditorTab) -> EditorProvider? {
-        editorProviders.first { $0.accepts(tab) }
+        state.editorProviders.first { $0.accepts(tab) }
     }
 
     public func revealSidebarPanel(_ id: String) { requestedSidebarPanel = id }
@@ -275,17 +411,19 @@ public final class UIRegistry {
 
     /// Shows `pick`, or hides it when the same pick is already on screen (shortcut toggles).
     public func toggleQuickPick(_ pick: QuickPick) {
-        quickPick = quickPick?.id == pick.id ? nil : pick
+        state.quickPick = state.quickPick?.id == pick.id ? nil : pick
     }
 
-    public func presentQuickPick(_ pick: QuickPick) { quickPick = pick }
-    public func dismissQuickPick() { quickPick = nil }
+    public func presentQuickPick(_ pick: QuickPick) { state.quickPick = pick }
+    public func dismissQuickPick() { state.quickPick = nil }
 }
 
 // MARK: - Commands
 
 public struct OrbitCommand: Identifiable {
     public let id: String
+    /// The plugin that added it (D194); nil for the shell's.
+    public internal(set) var pluginID: String?
     public let title: String
     public let category: String
     public let systemImage: String?
@@ -372,27 +510,55 @@ public struct CommandHint: Equatable {
 
 @MainActor
 @Observable
-public final class CommandRegistry {
-    public private(set) var all: [OrbitCommand] = []
+final class CommandState {
+    var all: [OrbitCommand] = []
+    var hint: CommandHint?
+}
 
-    init() {}
+/// The window's commands; like `UIRegistry`, one per plugin over shared contents (D194).
+@MainActor
+public final class CommandRegistry {
+    let state: CommandState
+    let owner: String?
+    private let lifetime: PluginLifetime?
+
+    init() {
+        state = CommandState()
+        owner = nil
+        lifetime = nil
+    }
+
+    init(sharing registry: CommandRegistry, owner: String, lifetime: PluginLifetime) {
+        state = registry.state
+        self.owner = owner
+        self.lifetime = lifetime
+    }
+
+    public var all: [OrbitCommand] { state.all }
 
     public func register(_ command: OrbitCommand) {
-        all.removeAll { $0.id == command.id }
-        all.append(command)
+        guard lifetime?.isActive ?? true else { return }
+        var command = command
+        command.pluginID = owner
+        state.all.removeAll { $0.id == command.id }
+        state.all.append(command)
     }
 
     func removeAll() {
-        all = []
-        hint = nil
+        state.all = []
+        state.hint = nil
+    }
+
+    func remove(owner: String) {
+        state.all.removeAll { $0.pluginID == owner }
     }
 
     public func unregister(_ id: String) {
-        all.removeAll { $0.id == id }
+        state.all.removeAll { $0.id == id }
     }
 
     /// The latest shortcut to show (see `CommandHint`).
-    public private(set) var hint: CommandHint?
+    public var hint: CommandHint? { state.hint }
 
     /// `teaching`: run without its shortcut (a click), so the shortcut is shown.
     public func run(_ id: String, teaching: Bool = false) {
@@ -412,7 +578,7 @@ public final class CommandRegistry {
 
     public func teach(_ command: OrbitCommand) {
         guard let shortcut = command.displayShortcut else { return }
-        hint = CommandHint(title: command.title, shortcut: shortcut)
+        state.hint = CommandHint(title: command.title, shortcut: shortcut)
     }
 
     /// The editor's right-click menu: visible commands with a placement, by group.
@@ -431,22 +597,47 @@ public final class CommandRegistry {
 
 // MARK: - Services
 
+@MainActor
+@Observable
+final class ServiceState {
+    var services: [ObjectIdentifier: (owner: String?, service: Any)] = [:]
+}
+
 /// Typed service locator: plugins expose APIs to each other through protocols
-/// declared in OrbitAPI, never through concrete types.
+/// declared in OrbitAPI, never through concrete types. Observable (D194): a
+/// view or command that looked a service up updates when its plugin is
+/// turned on or off.
 @MainActor
 public final class ServiceRegistry {
-    private var services: [ObjectIdentifier: Any] = [:]
+    let state: ServiceState
+    let owner: String?
+    private let lifetime: PluginLifetime?
 
-    init() {}
-
-    public func register<Service>(_ type: Service.Type, _ service: Service) {
-        services[ObjectIdentifier(type)] = service
+    init() {
+        state = ServiceState()
+        owner = nil
+        lifetime = nil
     }
 
-    func removeAll() { services = [:] }
+    init(sharing registry: ServiceRegistry, owner: String, lifetime: PluginLifetime) {
+        state = registry.state
+        self.owner = owner
+        self.lifetime = lifetime
+    }
+
+    public func register<Service>(_ type: Service.Type, _ service: Service) {
+        guard lifetime?.isActive ?? true else { return }
+        state.services[ObjectIdentifier(type)] = (owner, service)
+    }
+
+    func removeAll() { state.services = [:] }
+
+    func remove(owner: String) {
+        state.services = state.services.filter { $0.value.owner != owner }
+    }
 
     public func resolve<Service>(_ type: Service.Type) -> Service? {
-        services[ObjectIdentifier(type)] as? Service
+        state.services[ObjectIdentifier(type)]?.service as? Service
     }
 }
 

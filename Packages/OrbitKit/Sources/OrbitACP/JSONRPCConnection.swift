@@ -28,6 +28,14 @@ public struct JSONRPCError: Error, Sendable, LocalizedError {
     }
 
     public static let processExited = JSONRPCError(code: -32000, message: "The process exited")
+
+    /// The exit with what the process said last: requests fail before the
+    /// exit handler runs, so the caller can't wait for its stderr.
+    static func processExited(status: Int32, stderr: String) -> JSONRPCError {
+        let tail = stderr.split(separator: "\n").suffix(3).joined(separator: "\n")
+        let message = status == 0 ? "The process exited" : "The process exited with code \(status)"
+        return JSONRPCError(code: processExited.code, message: tail.isEmpty ? message : "\(message)\n\(tail)")
+    }
 }
 
 /// JSON-RPC 2.0 over a child process' stdio: newline-delimited (ACP agents) or
@@ -119,7 +127,8 @@ public final class JSONRPCConnection: @unchecked Sendable {
                 self.exited = true
                 let failed = self.pending
                 self.pending.removeAll()
-                for continuation in failed.values { continuation.resume(throwing: JSONRPCError.processExited) }
+                let error = JSONRPCError.processExited(status: process.terminationStatus, stderr: self.stderrTail)
+                for continuation in failed.values { continuation.resume(throwing: error) }
                 self.onExit(process.terminationStatus, self.stderrTail)
             }
         }

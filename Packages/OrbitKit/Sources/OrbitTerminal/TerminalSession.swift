@@ -23,8 +23,7 @@ final class TerminalSession: Identifiable {
     @ObservationIgnored var onExit: (TerminalSession) -> Void = { _ in }
     @ObservationIgnored private var delegate: Delegate?
 
-    init(directory: URL, task: ProjectTask? = nil, root: URL? = nil) {
-        let shell = Self.loginShell
+    init(directory: URL, task: ProjectTask? = nil, root: URL? = nil, shell: String = TerminalSession.loginShell) {
         title = task?.command ?? (shell as NSString).lastPathComponent
         taskID = task?.id
         view = OrbitTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
@@ -192,7 +191,7 @@ final class TerminalSession: Identifiable {
         if !trimmed.isEmpty { self.title = trimmed }
     }
 
-    private static var loginShell: String {
+    static var loginShell: String {
         if let shell = ProcessInfo.processInfo.environment["SHELL"], FileManager.default.isExecutableFile(atPath: shell) {
             return shell
         }
@@ -238,8 +237,9 @@ final class OrbitTerminalView: LocalProcessTerminalView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        font = .monospacedSystemFont(ofSize: Preferences.shared.effectiveTerminalFontSize, weight: .regular)
-        // Option types special characters (macOS keyboard layouts), as in Terminal.app.
+        font = Preferences.shared.codeFont(size: Preferences.shared.effectiveTerminalFontSize)
+        // Option types special characters (macOS keyboard layouts), as in Terminal.app,
+        // unless Settings → Terminal makes it Meta (`TerminalOptions`).
         optionAsMetaKey = false
         applyColors()
         themeObserver = NotificationCenter.default.addObserver(forName: Extensions.themeDidChange, object: nil, queue: .main) { [weak self] _ in
@@ -312,7 +312,9 @@ final class OrbitTerminalView: LocalProcessTerminalView {
                 themed.map(TerminalPalette.color) ?? system
             })
             nativeForegroundColor = (theme.terminalForeground ?? theme.editorForeground)?.nsColor ?? .textColor
-            nativeBackgroundColor = (theme.terminalBackground ?? theme.editorBackground)?.nsColor ?? .textBackgroundColor
+            // The editor's background, not `terminal.background`: themes make that
+            // darker (GitHub's near-black), a block cut out of the window (D191).
+            nativeBackgroundColor = theme.editorBackground?.nsColor ?? .textBackgroundColor
             caretColor = theme.cursor?.nsColor ?? Theme.accentNSColor
             selectedTextBackgroundColor = theme.selection?.nsColor ?? .selectedTextBackgroundColor
         }

@@ -2,13 +2,20 @@
 
 ## Done
 - App shell: navigator / tabs / inspector / status bar, command palette, menus from commands, settings
-- Plugin kernel (UI, commands, services registries; enable/disable)
+- Extension packages bring snippets, agents, language servers and tasks besides themes and icons (D195):
+  snippets in completion and Insert Snippet…, Zed's snippet extensions, a page per package, New Extension…
+- Plugin kernel (UI, commands, services registries); plugins turn on and off live, in every window,
+  and require each other (D194): Git Lens under Source Control, Browser apart from Preview
 - Settings screen inside the window (⌘,), laid out like System Settings (D158):
   the project on top (its .orbit/settings.json overrides), then groups —
-  General, Appearance, Notifications · Editor, Languages, Formatting, Source Control ·
-  Agents, MCP Servers · Keyboard Shortcuts, Extensions, Plugins; colored tiles,
-  a header card per pane, rows that open pages (Get More Agents, the theme catalog),
-  back / forward (⌘[ ⌘]), search; plugins add panes (`SettingsPane`, `SettingsForm`)
+  General, Appearance, Notifications · Editor, Files, Languages, Formatting, Source Control, Terminal ·
+  Agents, MCP Servers · Keyboard Shortcuts, Extensions; colored tiles,
+  a header card per pane, rows that open pages (an agent's page, the theme catalog),
+  back / forward (⌘[ ⌘]), search that finds single options and lights up their row (D177);
+  plugins add panes (`SettingsPane`, `SettingsForm`, `SettingsItem` + `.settingsItem`)
+- One Extensions page for everything installable (D192): agents (ACP registry), language
+  servers (Mason), themes and icons (Zed), built-in features; one search, a filter by kind,
+  Install / Update / switch / Uninstall per row; plugins add kinds with `ExtensionSource`
 - Explorer (lazy file tree)
 - Editor: STTextView, line numbers, tree-sitter highlighting, save
 - Agents over ACP: Claude Code, Codex, Cursor, Grok Build, OpenCode (D52), custom JSON agents; parallel sessions;
@@ -175,7 +182,7 @@
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
 - Output follows only from the bottom of the chat; scrolled up, what you read stays put (D121)
 - Merge conflicts in the editor (D134): Accept Current / Incoming / Both per block, Accept All, Mark as Resolved
-- Blame column beside the line numbers (D135, ⌥⌘B): author and age per commit run, click for the commit
+- Blame after the caret's line, as GitLens (D187, ⌥⌘B; replaced D135's column): author, age, summary; hover for the commit
 - History of any branch with search and a graph, ref badges (D136)
 - Task errors in Problems and as squiggles (D137): tsc, clang / Swift / Go, Rust, ESLint
 - Running tasks in the status bar with Show / Restart / Stop; monorepo packages' scripts in Run Task… (D138)
@@ -257,9 +264,9 @@ Everything below is known to be missing; nothing here is in progress.
   sqlfluff); they work only as custom commands in `.orbit/settings.json`
 - Global formatter installs for Node tools (only the repo's `node_modules`
   copy is used, on purpose); Pint and PHP CS Fixer don't use their cache
-- Rules can't be edited in Settings, only in the JSON file; the Formatting
+- Rules can't be edited in Settings, only in the JSON file (simple options can, D183); the Formatting
   section refreshes when Settings opens, not when the files change
-- `.orbit/settings.json` (D108) has no font, indentation, terminal or per-agent model options; values aren't validated (an unknown key is ignored silently)
+- `.orbit/settings.json` (D108) has no font, indentation, terminal or per-agent model options; keys are checked by the JSON server's schema (D182), not by Orbit itself
 
 **Editor**
 - Combined injections (PHP's HTML as one document, `injection.combined`):
@@ -276,6 +283,14 @@ Everything below is known to be missing; nothing here is in progress.
   merge editor; blame of a file at an older commit
 
 ## Known gaps / to verify
+- Packages (D195): unverified on a Mac (snippets in the completion list and their Tab stops, Insert Snippet…,
+  a package's page, New Extension… / New Snippet File…, the catalog's Snippets tab). No consent prompt yet
+  for downloaded packages that run programs: nothing downloadable brings one until Orbit has its own catalog.
+- Live plugin switches (D194): the test covers registries and memory; in the app unverified
+  (the sidebar / inspector / bottom panel when their panel goes, an open editor rebuilt when Source Control
+  or Languages toggles, the confirmation listing agents and tasks, Git Lens greyed under Source Control).
+- Extensions page (D192): unverified on a Mac (the segmented filter in the form,
+  rows with a page and a switch, Show All, "Get More Agents" jumping there from the Agents pane).
 - Windows (D101): unverified on a Mac (windows coming back on launch, the
   close stand-in in front of SwiftUI's window delegate, menus following the
   main window, full screen with two windows; D102's Close Folder and
@@ -415,11 +430,25 @@ Everything below is known to be missing; nothing here is in progress.
 - Source Control look (D171): checked in the preview copy (dark); light mode and conflicts not looked at.
 - Issue-navigator look (D172): Problems checked in the preview copy with TypeScript errors (folding, badge, indent); References not seen live.
 - Glass popups (D173): builds; not seen live (hover and completion can't be driven in the background) — legibility of docs over busy code unchecked.
+- Quieter details (D174): checked in the preview copy (plain output block, empty Problems, lone chat title, VoiceOver names in the accessibility tree); a code block with a language and the hover Copy not seen.
+- Shortcuts popover (D175): checked in the preview copy (list, search); recording a key from it not tried live (same recorder as Settings).
+- Menu bar layout (D176): every menu listed in the preview copy; dividers and submenus seen through the accessibility tree, not on screen.
 - Sheets (D162): the open panel checked on a Mac as a sheet; alerts (delete, discard, unsaved changes, install failures) not raised live yet.
 - Palette like Spotlight (D161): checked on a Mac (dark); the theme selector's rows and plugins' picks with long titles not looked at.
 - Welcome screen like Xcode's (D160): checked on a Mac in both modes; Return on a selected project and the context menu not tried.
 - Empty states and animations (D159): empty panels checked on a Mac; the digit rolls and the waiting hand's wiggle not seen live yet (need changing counts and a real permission prompt).
 - Settings like System Settings (D158): checked on a Mac in a preview copy (both modes, every pane, search, pages, back); not checked: a narrow window, VoiceOver, sidebar selection while the window is key.
+- Settings search by option (D177): builds; not looked at yet (sidebar results, scroll to the row, the highlight).
+- Settings → Terminal and Files (D178): builds; not looked at; shell / cursor / Option-as-Meta / scrollback not tried in a live terminal.
+- Agent pages and the Project badge (D179): builds; not looked at; per-agent mode for new chats not tried with a live agent.
+- Font family, default indentation, auto save (D180): builds, tests pass; not looked at, auto save not tried by typing.
+- Text sizes (D181): builds; not looked at, notably the interface at 15 pt in tight rows (tabs, status bar).
+- settings.json schema (D182): checked against the real JSON server (test); completion in the editor not looked at.
+- Project options from Settings (D183): the text edit is tested; the right-click not tried, notably on the agents' disabled pickers.
+- Plugins pane, Checkpoints pane (D184, D185): build; not looked at; Restart Now and a real prune not tried.
+- Automatic updates and server switches (D186): build, tests pass; a real daily update not seen yet, switches not looked at.
+- Blame after the line (D187): builds; not looked at (position, color, the hover card).
+- Line height / ligatures / bracket switch, file & line history, compare (D188, D189): build, git parts tested; nothing looked at.
 - Theme tokens (D157): unverified on a Mac (hovers a touch stronger, palette and tab-switcher rows 9 → 10, composer 16 → 18, popovers 12 → 14, leading chevrons 9 → 8 pt, the usage popover's plan badge smaller, the explorer's drop target outlined).
 - Type scale (D117): unverified on a Mac (bars over the composer, bottom panel and terminal tabs went 11.5 → 11, the model popover's rows 12.5 → 13, the palette's query 16 → 15).
 - Folded reads (D116): unverified on a Mac and with a real agent (the card's look, expanding while calls stream in).

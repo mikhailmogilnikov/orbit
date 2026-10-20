@@ -6,8 +6,10 @@ public final class GitPlugin: OrbitPlugin {
     public static let manifest = PluginManifest(
         id: "orbit.git",
         name: "Source Control",
-        summary: "Git status, staging, commits, branches, pull and push.",
-        systemImage: "arrow.triangle.branch"
+        summary: "Git status, staging, commits, branches, history, pull and push.",
+        systemImage: "arrow.triangle.branch",
+        tint: .orange,
+        tools: ["git"]
     )
 
     private var activationObserver: NSObjectProtocol?
@@ -22,14 +24,18 @@ public final class GitPlugin: OrbitPlugin {
         ui.addSettingsPane(SettingsPane(
             id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", tint: .orange, group: .code, order: 30,
             summary: "What Git shows in the editor and the status bar.",
-            keywords: ["git", "blame", "gutter", "markers", "changes", "status bar"]
+            keywords: ["git", "gutter", "markers", "changes"],
+            items: { [
+                SettingsItem("changeMarkers", "Change markers", keywords: ["gutter", "diff", "modified lines"]),
+            ] }
         ) {
             GitSettingsPane(model: model)
         })
         context.services.register(FileStatusProviding.self, model)
         context.services.register(VersionControlBaseline.self, model)
         context.services.register(ConflictResolving.self, model)
-        context.services.register(LineBlaming.self, model)
+        // Git Lens (same module, its own plugin) builds on this model (D194).
+        context.services.register(GitModel.self, model)
 
         ui.addEditorProvider(EditorProvider(
             id: "git.diff",
@@ -41,7 +47,7 @@ public final class GitPlugin: OrbitPlugin {
 
         ui.addEditorProvider(EditorProvider(
             id: "git.commit",
-            accepts: { $0.kind == GitModel.commitKind }
+            accepts: { $0.kind == GitModel.commitKind || $0.kind == GitModel.compareKind }
         ) { tab in
             GitCommitDiffView(model: model, tab: tab)
                 .id(tab.id)
@@ -52,6 +58,7 @@ public final class GitPlugin: OrbitPlugin {
         }.command("git.show"))
 
         let isReady: @MainActor () -> Bool = { model.state == .ready && !model.isBusy }
+
         context.commands.register(OrbitCommand(
             id: "git.show",
             title: "Show Source Control",
@@ -92,24 +99,10 @@ public final class GitPlugin: OrbitPlugin {
             if let latest = model.stashes.first { model.applyStash(latest, drop: true) }
         })
 
-        // The Editor plugin activates later; look its service up when drawing.
-        let services = context.services
-        registerRemoteLinks(context, model: model, isReady: isReady)
-        ui.addStatusItem(StatusItem(
-            id: "git.blame", placement: .trailing, order: 50,
-            isVisible: {
-                guard model.showsBlame, model.state == .ready, model.status.hasCommits,
-                      let cursor = services.resolve(EditorSelectionProviding.self)?.cursor else { return false }
-                return cursor.url == workspace.activeTab?.url && model.status(of: cursor.url) != .untracked
-            }
-        ) {
-            if let editor = services.resolve(EditorSelectionProviding.self) {
-                BlameStatus(model: model, editor: editor, workspace: workspace)
-            }
-        })
-
         // Status follows the folder, agent edits and anything done outside (terminal, other apps).
-        Self.observe(workspace) { model.refresh() }
+        // Weakly: the workspace keeps the observation until it next changes,
+        // long after Source Control may have been turned off (D194).
+        Self.observe(context) { [weak model] in model?.refresh() }
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { _ in
@@ -118,61 +111,24 @@ public final class GitPlugin: OrbitPlugin {
         model.refresh()
     }
 
-    /// Copy GitHub Link / Open on GitHub for the selected lines (D150).
-    private func registerRemoteLinks(_ context: PluginContext, model: GitModel, isReady: @escaping @MainActor () -> Bool) {
-        let services = context.services
-        let workspace = context.workspace
-        func target() -> (url: URL, lines: ClosedRange<Int>?)? {
-            guard let url = workspace.activeTab?.url, workspace.activeTab?.kind == EditorTab.fileKind else { return nil }
-            let editor = services.resolve(EditorSelectionProviding.self)
-            if let selection = editor?.selection, selection.url == url { return (url, selection.lines) }
-            if let cursor = editor?.cursor, cursor.url == url { return (url, (cursor.line + 1)...(cursor.line + 1)) }
-            return (url, nil)
-        }
-        func link(_ use: @escaping @MainActor (URL) -> Void) {
-            guard let target = target() else { return NSSound.beep() }
-            Task {
-                guard let url = await model.remoteLink(for: target.url, lines: target.lines) else {
-                    let alert = NSAlert()
-                    alert.messageText = "No link for this file"
-                    alert.informativeText = "The repository has no remote on a web host, or the file isn't in it."
-                    alert.runSheetModal()
-                    return
-                }
-                use(url)
-            }
-        }
-        let available: @MainActor () -> Bool = { isReady() && workspace.activeTab?.kind == EditorTab.fileKind }
-        context.commands.register(OrbitCommand(
-            id: "git.copyRemoteLink", title: "Copy GitHub Link", category: "Git", systemImage: "link",
-            isEnabled: available, editorMenu: EditorMenuPlacement(.navigate, isVisible: available)
-        ) {
-            link { url in
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(url.absoluteString, forType: .string)
-            }
-        })
-        context.commands.register(OrbitCommand(
-            id: "git.openRemote", title: "Open on GitHub", category: "Git", systemImage: "safari",
-            isEnabled: available, editorMenu: EditorMenuPlacement(.navigate, isVisible: available)
-        ) {
-            link { NSWorkspace.shared.open($0) }
-        })
-    }
-
     public func deactivate() {
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
     }
 
-    private static func observe(_ workspace: Workspace, onChange: @escaping @MainActor () -> Void) {
+    private static func observe(_ context: PluginContext, onChange: @escaping @MainActor () -> Void) {
+        observe(context.workspace, lifetime: context.lifetime, onChange: onChange)
+    }
+
+    /// The host holds `lifetime` while the plugin is on; once it's gone, so is this.
+    private static func observe(_ workspace: Workspace, lifetime: PluginLifetime, onChange: @escaping @MainActor () -> Void) {
         withObservationTracking {
             _ = workspace.root
             _ = workspace.fileSystemGeneration
-        } onChange: {
+        } onChange: { [weak workspace, weak lifetime] in
             Task { @MainActor in
-                guard !workspace.isClosed else { return }
+                guard let workspace, let lifetime, lifetime.isActive, !workspace.isClosed else { return }
                 onChange()
-                observe(workspace, onChange: onChange)
+                observe(workspace, lifetime: lifetime, onChange: onChange)
             }
         }
     }

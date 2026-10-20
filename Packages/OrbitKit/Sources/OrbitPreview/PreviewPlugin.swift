@@ -8,27 +8,22 @@ public final class PreviewPlugin: OrbitPlugin {
         id: "orbit.preview",
         name: "Preview",
         summary: "View images and PDFs, preview Markdown.",
-        systemImage: "eye"
+        systemImage: "eye",
+        tint: .mint
     )
 
     static let markdownKind = "markdown.preview"
     static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "ico", "icns", "avif"]
     static let markdownExtensions: Set<String> = ["md", "markdown", "mdx", "mdown"]
 
-    private var browser: BrowserStore?
     private let svgSource = SVGSourceMode()
 
     public init() {}
-
-    public func deactivate() {
-        browser?.closeAll()
-    }
 
     public func activate(_ context: PluginContext) {
         let workspace = context.workspace
         let services = context.services
         let commands = context.commands
-        registerBrowser(context)
 
         // Above the text editor (priority 0) for files it can't show.
         context.ui.addEditorProvider(EditorProvider(
@@ -53,7 +48,7 @@ public final class PreviewPlugin: OrbitPlugin {
                         commands.run("preview.markdown", teaching: true)
                     } label: {
                         Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            .font(.orbit(.body))
+                            .orbitFont(.body)
                             .frame(width: 22, height: 20)
                     }
                     .buttonStyle(.glass)
@@ -115,43 +110,6 @@ public final class PreviewPlugin: OrbitPlugin {
         })
         context.ui.addEditorAction(EditorAction(commandID: "preview.markdown", systemImage: "eye") { url in
             Self.previewExtensions.contains(url.pathExtension.lowercased())
-        })
-    }
-
-    /// Web pages in editor tabs, for a dev server's localhost first (D143).
-    private func registerBrowser(_ context: PluginContext) {
-        let store = BrowserStore(workspace: context.workspace)
-        browser = store
-        let services = context.services
-        context.services.register(WebPreviewing.self, store)
-        context.ui.addEditorProvider(EditorProvider(id: "preview.browser", accepts: { $0.kind == BrowserStore.kind }) { tab in
-            if let page = store.page(for: tab) {
-                BrowserView(page: page, store: store).id(tab.id)
-            }
-        })
-        let ui = context.ui
-        context.commands.register(OrbitCommand(
-            id: "preview.browser",
-            title: "Open Browser…",
-            category: "View",
-            systemImage: "globe"
-        ) {
-            let servers = services.resolve(LocalServers.self)?.localURLs ?? []
-            ui.presentQuickPick(QuickPick(id: "browser", placeholder: "Address, e.g. localhost:3000") { query in
-                var urls: [URL] = []
-                if let typed = BrowserPage.address(query) { urls.append(typed) }
-                for url in servers + store.recent + [URL(string: "http://localhost:3000")!] where !urls.contains(url) {
-                    guard query.isEmpty || url.absoluteString.localizedCaseInsensitiveContains(query) else { continue }
-                    urls.append(url)
-                }
-                return urls.map { url in
-                    QuickPickItem(
-                        id: url.absoluteString, title: AttributedString(url.absoluteString),
-                        subtitle: servers.contains(url) ? "Printed by a running task" : nil,
-                        systemImage: servers.contains(url) ? "play.circle" : "globe"
-                    ) { store.openBrowser(url) }
-                }
-            })
         })
     }
 

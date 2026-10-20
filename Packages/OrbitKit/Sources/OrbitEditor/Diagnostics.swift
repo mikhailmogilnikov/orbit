@@ -16,7 +16,7 @@ final class DiagnosticsController {
     private var tagged: [Diagnostic] = []
     /// The unnecessary code's text, for the highlighter to fade.
     var onFadedChange: ((IndexSet) -> Void)?
-    private var overlays: [NSView] = []
+    private let overlays = OverlaySet()
     private var cachedLineStarts: [Int]?
     private var isLayoutScheduled = false
 
@@ -75,7 +75,6 @@ final class DiagnosticsController {
     func textDidChange() {
         cachedLineStarts = nil
         // Old positions no longer match the text; the server sends new ones shortly.
-        for view in overlays { view.removeFromSuperview() }
         overlays.removeAll()
     }
 
@@ -132,8 +131,7 @@ final class DiagnosticsController {
 
     /// Rebuilds the squiggles in the viewport.
     private func layoutOverlays() {
-        for view in overlays { view.removeFromSuperview() }
-        overlays.removeAll()
+        defer { overlays.commit() }
         let struck = tagged.filter { $0.tags.contains(.deprecated) }
         guard let textView, !diagnostics.isEmpty || !struck.isEmpty else { return }
         let visible = textView.visibleRect.insetBy(dx: 0, dy: -200)
@@ -150,10 +148,13 @@ final class DiagnosticsController {
             let range = NSIntersectionRange(diagnostic.range.nsRange(in: starts, length: length), window)
             guard range.length > 0 else { continue }
             for rect in rects(for: range) where rect.intersects(visible) && rect.width > 0 {
-                let line = StrikeView(frame: CGRect(x: rect.minX, y: rect.midY.rounded(), width: rect.width, height: 1))
-                line.layer?.backgroundColor = colors.strike.cgColor
-                textView.addSubview(line)
-                overlays.append(line)
+                let frame = CGRect(x: rect.minX, y: rect.midY.rounded(), width: rect.width, height: 1)
+                let color = colors.strike
+                overlays.place("strike", frame, color, frame: frame, in: textView) {
+                    let line = StrikeView(frame: frame)
+                    line.layer?.backgroundColor = color.cgColor
+                    return line
+                }
             }
         }
         for diagnostic in diagnostics {
@@ -161,10 +162,13 @@ final class DiagnosticsController {
             range = NSIntersectionRange(range, NSRange(location: lower, length: max(0, upper - lower)))
             guard range.length > 0 else { continue }
             for rect in rects(for: range) where rect.intersects(visible) {
-                let squiggle = SquiggleView(frame: CGRect(x: rect.minX, y: rect.maxY - 3, width: max(rect.width, 6), height: 4))
-                squiggle.color = colors.color(for: diagnostic.severity)
-                textView.addSubview(squiggle)
-                overlays.append(squiggle)
+                let frame = CGRect(x: rect.minX, y: rect.maxY - 3, width: max(rect.width, 6), height: 4)
+                let color = colors.color(for: diagnostic.severity)
+                overlays.place("squiggle", frame, color, frame: frame, in: textView) {
+                    let squiggle = SquiggleView(frame: frame)
+                    squiggle.color = color
+                    return squiggle
+                }
             }
         }
     }
@@ -244,8 +248,7 @@ struct HoverCard: View {
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
                             Image(systemName: Self.symbol(for: diagnostic.severity))
                                 .foregroundStyle(Color(nsColor: colors.color(for: diagnostic.severity)))
-                            (Text(Self.styled(diagnostic.message))
-                                + Text(diagnostic.source.map { "  \($0)" } ?? "").foregroundStyle(.tertiary))
+                            Text("\(Text(Self.styled(diagnostic.message)))\(Text(diagnostic.source.map { "  \($0)" } ?? "").foregroundStyle(.tertiary))")
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -286,7 +289,7 @@ struct HoverCard: View {
                 Divider()
                 // What can be done with the symbol, and the keys for it (D67).
                 Text("⌘-click  definition   ·   ⇧⌘R  references   ·   ⌃⌘E  rename")
-                    .font(.orbit(.micro))
+                    .orbitFont(.micro)
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -294,7 +297,7 @@ struct HoverCard: View {
         }
         .frame(maxWidth: 540, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .font(.orbit(.body))
+        .orbitFont(.body)
     }
 
     private struct FixLabelStyle: LabelStyle {

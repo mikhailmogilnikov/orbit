@@ -90,24 +90,32 @@ struct LanguageServerConfig: Sendable, Hashable, Codable {
         swift, typescript, vue, python, rust, go, clang, lua, ruby, java, csharp, eslint, tailwind, vueLanguageServer,
     ]
 
-    /// Ours, then every server imported from nvim-lspconfig that ours don't replace (D65).
-    static let all: [LanguageServerConfig] = {
+    /// Extensions' (D195), ours, then every server imported from nvim-lspconfig that ours don't replace (D65).
+    static var all: [LanguageServerConfig] { ExtensionServers.current + builtIn }
+
+    private static let builtIn: [LanguageServerConfig] = {
         let replaced = Set(curated.compactMap(\.lspconfig))
         return curated + ImportedServers.shared.servers.filter { !replaced.contains($0.id) }
     }()
 
-    private static let byID: [String: LanguageServerConfig] = Dictionary(all.map { ($0.id, $0) }) { first, _ in first }
+    private static let byID: [String: LanguageServerConfig] = Dictionary(builtIn.map { ($0.id, $0) }) { first, _ in first }
+
+    private static func fromExtensions(serving url: URL) -> [LanguageServerConfig] {
+        ExtensionServers.current.filter { $0.serves(url) }
+    }
     private static let curatedByLSPConfig: [String: LanguageServerConfig] = Dictionary(
         curated.compactMap { config in config.lspconfig.map { ($0, config) } }
     ) { first, _ in first }
 
     private static let curatedIDs = Set(curated.map(\.id))
 
-    var isImported: Bool { !Self.curatedIDs.contains(id) }
+    var isImported: Bool { !Self.curatedIDs.contains(id) && !ExtensionServers.current.contains { $0.id == id } }
 
     /// Servers that could be the file's language server, best first: ours when
     /// one serves it, else the imported ones ranked for its extension.
     static func candidates(for url: URL) -> [LanguageServerConfig] {
+        let installed = fromExtensions(serving: url)
+        if !installed.isEmpty { return installed }
         if let ours = curated.first(where: { !$0.isCompanion && $0.serves(url) }) { return [ours] }
         let imported = ImportedServers.shared
         let ids = imported.choices.extensions[url.pathExtension.lowercased()] ?? imported.choices.fileNames[url.lastPathComponent] ?? []
@@ -126,7 +134,7 @@ struct LanguageServerConfig: Sendable, Hashable, Codable {
 
     /// Every server that could be the file's: ours, then the imported ones ranked for it.
     static func alternatives(for url: URL) -> [LanguageServerConfig] {
-        let ours = curated.filter { !$0.isCompanion && $0.serves(url) }
+        let ours = fromExtensions(serving: url) + curated.filter { !$0.isCompanion && $0.serves(url) }
         let imported = ImportedServers.shared
         let ids = imported.choices.extensions[url.pathExtension.lowercased()] ?? imported.choices.fileNames[url.lastPathComponent] ?? []
         var seen = Set<String>()
@@ -144,7 +152,7 @@ struct LanguageServerConfig: Sendable, Hashable, Codable {
     }
 
     static func config(id: String) -> LanguageServerConfig? {
-        byID[id]
+        ExtensionServers.current.first { $0.id == id } ?? byID[id]
     }
 
     // MARK: Resolving
@@ -214,7 +222,8 @@ struct LanguageServerConfig: Sendable, Hashable, Codable {
 
     /// `settings` for a server running in `root`.
     func settings(for root: URL, installer: LanguageInstaller = .shared) -> JSONValue? {
-        let own = settings.map { substitute($0, root: root, installer: installer) }
+        var own = settings.map { substitute($0, root: root, installer: installer) }
+        if id == "jsonls" { own = SettingsSchema.jsonServerSettings(merging: own) }
         guard handlesStyles, ProjectFiles.dependsOn(in: root, where: { $0 == "tailwindcss" || $0.hasPrefix("@tailwindcss/") }) else { return own }
         // Tailwind's at-rules (@apply, @reference, @theme…) aren't CSS the CSS service
         // knows; Tailwind's own server checks them. Ours first, so a project can turn it back on.

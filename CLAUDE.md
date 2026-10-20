@@ -31,7 +31,7 @@ Read before significant work:
 ## Commands
 
 ```bash
-make build   # xcodegen + xcodebuild (Debug) → .build/xcode/Build/Products/Debug/Orbit.app
+make build   # xcodegen + xcodebuild (Debug, optimized: D165) → .build/xcode/Build/Products/Debug/Orbit.app
 make run     # build, kill running Orbit, open the app
 make test    # swift test in Packages/OrbitKit
 make test-languages   # LSP client against real servers (D55); runs on Linux too
@@ -94,21 +94,28 @@ examples/extensions/      sample extensions (theme, icon theme)
 
 - One `PluginHost` per window (D101): plugin state goes in the plugin
   instance, never in a static/singleton shared by windows. A closed window
-  must free everything: an observer that re-arms itself on the workspace
-  stops once `workspace.isClosed` (`WindowLifetimeTests`).
+  must free everything, and so must a plugin turned off (D194): an observer
+  that re-arms itself stops once `context.isActive` is false (it covers
+  `workspace.isClosed`) and captures its models weakly (the workspace or
+  `Extensions.shared` keep the observation until their next change; weak
+  `context.lifetime` stops it), `deactivate()` stops processes and timers
+  (`WindowLifetimeTests`, `PluginTogglingTests`). A plugin needing another
+  says so in `requires`; a feature split out of a plugin can be a second
+  plugin in the same module, sharing its model through a service.
 - **Everything is a plugin.** New features go into a plugin using only the
   public `OrbitAPI` (panels, editor providers, status items, commands,
   services). Plugins never import each other; share functionality through a
   protocol in `OrbitAPI/Services.swift` registered in `ServiceRegistry`.
 - Commands registered via `commands.register` automatically get menu items
-  (by category: File, Code, Agents, Review, Git, Terminal; others → "Plugins"
-  menu) and palette entries. `isEnabled` is only re-checked when something
+  and palette entries. A built-in command's place (menu, section, submenu) is
+  in `App/MenuLayout.swift` (D176): add new ones there; unlisted commands go
+  to the end of the menu their category maps to, unknown categories → "Plugins". `isEnabled` is only re-checked when something
   observable it reads changes: don't gate on unobservable state (it sticks).
 - Swift 6 strict concurrency. UI/model classes are `@MainActor @Observable`;
   their `Identifiable.id` must be `nonisolated`. `OrbitACP` is nonisolated
   (state confined to a serial queue).
 - Use `Theme` tokens from OrbitUI for colors, corners and hover/selected
-  fills, `Badge` / `DisclosureChevron` (D157), and `.font(.orbit(.body))`
+  fills, `Badge` / `DisclosureChevron` (D157), and `.orbitFont(.body)`
   (`TypeScale`, D117) for UI text — no literal point sizes, radii or opacities; Liquid Glass button
   styles (`.glass`, `.glassProminent`) for actions.
 - Colors that should follow the color theme come from `Theme` (SwiftUI) or
@@ -122,6 +129,13 @@ examples/extensions/      sample extensions (theme, icon theme)
   use `commands.help(id)` ("Find References (⇧⌘R)") so it carries the
   shortcut, and link a panel to the command showing it with `.command(id)` (D67).
 - Alerts and open/save panels: `runSheetModal()`, not `runModal()` (D162).
+- A new Settings option gets a `SettingsItem` in its pane's `items` and
+  `.settingsItem(id)` on its row, so search finds it (D177).
+- Something new the user can install (a kind of extension) is an
+  `ExtensionSource` registered with `ui.addExtensionSource`, listed in
+  Settings → Extensions (D192), not a catalog page of its own.
+- A new `.orbit/settings.json` key gets a line in `SettingsSchema` (D182),
+  or the JSON server flags it as not allowed.
 - Keep comment density low; explain *why*, not *what*.
 
 ## Gotchas
@@ -156,6 +170,9 @@ examples/extensions/      sample extensions (theme, icon theme)
   gutter (`showsLineNumbers` stays off, see D24).
 - Inline diff gaps are paragraph styles in the text storage; anything that
   replaces `textView.text` must call `inlineDiff.invalidate()`.
+- Views over the text view go through `OverlaySet` (D164): removing and
+  re-adding them on each viewport layout re-dirties the layout and the
+  editor spins at 100% CPU.
 - The standalone `claude` CLI on this machine isn't logged in (author uses the
   Claude desktop app); Claude Code sessions fail until `claude` → `/login`.
   Codex is logged in. Don't use the host session's credentials for testing.

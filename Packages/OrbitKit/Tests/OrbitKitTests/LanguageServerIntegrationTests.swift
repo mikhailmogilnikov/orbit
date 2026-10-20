@@ -97,6 +97,27 @@ struct LanguageServerIntegrationTests {
         server.shutdown()
     }
 
+    /// The schema for .orbit/settings.json (D182): an unknown key is flagged
+    /// (and validation is on at all: the server checks nothing unless told to).
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.orbit/languages/json-lsp")))
+    func jsonServerChecksOrbitSettings() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-schema-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent(".orbit/settings.json")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let text = #"{ "editor": { "wordWrapp": true } }"#
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        let config = try #require(LanguageServerConfig.all.first { $0.id == "jsonls" })
+        let server = LanguageServer(config: config, root: root)
+        let started = await server.start(environment: Task { ProcessInfo.processInfo.environment })
+        try #require(started, "JSON didn't start: \(server.state)")
+        server.sync(file, text: text)
+        try await eventually(.seconds(20), "the unknown key flagged") {
+            server.diagnostics[file.standardizedFileURL]?.contains { $0.message.contains("wordWrapp") } == true
+        }
+        server.shutdown()
+    }
+
     @Test func missingServerSaysWhatToInstall() async {
         let config = LanguageServerConfig(
             id: "absent", name: "Absent", languages: ["absent": "absent"],

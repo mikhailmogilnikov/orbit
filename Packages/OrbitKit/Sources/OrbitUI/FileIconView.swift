@@ -20,6 +20,12 @@ public struct FileIconView: View {
     }
 
     public var body: some View {
+        // Always next to the file's name: VoiceOver read the symbol's name
+        // ("Plain Text Document") before it (D174).
+        icon.accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var icon: some View {
         if let image = themedImage {
             Image(nsImage: image)
                 .resizable()

@@ -555,3 +555,16 @@ import Testing
         #expect(byFormatter["Prettier"]?.warning?.contains("isn't installed") == true)
     }
 }
+
+@Suite struct SettingsSchemaTests {
+    @Test func schemaParsesAndReachesTheJSONServer() throws {
+        let schema = SettingsSchema.schema
+        // A typo in the literal would leave an empty schema, silently.
+        for section in ["editor", "agents", "mcpServers", "formatters", "languageServers", "companions", "codeActionsOnSave", "tasks"] {
+            #expect(schema["properties"]?[section] != nil, "\(section)")
+        }
+        let config = try #require(LanguageServerConfig.all.first { $0.id == "jsonls" })
+        let settings = config.settings(for: URL(fileURLWithPath: "/tmp"))
+        #expect(settings?["json"]?["schemas"]?.array?.first?["fileMatch"]?.array?.first?.string == "**/.orbit/settings.json")
+    }
+}

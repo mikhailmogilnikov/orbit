@@ -65,14 +65,15 @@ final class CompletionController: NSObject {
         snippet = snippet?.adjusted(location: location, oldLength: oldLength, newLength: length)
         // The view may not have moved its caret yet when this arrives.
         let caret = location + length
-        guard let textView, let languages = editor.languages,
+        // Snippets complete without a language server too (D195).
+        guard let textView,
               textView.undoManager?.isUndoing != true, textView.undoManager?.isRedoing != true,
               !textView.hasMarkedText() else {
             close()
             signatures.close()
             return
         }
-        let triggers = languages.triggers(for: editor.document.url)
+        let triggers = editor.languages?.triggers(for: editor.document.url) ?? LanguageTriggers()
 
         if replacement.isEmpty {
             if isActive {
@@ -149,10 +150,6 @@ final class CompletionController: NSObject {
 
     /// ⌃Space: whatever fits here, even with nothing typed.
     func invoke() {
-        guard editor.languages != nil else {
-            NSSound.beep()
-            return
-        }
         open(anchor: wordStart(before: caret) ?? caret, trigger: .invoked, at: caret)
     }
 
@@ -222,11 +219,16 @@ final class CompletionController: NSObject {
 
     /// Incomplete lists are asked again after a short pause, not on every keystroke.
     private func request(_ trigger: CompletionTrigger, at caret: Int) {
-        guard let languages = editor.languages else { return }
         requestTask?.cancel()
         requestCaret = caret
         let position = SourcePosition(offset: requestCaret, in: editor.diagnosticsController.lineStarts)
         let url = editor.document.url
+        // Snippets go with a word, not after `.` and the like.
+        let snippets = if case .character = trigger { [CompletionItem]() } else { snippetItems() }
+        guard let languages = editor.languages else {
+            if trigger != .incomplete { receive(CompletionList(items: snippets, isIncomplete: false)) }
+            return
+        }
         requestTask = Task { [weak self] in
             if trigger == .incomplete {
                 try? await Task.sleep(for: .milliseconds(40))
@@ -235,11 +237,51 @@ final class CompletionController: NSObject {
             let list = await languages.completions(at: position, in: url, trigger: trigger)
             guard !Task.isCancelled, let self, isActive else { return }
             guard let list else {
-                close()
+                if snippets.isEmpty { close() } else { receive(CompletionList(items: snippets, isIncomplete: false)) }
                 return
             }
-            receive(list)
+            receive(CompletionList(items: list.items + snippets, isIncomplete: list.isIncomplete))
         }
+    }
+
+    /// The file's snippets as suggestions, one per prefix (D195). Their
+    /// tokens are negative: no server resolves them.
+    private func snippetItems() -> [CompletionItem] {
+        let snippets = SnippetLibrary.shared.snippets(for: editor.document.url, root: editor.imageRoot)
+        var items: [CompletionItem] = []
+        for (index, snippet) in snippets.enumerated() {
+            for prefix in snippet.prefixes {
+                items.append(CompletionItem(
+                    token: -1 - index, label: prefix, kind: .snippet, detail: snippet.name,
+                    documentation: Self.snippetDocumentation(snippet),
+                    // After what the server offers for the same letters.
+                    sortText: "~" + prefix, filterText: prefix, insertText: snippet.body, isSnippet: true
+                ))
+            }
+        }
+        return items
+    }
+
+    /// Insert Snippet… (D195): over the selection, its tab stops as after completing it.
+    func insert(_ snippet: CodeSnippet) {
+        guard let textView, let text else { return }
+        close()
+        let selection = textView.textSelection
+        anchor = selection.location
+        let starts = editor.diagnosticsController.lineStarts
+        let range = SourceRange(
+            start: SourcePosition(offset: selection.location, in: starts),
+            end: SourcePosition(offset: min(NSMaxRange(selection), text.length), in: starts)
+        )
+        accept(CompletionItem(token: -1, label: snippet.name, kind: .snippet, insertText: snippet.body, isSnippet: true, range: range))
+    }
+
+    /// The description, then the code it inserts, placeholders as their defaults.
+    static func snippetDocumentation(_ snippet: CodeSnippet) -> String {
+        let code = Snippet(snippet.body).text
+        let fence = "```\n\(code)\n```"
+        let source = "*\(snippet.source)*"
+        return [snippet.description, fence, source].compactMap(\.self).joined(separator: "\n\n")
     }
 
     private func receive(_ list: CompletionList) {
@@ -325,10 +367,10 @@ final class CompletionController: NSObject {
     private func scheduleResolve() {
         resolveTask?.cancel()
         let row = panel.list.selectedRow
-        guard shown.indices.contains(row), let languages = editor.languages else { return }
+        guard shown.indices.contains(row) else { return }
         let index = shown[row]
         panel.showDetails(of: candidates[index].item)
-        guard candidates[index].item.needsResolve else { return }
+        guard candidates[index].item.needsResolve, let languages = editor.languages else { return }
         let url = editor.document.url
         let item = candidates[index].item
         resolveTask = Task { [weak self] in
@@ -367,7 +409,8 @@ final class CompletionController: NSObject {
             start = min(range.start.offset(in: starts, length: text.length), caret)
             end = max(range.end.offset(in: starts, length: text.length), caret)
         }
-        let snippet = item.isSnippet ? Snippet(item.insertText) : nil
+        let body = item.token < 0 ? reindented(item.insertText, at: start, in: text) : item.insertText
+        let snippet = item.isSnippet ? Snippet(body) : nil
         let inserted = snippet?.text ?? item.insertText
 
         isApplying = true
@@ -389,6 +432,19 @@ final class CompletionController: NSObject {
         if inserted.hasSuffix("("), editor.languages?.triggers(for: editor.document.url).signatureHelp.contains("(") == true {
             signatures.request(trigger: "(", isRetrigger: false)
         }
+    }
+
+    /// A snippet's body as this file indents (D195): its tabs are one level
+    /// each, and lines after the first start at the caret line's indentation.
+    private func reindented(_ body: String, at offset: Int, in text: NSString) -> String {
+        let line = text.lineRange(for: NSRange(location: offset, length: 0))
+        let leading = text.substring(with: line).prefix { $0 == " " || $0 == "\t" }
+        let unit = EditorIndentation.shared.indentation(for: editor.document.url)?.unit ?? "\t"
+        return body.components(separatedBy: "\n").enumerated().map { index, line in
+            let indent = line.prefix { $0 == "\t" }
+            let rest = String(repeating: unit, count: indent.count) + line.dropFirst(indent.count)
+            return index == 0 || line.isEmpty ? rest : leading + rest
+        }.joined(separator: "\n")
     }
 
     /// Auto-imports: often only known after resolving, so they may land a moment later.

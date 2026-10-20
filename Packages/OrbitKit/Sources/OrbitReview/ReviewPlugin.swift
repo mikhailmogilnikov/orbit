@@ -7,7 +7,10 @@ public final class ReviewPlugin: OrbitPlugin {
         id: "orbit.review",
         name: "Change Review",
         summary: "Review agent edits: keep or revert each change.",
-        systemImage: "checklist"
+        systemImage: "checklist",
+        tint: .green,
+        // Agents' edits are tracked and reviewed through it (D7).
+        isRequired: true
     )
 
     public init() {}
@@ -16,6 +19,19 @@ public final class ReviewPlugin: OrbitPlugin {
         let tracker = ChangeTracker(workspace: context.workspace)
         context.services.register(ChangeTracking.self, tracker)
         context.services.register(AgentIsolation.self, IsolatedCopies(workspace: context.workspace, tracker: tracker))
+        let retention = CheckpointRetention(settings: context.settings)
+        context.ui.addSettingsPane(SettingsPane(
+            id: "checkpoints", title: "Checkpoints", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90", tint: .green, group: .agents, order: 20,
+            summary: "The snapshots behind inline review and rewinding, and the disk they take.",
+            keywords: ["snapshots", "shadow git", "rewind", "disk", "storage", "clean", "isolated", "copies"],
+            items: { [
+                SettingsItem("keep", "Keep snapshots", keywords: ["retention", "delete old", "history"]),
+                SettingsItem("cleanUp", "Clean Up Now", keywords: ["disk space", "free", "prune"]),
+                SettingsItem("copies", "Isolated copies", keywords: ["disk", "worktree"]),
+            ] }
+        ) {
+            CheckpointSettingsPane(retention: retention)
+        })
 
         // The changed-files list lives above the agent chat's composer (Agents
         // plugin, through ChangeTracking): edits are reviewed where they're made.

@@ -8,10 +8,13 @@ public final class EditorPlugin: OrbitPlugin {
         id: "orbit.editor",
         name: "Code Editor",
         summary: "TextKit 2 editor with tree-sitter highlighting.",
-        systemImage: "chevron.left.forwardslash.chevron.right"
+        systemImage: "chevron.left.forwardslash.chevron.right",
+        tint: .blue,
+        isRequired: true
     )
 
     private var activationObserver: NSObjectProtocol?
+    private var autoSaver: AutoSaver?
 
     public init() {}
 
@@ -36,14 +39,33 @@ public final class EditorPlugin: OrbitPlugin {
         let services = context.services
         Task.detached(priority: .background) { GrammarStore.shared.pruneOutdated() }
         Self.prefetchGrammars(workspace, services: services)
-        let options = EditorOptions(settings: context.settings, project: workspace.settings)
+        let options = EditorOptions(settings: context.settings, workspace: workspace)
+        autoSaver = AutoSaver(workspace: workspace, options: options)
 
         context.ui.addSettingsPane(SettingsPane(
             id: "editor", title: "Editor", systemImage: "chevron.left.forwardslash.chevron.right", tint: .blue, group: .code, order: 0,
             summary: "The code font, what the editor shows beside the code, and saving.",
-            keywords: ["font", "size", "terminal", "wrap", "line", "highlight", "inlay", "hints", "types", "parameters", "blame", "sticky", "path bar", "breadcrumbs", "indent", "format on save", "thumbnails", "colors"]
+            keywords: ["font", "size", "wrap", "line", "highlight", "inlay", "hints", "types", "parameters", "blame", "sticky", "path bar", "breadcrumbs", "indent", "format on save", "thumbnails", "colors"],
+            items: { [
+                SettingsItem("fontFamily", "Font", keywords: ["font family", "typeface", "jetbrains mono", "fira code", "menlo"]),
+                SettingsItem("fontSize", "Font size", keywords: ["code font", "zoom", "points"]),
+                SettingsItem("ligatures", "Ligatures", keywords: ["fira code", "font features", "arrows"]),
+                SettingsItem("lineHeight", "Line height", keywords: ["line spacing", "leading"]),
+                SettingsItem(EditorOptions.Option.autoClose.rawValue, "Close brackets and quotes", keywords: ["auto close", "autoclose", "pairs", "brackets"]),
+                SettingsItem("indentation", "Indentation", keywords: ["tabs", "spaces", "tab size", "indent width"]),
+                SettingsItem("autoSave", "Auto save", keywords: ["autosave", "save automatically", "focus"]),
+                SettingsItem(EditorOptions.Option.wordWrap.rawValue, "Wrap long lines", keywords: ["word wrap", "soft wrap"]),
+                SettingsItem(EditorOptions.Option.highlightCurrentLine.rawValue, "Highlight the current line", keywords: ["caret", "cursor line"]),
+                SettingsItem(EditorOptions.Option.indentGuides.rawValue, "Indent guides", keywords: ["indentation"]),
+                SettingsItem(EditorOptions.Option.blame.rawValue, "Blame", keywords: ["git", "gitlens", "author", "annotate", "who changed", "inline blame"]),
+                SettingsItem(EditorOptions.Option.imageThumbnails.rawValue, "Images and colors", keywords: ["thumbnails", "swatches", "color preview"]),
+                SettingsItem(EditorOptions.Option.inlayHints.rawValue, "Inlay hints", keywords: ["types", "parameter names"]),
+                SettingsItem(EditorOptions.Option.stickyScroll.rawValue, "Sticky scroll", keywords: ["pinned", "scope"]),
+                SettingsItem(EditorOptions.Option.pathBar.rawValue, "Path bar", keywords: ["breadcrumbs", "jump bar"]),
+                SettingsItem(EditorOptions.Option.formatOnSave.rawValue, "Format on save", keywords: ["formatter", "prettier"]),
+            ] }
         ) {
-            EditorSettingsPane(options: options)
+            EditorSettingsPane(options: options, hasBlame: { services.resolve(LineBlaming.self) != nil })
         })
 
         context.ui.addEditorProvider(EditorProvider(
@@ -51,21 +73,37 @@ public final class EditorPlugin: OrbitPlugin {
             priority: 0,
             accepts: { $0.kind == EditorTab.fileKind && $0.url != nil }
         ) { tab in
+            let changes = services.resolve(ChangeTracking.self)
+            let reviewComments = services.resolve(ReviewComments.self)
+            let fileStatus = services.resolve(FileStatusProviding.self)
+            let conflictResolver = services.resolve(ConflictResolving.self)
+            let blameProvider = services.resolve(LineBlaming.self)
+            let versionControl = services.resolve(VersionControlBaseline.self)
+            let languages = services.resolve(LanguageIntelligence.self)
+            // The editor wires its services up once; a plugin turned on or off
+            // (Source Control, Languages, D194) makes a new one, so nothing
+            // calls into a plugin that's gone.
+            let wiring: [ObjectIdentifier?] = [
+                changes.map { ObjectIdentifier($0) }, reviewComments.map { ObjectIdentifier($0) },
+                fileStatus.map { ObjectIdentifier($0) }, conflictResolver.map { ObjectIdentifier($0) },
+                blameProvider.map { ObjectIdentifier($0) }, versionControl.map { ObjectIdentifier($0) },
+                languages.map { ObjectIdentifier($0) },
+            ]
             FileEditorView(
                 document: workspace.documents.document(for: tab.url!),
                 workspace: workspace,
-                changes: services.resolve(ChangeTracking.self),
-                reviewComments: services.resolve(ReviewComments.self),
-                fileStatus: services.resolve(FileStatusProviding.self),
-                conflictResolver: services.resolve(ConflictResolving.self),
-                blameProvider: services.resolve(LineBlaming.self),
-                versionControl: services.resolve(VersionControlBaseline.self),
-                languages: services.resolve(LanguageIntelligence.self),
+                changes: changes,
+                reviewComments: reviewComments,
+                fileStatus: fileStatus,
+                conflictResolver: conflictResolver,
+                blameProvider: blameProvider,
+                versionControl: versionControl,
+                languages: languages,
                 options: options,
                 ui: context.ui,
                 commands: context.commands
             )
-            .id(tab.id)
+            .id(EditorWiring(tab: tab.id, services: wiring))
         })
 
         context.commands.register(OrbitCommand(
@@ -418,6 +456,42 @@ public final class EditorPlugin: OrbitPlugin {
             guard let (hunk, url, tracker) = currentHunk() else { return }
             tracker.revert(hunk, in: url)
         })
+        // The file's snippets by name (D195); typing a prefix offers them as completions too.
+        context.commands.register(OrbitCommand(
+            id: "editor.insertSnippet",
+            title: "Insert Snippet…",
+            category: "Code",
+            systemImage: "text.badge.plus",
+            isEnabled: { ActiveEditor.shared.coordinator != nil }
+        ) {
+            guard let coordinator = ActiveEditor.shared.coordinator else { return }
+            let snippets = SnippetLibrary.shared.snippets(for: coordinator.document.url, root: workspace.root)
+            let ui = context.ui
+            ui.presentQuickPick(QuickPick(id: "snippets", placeholder: "Insert a snippet") { query in
+                guard !snippets.isEmpty else {
+                    return [QuickPickItem(
+                        id: "none", title: AttributedString("No snippets for this file yet"),
+                        subtitle: "Add a .json file to ~/.orbit/snippets, or install some in Settings → Extensions",
+                        systemImage: "folder"
+                    ) { NSWorkspace.shared.open(SnippetLibrary.userDirectory) }]
+                }
+                let matched: [(snippet: CodeSnippet, match: FuzzyMatch.Result)] = snippets.compactMap { snippet in
+                    if let match = FuzzyMatch.match(query, in: snippet.name) { return (snippet, match) }
+                    let prefix = snippet.prefixes.lazy.compactMap { FuzzyMatch.match(query, in: $0) }.first
+                    return prefix.map { (snippet, FuzzyMatch.Result(score: $0.score - 5, positions: [])) }
+                }
+                let ordered = query.isEmpty ? matched : matched.sorted { $0.match.score > $1.match.score }
+                return ordered.map { entry in
+                    QuickPickItem(
+                        id: entry.snippet.id,
+                        title: FuzzyMatch.highlighted(entry.snippet.name, positions: entry.match.positions),
+                        subtitle: entry.snippet.description ?? entry.snippet.prefixes.joined(separator: ", "),
+                        systemImage: "text.badge.plus",
+                        trailing: entry.snippet.source
+                    ) { coordinator.completion.insert(entry.snippet) }
+                }
+            })
+        })
         context.commands.register(OrbitCommand(
             id: "editor.toggleBlame",
             title: "Toggle Blame",
@@ -516,7 +590,17 @@ public final class EditorPlugin: OrbitPlugin {
 
     public func deactivate() {
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+        autoSaver = nil
     }
+}
+
+/// A text tab's view identity: the tab and the services it was wired to.
+private struct EditorWiring: Hashable {
+    let tab: EditorTab.ID
+    let services: [ObjectIdentifier?]
+}
+
+extension EditorPlugin {
 
     /// Formats first when that's on and the server can; a slow server doesn't hold the save up.
     static func formatThenSave(_ document: TextDocument, options: EditorOptions, languages: LanguageIntelligence?, quietly: Bool = false) {
@@ -646,8 +730,12 @@ struct FileEditorView: View {
                     blame: options.showsBlame && !limited ? blameProvider : nil,
                     blameGeneration: versionControl?.baselineGeneration ?? 0,
                     fontSize: Preferences.shared.codeFontSize,
+                    fontFamily: Preferences.shared.codeFontFamily,
+                    ligatures: Preferences.shared.codeLigatures,
+                    lineHeight: Preferences.shared.codeLineHeight,
                     wrapsLines: options.wrapsLines || (limited && document.largeFile?.wantsWrapping == true),
                     highlightsCurrentLine: options.highlightsCurrentLine,
+                    closesBrackets: options[.autoClose],
                     diagnostics: languages?.diagnostics(for: url) ?? [],
                     languages: languages,
                     showsInlayHints: options.showsInlayHints && !limited,
@@ -699,9 +787,9 @@ struct LargeFileBanner: View {
             Image(systemName: "gauge.with.dots.needle.67percent")
                 .foregroundStyle(.secondary)
             Text(largeFile.summary)
-                .font(.orbit(.body, weight: .medium))
+                .orbitFont(.body, weight: .medium)
             Text("Highlighting, the language server and git markers are off to keep typing fast.")
-                .font(.orbit(.body))
+                .orbitFont(.body)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -730,14 +818,14 @@ struct LanguageInstallBanner: View {
                 .foregroundStyle(offer.failure == nil ? Theme.accent : .orange)
             if offer.isInstalling {
                 Text("Installing \(offer.name) support…")
-                    .font(.orbit(.body, weight: .medium))
+                    .orbitFont(.body, weight: .medium)
                 ProgressView().controlSize(.small)
                 Spacer()
             } else if let failure = offer.failure {
                 Text("Couldn't install \(offer.name) support")
-                    .font(.orbit(.body, weight: .medium))
+                    .orbitFont(.body, weight: .medium)
                 Text(failure)
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -749,9 +837,9 @@ struct LanguageInstallBanner: View {
                     .buttonStyle(.glassProminent)
             } else {
                 Text("\(offer.name) support isn't installed")
-                    .font(.orbit(.body, weight: .medium))
+                    .orbitFont(.body, weight: .medium)
                 Text(details)
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -789,7 +877,7 @@ struct AgentChangesBanner: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(.tint)
             Text("\(hunks.count) agent change\(hunks.count == 1 ? "" : "s")")
-                .font(.orbit(.body, weight: .medium))
+                .orbitFont(.body, weight: .medium)
             DiffStatBadge(added: added, removed: removed)
             HStack(spacing: 0) {
                 IconButton("chevron.up", help: "Previous change (⌥⌘↑)") {
@@ -825,7 +913,7 @@ struct EditorActionButtons: View {
                     commands.run(action.commandID, teaching: true)
                 } label: {
                     Image(systemName: action.systemImage)
-                        .font(.orbit(.body))
+                        .orbitFont(.body)
                         .frame(width: 22, height: 20)
                         .contentShape(.rect)
                 }

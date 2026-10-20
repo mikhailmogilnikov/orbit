@@ -20,13 +20,20 @@ struct CodeEditor: NSViewRepresentable {
     var onRevealHandled: () -> Void = {}
     /// Git's copy of the file; the gutter marks lines that differ from it.
     var gitBaseline: String?
-    /// The blame column's source (D135); nil hides the column.
+    /// Blame for the caret's line, after its end (D187); nil hides it.
     var blame: LineBlaming?
     /// Bumped by git when commits change: blame again.
     var blameGeneration = 0
     var fontSize = Preferences.defaultCodeFontSize
+    /// nil: SF Mono (D180).
+    var fontFamily: String?
+    var ligatures = true
+    /// A multiple of the font's line height (D188).
+    var lineHeight = 1.0
     var wrapsLines = false
     var highlightsCurrentLine = true
+    /// Typing an opening bracket or quote adds its partner (D73, D188).
+    var closesBrackets = true
     /// From the language server (D54); hover, ⌘-click and the squiggles use them.
     var diagnostics: [Diagnostic] = []
     var languages: LanguageIntelligence?
@@ -67,7 +74,9 @@ struct CodeEditor: NSViewRepresentable {
         scrollView.drawsBackground = false
         let textView: STTextView = OrbitTextView()
         scrollView.documentView = textView
-        textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        textView.font = Preferences.codeFont(family: fontFamily, size: fontSize, ligatures: ligatures)
+        context.coordinator.fontKey = "\(fontFamily ?? "")|\(fontSize)|\(ligatures)"
+        Self.apply(lineHeight: lineHeight, to: textView)
         // Our own ruler instead of STTextView's gutter (see LineNumberRuler).
         textView.showsLineNumbers = false
         textView.highlightSelectedLine = highlightsCurrentLine
@@ -102,6 +111,8 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.indentGuides.isEnabled = showsIndentGuides
         textView.addPlugin(IndentGuidesPlugin(controller: coordinator.indentGuides))
         textView.addPlugin(BracketMatchPlugin(controller: coordinator.bracketMatch))
+        coordinator.inlineBlame.textView = textView
+        textView.addPlugin(InlineBlamePlugin(controller: coordinator.inlineBlame))
         coordinator.inlayHints.textView = textView
         coordinator.inlayHints.url = document.url
         textView.addPlugin(InlayHintPlugin(controller: coordinator.inlayHints))
@@ -189,8 +200,10 @@ struct CodeEditor: NSViewRepresentable {
             }
         }
 
-        if textView.font.pointSize != fontSize {
-            textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let fontKey = "\(fontFamily ?? "")|\(fontSize)|\(ligatures)"
+        if coordinator.fontKey != fontKey || Self.apply(lineHeight: lineHeight, to: textView) {
+            coordinator.fontKey = fontKey
+            textView.font = Preferences.codeFont(family: fontFamily, size: fontSize, ligatures: ligatures)
             coordinator.inlineDiff.invalidate()
             coordinator.palette.onChange?()
             coordinator.inlayHints.fontDidChange()
@@ -201,6 +214,7 @@ struct CodeEditor: NSViewRepresentable {
         }
         if textView.isHorizontallyResizable == wrapsLines { textView.isHorizontallyResizable = !wrapsLines }
         if textView.highlightSelectedLine != highlightsCurrentLine { textView.highlightSelectedLine = highlightsCurrentLine }
+        (textView as? OrbitTextView)?.closesBrackets = closesBrackets
         coordinator.updateGrammar(revision: highlights ? grammarRevision : -1, in: textView)
         coordinator.setGitBaseline(gitBaseline)
         coordinator.imageRoot = workspaceRoot
@@ -274,9 +288,22 @@ struct CodeEditor: NSViewRepresentable {
         OpenEditors.shared.unregister(coordinator)
     }
 
+    /// Sets the paragraph style's line height; true when it changed. The inline
+    /// diff's gaps and the tab stops copy this style, so they follow (D188).
+    @discardableResult
+    static func apply(lineHeight: Double, to textView: STTextView) -> Bool {
+        guard textView.defaultParagraphStyle.lineHeightMultiple != lineHeight else { return false }
+        let style = textView.defaultParagraphStyle.mutableCopy() as! NSMutableParagraphStyle
+        style.lineHeightMultiple = lineHeight
+        textView.defaultParagraphStyle = style
+        return true
+    }
+
     @MainActor
     final class Coordinator: NSObject, @preconcurrency STTextViewDelegate {
         let document: TextDocument
+        /// The font last set: family, size, ligatures (a font's name doesn't change with its features).
+        var fontKey = ""
         var focusRequest: Int?
         let inlineDiff = InlineDiffController()
         /// ⌘K's instruction popover (D127).
@@ -284,32 +311,32 @@ struct CodeEditor: NSViewRepresentable {
         private var blameKey: (revision: Int, generation: Int)?
         private var blameTask: Task<Void, Never>?
 
-        /// Blames the text after a pause in typing; nil hides the column.
+        /// Blames the text after a pause in typing; nil hides it.
         func updateBlame(_ provider: LineBlaming?, generation: Int) {
-            guard let ruler else { return }
             guard let provider else {
                 blameTask?.cancel()
                 blameKey = nil
-                ruler.blame = nil
+                if inlineBlame.lines != nil { inlineBlame.lines = nil }
                 return
             }
             let key = (document.revision, generation)
             guard blameKey.map({ $0 != key }) ?? true else { return }
             blameKey = key
             let url = document.url
-            ruler.onBlameClick = { [weak provider] line in provider?.showCommit(line.hash, file: url) }
+            inlineBlame.showCommit = { [weak provider] hash in provider?.showCommit(hash, file: url) }
             blameTask?.cancel()
-            blameTask = Task { [weak self, weak ruler] in
-                if ruler?.blame != nil { try? await Task.sleep(for: .milliseconds(400)) }
+            blameTask = Task { [weak self] in
+                if self?.inlineBlame.lines != nil { try? await Task.sleep(for: .milliseconds(400)) }
                 guard !Task.isCancelled, let self else { return }
                 let lines = await provider.blame(url, contents: document.text)
                 guard !Task.isCancelled else { return }
-                ruler?.blame = lines ?? []
+                inlineBlame.lines = lines ?? []
             }
         }
         let diagnosticsController = DiagnosticsController()
         lazy var symbolHighlights = SymbolHighlightController(geometry: diagnosticsController)
         lazy var bracketMatch = BracketMatchController(geometry: diagnosticsController)
+        lazy var inlineBlame = InlineBlameController(geometry: diagnosticsController)
         let indentGuides = IndentGuidesController()
         lazy var definitionLink = DefinitionLinkController(geometry: diagnosticsController)
         lazy var inlayHints = InlayHintController(geometry: diagnosticsController)
@@ -396,6 +423,7 @@ struct CodeEditor: NSViewRepresentable {
                 write: theme.symbolHighlightWrite?.nsColor ?? ink.withAlphaComponent(isDark ? 0.17 : 0.12)
             )
             bracketMatch.color = foreground.withAlphaComponent(isDark ? 0.5 : 0.4)
+            inlineBlame.color = theme.hint?.nsColor ?? foreground.withAlphaComponent(isDark ? 0.38 : 0.42)
             indentGuides.color = theme.indentGuide?.nsColor ?? ink.withAlphaComponent(isDark ? 0.12 : 0.1)
             inlayHints.colors = InlayHintController.Colors(
                 text: theme.hint?.nsColor ?? ink.withAlphaComponent(0.5),
@@ -480,6 +508,7 @@ struct CodeEditor: NSViewRepresentable {
             diagnosticsController.textDidChange()
             updateOverview()
             symbolHighlights.textDidChange()
+            inlineBlame.textDidChange()
             definitionLink.clear()
             closeHover()
             let edit = pendingEdit
@@ -575,6 +604,7 @@ struct CodeEditor: NSViewRepresentable {
             closeHover()
             if let textView { symbolHighlights.caretMoved(to: textView.textSelection) }
             bracketMatch.caretMoved()
+            inlineBlame.caretMoved()
             folding.revealCaret()
             ActiveEditor.shared.coordinator = self
             ruler?.needsDisplay = true
@@ -691,7 +721,13 @@ struct CodeEditor: NSViewRepresentable {
         }
 
         private func showHover(at point: NSPoint) async {
-            guard let textView, let offset = characterOffset(at: point) else { return }
+            if let rect = inlineBlame.frame, rect.insetBy(dx: -2, dy: 0).contains(point), let line = inlineBlame.shown {
+                return presentHover(BlameCard(line: line) { [weak self] in
+                    self?.closeHover()
+                    self?.inlineBlame.showCommit(line.hash)
+                }, over: rect)
+            }
+            guard textView != nil, let offset = characterOffset(at: point) else { return }
             let controller = diagnosticsController
             let problems = controller.diagnostics(at: offset)
             let position = SourcePosition(offset: offset, in: controller.lineStarts)
@@ -733,7 +769,12 @@ struct CodeEditor: NSViewRepresentable {
                     await StaticHighlighter().highlight(code, language: language, fallback: url)
                 }
             )
-            guard let window = textView.window, let scrollView = textView.enclosingScrollView else { return }
+            presentHover(card, over: rect)
+        }
+
+        /// The hover card over `rect` (text-view coordinates), kept while the pointer is on its way to it.
+        private func presentHover(_ card: some View, over rect: CGRect) {
+            guard let textView, let window = textView.window, let scrollView = textView.enclosingScrollView else { return }
             let onScreen = window.convertToScreen(textView.convert(rect, to: nil))
             let visible = window.convertToScreen(scrollView.convert(scrollView.bounds, to: nil))
             closeHover()
@@ -855,6 +896,7 @@ final class OrbitTextView: STTextView {
     var onModifiersChanged: ((NSEvent.ModifierFlags) -> Void)?
     /// The file's language: comments and bracket pairs (D73).
     var syntaxLanguage: SyntaxLanguage?
+    var closesBrackets = true
     var indentation = Indentation(size: 4, spaces: true)
     /// An image pasted into Markdown (D152): saved beside the file, the text to insert instead.
     var onPasteImage: ((NSPasteboard) -> String?)?
@@ -870,7 +912,7 @@ final class OrbitTextView: STTextView {
 
     /// Typing (no replacement range; marked text from an input method passes through).
     override func insertText(_ string: Any, replacementRange: NSRange) {
-        if replacementRange.location == NSNotFound, !hasMarkedText(), !hasMultipleSelections, let language = syntaxLanguage,
+        if closesBrackets, replacementRange.location == NSNotFound, !hasMarkedText(), !hasMultipleSelections, let language = syntaxLanguage,
            let typed = (string as? String) ?? (string as? NSAttributedString)?.string, typed.count == 1,
            EditingRules.type(typed, in: self, language: language) {
             return
@@ -899,7 +941,7 @@ final class OrbitTextView: STTextView {
     override func deleteBackward(_ sender: Any?) {
         guard !hasMultipleSelections else { return super.deleteBackward(sender) }
         if IndentEditing.deleteBackward(in: self, indentation: indentation) { return }
-        if let language = syntaxLanguage, EditingRules.deleteBackward(in: self, language: language) { return }
+        if closesBrackets, let language = syntaxLanguage, EditingRules.deleteBackward(in: self, language: language) { return }
         super.deleteBackward(sender)
     }
 

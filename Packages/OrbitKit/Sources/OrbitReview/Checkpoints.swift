@@ -14,9 +14,12 @@ struct Checkpoints: Sendable {
     init(root: URL) {
         self.root = root
         let digest = SHA256.hash(data: Data(root.path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        gitDir = support.appendingPathComponent("Orbit/checkpoints/\(digest)", isDirectory: true)
+        gitDir = Self.storage.appendingPathComponent(digest, isDirectory: true)
     }
+
+    /// Every project's shadow repository, one folder each.
+    static let storage = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Orbit/checkpoints", isDirectory: true)
 
     struct Change: Sendable {
         var url: URL

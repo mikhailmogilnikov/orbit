@@ -97,7 +97,7 @@ struct AgentActivityStatus: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .font(.orbit(.micro))
+            .orbitFont(.micro)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -116,13 +116,13 @@ struct AgentsOverview: View {
         let chats = AgentDirectory.shared.chats
         VStack(alignment: .leading, spacing: 0) {
             Text("Agents")
-                .font(.orbit(.control, weight: .semibold))
+                .orbitFont(.control, weight: .semibold)
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
                 .padding(.bottom, 6)
             if chats.isEmpty {
                 Text("No chats yet in any window.")
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
@@ -161,17 +161,17 @@ private struct AgentOverviewRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(session.title)
-                        .font(.orbit(.body, weight: .medium))
+                        .orbitFont(.body, weight: .medium)
                         .lineLimit(1)
                     if showsProject {
                         Text(session.project.lastPathComponent)
-                            .font(.orbit(.caption))
+                            .orbitFont(.caption)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }
                 }
                 status(activity)
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                     .lineLimit(2)
                 if case .waiting(let request) = activity {
                     HStack(spacing: 6) {

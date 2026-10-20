@@ -17,7 +17,7 @@ struct UsageButton: View {
                     .frame(width: 13, height: 13)
                 if usage.hasContext, usage.contextFraction >= 0.5 {
                     Text(UsageFormat.percent(usage.contextFraction))
-                        .font(.orbit(.caption, weight: .medium))
+                        .orbitFont(.caption, weight: .medium)
                         .monospacedDigit()
                         .foregroundStyle(UsageTint.color(for: usage.contextFraction))
                 }
@@ -141,7 +141,7 @@ private struct UsagePopover: View {
         HStack(spacing: 7) {
             AgentIcon(provider: session.provider, size: 14)
             Text(model.map { "\(session.provider.name) · \($0)" } ?? session.provider.name)
-                .font(.orbit(.body, weight: .semibold))
+                .orbitFont(.body, weight: .semibold)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 6)
@@ -160,15 +160,15 @@ private struct UsagePopover: View {
                 ZStack {
                     UsageRing(fraction: usage.contextFraction, tint: usage.contextFraction < 0.75 ? .accentColor : tint, lineWidth: 5)
                     Text(UsageFormat.percent(usage.contextFraction))
-                        .font(.orbit(.caption, weight: .semibold))
+                        .orbitFont(.caption, weight: .semibold)
                         .monospacedDigit()
                 }
                 .frame(width: 52, height: 52)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(UsageFormat.tokens(used)) of \(UsageFormat.tokens(size)) tokens")
-                        .font(.orbit(.body))
+                        .orbitFont(.body)
                     Text("\(UsageFormat.tokens(max(0, size - used))) left")
-                        .font(.orbit(.caption))
+                        .orbitFont(.caption)
                         .foregroundStyle(usage.contextFraction >= 0.75 ? AnyShapeStyle(tint) : AnyShapeStyle(.secondary))
                     if session.offers(command: "compact") {
                         Button("Compact", systemImage: "arrow.down.right.and.arrow.up.left") {
@@ -195,7 +195,7 @@ private struct UsagePopover: View {
             Spacer(minLength: 8)
             if let updated = usage.limitsUpdatedAt {
                 Text("Updated \(Text(updated, format: .relative(presentation: .named)))")
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                     .foregroundStyle(.tertiary)
                     .help(updated.formatted(date: .abbreviated, time: .shortened))
             }
@@ -239,7 +239,7 @@ private struct UsagePopover: View {
                 gridRow("Turns", "\(usage.turns)")
             }
         }
-        .font(.orbit(.body))
+        .orbitFont(.body)
     }
 
     private func gridRow(_ title: String, _ value: String) -> some View {
@@ -251,7 +251,7 @@ private struct UsagePopover: View {
 
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.orbit(.caption, weight: .semibold))
+            .orbitFont(.caption, weight: .semibold)
             .foregroundStyle(.secondary)
             .padding(.bottom, 8)
     }
@@ -262,12 +262,12 @@ private struct UsagePopover: View {
             Spacer(minLength: 8)
             Text(value).monospacedDigit()
         }
-        .font(.orbit(.body))
+        .orbitFont(.body)
     }
 
     private func placeholder(_ text: String) -> some View {
         Text(text)
-            .font(.orbit(.caption))
+            .orbitFont(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -292,7 +292,7 @@ private struct LimitRow: View {
                         .foregroundStyle(tint == .secondary ? AnyShapeStyle(.secondary) : AnyShapeStyle(tint))
                 }
             }
-            .font(.orbit(.body))
+            .orbitFont(.body)
             if let used {
                 UsageBar(fraction: used, tint: tint == .secondary ? .accentColor : tint)
             }
@@ -306,7 +306,7 @@ private struct LimitRow: View {
                     Text(note).foregroundStyle(.orange)
                 }
             }
-            .font(.orbit(.caption))
+            .orbitFont(.caption)
             .foregroundStyle(.secondary)
         }
     }

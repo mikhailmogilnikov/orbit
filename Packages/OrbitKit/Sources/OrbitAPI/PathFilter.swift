@@ -1,20 +1,20 @@
 import Foundation
 
-/// "Files to include / exclude" in Find in Project: comma-separated globs,
-/// VS Code style. `*.swift` matches at any depth, a folder name matches
+/// "Files to include / exclude" in Find in Project, and the files Settings →
+/// Files hides everywhere (D178): comma-separated globs, VS Code style. `*.swift` matches at any depth, a folder name matches
 /// everything inside it, and a leading `/` anchors at the project root.
-struct PathFilter: Sendable {
+public struct PathFilter: Sendable {
     private let includes: [NSRegularExpression]
     private let excludes: [NSRegularExpression]
 
-    init(include: String = "", exclude: String = "") {
+    public init(include: String = "", exclude: String = "") {
         includes = Self.compile(include)
         excludes = Self.compile(exclude)
     }
 
-    var isEmpty: Bool { includes.isEmpty && excludes.isEmpty }
+    public var isEmpty: Bool { includes.isEmpty && excludes.isEmpty }
 
-    func allows(_ path: String) -> Bool {
+    public func allows(_ path: String) -> Bool {
         if !includes.isEmpty, !includes.contains(where: { Self.matches($0, path) }) { return false }
         return !excludes.contains { Self.matches($0, path) }
     }
@@ -34,7 +34,7 @@ struct PathFilter: Sendable {
     }
 
     /// Splits on commas outside `{…}`, so `*.{h,m}` stays one pattern.
-    static func split(_ list: String) -> [String] {
+    public static func split(_ list: String) -> [String] {
         var parts: [String] = []
         var current = ""
         var depth = 0

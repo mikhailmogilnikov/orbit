@@ -25,10 +25,10 @@ struct SessionOptionsButton: View {
                     ProgressView().controlSize(.mini)
                 }
                 Image(systemName: "chevron.down")
-                    .font(.orbit(.glyph, weight: .bold))
+                    .orbitFont(.glyph, weight: .bold)
                     .foregroundStyle(.tertiary)
             }
-            .font(.orbit(.caption, weight: .medium))
+            .orbitFont(.caption, weight: .medium)
             .lineLimit(1)
             .padding(.horizontal, 8)
             .frame(height: 24)
@@ -115,7 +115,7 @@ struct SessionOptionsPopover: View {
                     Text("Starting \(session.provider.name)…")
                         .foregroundStyle(.secondary)
                 }
-                .font(.orbit(.control))
+                .orbitFont(.control)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
             }
@@ -178,18 +178,18 @@ private struct ModelsPage: View {
             HStack(spacing: 6) {
                 Button(action: back) {
                     Image(systemName: "chevron.left")
-                        .font(.orbit(.caption, weight: .semibold))
+                        .orbitFont(.caption, weight: .semibold)
                         .frame(width: 20, height: 20)
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 Image(systemName: "magnifyingglass")
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                     .foregroundStyle(.tertiary)
                 TextField("Search models", text: $query)
                     .textFieldStyle(.plain)
-                    .font(.orbit(.control))
+                    .orbitFont(.control)
                     .focused($isSearchFocused)
                     .onSubmit(pickFirst)
             }
@@ -203,7 +203,7 @@ private struct ModelsPage: View {
                     }
                     if groups.isEmpty {
                         Text("No models match “\(query)”")
-                            .font(.orbit(.control))
+                            .orbitFont(.control)
                             .foregroundStyle(.secondary)
                             .padding(8)
                     }
@@ -222,7 +222,7 @@ private struct ModelsPage: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .font(.orbit(.caption, weight: .semibold))
+        .orbitFont(.caption, weight: .semibold)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 8)
         .padding(.top, group.id == groups.first?.id ? 2 : 10)
@@ -290,11 +290,11 @@ private struct PageHeader: View {
             Button(action: back) {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left")
-                        .font(.orbit(.caption, weight: .semibold))
+                        .orbitFont(.caption, weight: .semibold)
                         .foregroundStyle(.secondary)
                         .frame(width: 20)
                     Text(title)
-                        .font(.orbit(.control, weight: .semibold))
+                        .orbitFont(.control, weight: .semibold)
                     Spacer()
                 }
                 .padding(.horizontal, 4)
@@ -333,11 +333,11 @@ private struct ToggleRow: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: icon)
-                .font(.orbit(.body))
+                .orbitFont(.body)
                 .foregroundStyle(.secondary)
                 .frame(width: 18)
             Text(title)
-                .font(.orbit(.control))
+                .orbitFont(.control)
                 .lineLimit(1)
             Spacer(minLength: 8)
             Toggle(title, isOn: $isOn)
@@ -375,17 +375,17 @@ struct OptionsRow: View {
                         .frame(width: 18)
                 } else if let icon {
                     Image(systemName: icon)
-                        .font(.orbit(.body))
+                        .orbitFont(.body)
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(.orbit(.control))
+                        .orbitFont(.control)
                         .lineLimit(1)
                     if let detail, !detail.isEmpty {
                         Text(detail)
-                            .font(.orbit(.caption))
+                            .orbitFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                     }
@@ -393,7 +393,7 @@ struct OptionsRow: View {
                 Spacer(minLength: 8)
                 if let value {
                     Text(value)
-                        .font(.orbit(.control))
+                        .orbitFont(.control)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -402,11 +402,11 @@ struct OptionsRow: View {
                     EmptyView()
                 case .check:
                     Image(systemName: "checkmark")
-                        .font(.orbit(.caption, weight: .semibold))
+                        .orbitFont(.caption, weight: .semibold)
                         .foregroundStyle(.tint)
                 case .chevron:
                     Image(systemName: "chevron.right")
-                        .font(.orbit(.micro, weight: .semibold))
+                        .orbitFont(.micro, weight: .semibold)
                         .foregroundStyle(.tertiary)
                 }
             }

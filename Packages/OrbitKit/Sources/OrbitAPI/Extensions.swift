@@ -15,6 +15,10 @@ public struct ExtensionManifest: Codable, Sendable, Hashable {
     public var themes: [String]?
     /// Icon-theme files; `icon_themes/*.json` when omitted.
     public var iconThemes: [String]?
+    /// Snippet files; everything in `snippets/` when omitted (D195). Zed's
+    /// `extension.toml` lists them as `snippets = "./snippets/rust.json"`.
+    /// Agents (`agents/*.json`), `language_servers.json` and `tasks.json` are found by name.
+    public var snippets: [String]?
 
     public init(id: String, name: String, version: String) {
         self.id = id
@@ -26,6 +30,7 @@ public struct ExtensionManifest: Codable, Sendable, Hashable {
     static func fromZedTOML(_ text: String) -> ExtensionManifest? {
         var values: [String: String] = [:]
         var authors: [String] = []
+        var snippets: [String] = []
         for line in text.split(whereSeparator: \.isNewline) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("[") { break }
@@ -34,13 +39,20 @@ public struct ExtensionManifest: Codable, Sendable, Hashable {
             let value = trimmed[trimmed.index(after: equals)...].trimmingCharacters(in: .whitespaces)
             let strings = value.split(separator: "\"", omittingEmptySubsequences: false).enumerated()
                 .filter { $0.offset % 2 == 1 }.map { String($0.element) }
-            if key == "authors" { authors = strings } else if let first = strings.first { values[key] = first }
+            if key == "authors" {
+                authors = strings
+            } else if key == "snippets" {
+                snippets = strings
+            } else if let first = strings.first {
+                values[key] = first
+            }
         }
         guard let id = values["id"], let name = values["name"] else { return nil }
         var manifest = ExtensionManifest(id: id, name: name, version: values["version"] ?? "0.0.0")
         manifest.description = values["description"]
         manifest.repository = values["repository"]
         manifest.authors = authors.isEmpty ? nil : authors
+        manifest.snippets = snippets.isEmpty ? nil : snippets
         return manifest
     }
 }
@@ -52,6 +64,21 @@ public struct InstalledExtension: Identifiable, Sendable, Hashable {
     public var isBuiltin: Bool
     public var themeCount = 0
     public var iconThemeCount = 0
+    public var snippetCount = 0
+    public var agentCount = 0
+    public var languageServerCount = 0
+    public var taskCount = 0
+
+    /// Brings something that runs programs (agents, servers, tasks), not only looks.
+    public var runsPrograms: Bool { agentCount + languageServerCount + taskCount > 0 }
+}
+
+/// A file an extension brings for a plugin to read (D195): an agent's
+/// manifest, its language servers, its tasks.
+public struct ExtensionFile: Sendable, Hashable {
+    public var extensionID: String
+    public var extensionName: String
+    public var url: URL
 }
 
 /// See `Extensions.preview`. Starts with the theme matching the current mode
@@ -113,6 +140,11 @@ public final class Extensions {
     public private(set) var colorThemes: [ColorTheme] = []
     public private(set) var iconThemes: [IconTheme] = []
     public private(set) var problems: [ExtensionProblem] = []
+    /// What extensions bring besides themes (D195); plugins read their own kind.
+    public private(set) var snippets: [CodeSnippet] = []
+    public private(set) var agentFiles: [ExtensionFile] = []
+    public private(set) var languageServerFiles: [ExtensionFile] = []
+    public private(set) var taskFiles: [ExtensionFile] = []
     /// Bumped on every reload; views drawing extension files read it to redraw.
     public private(set) var revision = 0
 
@@ -205,6 +237,8 @@ public final class Extensions {
         var colorThemes: [ColorTheme] = []
         var iconThemes: [IconTheme] = []
         var problems: [ExtensionProblem] = []
+        var snippets: [CodeSnippet] = []
+        var agentFiles: [ExtensionFile] = [], languageServerFiles: [ExtensionFile] = [], taskFiles: [ExtensionFile] = []
 
         let builtin = Bundle.module.url(forResource: "Extensions", withExtension: nil)
         let sources = [(builtin, true), (Self.userDirectory, false)]
@@ -223,6 +257,10 @@ public final class Extensions {
                     colorThemes += loaded.colorThemes
                     iconThemes += loaded.iconThemes
                     problems += loaded.problems
+                    snippets += loaded.snippets
+                    agentFiles += loaded.agentFiles
+                    languageServerFiles += loaded.languageServerFiles
+                    taskFiles += loaded.taskFiles
                 } catch {
                     problems.append(ExtensionProblem(location: folder, message: error.localizedDescription))
                 }
@@ -233,6 +271,10 @@ public final class Extensions {
         if colorThemes != self.colorThemes { self.colorThemes = colorThemes }
         if iconThemes != self.iconThemes { self.iconThemes = iconThemes }
         if problems != self.problems { self.problems = problems }
+        if snippets != self.snippets { self.snippets = snippets }
+        if agentFiles != self.agentFiles { self.agentFiles = agentFiles }
+        if languageServerFiles != self.languageServerFiles { self.languageServerFiles = languageServerFiles }
+        if taskFiles != self.taskFiles { self.taskFiles = taskFiles }
         // Files can change without changing what parses out of them (an edited icon SVG).
         revision += 1
         NotificationCenter.default.post(name: Self.themeDidChange, object: nil)
@@ -243,6 +285,10 @@ public final class Extensions {
         var colorThemes: [ColorTheme] = []
         var iconThemes: [IconTheme] = []
         var problems: [ExtensionProblem] = []
+        var snippets: [CodeSnippet] = []
+        var agentFiles: [ExtensionFile] = []
+        var languageServerFiles: [ExtensionFile] = []
+        var taskFiles: [ExtensionFile] = []
     }
 
     /// One extension folder; nil when it has no manifest. A theme file that
@@ -266,6 +312,34 @@ public final class Extensions {
                 loaded.entry.iconThemeCount += themes.count
             } catch {
                 loaded.problems.append(ExtensionProblem(location: file, message: error.localizedDescription))
+            }
+        }
+        let snippets = if let listed = manifest.snippets {
+            CodeSnippet.load(files: listed.map { folder.appending(path: $0).standardizedFileURL }, source: manifest.name)
+        } else {
+            CodeSnippet.load(folder: folder.appending(path: "snippets"), source: manifest.name)
+        }
+        loaded.snippets = snippets.snippets
+        loaded.problems += snippets.problems
+        loaded.entry.snippetCount = snippets.snippets.count
+        func file(_ url: URL) -> ExtensionFile { ExtensionFile(extensionID: manifest.id, extensionName: manifest.name, url: url) }
+        loaded.agentFiles = files(nil, default: "agents", in: folder).map(file)
+        loaded.entry.agentCount = loaded.agentFiles.count
+        for (name, key) in [("language_servers.json", "servers"), ("tasks.json", "tasks")] {
+            let url = folder.appending(path: name)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            // Counted here for the Extensions page; their plugins read them in full.
+            let object = (try? JSONSerialization.jsonObject(with: Data(contentsOf: url), options: [.json5Allowed])) as? [String: Any]
+            guard let list = object?[key] as? [Any] else {
+                loaded.problems.append(ExtensionProblem(location: url, message: "\(name) holds { \"\(key)\": [ … ] }"))
+                continue
+            }
+            if key == "servers" {
+                loaded.languageServerFiles = [file(url)]
+                loaded.entry.languageServerCount = list.count
+            } else {
+                loaded.taskFiles = [file(url)]
+                loaded.entry.taskCount = list.count
             }
         }
         return loaded

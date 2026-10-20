@@ -116,11 +116,11 @@ struct QuickPickOverlay: View {
                 // A large query field like Spotlight's (D161).
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
-                        .font(.orbit(.large, weight: .medium))
+                        .orbitFont(.large, weight: .medium)
                         .foregroundStyle(.secondary)
                     TextField(state.pick.placeholder, text: $state.query)
                         .textFieldStyle(.plain)
-                        .font(.orbit(.large))
+                        .orbitFont(.large)
                         .focused($isFocused)
                         .onSubmit { run() }
                 }
@@ -196,7 +196,7 @@ struct QuickPickRow: View {
                     FileIconView(url: fileURL, size: 20)
                 } else if let systemImage = item.systemImage {
                     Image(systemName: systemImage)
-                        .font(.orbit(.control, weight: .medium))
+                        .orbitFont(.control, weight: .medium)
                         .foregroundStyle(isSelected ? .primary : .secondary)
                         .frame(width: 28, height: 28)
                         .background(Theme.activeFill, in: .rect(cornerRadius: Theme.smallCorner, style: .continuous))
@@ -206,11 +206,11 @@ struct QuickPickRow: View {
             // Title over the dimmed detail (category, folder), like a Spotlight result.
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title)
-                    .font(.orbit(.control, weight: .medium))
+                    .orbitFont(.control, weight: .medium)
                     .lineLimit(1)
                 if let subtitle = item.subtitle {
                     Text(subtitle)
-                        .font(.orbit(.caption))
+                        .orbitFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -222,7 +222,7 @@ struct QuickPickRow: View {
                     KeyCaps(trailing)
                 } else {
                     Text(trailing)
-                        .font(.orbit(.body))
+                        .orbitFont(.body)
                         .foregroundStyle(.secondary)
                 }
             }

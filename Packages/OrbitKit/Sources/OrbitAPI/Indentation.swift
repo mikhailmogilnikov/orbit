@@ -14,8 +14,9 @@ public struct Indentation: Sendable, Equatable {
     /// One level, as typed.
     public var unit: String { spaces ? String(repeating: " ", count: size) : "\t" }
 
-    public static func of(_ file: URL, text: String, root: URL?) -> Indentation {
-        let guessed = guess(text)
+    /// `fallback` is for a file with nothing to go by (Settings → Editor, D180).
+    public static func of(_ file: URL, text: String, root: URL?, fallback: Indentation = Indentation(size: 4, spaces: true)) -> Indentation {
+        let guessed = guess(text, fallback: fallback)
         guard let config = EditorConfig.properties(for: file, root: root) else { return guessed }
         var result = guessed
         if let style = config["indent_style"] { result.spaces = style != "tab" }
@@ -26,7 +27,7 @@ public struct Indentation: Sendable, Equatable {
 
     /// The most common step between consecutive indented lines. Not the smallest
     /// indent: a JSDoc block's ` * ` lines are indented by one space.
-    public static func guess(_ text: String) -> Indentation {
+    public static func guess(_ text: String, fallback: Indentation = Indentation(size: 4, spaces: true)) -> Indentation {
         var steps: [Int: Int] = [:]
         var tabs = 0, spaced = 0, previous = 0
         for line in text.split(separator: "\n", omittingEmptySubsequences: true).prefix(2000) {
@@ -42,7 +43,8 @@ public struct Indentation: Sendable, Equatable {
             if step > 0, step <= 8 { steps[step, default: 0] += 1 }
             previous = indent
         }
-        if tabs > spaced { return Indentation(size: 4, spaces: false) }
+        if tabs == 0, steps.isEmpty { return fallback }
+        if tabs > spaced { return Indentation(size: fallback.spaces ? 4 : fallback.size, spaces: false) }
         // Ties go to the smaller step: 2 and 4 are both common in a 2-space file.
         let size = steps.max { lhs, rhs in lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key > rhs.key }?.key ?? 4
         return Indentation(size: size, spaces: true)

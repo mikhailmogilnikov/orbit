@@ -68,11 +68,11 @@ struct GoToLineField: View {
         let target = LineEditing.lineAndColumn(text)
         VStack(alignment: .leading, spacing: 6) {
             Text("Line 1–\(lines), or line:column")
-                .font(.orbit(.micro))
+                .orbitFont(.micro)
                 .foregroundStyle(.secondary)
             TextField("\(current)", text: $text)
                 .textFieldStyle(.roundedBorder)
-                .font(.orbit(.control, design: .monospaced))
+                .orbitFont(.control, design: .monospaced)
                 .frame(width: 220)
                 .focused($focused)
                 .onSubmit {

@@ -1,4 +1,5 @@
 import Foundation
+import OrbitAPI
 import OrbitACP
 
 /// An ACP agent Orbit can launch: a JSON manifest in `~/.orbit/agents/*.json`.
@@ -15,6 +16,8 @@ struct AgentProvider: Identifiable, Hashable, Codable, Sendable {
     var loginHint: String?
     /// Set for agents installed from the registry.
     var registry: RegistryInstall?
+    /// The extension it comes with (D195): removed with it, not on its own.
+    var extensionName: String?
 
     struct RegistryInstall: Hashable, Codable, Sendable {
         var version: String
@@ -57,18 +60,39 @@ struct AgentProvider: Identifiable, Hashable, Codable, Sendable {
         configDirectory.appendingPathComponent(id, isDirectory: true)
     }
 
+    /// Where its process starts. npx and uvx start in Orbit's agents folder,
+    /// not the project: npm 11 reads the project's package.json and refuses
+    /// to run when its `devEngines` asks for pnpm (EBADDEVENGINES, D193).
+    /// Sessions get the project in session/new; their tools run there.
+    nonisolated func launchDirectory(for project: URL) -> URL {
+        let tool = (command.executable as NSString).lastPathComponent
+        return ["npx", "uvx", "bunx", "pnpx"].contains(tool) ? Self.configDirectory : project
+    }
+
     static func manifestFile(for id: String) -> URL {
         configDirectory.appendingPathComponent("\(id).json")
     }
 
-    static func loadAll() -> [AgentProvider] {
+    /// The user's agents (`~/.orbit/agents`), then extensions' (D195): the
+    /// user's win on the same id.
+    static func loadAll(extensions: [ExtensionFile] = []) -> [AgentProvider] {
         let files = (try? FileManager.default.contentsOfDirectory(at: configDirectory, includingPropertiesForKeys: nil)) ?? []
         var providers: [AgentProvider] = []
-        for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where file.pathExtension == "json" {
+        let own = files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).filter { $0.pathExtension == "json" }
+        for (file, source) in own.map({ ($0, ExtensionFile?.none) }) + extensions.map({ ($0.url, Optional($0)) }) {
             guard let data = try? Data(contentsOf: file),
                   var provider = try? JSONDecoder().decode(AgentProvider.self, from: data),
                   !providers.contains(where: { $0.id == provider.id }) else { continue }
             if provider.loginHint == nil { provider.loginHint = loginHints[provider.id] }
+            if let source {
+                provider.extensionName = source.extensionName
+                // A program inside the extension, named relative to its folder.
+                let executable = provider.command.executable
+                if executable.hasPrefix("./") || executable.hasPrefix("bin/") {
+                    let folder = file.deletingLastPathComponent().deletingLastPathComponent()
+                    provider.command.executable = folder.appendingPathComponent(executable).standardizedFileURL.path
+                }
+            }
             providers.append(provider)
         }
         return providers

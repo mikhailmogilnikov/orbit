@@ -45,6 +45,9 @@ final class SessionHistory {
         var recent: [String: [SavedSession]] = [:]
         /// Orbit's own hidden sessions (commit messages…), by `SavedSession.id`.
         var hidden: [String] = []
+        /// New chats Orbit opened that nothing was sent in: the agent still
+        /// lists them, but they're nothing to go back to. Optional: older saves lack it.
+        var blank: [String]?
     }
 
     private static let recentLimit = 50
@@ -84,6 +87,7 @@ final class SessionHistory {
     }
 
     func record(_ session: SavedSession) {
+        stored.blank?.removeAll { $0 == session.id }
         var recent = stored.recent[session.cwd] ?? []
         recent.removeAll { $0.id == session.id }
         recent.insert(session, at: 0)
@@ -102,6 +106,14 @@ final class SessionHistory {
         save()
     }
 
+    func markBlank(_ id: String) {
+        var blank = stored.blank ?? []
+        guard !blank.contains(id) else { return }
+        blank.append(id)
+        stored.blank = Array(blank.suffix(Self.hiddenLimit))
+        save()
+    }
+
     func hasListed(_ providerID: String, in folder: URL) -> Bool {
         listed[folder.path]?[providerID] != nil
     }
@@ -117,10 +129,19 @@ final class SessionHistory {
     /// Newest first; Orbit's own record wins over an agent's listing of the same conversation.
     func recent(in folder: URL) -> [SavedSession] {
         var byID: [String: SavedSession] = [:]
-        for session in (listed[folder.path] ?? [:]).values.joined() { byID[session.id] = session }
+        for session in (listed[folder.path] ?? [:]).values.joined() where !Self.isPlaceholder(session.title) {
+            byID[session.id] = session
+        }
         for session in stored.recent[folder.path] ?? [] { byID[session.id] = session }
-        for id in stored.hidden { byID[id] = nil }
+        for id in stored.hidden + (stored.blank ?? []) { byID[id] = nil }
         return byID.values.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// Claude Code titles a session "New session - <ISO date>" until its first
+    /// prompt, so one still named that was never written in (including ones
+    /// opened before Orbit kept track of blank chats).
+    private nonisolated static func isPlaceholder(_ title: String) -> Bool {
+        title.range(of: #"^New session - \d{4}-\d{2}-\d{2}T"#, options: .regularExpression) != nil
     }
 
     private func save() {

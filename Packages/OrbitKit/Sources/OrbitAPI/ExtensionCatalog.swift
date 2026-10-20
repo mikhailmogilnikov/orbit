@@ -39,9 +39,18 @@ public final class ExtensionCatalog {
     public static let shared = ExtensionCatalog()
 
     public enum Kind: String, CaseIterable, Sendable {
-        case themes, iconThemes
+        case themes, iconThemes, snippets
 
-        var zedName: String { self == .themes ? "themes" : "icon-themes" }
+        var zedName: String {
+            switch self {
+            case .themes: "themes"
+            case .iconThemes: "icon-themes"
+            case .snippets: "snippets"
+            }
+        }
+
+        /// Themes and icons can be tried on before installing; snippets can't (D195).
+        public var canTryOn: Bool { self != .snippets }
     }
 
     public private(set) var entries: [CatalogEntry] = []
@@ -221,7 +230,14 @@ public final class ExtensionCatalog {
         failures[entry.id] = nil
         defer { busy.remove(entry.id) }
         do {
-            let staging = try await prepare(entry).directory
+            // Only what draws can be read as a preview; snippets are unpacked as they are (D195).
+            let staging: URL
+            if entry.provides.contains("themes") || entry.provides.contains("icon-themes") {
+                staging = try await prepare(entry).directory
+            } else {
+                staging = Self.previewDirectory.appending(path: entry.id, directoryHint: .isDirectory)
+                try await Self.unpack(entry, into: staging)
+            }
             let destination = Extensions.userDirectory.appending(path: entry.id, directoryHint: .isDirectory)
             let manager = FileManager.default
             try manager.createDirectory(at: Extensions.userDirectory, withIntermediateDirectories: true)
@@ -231,6 +247,19 @@ public final class ExtensionCatalog {
             if pick || extensions.preview?.manifest.id == entry.id { adopt(entry) }
         } catch {
             failures[entry.id] = Self.describe(error)
+        }
+    }
+
+    /// Updates every installed catalog extension with a newer version
+    /// (Settings → General → Automatic Updates, D186), once a day.
+    public func updateInstalled() async {
+        guard Preferences.shared.autoUpdatesExtensions, Preferences.shared.claimDailyCheck("extensions") else { return }
+        var seen = Set<String>()
+        for kind in Kind.allCases {
+            guard let entries = try? await Self.fetch(query: "", kind: kind) else { continue }
+            for entry in entries where seen.insert(entry.id).inserted && hasUpdate(entry) {
+                await install(entry)
+            }
         }
     }
 

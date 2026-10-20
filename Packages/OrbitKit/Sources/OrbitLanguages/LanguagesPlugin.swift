@@ -9,7 +9,8 @@ public final class LanguagesPlugin: OrbitPlugin {
         id: "orbit.languages",
         name: "Languages",
         summary: "Errors, completion, hover and go to definition from language servers; installs them from the Mason registry.",
-        systemImage: "curlybraces"
+        systemImage: "curlybraces",
+        tint: .purple
     )
 
     private var manager: LanguageManager?
@@ -25,6 +26,7 @@ public final class LanguagesPlugin: OrbitPlugin {
         manager.editing = { services.resolve(SourceEditing.self) }
         manager.changes = { services.resolve(ChangeTracking.self) }
         manager.tasks = { services.resolve(TaskProblems.self) }
+        Self.followExtensionServers(lifetime: context.lifetime, workspace: context.workspace, manager: manager)
 
         context.ui.addStatusItem(StatusItem(
             id: "languages.status", placement: .trailing, order: 10,
@@ -36,17 +38,31 @@ public final class LanguagesPlugin: OrbitPlugin {
             )
         })
 
+        context.ui.addExtensionSource(LanguageExtensionSource(manager: manager))
         context.ui.addSettingsPane(SettingsPane(
             id: "languages", title: "Languages", systemImage: "curlybraces", tint: .purple, group: .code, order: 10,
             summary: "Language servers for completion, errors, hover and go to definition.",
-            keywords: ["lsp", "language server", "install", "mason", "python", "rust", "go", "typescript", "swift", "completion", "errors", "restart"]
+            keywords: ["lsp", "language server", "install", "mason", "python", "rust", "go", "typescript", "swift", "completion", "errors", "restart"],
+            items: {
+                // Servers by the languages they serve, so "python" finds Pyright.
+                LanguagesSettingsPane.ready(manager).map {
+                    SettingsItem($0.id, $0.name, keywords: Array(Set($0.languages.values)).sorted())
+                } + [
+                    SettingsItem("notInstalled", "Not installed servers", keywords: ["install", "mason", "missing"]),
+                    SettingsItem("restart", "Restart Servers", keywords: ["running servers", "restart"]),
+                ]
+            }
         ) {
-            LanguagesSettingsPane(manager: manager)
+            LanguagesSettingsPane(manager: manager, ui: context.ui)
         })
         context.ui.addSettingsPane(SettingsPane(
             id: "formatting", title: "Formatting", systemImage: "wand.and.sparkles", tint: .teal, group: .code, order: 20,
             summary: "Which formatter each file type in this project uses.",
-            keywords: ["format", "formatter", "prettier", "biome", "ruff", "black", "editorconfig", "indent"]
+            keywords: ["format", "formatter", "prettier", "biome", "ruff", "black", "editorconfig", "indent"],
+            items: { [
+                SettingsItem("projectFormatters", "Project formatters", keywords: ["custom formatter", ".orbit/settings.json"]),
+                SettingsItem("globalFormatters", "Global formatters", keywords: ["custom formatter", "~/.orbit/settings.json"]),
+            ] }
         ) {
             FormattingSettingsPane(manager: manager)
         })
@@ -94,6 +110,30 @@ public final class LanguagesPlugin: OrbitPlugin {
 
     public func deactivate() {
         manager?.shutdown()
+    }
+
+    /// Servers from extensions (D195), read again when extensions change;
+    /// running servers restart when the list did, so files get the new one.
+    private static func followExtensionServers(lifetime: PluginLifetime, workspace: Workspace, manager: LanguageManager) {
+        let servers = Extensions.shared.languageServerFiles.flatMap { file in
+            (try? Data(contentsOf: file.url)).flatMap {
+                try? ExtensionServers.parse($0, folder: file.url.deletingLastPathComponent(), extensionName: file.extensionName)
+            } ?? []
+        }
+        if servers != ExtensionServers.current {
+            ExtensionServers.set(servers)
+            manager.restart()
+        }
+        // Weakly: `Extensions` outlives the window and keeps this until it next reloads.
+        // The host holds the lifetime while the plugin is on.
+        withObservationTracking {
+            _ = Extensions.shared.revision
+        } onChange: { [weak lifetime, weak workspace, weak manager] in
+            Task { @MainActor in
+                guard let lifetime, let workspace, let manager, lifetime.isActive, !workspace.isClosed else { return }
+                followExtensionServers(lifetime: lifetime, workspace: workspace, manager: manager)
+            }
+        }
     }
 
     /// Find References, Go to Symbol in File / Project (D62). Always enabled,
@@ -188,16 +228,17 @@ struct LanguageStatus: View {
 
     var body: some View {
         if let url = LanguagesPlugin.activeFile(workspace), let language = manager.turnedOff(url) {
+            let inSettings = manager.turnedOffInSettings(url)
             Button {
-                manager.editServerSettings()
+                if inSettings { ui.showSettings("languages") } else { manager.editServerSettings() }
             } label: {
                 Text("\(language) off")
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                     .foregroundStyle(.tertiary)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .help("The language server is turned off for these files in .orbit/settings.json")
+            .help(inSettings ? "\(language) is turned off in Settings → Languages" : "The language server is turned off for these files in .orbit/settings.json")
             .contextMenu { serverMenu(url) }
         } else if let url = LanguagesPlugin.activeFile(workspace), let server = manager.server(for: url) {
             let diagnostics = manager.diagnostics(for: url)
@@ -245,7 +286,7 @@ struct LanguageStatus: View {
                     }
                 }
                 .labelStyle(TightLabelStyle())
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .foregroundStyle(.secondary)
                 .contentShape(.rect)
             }

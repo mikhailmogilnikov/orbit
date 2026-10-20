@@ -76,7 +76,7 @@ final class AgentCompletionService: AgentCompletion {
             let client = try ACPClient(
                 command: provider.command,
                 environment: environment,
-                currentDirectory: directory,
+                currentDirectory: provider.launchDirectory(for: directory),
                 onNotification: { method, params in
                     guard method == "session/update", let sessionID = params["sessionId"]?.string,
                           let update = params["update"], update["sessionUpdate"]?.string == "agent_message_chunk",

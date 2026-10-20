@@ -145,6 +145,27 @@ public final class Workspace {
     /// Picks up edits to the settings files made outside Orbit (on activation).
     public func reloadSettings() { settings.reload(root: root) }
 
+    /// Writes one value into the project's `.orbit/settings.json` (nil removes
+    /// it), editing the text so the rest of the file stays as written (D183).
+    /// An open, unsaved copy of the file is edited and saved with it.
+    public func setProjectSetting(_ key: String, _ value: ProjectSettings.Value?) throws {
+        guard let root else { return }
+        let file = ProjectSettings.projectFile(root: root)
+        let text = documents.currentText(of: file) ?? (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        let literal: String? = switch value {
+        case .bool(let bool)?: bool ? "true" : "false"
+        case .number(let number)?: number.rounded() == number ? String(Int(number)) : String(number)
+        case .string(let string)?: JSONTextEdit.quoted(string)
+        case nil: nil
+        }
+        guard let edited = JSONTextEdit.set(key, to: literal, in: text) else {
+            throw ProjectSettings.EditFailure(message: "\(ProjectSettings.projectPath) isn't valid JSON; fix it first.")
+        }
+        guard edited != text else { return }
+        try documents.write(edited, to: file)
+        reloadSettings()
+    }
+
     /// Set by the app: opens a folder in another window (or brings forward the
     /// one showing it) and returns true, or false to open it in this one.
     public var openFolderElsewhere: (@MainActor (URL) -> Bool)?

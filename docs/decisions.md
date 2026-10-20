@@ -173,6 +173,8 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D161. Command palette and Open Quickly look like Spotlight
 - D162. Alerts and open panels are sheets on the window
 - D163. The chat: Claude Code's flow, Apple's look
+- D164. Editor overlays are kept between layouts, not rebuilt
+- D165. The everyday build is optimized
 - D166. The empty editor: quiet, like Xcode's "No Editor"
 - D167. Terminal sessions are a list beside the output
 - D168. Tabs like Xcode 26 and Safari 26
@@ -181,6 +183,30 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D171. Source Control looks like Xcode's navigator
 - D172. Problems and References read like Xcode's issue navigator
 - D173. Editor popups are Liquid Glass
+- D174. Quieter details: plain output, empty panels, a lone chat, VoiceOver names
+- D175. The shortcuts popover is a searchable list you can rebind from
+- D176. The menu bar is laid out like Xcode's
+- D177. Settings search finds options, not just panes
+- D178. Settings → Terminal and Settings → Files
+- D179. A page per agent; options a project sets carry a Project badge
+- D180. Code font family, default indentation, auto save
+- D181. Text sizes: interface, chat, code, terminal
+- D182. A JSON Schema for settings.json; the JSON server validates
+- D183. Setting an option for the project from Settings
+- D184. Plugins: steady tiles, a way to their settings, Restart Now
+- D185. Settings → Checkpoints: disk use and keeping snapshots
+- D186. Automatic updates; a switch per language server
+- D187. Blame after the caret's line, as GitLens; the column is gone
+- D188. Line height, ligatures, a switch for closing brackets
+- D189. File history, line history, comparing with a branch or commit
+- D190. Clickable things are in the text color, not the theme's accent
+- D191. The terminal has the editor's background
+- D192. One Extensions page for everything that can be installed
+- D193. npx agents start outside the project; exits say why
+- D194. Plugins turn on and off live, require each other; Git Lens and Browser split out
+- D195. Extensions bring snippets, agents, language servers and tasks; the Extensions page lists packages
+- D196. Blank chats stay out of Recent, even when the agent lists them
+- D197. A click anywhere on the selected folder's row toggles it
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2146,6 +2172,8 @@ code uses `Theme.accent` instead of `Color.accentColor` /
 color. Status colors stay semantic (info, modified, completion kinds).
 Native list selections elsewhere still take the system accent while
 focused (AppKit has no per-window accent).
+*Changed by D190: the window's `.tint` is the text color; the accent is
+only for selections, matches and drop marks.*
 
 ### D98. Getting around by keyboard
 
@@ -3022,6 +3050,8 @@ rebase, cherry-pick or stash pop; diff3's `|||||||` base too):
 
 ### D135. Blame for every line, beside the line numbers
 
+*Replaced by D187: the column is gone; blame is shown after the caret's line.*
+
 The status bar named the caret line's author only. **Toggle Blame (⌥⌘B**,
 Git menu; also Settings → Editor) adds a column left of the line numbers,
 like Xcode's Authors: each run of lines from one commit shows the author
@@ -3438,6 +3468,37 @@ N files changed · Review") and looks more like a Mac app:
   the timer (it used to show "Thinking…" twice). This changes D121's line,
   which named the running call.
 
+### D164. Editor overlays are kept between layouts, not rebuilt
+
+With an agent change on screen Orbit sat at 100% CPU doing nothing, and
+scrolling stuttered in the whole window (editor and chat alike). The inline
+diff, squiggles, bracket and symbol highlights, inlay hints and fold
+placeholders all removed and re-added their views on every viewport layout;
+that re-dirtied the text view, which laid itself out again on the next frame,
+forever (the Keep/Undo bars were new `NSHostingView`s each time).
+
+- Overlays go through `OverlaySet` (OrbitEditor): each pass places views by a
+  key covering what the view was made with; a known key reuses the view and
+  only moves it when its frame changed, and `commit()` removes the rest.
+- A pass that changes nothing touches no view, so layout settles: idle CPU
+  went from ~100% to 0 on the same file.
+- New overlays use it too; never remove-and-re-add on `onDidLayoutViewport`.
+
+### D165. The everyday build is optimized
+
+The author uses the app `make run` builds (Debug), and Debug compiled every
+Swift module at `-Onone`: STTextView, the editor plugins and the chat views
+ran several times slower than in Release. A profile of scrolling a long file
+after D164 showed no wasted work left, only text, gutter and overlay drawing
+in unoptimized code.
+
+- `make build` / `make run` pass `SWIFT_OPTIMIZATION_LEVEL=-O` and
+  `GCC_OPTIMIZATION_LEVEL=s` (tree-sitter grammars are C): Release speed,
+  still `DEBUG` with its debug commands. A full build takes ~1.5 min, an
+  incremental one ~10 s.
+- Xcode's own builds (previews, the debugger, the Xcode MCP) keep the
+  project's `-Onone`; `project.yml` is unchanged.
+
 ### D166. The empty editor: quiet, like Xcode's "No Editor"
 
 With no tab open the editor area showed a big icon, "Orbit", the project's
@@ -3527,3 +3588,464 @@ macOS 26's own menus, and no border: the glass draws its own edge. The
 content still lives in a plain container on top, so the panels' views are
 unchanged. The current line, its number and the ruler already follow the
 color theme and stay as they are.
+
+### D174. Quieter details: plain output, empty panels, a lone chat, VoiceOver names
+
+- A code block in a reply names its language only when it has a real one:
+  plain output ("text", no fence language) has no header line, and Copy
+  shows over its corner on hover, as in Xcode.
+- Empty bottom panels (Problems, References) use `PanelEmptyState`: the
+  title in gray and one short line, no symbol, like Xcode's "No Issues".
+  `EmptyStateView` took a third of the window in the short bottom area.
+- A single chat shows as a title (status, name) instead of a lone tab;
+  tabs start with the second chat. Close is in its context menu.
+- Icon-only buttons (`IconButton`, `TopBarButton`) are read by VoiceOver as
+  their tooltip without the shortcut (`spokenName`); file icons and path-bar
+  symbols are hidden from it, since a name always follows. VoiceOver read
+  the symbols' names before ("Split View Horizontally Left", "Go Down",
+  "Plain Text Document").
+
+### D175. The shortcuts popover is a searchable list you can rebind from
+
+The keyboard button's popover (D67) was a 900-pt grid of every category
+with key caps and a lot of empty space. It is now a 360 × 460 list: a
+search field (focused on open), the commands with keys by category, and the
+shell's own keys and the mouse under "More". A click on a key records a new
+one right there, with the same rules as Settings (⌫ removes, Esc cancels, a
+key taken from another command says so); searching also lists commands
+without a key, so one can be given. "Keyboard Settings…" at the bottom opens
+the full pane. The assignment rules live in `ShortcutsSettings.assign`, used
+by both.
+
+### D176. The menu bar is laid out like Xcode's
+
+Menus were made straight from command categories: Code held 40 items in
+registration order (navigation, folding, eight case transforms, line
+edits, carets…), Review and Git were menus of their own, View mixed
+everything else, and the system's window tabs added Show Tab Bar. Now
+`App/MenuLayout.swift` places every built-in command:
+
+- **File**: new, open (Open Recent, Open Quickly), close, save, Finder and
+  paths, project settings.
+- **View**: Command Palette; sidebar and its panels; agents; problems and
+  terminal; split editors; preview and browser; inlay hints and blame;
+  font size; theme.
+- **Find**: Find in Project; references; find in terminal.
+- **Navigate**: back / forward; tabs; definition, symbols, line; next problem.
+- **Editor**: code actions, rename, imports; formatting; Toggle Comment and
+  the Lines, Transform, Selection and Folding submenus; language servers.
+- **Agent**: new sessions (other agents in a submenu); focus, inline edit,
+  stop; then the review: accept / reject all, step through changes, comment.
+- **Source Control**: commit; pull, push, fetch; stash; GitHub.
+- **Terminal**: new, kill; tasks.
+- **Help**: Keyboard Shortcuts (and Debug builds' tools).
+
+Each menu is split into sections with dividers. A command the layout doesn't
+list still gets an item at the end of the menu its category maps to, and a
+category of its own goes to Plugins, which only shows when it has items.
+The system's window tabbing is off (`allowsAutomaticWindowTabbing`): Orbit
+has its own tabs. The plugin API is unchanged.
+
+### D177. Settings search finds options, not just panes
+
+Search in Settings filtered the sidebar to panes whose title or keywords
+matched: "wrap" left Editor, and the option still had to be found by eye.
+Now it works like System Settings: while there's a query, the sidebar lists
+each pane that matches with the options it found indented under it, the
+matched words in bold, best matches first (title starts with the query, then
+words starting with its words, then anywhere in the title, then keywords
+only). Every word of the query must match ("wrap line" finds "Wrap long
+lines"). A pane shows its first four options and "N More". Clicking an
+option, or Return for the best one, opens the pane, scrolls the row to the
+middle and lights it up — two pulses of `Theme.matchFill`, then a fade.
+Typing doesn't switch the page (it used to jump to the first matching pane
+and build it on every keystroke, e.g. all of Keyboard Shortcuts' rows):
+only picking a result does, and "No Results" shows in the sidebar. The
+text is lowercased into a `SettingsSearch.Index` once per search.
+
+Panes declare their options as `SettingsItem`s (`SettingsPane.items`, asked
+on each search, so installed agents, ready language servers, plugins and
+every command's shortcut are in it); the row marks itself with
+`.settingsItem(id)` and `SettingsForm` scrolls to it. A new option in a pane
+should get both. Items inside a pushed page aren't indexed; the row that
+opens the page is.
+
+### D178. Settings → Terminal and Settings → Files
+
+The terminal had no options besides a font size tucked into Editor, and
+what the file tree and search leave out was hard-coded.
+
+- **Terminal** (Terminal plugin, `TerminalOptions`): the shell new tabs
+  start (`/etc/shells`, default `$SHELL`; agents' commands keep the login
+  shell), the font size (moved here from Editor: "Same size as the editor" or
+  its own), cursor shape (segmented Block / Bar / Underline) and blinking,
+  Option as Meta (off by default, as in Terminal.app), scrollback (1,000 –
+  100,000 lines, default 10,000; SwiftTerm's own default of 500 lost long
+  build logs). Changes apply to open tabs at once and reach other windows
+  through a notification; the shell only applies to new tabs.
+- **Files** (Explorer plugin): show hidden (dot) files, show git-ignored
+  files (dimmed), and excluded files — globs in `Preferences.excludedFiles`,
+  the same syntax as Find in Project's exclude field (`PathFilter`, moved to
+  OrbitAPI so Explorer and Search share it). Excluded files leave the tree,
+  Open Quickly and Find in Project; `.git` and `.DS_Store` stay hidden
+  regardless. The list is edited System Settings style: a row per pattern
+  with a red minus, an add field at the bottom.
+
+### D179. A page per agent; options a project sets carry a Project badge
+
+Installed agents were rows with an update button and a "…" menu; what a new
+chat starts with (model, effort, mode) could only be seen by starting one.
+Now each row is a link ("›", its defaults or version under the name, an
+Update badge) to the agent's page: a header with its icon and description;
+**New Chats** — Model, Reasoning effort and Permissions pickers, each with
+"<agent>'s default" first; **About** — version, command, sign-in hint;
+then Update, Show in Finder (custom agents) and Uninstall…, which now asks
+first (a sheet, D162).
+
+The choices come from what the agent last reported (`knownOptions`, saved
+per agent whenever a session sends its config options), so an agent that
+never ran says "After the first chat". Model and effort work as
+before: picking one in a chat also makes it the default (`lastValues`).
+The mode doesn't: it's set only on this page (`defaultModes`) and applies
+to new chats, not resumed ones, so one "bypass permissions" chat doesn't
+leak into the next; a mode that skips asking says so in orange.
+
+Options `.orbit/settings.json` decides (D108) said "Set by … (\"key\")" in
+orange, which read like an error. They now show a `ProjectOverrideNote`: an
+orange "Project" badge and the key, with a tooltip on where to change it.
+Setting a value for the project from Settings (writing the JSON) is still
+left out: it would have to keep the file's comments and layout.
+
+### D180. Code font family, default indentation, auto save
+
+Settings → Editor gets the three editor options people look for first:
+
+- **Font family**: SF Mono or any installed fixed-pitch family
+  (`Preferences.codeFontFamily`, `Preferences.codeFont(size:weight:)`). The
+  editor, inlay hints, fold placeholders and the terminal follow it; bold
+  and italic tokens take the family's nearest weight (NSFontManager), SF
+  Mono keeps its exact weights. Ligatures aren't turned on.
+- **Indentation** for files nothing decides — no `.editorconfig`, no
+  indented lines to guess from: spaces or tabs, 2 / 3 / 4 / 8 columns
+  (`Preferences.defaultIndentation`, passed to `Indentation.of` as the
+  fallback). It used to be fixed at 4 spaces.
+- **Auto save** (`AutoSaver`): Off (default), a second after typing stops,
+  or when Orbit goes to the background or the tab changes. Plain saves, no
+  formatting (it would move text under the caret; ⌘S still formats). A
+  file also changed on disk isn't saved over: its banner decides.
+
+Line height stays fixed: the line-number ruler, folding and inline diff
+gaps (paragraph styles) all depend on it. Auto-closing brackets isn't a
+setting because the editor doesn't do it yet.
+
+### D181. Text sizes: interface, chat, code, terminal
+
+Other editors size text per area (Zed's ui / buffer / agent font sizes,
+VS Code's zoom and terminal size); Orbit had the code size and the
+terminal's. Settings → Appearance → Text Size now has all four together:
+**Interface** (10–15 pt for a list row, default 12), **Chat** (matches the
+interface unless given its own), **Code** and **Terminal** (the same
+settings Editor and Terminal show).
+
+The type scale (D117) stays the single list of sizes; it's multiplied by
+`orbitTextScale` from the environment: the window sets the interface's, a
+chat (`SessionView`) its own. Views write `.orbitFont(.body)` (all 307
+`.font(.orbit(…))` uses were switched); `Font.orbit` alone, as in attributed
+strings, stays unscaled. Fixed heights (tabs, bars) don't grow, which is
+why the interface stops at 15 pt. AppKit text (the editor's popups,
+completion) isn't scaled.
+
+### D182. A JSON Schema for settings.json; the JSON server validates
+
+An unknown or misspelled key in `.orbit/settings.json` was ignored
+silently (D108's gap). `SettingsSchema` (OrbitLanguages) describes every
+section Orbit reads — `editor` (and dotted `editor.*` keys), `agents`,
+`mcpServers`, `formatters` (the presets offered as completions),
+`languageServers`, `companions`, `codeActionsOnSave`, `tasks` — with a line
+on each, and refuses other keys. It goes to the JSON server inline, matched
+to `**/.orbit/settings.json`, so the project's and the global file get
+completion, hover and "Property … is not allowed" without a schema file on
+disk or a URL to fetch. A new settings key needs a line there too.
+
+Testing it on the real server showed the JSON server validated nothing at
+all — not even a trailing comma in any JSON file — because it waits for
+`json.validate.enable`, which VS Code sends and Orbit didn't. Orbit now
+sends it.
+
+### D183. Setting an option for the project from Settings
+
+Options `.orbit/settings.json` decides (D108, D179) could only be changed by
+editing the file. Now a right-click on such an option in Settings offers
+"Turn On / Turn Off for This Project" (a switch) or "Use <agent> for This
+Project" (the default agent), and "Remove from This Project" once the file
+sets it; the project pane's overrides each get a red minus. Editor options
+keep their row enabled and disable only the switch, so the row takes the
+right-click.
+
+`Workspace.setProjectSetting` writes through `JSONTextEdit` (OrbitAPI), a
+small scanner that finds the member in the text and replaces, inserts or
+removes just it — in the section's own indentation, on one line for
+`{ "a": 1 }`, as a top-level `"editor.wordWrap"` when the file spells it that
+way — so the file keeps its order and layout; JSONSerialization would
+rewrite all of it. Settings files are strict JSON (no comments), so there is
+nothing else to keep. An open copy of the file is edited and saved with it.
+
+### D184. Plugins: steady tiles, a way to their settings, Restart Now
+
+Settings → Plugins colored tiles by a hash of the plugin's id and offered
+"Quit Orbit" after a change. Now a plugin names its tint
+(`PluginManifest.tint`, the same as its settings pane's) and its symbol is
+shown filled where SF Symbols has a fill. A plugin that adds settings panes
+gets a gear before its switch that opens them: `UIRegistry` records which
+plugin is activating, so each `SettingsPane` knows its `pluginID`. "Restart
+Now" quits and opens Orbit again (a shell waits up to 20 s for this copy to
+exit, so a quit cancelled at a save prompt doesn't reopen it later); open
+folders come back as on any launch (D101).
+
+### D185. Settings → Checkpoints: disk use and keeping snapshots
+
+The shadow repositories (one per project, Application Support) keep every
+snapshot (`gc.auto` is off: chats rewind to them), so they only grow. The
+Checkpoints pane (agents group) shows their size and the isolated copies',
+and **Keep snapshots**: Forever (the default, as before), 3 months, 1 month,
+1 week. With a limit, `git prune --expire=<n>.days.ago` runs in each shadow
+repository at most once a day (and on Clean Up Now): it drops objects
+nothing references any more that are older than that, so the snapshots of a
+running turn and the index's own files stay; a chat older than the limit
+can't rewind.
+
+### D186. Automatic updates; a switch per language server
+
+Agents, language servers and catalog extensions only updated from their
+"Update" buttons. Settings → General now has **Keep Up to Date**: agents
+(the ACP registry), language servers Orbit installed (Mason; ones found on
+the Mac are left alone) and themes / icon sets from the catalog — each on
+by default, checked in the background once a day (`Preferences.claimDailyCheck`,
+so the first window does it), 20–40 s after launch. An updated server
+restarts; open chats keep their agent's old version until they restart.
+Software Update gets Sparkle's own two switches: check automatically, and
+download and install (off in development builds).
+
+Settings → Languages: every server that's installed or found gets a switch.
+Off, it doesn't start in any project (`LanguageManager.disabledServers`,
+app-wide; other windows follow through a notification); the status bar says
+"<server> off" and opens Settings → Languages. Turning a server off per
+file type in `.orbit/settings.json` ("languageServers": { "py": "off" })
+still works beside it.
+
+### D187. Blame after the caret's line, as GitLens; the column is gone
+
+D135's column of authors left of the line numbers took 210 pt and the
+author didn't like it. Blame is now GitLens's current-line annotation:
+after the end of the caret's line, faded (the theme's hint color), in the
+UI font a little smaller than the code — "Author, 3 days ago · summary",
+"Not committed yet" for new lines. It follows the caret, hides while typing
+until the text is blamed again (after a pause, as before), and isn't drawn
+with a selection or several carets, or when the line leaves too little room.
+Hovering it opens the editor's hover card (`BlameCard`, the same panel as a
+symbol's): author, relative and exact date, the summary, Show Changes and
+the short hash to copy.
+
+Editor → Blame (now under Reading Code) and ⌥⌘B turn it on and off; it's on
+by default (a new defaults key, so the column's "off" doesn't carry over).
+The status bar's blame (Source Control) stays.
+
+### D188. Line height, ligatures, a switch for closing brackets
+
+Settings → Editor → Font gets **Line height** (Single, 1.1–1.5; a multiple
+on the editor's default paragraph style) and, for a picked family,
+**Ligatures** (on; off sets the font's common-ligature and
+contextual-alternate features off, which is where Fira Code and JetBrains
+Mono keep theirs). D180 left line height out because the ruler, folding and
+the inline diff's gaps depend on it; they all measure laid-out lines, and
+the gaps and tab stops copy the default paragraph style (`CodeEditor.apply(lineHeight:)`),
+so they follow. Bold and italic tokens keep the base font's features.
+
+Bracket and quote closing has existed since D73 (it was wrongly listed as
+missing); it now has a switch, Editor → Text → Close brackets and quotes
+(`editor.autoClose`), on by default. Off, typing and backspace are plain.
+
+### D189. File history, line history, comparing with a branch or commit
+
+The rest of GitLens's everyday features, in Source Control:
+
+- **Show File History** (Git menu): History's scope menu gets "This File",
+  `git log --follow` of the active file; a commit opens what it changed in
+  that file (no graph: one file's commits aren't a connected history).
+  Search filters them by message, author or hash.
+- **Show Line History**: the selected lines, else the caret's
+  (`git log -L <a>,<b>:<file>`, as committed — unsaved edits shift lines).
+  The scope reads "File.swift:10–20".
+- **Compare File with…**: a quick pick of branches and the file's last 30
+  commits; the choice opens a read-only diff tab (`git.compare`) of the file
+  at that revision against the editor's text, with GitCommitDiffView.
+
+### D190. Clickable things are in the text color, not the theme's accent
+
+With a theme whose accent is blue (GitHub), D97's window `.tint` made every
+borderless button, link, menu, switch and "on" icon blue: the window read
+like a web page of links. The window (and the editor's hosted popovers) now
+tint with `Theme.controlTint`, the text color, which is how Orbit's own
+themes always looked. `Theme.accent` stays the theme's for what isn't
+clicked: selected rows and cards, match highlights, drop marks, the caret.
+
+### D191. The terminal has the editor's background
+
+Themes give `terminal.background` the panels' color, which is darker than
+the editor (GitHub Dark: #010409 against #0d1117). Orbit's panels are glass
+over the editor's background, so the terminal (and, since D167, the session
+list beside it) stood out as a painted black block. The terminal and the
+panel behind it now take the editor's background; its foreground and ANSI
+colors still come from the theme's terminal keys.
+
+### D192. One Extensions page for everything that can be installed
+
+Things to add were in four places: themes and icons in Extensions, agents
+behind Agents → Get More Agents, language servers behind Languages → Not
+Installed, built-in plugins in Plugins. Settings → Extensions now lists them
+all, as VS Code's and Zed's extension views do: one search field, a
+segmented filter (All · Agents · Languages · Themes · Features), installed
+things grouped by kind, and under them the catalogs.
+
+- Each kind is an `ExtensionSource` (OrbitAPI): what's installed, what its
+  catalog has, loading state, refresh. Plugins register theirs
+  (`ui.addExtensionSource`): Agents (ACP registry), Languages (Mason; a query
+  also searches the hundreds imported from nvim-lspconfig). The shell adds
+  themes (Zed's catalog keeps its own page, where a theme is tried on
+  before installing) and built-in features (the old Plugins pane, merged).
+- A row is an `ExtensionItem`; the shell draws it the same way for every kind:
+  Install, Update, a gear to its settings pane, a switch when it can be off
+  without uninstalling (servers, features), Show in Finder / Uninstall,
+  or a page of its own (an agent's defaults, D179).
+- All with no query offers "Get More …" per kind (switches the filter);
+  with a query, each catalog's first five matches and Show All.
+- The Agents and Languages panes keep configuring; their "Get More" rows
+  jump to Extensions filtered to that kind (`ui.showExtensions(_:)`).
+- Settings search finds installed things by name ("codex" → its row).
+
+Splitting the built-in plugins finer (Git Lens apart from Source Control)
+and plugin requirements come next, on top of this page.
+
+### D193. npx agents start outside the project; exits say why
+
+Claude Agent failed with only "The process exited" in a pnpm monorepo: npm 11
+ran `npx` in the project, read its package.json `devEngines` (pnpm) and
+quit with EBADDEVENGINES. Agents launched through npx, uvx, bunx or pnpx now
+start in ~/.orbit/agents (chats, commit messages, the Recent list:
+`AgentProvider.launchDirectory`); ACP hands them the project in session/new, and
+their terminals and edits use that. Other agents still start in the project.
+
+The message lost the reason because requests failed before the exit handler
+stored stderr; the exit error now carries the exit code and stderr's last
+lines itself.
+
+### D194. Plugins turn on and off live, require each other; Git Lens and Browser split out
+
+Built-in features (Settings → Extensions → Built-in Features, D192) used to
+need a restart, and some were too coarse to turn off on their own.
+
+**Live.** Each plugin gets its own `UIRegistry`, `CommandRegistry` and
+`ServiceRegistry` over the window's shared contents; everything it adds —
+panels, tabs' providers, status items, commands, Settings panes, extension
+sources, services — carries its id (`pluginID`), even what it adds long
+after activating (an agent's commands). Turning it off ends its
+`PluginLifetime` (registries then drop what it still tries to add), calls
+`deactivate()` (processes, timers, observers), removes all it added and
+closes its tabs (a diff, a preview, a page). Re-arming observers check
+`context.isActive` as they checked `workspace.isClosed`. Services are
+observable, so what looked one up updates; a text editor is rebuilt when
+the services it was wired to change (`EditorWiring`). A switch applies to
+every window (a notification each host follows). Work in progress — agents
+working, running tasks, open terminals — is named in a confirmation first
+(`deactivationWarning()`). Restart Now is gone.
+
+**Requirements.** `PluginManifest.requires` lists plugins it can't work
+without: while one is off, it's off too, its switch greyed with "Needs …
+on" and the user's choice kept, so it comes back with that one (as System
+Settings greys dependent options). It's listed indented under it.
+`isRequired` marks Orbit's core — Explorer, Code Editor, Search, Change
+Review (agents' edits go through it, D7) — shown as Required, no switch.
+`tools` names programs it runs ("git"): a missing one is said in the row.
+
+**Split out**, each its own plugin in its parent's module (sharing the
+model through a service; plugins still never import each other):
+- **Git Lens** (requires Source Control): blame after the line and in the
+  status bar (it registers `LineBlaming`; Editor's Blame option shows only
+  then), Show File / Line History, Compare File with…, GitHub links.
+- **Browser**: web pages in tabs (`WebPreviewing`), out of Preview.
+
+Kept whole: Terminal with Tasks (tasks run in its sessions), Languages
+with Formatting, Agents with usage and pull requests (they're about the
+agents' work, from isolated copies). Checks: `PluginTogglingTests` turns
+every optional plugin off and on and expects all it added gone, it and the
+models it registered freed, dependents to follow, and no duplicates after.
+
+### D195. Extensions bring snippets, agents, language servers and tasks; the Extensions page lists packages
+
+An extension folder used to bring only themes and icons; agents, language
+servers and tasks were each set up their own way, and Orbit had no
+snippets. Now one folder can bring any of them (docs/extensions.md):
+
+- **Snippets** (new): VS Code's and Zed's format, `snippets/<language>.json`
+  or `snippets.json` (Zed's `extension.toml` `snippets = …` is read).
+  `SnippetLibrary` merges the project's `.orbit/snippets`, the user's
+  `~/.orbit/snippets` (watched) and extensions'. They show among completions
+  as you type their prefix — with or without a language server, after the
+  server's items, never after `.` — and in Editor → Insert Snippet… (a quick
+  pick by name or prefix). Tabs in a body become the file's indentation and
+  following lines keep the caret line's. Zed's catalog gains a Snippets tab:
+  80 extensions, installed without a try-on.
+- **Agents**: `agents/*.json`, the `~/.orbit/agents` manifest; the user's
+  win on the same id. Shown "From the … extension"; no Uninstall of their own.
+- **Language servers**: `language_servers.json` (file types, roots,
+  command, a Mason package to install from, settings). They come first for
+  their file types (`ExtensionServers`, process-wide behind a lock: the
+  server table is static); servers restart when the list changes.
+- **Tasks**: `tasks.json`, offered by Run Task… where a `when` file is at
+  the project's top.
+
+The Extensions page (D192) gets the polish System Settings has:
+- "Themes & Icons" becomes **Packages**: every extension folder, its tile by
+  what it mostly is, its contents said plainly ("2 themes · 14 snippets").
+  A package opens its own page: color themes and file icons with Use / In
+  Use, its snippets (prefix, name, languages), **Runs on Your Mac** with
+  every program it can start, its problems, folder, repository, Uninstall.
+- Each group ends with its way to more, as System Settings' lists end with
+  "Add…": Get More Agents… / Language Servers… (switch the filter);
+  Packages end with the catalog, Your Snippets (its own page: the list,
+  New File…, the project's folder) and **New Extension…** (a folder with
+  extension.json, an example snippet and a README of every part).
+- Group headers carry their counts; a search with nothing found shows the
+  system's search empty state; Show All rows; installed language servers get
+  colored tiles.
+
+Not yet: a catalog of Orbit's own for agents, servers and tasks (Zed's can't
+carry them), and asking before a downloaded package runs a program — nothing
+downloadable can bring one until that catalog exists.
+
+### D196. Blank chats stay out of Recent, even when the agent lists them
+
+Every window opens a new chat, and its agent session starts right away
+(`session/new`, so the model and mode pickers fill in). Claude Code keeps
+that session on disk and lists it in `session/list` as "New session -
+<date>", so Recent filled with one empty entry per window opened.
+
+Orbit remembers the session ids of chats it opened that nothing was sent in
+(`blank` in the saved history; sending a message takes the id off) and
+leaves them out of Recent, and drops listed sessions still carrying Claude
+Code's placeholder title (it renames a session on its first prompt), which
+also clears the ones from before this. Starting the agent lazily on the
+first message was the alternative: no session to hide, but empty pickers
+and a slower first reply.
+
+### D197. A click anywhere on the selected folder's row toggles it
+
+The list selects a folder on the first click, and the selection binding
+toggles it. A click on a row that's already selected changes nothing in the
+list, so it was left to a tap gesture on the row's label, which doesn't
+cover the edges of the highlight: there a second click did nothing.
+
+The explorer now watches mouse clicks on its outline view (a local event
+monitor, `ReclickMonitor`): a plain click that starts and ends on the row
+already selected alone toggles that folder, wherever in the row it lands.
+The disclosure triangle and the rename field are left alone; a drag isn't a click.

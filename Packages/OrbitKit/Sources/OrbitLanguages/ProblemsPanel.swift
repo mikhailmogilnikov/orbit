@@ -14,7 +14,7 @@ struct ProblemsPanel: View {
     var body: some View {
         let problems = manager.problems
         if problems.isEmpty {
-            EmptyStateView("No Problems", systemImage: "checkmark.circle", message: "Errors and warnings in open files, files the agent changed and the output of tasks (⌃⌘R) show up here.")
+            PanelEmptyState("No Problems", message: "Errors and warnings from open files, agent changes and tasks show up here.")
         } else {
             List {
                 ForEach(problems) { file in
@@ -76,7 +76,7 @@ private struct ProblemRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: symbol)
                     .foregroundStyle(color)
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                 // Servers put the cause after a blank line ("Error in svelte.config.js\n\n…");
                 // without collapsing it the two visible lines show only the headline.
                 Text(problem.message.split(whereSeparator: \.isNewline).joined(separator: "\n"))
@@ -99,7 +99,7 @@ private struct ProblemRow: View {
                     .opacity(isHovered ? 1 : 0)
                 }
             }
-            .font(.orbit(.body))
+            .orbitFont(.body)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -153,7 +153,7 @@ struct FileGroupHeader: View {
             Badge(count: count, tint: tint)
             Spacer(minLength: 0)
         }
-        .font(.orbit(.caption))
+        .orbitFont(.caption)
         .contentShape(.rect)
         .onTapGesture {
             withAnimation(.snappy(duration: 0.2)) { Self.expansion(of: url, in: $collapsed).wrappedValue.toggle() }

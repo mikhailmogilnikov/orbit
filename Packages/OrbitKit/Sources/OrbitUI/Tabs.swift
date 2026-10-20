@@ -46,7 +46,7 @@ public struct TabChip<Icon: View>: View {
                 if let onClose, isHovering {
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.orbit(.glyph, weight: .bold))
+                            .orbitFont(.glyph, weight: .bold)
                             .foregroundStyle(.secondary)
                             .frame(width: 16, height: 16)
                             .background(isCloseHovering ? Theme.activeFill : .clear, in: .circle)
@@ -58,13 +58,13 @@ public struct TabChip<Icon: View>: View {
                     .transition(.opacity)
                 } else {
                     icon
-                        .font(.orbit(.micro))
+                        .orbitFont(.micro)
                         .transition(.opacity)
                 }
             }
             .frame(minWidth: 16, minHeight: 16)
             Text(title)
-                .font(.orbit(.body, weight: isActive ? .medium : .regular))
+                .orbitFont(.body, weight: isActive ? .medium : .regular)
                 .italic(isPreview)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .lineLimit(1)
@@ -124,12 +124,13 @@ public struct TopBarButton: View {
     public var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.orbit(.control, weight: .medium))
+                .orbitFont(.control, weight: .medium)
                 .frame(width: 28, height: 28)
                 .contentShape(.rect)
         }
         .buttonStyle(.borderless)
         .help(help)
+        .accessibilityLabel(spokenName(help))
     }
 }
 

@@ -7,7 +7,9 @@ public final class SearchPlugin: OrbitPlugin {
         id: "orbit.search",
         name: "Search",
         summary: "Open Quickly (⌘P) and find in project.",
-        systemImage: "magnifyingglass"
+        systemImage: "magnifyingglass",
+        tint: .gray,
+        isRequired: true
     )
 
     public init() {}

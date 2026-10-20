@@ -12,6 +12,14 @@ public final class ProjectSettings {
         case bool(Bool), number(Double), string(String)
     }
 
+    public struct EditFailure: LocalizedError {
+        public let message: String
+        public var errorDescription: String? { message }
+    }
+
+    /// Whether the project's own file sets `key` (not just `~/.orbit/settings.json`).
+    public func projectSets(_ key: String) -> Bool { project[key] != nil }
+
     public static let projectPath = ".orbit/settings.json"
     public static let userPath = "~/.orbit/settings.json"
 

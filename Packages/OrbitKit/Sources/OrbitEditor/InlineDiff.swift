@@ -33,7 +33,7 @@ final class InlineDiffController {
     private var lineStarts: [Int] = [0]
     private var lineHeight: CGFloat = 16
     private var appliedSignature: Int?
-    private var overlays: [NSView] = []
+    let overlays = OverlaySet()
     private var isApplying = false
 
     /// The color theme's version-control colors (system green/red without one).
@@ -46,10 +46,7 @@ final class InlineDiffController {
     var colors = Colors() {
         didSet {
             guard colors != oldValue else { return }
-            for view in overlays {
-                (view as? ChangeBackgroundView)?.color = colors.added
-                (view as? RemovedLinesView)?.color = colors.deleted
-            }
+            layoutOverlays()
         }
     }
 
@@ -169,8 +166,7 @@ final class InlineDiffController {
     /// Rebuilds overlay views for blocks in (or near) the viewport.
     func layoutOverlays() {
         guard !isApplying, let textView else { return }
-        for view in overlays { view.removeFromSuperview() }
-        overlays.removeAll()
+        defer { overlays.commit() }
         guard !hunks.isEmpty || !comments.isEmpty || !conflicts.isEmpty else { return }
 
         let content = textView.contentFrame
@@ -191,7 +187,10 @@ final class InlineDiffController {
                 let rect = CGRect(x: content.minX, y: first.minY, width: width, height: last.maxY - first.minY)
                 textX = first.minX
                 if rect.intersects(visible) {
-                    add(ChangeBackgroundView(frame: rect, color: colors.added), below: true)
+                    let color = colors.added
+                    overlays.place("added", hunk.id, color, frame: rect, in: textView, below: true) {
+                        ChangeBackgroundView(frame: rect, color: color)
+                    }
                 }
                 top = min(top, rect.minY)
                 bottom = max(bottom, rect.maxY)
@@ -213,13 +212,17 @@ final class InlineDiffController {
                 if let gapTop {
                     let rect = CGRect(x: content.minX, y: gapTop, width: width, height: gap)
                     if rect.intersects(visible) {
-                        let ghost = RemovedLinesView(frame: rect)
-                        ghost.color = colors.deleted
-                        ghost.lines = removedLinesByHunk[hunk.id] ?? []
-                        ghost.font = textView.font
-                        ghost.lineHeight = lineHeight
-                        ghost.textInset = textX - content.minX
-                        add(ghost, below: true)
+                        let lines = removedLinesByHunk[hunk.id] ?? []
+                        let color = colors.deleted, font = textView.font, lineHeight = lineHeight, inset = textX - content.minX
+                        overlays.place("removed", hunk.id, lines, color, font, lineHeight, inset, frame: rect, in: textView, below: true) {
+                            let ghost = RemovedLinesView(frame: rect)
+                            ghost.color = color
+                            ghost.lines = lines
+                            ghost.font = font
+                            ghost.lineHeight = lineHeight
+                            ghost.textInset = inset
+                            return ghost
+                        }
                     }
                     top = min(top, gapTop)
                     bottom = max(bottom, gapTop + gap)
@@ -228,22 +231,22 @@ final class InlineDiffController {
 
             guard top != .greatestFiniteMagnitude, visible.contains(CGPoint(x: visible.midX, y: bottom)) else { continue }
             let note = comment(for: hunk)
-            var frame = CGRect.zero
-            let actions = NSHostingView(rootView: HunkActions(
-                comment: onSaveComment == nil ? nil : (note?.text ?? ""),
+            let commentText = onSaveComment == nil ? nil : (note?.text ?? "")
+            let key: [AnyHashable] = ["actions", hunk, commentText]
+            let actions = overlays.view(for: key) ?? NSHostingView(rootView: HunkActions(
+                comment: commentText,
                 keep: { [weak self] in self?.onKeep?(hunk) },
                 revert: { [weak self] in self?.onRevert?(hunk) },
                 editComment: { [weak self] in
                     guard let self else { return }
-                    editComment(note ?? newComment(on: hunk), anchor: frame)
+                    editComment(note ?? newComment(on: hunk), anchor: overlays.view(for: key)?.frame ?? .zero)
                 }
             ))
-            let size = actions.fittingSize
+            let size = actions.frame.size == .zero ? actions.fittingSize : actions.frame.size
             let anchorX = textView.visibleRect.maxX - size.width - 12
             // Bottom-right corner of the block, hanging just below it like Cursor.
-            frame = CGRect(x: anchorX, y: bottom, width: size.width, height: size.height)
-            actions.frame = frame
-            add(actions, below: false)
+            let frame = CGRect(x: anchorX, y: bottom, width: size.width, height: size.height)
+            overlays.place(key, frame: frame, in: textView) { actions }
         }
 
         layoutConflicts(visible: visible, width: width, contentX: content.minX)
@@ -251,14 +254,14 @@ final class InlineDiffController {
         // Notes away from any change block (kept since, or on plain code) hang off their first line.
         for (comment, lines) in comments where !hunks.contains(where: { anchorLines(of: $0).overlaps(lines) }) {
             guard let line = lineRect(lines.lowerBound), line.intersects(visible) else { continue }
-            var frame = CGRect.zero
-            let chip = NSHostingView(rootView: CommentChip(text: comment.text) { [weak self] in
-                self?.editComment(comment, anchor: frame)
+            let key: [AnyHashable] = ["note", comment]
+            let chip = overlays.view(for: key) ?? NSHostingView(rootView: CommentChip(text: comment.text) { [weak self] in
+                guard let self else { return }
+                editComment(comment, anchor: overlays.view(for: key)?.frame ?? .zero)
             })
-            let size = chip.fittingSize
-            frame = CGRect(x: textView.visibleRect.maxX - size.width - 12, y: line.midY - size.height / 2, width: size.width, height: size.height)
-            chip.frame = frame
-            add(chip, below: false)
+            let size = chip.frame.size == .zero ? chip.fittingSize : chip.frame.size
+            let frame = CGRect(x: textView.visibleRect.maxX - size.width - 12, y: line.midY - size.height / 2, width: size.width, height: size.height)
+            overlays.place(key, frame: frame, in: textView) { chip }
         }
     }
 
@@ -317,7 +320,7 @@ final class InlineDiffController {
                 draft.outcome = outcome
                 popover?.close()
             }
-        ).tint(Theme.accent))
+        ).tint(Theme.controlTint))
         // Clicking away keeps what was written, like Xcode's notes; Cancel and Esc don't.
         let key = ObjectIdentifier(popover)
         let delegate = CommentPopoverDelegate { [weak self] in
@@ -343,17 +346,6 @@ final class InlineDiffController {
     }
 
     func closeComment() { commentPopover?.close() }
-
-    func add(_ view: NSView, below: Bool) {
-        guard let textView else { return }
-        if below {
-            // Under the text content, above the editor background.
-            textView.addSubview(view, positioned: .below, relativeTo: nil)
-        } else {
-            textView.addSubview(view)
-        }
-        overlays.append(view)
-    }
 
     private func trailingSpacing(of line: Int) -> CGFloat {
         guard let storage, line < lineStarts.count, lineStarts[line] < storage.length else { return 0 }
@@ -496,17 +488,17 @@ struct HunkActions: View {
                 Divider().frame(height: 12)
             }
             Button(action: revert) {
-                Text("Undo ").foregroundStyle(.primary) + Text("⌥⌘⌫").foregroundStyle(.secondary)
+                Text("\(Text("Undo ").foregroundStyle(.primary))\(Text("⌥⌘⌫").foregroundStyle(.secondary))")
             }
             .help("Revert this change")
             Divider().frame(height: 12)
             Button(action: keep) {
-                Text("Keep ").foregroundStyle(.primary) + Text("⌥⌘↩").foregroundStyle(.secondary)
+                Text("\(Text("Keep ").foregroundStyle(.primary))\(Text("⌥⌘↩").foregroundStyle(.secondary))")
             }
             .help("Keep this change")
         }
         .buttonStyle(HunkActionStyle())
-        .font(.orbit(.micro, weight: .medium))
+        .orbitFont(.micro, weight: .medium)
         .padding(.horizontal, 2)
         .background(.regularMaterial, in: .rect(bottomLeadingRadius: 6, bottomTrailingRadius: 6))
         .overlay(UnevenRoundedRectangle(bottomLeadingRadius: 6, bottomTrailingRadius: 6).strokeBorder(.separator))
@@ -537,7 +529,7 @@ struct CommentChip: View {
                 .frame(maxWidth: 200, alignment: .leading)
         }
         .buttonStyle(HunkActionStyle())
-        .font(.orbit(.micro, weight: .medium))
+        .orbitFont(.micro, weight: .medium)
         .background(.regularMaterial, in: .rect(cornerRadius: Theme.smallCorner))
         .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(.separator))
         .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
@@ -581,7 +573,7 @@ struct ReviewCommentEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             TextField("Comment for the agent", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.orbit(.body))
+                .orbitFont(.body)
                 .lineLimit(3...10)
                 .focused($isFocused)
                 .onSubmit { if !isEmpty { finish(.save) } }
@@ -593,7 +585,7 @@ struct ReviewCommentEditor: View {
                         .buttonStyle(.glass)
                 }
                 Text("Sent with the others from the chat")
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                 Spacer(minLength: 0)

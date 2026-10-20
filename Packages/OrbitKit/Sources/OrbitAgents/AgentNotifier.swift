@@ -138,7 +138,8 @@ private final class NotificationRouter: NSObject, UNUserNotificationCenterDelega
 
     func updateBadge() {
         let count = notifiers.reduce(0) { $0 + ($1.notifier?.waitingCount ?? 0) }
-        NSApp.dockTile.badgeLabel = count == 0 ? nil : "\(count)"
+        // No app in `swift test`, where windows still close.
+        NSApp?.dockTile.badgeLabel = count == 0 ? nil : "\(count)"
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {

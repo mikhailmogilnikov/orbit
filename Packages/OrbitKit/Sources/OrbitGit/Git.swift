@@ -323,6 +323,23 @@ extension GitRepository {
         return GitParse.commits(String(decoding: (try? run(arguments)) ?? Data(), as: UTF8.self))
     }
 
+    /// The commits that changed a file, across renames, or a range of its
+    /// lines (1-based, as committed): GitLens's file and line history (D189).
+    func fileLog(path: String, lines: ClosedRange<Int>? = nil, limit: Int = 300) -> [GitCommit] {
+        var arguments = ["log", "-n", "\(limit)", "--format=\(Self.logFormat)"]
+        if let lines {
+            arguments += ["-L", "\(lines.lowerBound),\(lines.upperBound):\(path)", "--no-patch"]
+        } else {
+            arguments += ["--follow", "--", path]
+        }
+        return GitParse.commits(String(decoding: (try? run(arguments)) ?? Data(), as: UTF8.self))
+    }
+
+    /// A file as `revision` has it (a branch, a tag, a commit).
+    func contents(of path: String, at revision: String) -> Side? {
+        blob("\(revision):\(path)")
+    }
+
     /// Commits whose message or author contains `query` (any case), or whose hash starts with it.
     func searchLog(_ query: String, revisions: [String] = [], limit: Int = 300) -> [GitCommit] {
         func search(_ option: String) -> [GitCommit] {

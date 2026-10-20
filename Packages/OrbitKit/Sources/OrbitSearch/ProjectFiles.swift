@@ -12,6 +12,7 @@ final class ProjectFiles {
     private(set) var entries: [IndexedPath] = []
     private(set) var root: URL?
     private var loadedGeneration = -1
+    private var loadedExclusions: [String] = []
     private var loading: Task<Void, Never>?
 
     init(workspace: Workspace) {
@@ -20,8 +21,11 @@ final class ProjectFiles {
 
     /// Cheap to call often: reloads only when the root or generation moved.
     func refreshIfNeeded() {
-        guard root != workspace.root || loadedGeneration != workspace.fileSystemGeneration else { return }
+        let exclusions = Preferences.shared.excludedFiles
+        guard root != workspace.root || loadedGeneration != workspace.fileSystemGeneration || loadedExclusions != exclusions else { return }
         loadedGeneration = workspace.fileSystemGeneration
+        loadedExclusions = exclusions
+        let filter = Preferences.shared.fileExclusions
         guard let root = workspace.root else {
             self.root = nil
             paths = []
@@ -36,7 +40,7 @@ final class ProjectFiles {
         loading?.cancel()
         loading = Task {
             let (paths, entries) = await Task.detached(priority: .userInitiated) {
-                let paths = FileLister.list(root: root)
+                let paths = FileLister.list(root: root).filter(filter.allows)
                 return (paths, paths.map(IndexedPath.init))
             }.value
             guard !Task.isCancelled, self.root == root else { return }

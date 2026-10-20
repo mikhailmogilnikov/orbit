@@ -20,7 +20,7 @@ struct ReviewCommentsBar: View {
                             DisclosureChevron(isExpanded: isExpanded)
                                 .foregroundStyle(.secondary)
                             Text("\(comments.count) comment\(comments.count == 1 ? "" : "s") for the agent")
-                                .font(.orbit(.caption, weight: .medium))
+                                .orbitFont(.caption, weight: .medium)
                         }
                         .contentShape(.rect)
                     }
@@ -71,15 +71,15 @@ private struct ReviewCommentRow: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "text.bubble")
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .foregroundStyle(.secondary)
             Text(comment.text)
-                .font(.orbit(.body))
+                .orbitFont(.body)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 4)
             Text("\(comment.url.lastPathComponent):\(comment.lines.lowerBound + 1)")
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.head)

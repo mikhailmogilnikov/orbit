@@ -237,7 +237,7 @@ struct PanelTabButton: View {
         Button(action: action) {
             Image(systemName: panel.systemImage)
                 .symbolVariant(isSelected ? .fill : .none)
-                .font(.orbit(.control, weight: .medium))
+                .orbitFont(.control, weight: .medium)
                 .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 .frame(maxWidth: .infinity, minHeight: 26)
                 .contentShape(.rect)
@@ -1141,9 +1141,9 @@ private struct BottomPanelTab: View {
         Button(action: select) {
             HStack(spacing: 5) {
                 Image(systemName: panel.systemImage)
-                    .font(.orbit(.micro))
+                    .orbitFont(.micro)
                 Text(panel.title)
-                    .font(.orbit(.caption, weight: isSelected ? .medium : .regular))
+                    .orbitFont(.caption, weight: isSelected ? .medium : .regular)
                 if let badge = panel.badge?() {
                     PanelBadgeView(badge: badge)
                 }
@@ -1188,7 +1188,7 @@ private struct BottomPanelToggles: View {
                 ui.isBottomPanelVisible.toggle()
             } label: {
                 Image(systemName: "rectangle.bottomthird.inset.filled")
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                     .foregroundStyle(ui.isBottomPanelVisible ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                     .contentShape(.rect)
             }
@@ -1208,7 +1208,7 @@ private struct BottomPanelToggles: View {
                                 .contentTransition(.numericText(value: Double(badge.count)))
                                 .foregroundStyle(.secondary)
                         }
-                        .font(.orbit(.caption))
+                        .orbitFont(.caption)
                         .animation(.snappy, value: badge.count)
                         .contentShape(.rect)
                     }
@@ -1234,7 +1234,7 @@ struct StatusBar: View {
             ForEach(items.filter { $0.placement == .leading }) { $0.makeView() }
             Spacer()
             ForEach(items.filter { $0.placement == .trailing }) { $0.makeView() }
-            CheatSheetButton(commands: commands)
+            CheatSheetButton(commands: commands, ui: ui)
         }
         .padding(.horizontal, 12)
         .frame(height: 24)
@@ -1257,9 +1257,9 @@ struct WelcomeView: View {
                     .frame(width: 64, height: 64)
                     .padding(.bottom, 4)
                 Text(workspace.root == nil ? "Orbit" : workspace.name)
-                    .font(.orbit(.large, weight: .semibold))
+                    .orbitFont(.large, weight: .semibold)
                 Text(workspace.root == nil ? "Open a folder to start working with agents." : "Open a file or start an agent session.")
-                    .font(.orbit(.control))
+                    .orbitFont(.control)
                     .foregroundStyle(.secondary)
             }
 
@@ -1315,7 +1315,7 @@ struct WelcomeActionRow: View {
             cell(Text(shortcut ?? "").tracking(1.5).foregroundStyle(isHovering && isEnabled ? .secondary : .tertiary))
                 .gridColumnAlignment(.leading)
         }
-        .font(.orbit(.control))
+        .orbitFont(.control)
         .foregroundStyle(isHovering && isEnabled ? .primary : .secondary)
         .opacity(isEnabled ? 1 : 0.45)
         .animation(.easeOut(duration: 0.12), value: isHovering)
@@ -1347,7 +1347,7 @@ struct KeyCaps: View {
         HStack(spacing: 3) {
             ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
                 Text(key)
-                    .font(.orbit(.caption, weight: .medium))
+                    .orbitFont(.caption, weight: .medium)
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 18, minHeight: 18)
                     .padding(.horizontal, key.count > 1 ? 4 : 0)

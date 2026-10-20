@@ -7,7 +7,9 @@ public final class ExplorerPlugin: OrbitPlugin {
         id: "orbit.explorer",
         name: "Explorer",
         summary: "File tree of the open folder.",
-        systemImage: "folder"
+        systemImage: "folder",
+        tint: .blue,
+        isRequired: true
     )
 
     private var watcher: FolderWatcher?
@@ -20,6 +22,18 @@ public final class ExplorerPlugin: OrbitPlugin {
         let workspace = context.workspace
         watcher = FolderWatcher(workspace: workspace)
         let model = FileTreeModel(workspace: workspace, services: context.services)
+        context.ui.addSettingsPane(SettingsPane(
+            id: "files", title: "Files", systemImage: "doc.on.doc.fill", tint: .blue, group: .code, order: 5,
+            summary: "What the file tree shows, and files hidden everywhere.",
+            keywords: ["explorer", "file tree", "hidden", "dotfiles", "gitignore", "exclude", "ignore"],
+            items: { [
+                SettingsItem("hidden", "Show hidden files", keywords: ["dotfiles", "dot files", ".env"]),
+                SettingsItem("ignored", "Show git-ignored files", keywords: [".gitignore", "build output", "node_modules"]),
+                SettingsItem("excluded", "Excluded files", keywords: ["exclude", "files.exclude", "hide", "glob", "pattern"]),
+            ] }
+        ) {
+            FilesSettingsPane()
+        })
         context.ui.addSidebarPanel(PanelContribution(id: "explorer", title: "Explorer", systemImage: "folder", order: 0) {
             ExplorerView(model: model, workspace: workspace, commands: context.commands, decorations: context.services.resolve(FileStatusProviding.self))
         }.command("explorer.show"))
@@ -166,9 +180,6 @@ final class FileTreeModel {
     private(set) var root: FileNode?
     private var loadedRoot: URL?
     private var loadedGeneration = -1
-    /// A folder the list selected with this click (and toggled already): the
-    /// row's tap that follows mustn't toggle it back.
-    @ObservationIgnored var justSelectedFolder: URL?
     /// The folder a drag is over: its row is highlighted (D92).
     var dropTarget: URL?
     /// The file picked with Select for Compare.
@@ -189,7 +200,10 @@ final class FileTreeModel {
         dropTarget = nil
         guard let projectRoot = workspace.root else { return false }
         let rootPath = projectRoot.standardizedFileURL.path + "/"
+        let target = folder.standardizedFileURL.path
+        // A folder can't go into itself or its own subfolder, moved or copied (Finder refuses too).
         let files = urls.filter(\.isFileURL).map(\.standardizedFileURL)
+            .filter { target != $0.path && !target.hasPrefix($0.path + "/") }
         let copies = NSEvent.modifierFlags.contains(.option)
         let outside = files.filter { !$0.path.hasPrefix(rootPath) }
         let moving = files.filter { $0.path.hasPrefix(rootPath) && (copies || $0.deletingLastPathComponent() != folder.standardizedFileURL) }
@@ -262,15 +276,10 @@ final class FileTreeModel {
     private(set) var focusRequest = 0
     func focusList() { focusRequest += 1 }
 
-    /// A click on a folder's row: the list selects it on the first click
-    /// (and the selection binding toggles it); a click on the already
-    /// selected row only reaches the row's tap.
-    func folderTapped(_ folder: FileNode) {
-        if justSelectedFolder == folder.url {
-            justSelectedFolder = nil
-            return
-        }
-        guard selectedFolder == folder.url else { return }
+    /// A click on the already selected folder's row (anywhere in it, the
+    /// highlight's edges too); the first click toggles through the selection binding.
+    func selectedFolderClicked() {
+        guard let selectedFolder, extraSelection.isEmpty, let folder = node(for: selectedFolder), folder.isDirectory else { return }
         toggle(folder)
     }
     /// The window's: ⌘Z in the explorer (or with nothing focused) undoes file
@@ -541,7 +550,7 @@ final class FileTreeModel {
     private var isRestoring = false
 
     private func expansionChanged(_ url: URL, _ isExpanded: Bool) {
-        guard !isRestoring, let root = loadedRoot else { return }
+        guard !isRestoring, loadedRoot != nil else { return }
         let path = workspace.relativePath(url)
         expanded.removeAll { $0 == path }
         if isExpanded { expanded.append(path) }
@@ -722,13 +731,14 @@ struct ExplorerView: View {
             get: { model.selectedFolder ?? workspace.activeTab?.url },
             set: { url in
                 guard let url else { return }
-                model.justSelectedFolder = nil
                 if let folder = model.node(for: url), folder.isDirectory {
+                    // The list sets its selection again when it reappears (back from
+                    // another panel, mid-click on the panel's button): no toggle then.
+                    guard model.selectedFolder != url else { return }
                     // The folder stays selected; a click toggles it, arrow keys don't.
                     model.selectedFolder = url
                     if let event = NSApp.currentEvent, event.type == .leftMouseDown || event.type == .leftMouseUp {
                         model.toggle(folder)
-                        model.justSelectedFolder = url
                     }
                     return
                 }
@@ -757,6 +767,19 @@ struct FileChildren: View {
     // in dark mode, hence `DragPreview` in the window's color scheme.
     @Environment(\.colorScheme) private var colorScheme
 
+    /// What Settings → Files leaves out (D178), re-read when it changes.
+    private var visibleChildren: [FileNode] {
+        let preferences = Preferences.shared
+        let rootPath = workspace.root.map { $0.standardizedFileURL.path + "/" }
+        return (node.children ?? []).filter { child in
+            if !preferences.showsHiddenFiles, child.name.hasPrefix(".") { return false }
+            if !preferences.showsIgnoredFiles, decorations?.isIgnored(child.url) == true { return false }
+            guard !preferences.fileExclusions.isEmpty, let rootPath else { return true }
+            let path = child.url.standardizedFileURL.path
+            return !path.hasPrefix(rootPath) || preferences.fileExclusions.allows(String(path.dropFirst(rootPath.count)))
+        }
+    }
+
 
     var body: some View {
         if let item = model.creating, item.folder == node.url.standardizedFileURL {
@@ -771,7 +794,7 @@ struct FileChildren: View {
             }
             .id(item.folder.appendingPathComponent(item.isFolder ? ".orbit-new-folder" : ".orbit-new-file"))
         }
-        ForEach(node.children ?? []) { child in
+        ForEach(visibleChildren) { child in
             if child.isDirectory {
                 DisclosureGroup(isExpanded: Binding(
                     get: { child.isExpanded },
@@ -781,7 +804,6 @@ struct FileChildren: View {
                 } label: {
                     FileLabel(url: child.url, kind: decorations?.folderStatus(of: child.url), isFolder: true, isExpanded: child.isExpanded, isIgnored: decorations?.isIgnored(child.url) ?? false, model: model)
                         .modifier(RowHighlight(url: child.url, model: model))
-                        .simultaneousGesture(TapGesture().onEnded { model.folderTapped(child) })
                         .contextMenu { FileContextMenu(url: child.url, isFolder: true, model: model) }
                         .draggable(child.url) { DragPreview(url: child.url, isFolder: true, colorScheme: colorScheme) }
                         .modifier(FolderDrop(folder: child.url, model: model))
@@ -832,11 +854,17 @@ struct NativeSelectionHider: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView { NSView() }
 
+    func makeCoordinator() -> ReclickMonitor { ReclickMonitor(model: model) }
+
+    static func dismantleNSView(_ view: NSView, coordinator: ReclickMonitor) { coordinator.stop() }
+
     func updateNSView(_ view: NSView, context: Context) {
+        let monitor = context.coordinator
         Task { @MainActor in
             var ancestor = view.superview
             while let current = ancestor {
                 if let outline = Self.outline(in: current) {
+                    monitor.watch(outline)
                     if outline.selectionHighlightStyle != .none { outline.selectionHighlightStyle = .none }
                     if !model.hidesNativeSelection { model.hidesNativeSelection = true }
                     return
@@ -852,6 +880,69 @@ struct NativeSelectionHider: NSViewRepresentable {
             if let outline = outline(in: subview) { return outline }
         }
         return nil
+    }
+}
+
+/// Sees clicks on the row that's already selected, which the list keeps to
+/// itself (its selection doesn't change). A row's tap gesture only covers the
+/// label, so a click on the highlight's edge used to do nothing (D197).
+@MainActor
+final class ReclickMonitor {
+    private weak var model: FileTreeModel?
+    private weak var outline: NSOutlineView?
+    private var monitor: Any?
+    private var pressed: (row: Int, location: NSPoint)?
+
+    init(model: FileTreeModel) { self.model = model }
+
+    func watch(_ outline: NSOutlineView) {
+        self.outline = outline
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            MainActor.assumeIsolated { self?.handle(event) }
+            return event
+        }
+    }
+
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    private func handle(_ event: NSEvent) {
+        guard let outline, event.window === outline.window else { return }
+        if event.type == .leftMouseUp {
+            finish(at: event.locationInWindow)
+            return
+        }
+        // Before the list handles the click: was this row already the selection?
+        let point = outline.convert(event.locationInWindow, from: nil)
+        let row = outline.row(at: point)
+        let plain = event.modifierFlags.intersection([.command, .shift, .control, .option]).isEmpty
+        let hit = outline.superview.flatMap { $0.hitTest($0.convert(event.locationInWindow, from: nil)) }
+        let onControl = hit is NSButton || hit is NSTextView || hit is NSTextField
+        // Only clicks on the tree itself: the outline of a panel switched away
+        // from can linger, and a click on the panel's button would land on its rows.
+        let inTree = hit?.isDescendant(of: outline) == true && !outline.isHiddenOrHasHiddenAncestor
+        guard plain, !onControl, inTree, row >= 0, outline.selectedRowIndexes == IndexSet(integer: row) else {
+            pressed = nil
+            return
+        }
+        pressed = (row, event.locationInWindow)
+        // The list may track the mouse in a loop of its own and keep the
+        // mouse-up from monitors; by the time this runs that loop is over.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, NSEvent.pressedMouseButtons & 1 == 0, let window = outline.window else { return }
+            finish(at: window.convertPoint(fromScreen: NSEvent.mouseLocation))
+        }
+    }
+
+    private func finish(at location: NSPoint) {
+        guard let pressed, let outline else { return }
+        self.pressed = nil
+        guard outline.row(at: outline.convert(location, from: nil)) == pressed.row,
+              hypot(location.x - pressed.location.x, location.y - pressed.location.y) < 4 else { return }
+        model?.selectedFolderClicked()
     }
 }
 
@@ -918,7 +1009,7 @@ struct FileLabel: View {
                         .padding(.trailing, 3)
                 } else {
                     Text(kind.badge)
-                        .font(.orbit(.micro, weight: .semibold, design: .monospaced))
+                        .orbitFont(.micro, weight: .semibold, design: .monospaced)
                         .foregroundStyle(kind.color)
                 }
             }
@@ -939,7 +1030,7 @@ struct DragPreview: View {
         HStack(spacing: 6) {
             FileIconView(url: url, isFolder: isFolder)
             Text(url.lastPathComponent)
-                .font(.orbit(.body, weight: .medium))
+                .orbitFont(.body, weight: .medium)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
         }

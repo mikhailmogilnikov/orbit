@@ -37,7 +37,7 @@ final class InlayHintController {
     private var covered = IndexSet()
     /// Offsets of the characters carrying our kern, and how much.
     private var kerned: [Int: CGFloat] = [:]
-    private var overlays: [NSView] = []
+    private let overlays = OverlaySet()
     private var request: Task<Void, Never>?
     private var isFetching = false
     private var isLayoutScheduled = false
@@ -158,7 +158,8 @@ final class InlayHintController {
 
     var labelFont: NSFont {
         let size = textView?.font.pointSize ?? 13
-        return .monospacedSystemFont(ofSize: (size * 0.88).rounded(), weight: .regular)
+        let font = textView?.font ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+        return NSFont(descriptor: font.fontDescriptor, size: (size * 0.88).rounded()) ?? font
     }
 
     private static let inset: CGFloat = 3
@@ -238,12 +239,11 @@ final class InlayHintController {
     }
 
     private func removeOverlays() {
-        for view in overlays { view.removeFromSuperview() }
         overlays.removeAll()
     }
 
     private func layoutOverlays() {
-        removeOverlays()
+        defer { overlays.commit() }
         guard let textView, isEnabled, !hints.isEmpty, let string = geometry.string else { return }
         let manager = textView.textLayoutManager
         let contentManager = textView.textContentManager
@@ -261,10 +261,11 @@ final class InlayHintController {
             let x = rect.maxX - room / 2
             guard rect.intersects(visible) || CGRect(x: x, y: rect.minY, width: room, height: rect.height).intersects(visible) else { continue }
             for label in labels(for: list) {
-                let frame = CGRect(x: x + label.x, y: rect.minY + 1, width: label.width, height: max(rect.height - 2, 1))
-                let view = InlayHintView(frame: frame.integral, label: label.text, font: font, colors: colors)
-                textView.addSubview(view)
-                overlays.append(view)
+                let frame = CGRect(x: x + label.x, y: rect.minY + 1, width: label.width, height: max(rect.height - 2, 1)).integral
+                let colors = colors
+                overlays.place(frame, label.text, font, colors.text, colors.background, frame: frame, in: textView) {
+                    InlayHintView(frame: frame, label: label.text, font: font, colors: colors)
+                }
             }
         }
     }

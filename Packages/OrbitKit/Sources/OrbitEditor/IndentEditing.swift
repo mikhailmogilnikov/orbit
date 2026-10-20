@@ -19,7 +19,7 @@ final class EditorIndentation {
     /// Once per file: a later reopen keeps what was detected or picked.
     func detect(_ url: URL, text: String, root: URL?) -> Indentation {
         if let known = indentation(for: url) { return known }
-        let found = Indentation.of(url, text: text, root: root)
+        let found = Indentation.of(url, text: text, root: root, fallback: Preferences.shared.defaultIndentation)
         // Not during the view update that asked.
         DispatchQueue.main.async { [self] in
             if byURL[url.standardizedFileURL] == nil { byURL[url.standardizedFileURL] = found }
@@ -190,7 +190,7 @@ struct IndentationStatus: View {
                 .pickerStyle(.inline)
             } label: {
                 Text(current.spaces ? "Spaces: \(current.size)" : "Tab Size: \(current.size)")
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                     .foregroundStyle(.secondary)
             }
             .menuStyle(.button)

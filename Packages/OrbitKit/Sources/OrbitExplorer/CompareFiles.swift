@@ -71,7 +71,7 @@ struct CompareView: View {
         return HStack(spacing: 8) {
             name(left)
             Image(systemName: "arrow.left.arrow.right")
-                .font(.orbit(.micro))
+                .orbitFont(.micro)
                 .foregroundStyle(.tertiary)
             name(right)
             DiffStatBadge(added: added, removed: removed)
@@ -88,7 +88,7 @@ struct CompareView: View {
         } label: {
             HStack(spacing: 4) {
                 FileIconView(url: url).foregroundStyle(.secondary)
-                Text(url.lastPathComponent).font(.orbit(.body, weight: .medium))
+                Text(url.lastPathComponent).orbitFont(.body, weight: .medium)
             }
         }
         .buttonStyle(.plain)

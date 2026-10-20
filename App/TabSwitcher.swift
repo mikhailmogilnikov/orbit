@@ -123,7 +123,7 @@ struct TabSwitcherOverlay: View {
             }
             Spacer(minLength: 0)
         }
-        .font(.orbit(.control))
+        .orbitFont(.control)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(isSelected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.corner))

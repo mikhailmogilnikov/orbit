@@ -9,7 +9,8 @@ public final class AgentsPlugin: OrbitPlugin {
         id: "orbit.agents",
         name: "Agents",
         summary: "Claude Code, Codex and any ACP agent, side by side.",
-        systemImage: "sparkles"
+        systemImage: "sparkles",
+        tint: .indigo
     )
 
     private var store: AgentStore?
@@ -30,24 +31,41 @@ public final class AgentsPlugin: OrbitPlugin {
         context.services.register(AgentTasks.self, tasks)
         context.services.register(ReviewComments.self, store.reviewComments)
 
+        ui.addExtensionSource(AgentExtensionSource(store: store))
         ui.addSettingsPane(SettingsPane(
             id: "agents", title: "Agents", systemImage: "sparkles", tint: .indigo, group: .agents, order: 0,
             summary: "The agent new chats start with, and the agents you have.",
-            keywords: ["claude", "codex", "gemini", "cursor", "install", "registry", "default", "isolated", "copy", "custom", "acp", "login", "awake", "sleep", "update"]
+            keywords: ["claude", "codex", "gemini", "cursor", "install", "registry", "default", "isolated", "copy", "custom", "acp", "login", "awake", "sleep", "update"],
+            items: { [
+                SettingsItem("defaultAgent", "Default agent", keywords: ["commit messages", "new chat"]),
+                SettingsItem("isolated", "Work in an isolated copy", keywords: ["worktree", "sandbox", "copy"]),
+                SettingsItem("keepAwake", "Keep the Mac awake", keywords: ["sleep", "caffeinate", "awake"]),
+            ] + store.providers.map { SettingsItem($0.id, $0.name, keywords: ["installed", "agent"]) } + [
+                SettingsItem("getMore", "Get More Agents", keywords: ["registry", "install", "acp"]),
+                SettingsItem("custom", "Add a Custom Agent", keywords: ["acp", "json", "own agent"]),
+            ] }
         ) {
             AgentsSettingsPane(store: store)
         })
         ui.addSettingsPane(SettingsPane(
             id: "mcp", title: "MCP Servers", systemImage: "server.rack", tint: .cyan, group: .agents, order: 10,
             summary: "Tools every agent gets in new chats.",
-            keywords: ["mcp", "tools", "servers", "model context protocol", ".mcp.json"]
+            keywords: ["mcp", "tools", "servers", "model context protocol", ".mcp.json"],
+            items: { [
+                SettingsItem("projectServers", "Project MCP servers", keywords: [".orbit/settings.json", "mcpServers"]),
+                SettingsItem("globalServers", "Global MCP servers", keywords: ["~/.orbit/settings.json", "mcpServers"]),
+            ] }
         ) {
             MCPServersPane(store: store)
         })
         ui.addSettingsPane(SettingsPane(
             id: "notifications", title: "Notifications", systemImage: "bell.badge.fill", tint: .red, group: .app, order: 2,
             summary: "When an agent finishes or needs you while Orbit is in the background.",
-            keywords: ["notify", "notification", "sound", "dock", "badge", "alert"]
+            keywords: ["notify", "notification", "sound", "dock", "badge", "alert"],
+            items: { [
+                SettingsItem("notify", "Notify when an agent finishes", keywords: ["notification", "needs you", "permission", "dock", "badge", "alert"]),
+                SettingsItem("sound", "Play a sound when an agent finishes", keywords: ["sound", "chime"]),
+            ] }
         ) {
             NotificationSettingsPane(store: store)
         })
@@ -155,6 +173,12 @@ public final class AgentsPlugin: OrbitPlugin {
         store?.shutdown()
         completion?.shutdown()
     }
+
+    public func deactivationWarning() -> String? {
+        let working = store?.sessions.filter { $0.status == .working }.count ?? 0
+        guard working > 0 else { return nil }
+        return working == 1 ? "An agent is working; it stops." : "\(working) agents are working; they stop."
+    }
 }
 
 /// `AgentTasks`: a task from another plugin lands in a chat's composer.
@@ -240,7 +264,7 @@ final class AgentStore {
         ui = context.ui
         services = context.services
         settings = context.settings
-        providers = AgentProvider.loadAll()
+        providers = AgentProvider.loadAll(extensions: Extensions.shared.agentFiles)
         history = SessionHistory(settings: context.settings)
         // Agents Orbit used to ship moved to the registry's ids (D52).
         preferredProviderID = context.settings.string("lastProvider").map(AgentProvider.migratedID)
@@ -248,13 +272,17 @@ final class AgentStore {
         notifies = !context.settings.bool("notificationsOff")
         lastValues = Self.migratingKeys(context.settings.data("lastOptions").flatMap { try? JSONDecoder().decode([String: [String: String]].self, from: $0) } ?? [:])
         models = Self.migratingKeys(context.settings.data("models").flatMap { try? JSONDecoder().decode([String: ConfigOption].self, from: $0) } ?? [:])
+        knownOptions = context.settings.data("knownOptions").flatMap { try? JSONDecoder().decode([String: [String: ConfigOption]].self, from: $0) } ?? [:]
+        defaultModes = context.settings.data("defaultModes").flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
         // Resolve the login-shell environment up front; spawning agents needs it.
         environmentTask = Task.detached { await ShellEnvironment.resolve() }
         folder = workspace.root
         refreshMissing()
         migrateBuiltinAgents()
+        autoUpdate()
         restoreTabs()
         observeFolder()
+        observeExtensions()
         notifier.isEnabled = notifies
         notifier.playsSound = playsSound
         AgentWakeLock.shared.start()
@@ -295,6 +323,19 @@ final class AgentStore {
                 guard let self, !self.workspace.isClosed else { return }
                 self.folderDidChange()
                 self.observeFolder()
+            }
+        }
+    }
+
+    /// Agents an extension brings come and go with it (D195).
+    private func observeExtensions() {
+        withObservationTracking {
+            _ = Extensions.shared.agentFiles
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, !self.workspace.isClosed else { return }
+                self.reloadProviders()
+                self.observeExtensions()
             }
         }
     }
@@ -390,6 +431,37 @@ final class AgentStore {
     /// models of agents that aren't running.
     private(set) var models: [String: ConfigOption] {
         didSet { if let data = try? JSONEncoder().encode(models) { settings.set(data, for: "models") } }
+    }
+
+    /// The model, effort and mode lists each agent last reported, for its page
+    /// in Settings (D179) while it isn't running.
+    private(set) var knownOptions: [String: [String: ConfigOption]] {
+        didSet { if let data = try? JSONEncoder().encode(knownOptions) { settings.set(data, for: "knownOptions") } }
+    }
+
+    /// The mode new chats start in, per agent, when picked in Settings (D179):
+    /// unlike model and effort it's never taken from the last chat.
+    private var defaultModes: [String: String] {
+        didSet { if let data = try? JSONEncoder().encode(defaultModes) { settings.set(data, for: "defaultModes") } }
+    }
+
+    static let defaultCategories = ["model", "thought_level", "mode"]
+
+    func knownOption(_ category: String, of provider: AgentProvider) -> ConfigOption? {
+        knownOptions[provider.id]?[category]
+    }
+
+    /// What new chats with the agent start with; nil: the agent's own default.
+    func defaultValue(_ category: String, for provider: AgentProvider) -> String? {
+        category == "mode" ? defaultModes[provider.id] : lastValues[provider.id]?[category]
+    }
+
+    func setDefault(_ value: String?, _ category: String, for provider: AgentProvider) {
+        if category == "mode" {
+            defaultModes[provider.id] = value
+        } else {
+            lastValues[provider.id, default: [:]][category] = value
+        }
     }
 
     /// A new conversation with the last used agent; an empty one already open is reused.
@@ -522,7 +594,7 @@ final class AgentStore {
         guard let client = try? ACPClient(
             command: provider.command,
             environment: environment,
-            currentDirectory: folder,
+            currentDirectory: provider.launchDirectory(for: folder),
             onNotification: { _, _ in },
             onRequest: { method, _ in throw JSONRPCError.methodNotFound(method) },
             onExit: { _, _ in }
@@ -553,9 +625,11 @@ final class AgentStore {
             await task.value
         }
         session.initialValues = lastValues[provider.id] ?? [:]
+        // A resumed chat keeps the mode it had.
+        if saved == nil, let mode = defaultModes[provider.id] { session.initialValues["mode"] = mode }
         session.onChange = { [weak self, weak session] in
             guard let self, let session, let saved = session.saved else { return }
-            if !session.isEmptyChat { history.record(saved) }
+            if session.isEmptyChat { history.markBlank(saved.id) } else { history.record(saved) }
             saveTabs()
         }
         session.onAttention = { [weak self, weak session] attention in
@@ -567,7 +641,16 @@ final class AgentStore {
             for file in files { changeAuthors[file] = session.id }
         }
         session.onConfigOptions = { [weak self] options in
-            guard let self, let model = options.first(where: { $0.category == "model" }) else { return }
+            guard let self else { return }
+            var known = knownOptions[provider.id] ?? [:]
+            for option in options {
+                guard let category = option.category, Self.defaultCategories.contains(category) else { continue }
+                var stored = option
+                stored.currentValue = ""
+                known[category] = stored
+            }
+            if known != knownOptions[provider.id] ?? [:] { knownOptions[provider.id] = known }
+            guard let model = options.first(where: { $0.category == "model" }) else { return }
             var stored = model
             stored.currentValue = ""
             if models[provider.id] != stored { models[provider.id] = stored }
@@ -650,7 +733,7 @@ final class AgentStore {
     /// Picks up agents installed, updated or removed since launch.
     func reloadProviders() {
         let previous = providers
-        providers = AgentProvider.loadAll()
+        providers = AgentProvider.loadAll(extensions: Extensions.shared.agentFiles)
         guard providers != previous else { return }
         refreshMissing()
         registerProviderCommands()
@@ -727,6 +810,22 @@ final class AgentStore {
             }
             settings.set(true, for: "registryMigrated")
             reloadProviders()
+        }
+    }
+
+    /// Settings → General → Automatic Updates (D186): a while after launch, once
+    /// a day, every installed registry agent with a newer version. Running chats
+    /// keep the old one until they restart.
+    private func autoUpdate() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard let self, !workspace.isClosed, Preferences.shared.autoUpdatesAgents,
+                  Preferences.shared.claimDailyCheck("agents") else { return }
+            await registry.refresh()
+            for provider in providers where registry.hasUpdate(provider) {
+                guard !workspace.isClosed, let agent = registry.agent(for: provider) else { return }
+                await install(agent)
+            }
         }
     }
 

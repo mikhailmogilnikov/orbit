@@ -22,4 +22,15 @@ final class Updater {
     }
 
     func checkForUpdates() { controller.checkForUpdates(nil) }
+
+    /// Sparkle's own preferences (D186), saved by Sparkle in Orbit's defaults.
+    var checksAutomatically: Bool {
+        get { controller.updater.automaticallyChecksForUpdates }
+        set { controller.updater.automaticallyChecksForUpdates = newValue }
+    }
+
+    var installsAutomatically: Bool {
+        get { controller.updater.automaticallyDownloadsUpdates }
+        set { controller.updater.automaticallyDownloadsUpdates = newValue }
+    }
 }

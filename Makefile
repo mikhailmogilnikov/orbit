@@ -1,6 +1,11 @@
 DERIVED := .build/xcode
 CONFIG ?= Debug
 APP := $(DERIVED)/Build/Products/$(CONFIG)/Orbit.app
+# The everyday Debug build is the one the app is used in: optimized like
+# Release (unoptimized Swift scrolled the editor and long chats at a crawl,
+# D165), still with DEBUG and its debug commands. Xcode's own builds stay
+# -Onone for previews and the debugger.
+OPTIMIZE := SWIFT_OPTIMIZATION_LEVEL=-O GCC_OPTIMIZATION_LEVEL=s
 
 .PHONY: project build run test test-languages test-language-installs import-lspconfig import-grammars release release-setup release-publish clean
 
@@ -9,7 +14,7 @@ project:
 
 build: project
 	xcodebuild -project Orbit.xcodeproj -scheme Orbit -configuration $(CONFIG) \
-		-derivedDataPath $(DERIVED) -skipPackagePluginValidation -quiet build
+		-derivedDataPath $(DERIVED) -skipPackagePluginValidation -quiet $(OPTIMIZE) build
 
 run: build
 	-pkill -x Orbit

@@ -11,7 +11,7 @@ final class GitModel {
         case noFolder, loading, notRepository, ready
     }
 
-    private let workspace: Workspace
+    let workspace: Workspace
     private let services: ServiceRegistry
     private(set) var state: State = .noFolder
     private(set) var status = GitStatus() {
@@ -32,7 +32,8 @@ final class GitModel {
     private(set) var stashes: [GitStash] = []
     /// Recent commits of HEAD, newest first.
     private(set) var history: [GitCommit] = [] {
-        didSet { graph = historyQuery.trimmingCharacters(in: .whitespaces).isEmpty ? GitGraph.rows(history) : [] }
+        // No graph while searching, nor for one file's commits: they aren't a connected history.
+        didSet { graph = historyQuery.trimmingCharacters(in: .whitespaces).isEmpty && historyScope.path == nil ? GitGraph.rows(history) : [] }
     }
     /// One row per commit in `history`; empty while searching (D136).
     private(set) var graph: [GitGraphRow] = []
@@ -40,12 +41,23 @@ final class GitModel {
     enum HistoryScope: Hashable {
         case current, all
         case branch(String)
+        /// One file's commits (D189), by its path in the repository.
+        case file(String)
+        /// The commits that touched these lines of a file (1-based).
+        case lines(String, ClosedRange<Int>)
 
         var revisions: [String] {
             switch self {
-            case .current: []
+            case .current, .file, .lines: []
             case .all: ["--all"]
             case .branch(let name): [name]
+            }
+        }
+
+        var path: String? {
+            switch self {
+            case .file(let path), .lines(let path, _): path
+            default: nil
             }
         }
     }
@@ -104,10 +116,10 @@ final class GitModel {
         showsChangeMarkers = settings.bool("showsChangeMarkers", default: true)
         showsBlame = settings.bool("showsBlame", default: true)
         environment = ShellEnvironment.withoutHostAgentVariables()
-        Task {
+        Task { [weak self] in
             // Push/pull may need credential helpers from the user's PATH (gh, brew git…).
             let resolved = await ShellEnvironment.resolve()
-            environment = resolved
+            self?.environment = resolved
         }
     }
 
@@ -182,17 +194,30 @@ final class GitModel {
         isRefreshing = true
         needsRefresh = false
         let revisions = historyScope.revisions
+        let scope = historyScope
         let query = historyQuery.trimmingCharacters(in: .whitespaces)
-        refreshTask = Task {
+        // Weakly: a model turned off (D194) goes even while git still runs.
+        refreshTask = Task { [weak self] in
             let result = await Task.detached(priority: .utility) { () -> (GitStatus, [String], [GitStash], [GitCommit], [String])? in
                 guard repository.isRepository(), let status = try? repository.status() else { return nil }
-                let history = !status.hasCommits ? []
-                    : query.isEmpty ? repository.log(revisions: revisions, limit: revisions.isEmpty ? 200 : 400)
-                    : repository.searchLog(query, revisions: revisions)
+                let history: [GitCommit]
+                switch scope {
+                case _ where !status.hasCommits: history = []
+                case .file(let path), .lines(let path, _):
+                    let lines: ClosedRange<Int>? = if case .lines(_, let range) = scope { range } else { nil }
+                    let commits = repository.fileLog(path: path, lines: lines)
+                    history = query.isEmpty ? commits : commits.filter {
+                        $0.subject.localizedCaseInsensitiveContains(query) || $0.author.localizedCaseInsensitiveContains(query)
+                            || $0.hash.hasPrefix(query.lowercased())
+                    }
+                default:
+                    history = query.isEmpty ? repository.log(revisions: revisions, limit: revisions.isEmpty ? 200 : 400)
+                        : repository.searchLog(query, revisions: revisions)
+                }
                 return (status, (try? repository.branches()) ?? [], repository.stashes(), history, repository.ignoredPaths())
             }.value
             // Cancelled: the folder changed and a run for the new one took over.
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, let self else { return }
             isRefreshing = false
             defer { if needsRefresh { refresh() } }
             guard repository.root == root else { return }
@@ -576,6 +601,53 @@ extension GitModel: LineBlaming {
     func blame(_ url: URL, contents: String) async -> [LineBlame]? {
         let lines = await gitBlame(url, contents: contents)
         return lines?.map { LineBlame(hash: $0.hash, author: $0.author, date: $0.date, summary: $0.summary) }
+    }
+
+    /// The repository path of a file in it.
+    func repositoryPath(of url: URL) -> String? {
+        guard let root = root?.standardizedFileURL.path else { return nil }
+        let path = url.standardizedFileURL.path
+        return path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : nil
+    }
+
+    /// Source Control's history narrowed to a file, or to lines of it (D189).
+    func showHistory(of url: URL, lines: ClosedRange<Int>? = nil) {
+        guard let path = repositoryPath(of: url) else { return }
+        historyQuery = ""
+        historyScope = lines.map { .lines(path, $0) } ?? .file(path)
+    }
+
+    static let compareKind = "git.compare"
+
+    /// The file against how `revision` has it: a read-only diff tab (D189).
+    func compare(_ url: URL, with revision: String) {
+        guard repositoryPath(of: url) != nil else { return }
+        workspace.open(EditorTab(
+            id: "\(Self.compareKind):\(revision):\(url.standardizedFileURL.path)",
+            kind: Self.compareKind,
+            title: "\(url.lastPathComponent) ↔ \(revision.count == 40 ? String(revision.prefix(7)) : revision)",
+            systemImage: "arrow.left.arrow.right",
+            url: url
+        ))
+    }
+
+    /// A compare tab's revision and both sides: the revision's copy → the editor's text.
+    func compareDiff(for tab: EditorTab) async -> (revision: String, sides: (old: GitRepository.Side, new: GitRepository.Side))? {
+        let parts = tab.id.split(separator: ":", maxSplits: 2).map(String.init)
+        guard parts.count == 3, let repository, let url = tab.url, let path = repositoryPath(of: url) else { return nil }
+        let revision = parts[1]
+        let current = workspace.documents.currentText(of: url) ?? ""
+        let old = await Task.detached(priority: .userInitiated) { repository.contents(of: path, at: revision) }.value
+        return (revision, (old ?? .text(""), .text(current)))
+    }
+
+    /// Branches, then the file's recent commits, for "Compare with…".
+    func compareTargets(for url: URL) async -> [(title: String, detail: String, revision: String)] {
+        guard let repository, let path = repositoryPath(of: url) else { return [] }
+        let branches = self.branches
+        let commits = await Task.detached(priority: .userInitiated) { repository.fileLog(path: path, limit: 30) }.value
+        return branches.map { ($0, "Branch", $0) }
+            + commits.map { ($0.subject.isEmpty ? $0.shortHash : $0.subject, "\($0.shortHash) · \($0.author), \($0.date.formatted(.relative(presentation: .named)))", $0.hash) }
     }
 
     func showCommit(_ hash: String, file url: URL) {

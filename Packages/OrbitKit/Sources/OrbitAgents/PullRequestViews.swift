@@ -25,7 +25,7 @@ struct CreatePullRequestSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Create Pull Request")
-                    .font(.orbit(.title, weight: .semibold))
+                    .orbitFont(.title, weight: .semibold)
                 Group {
                     if let base {
                         Text("The agent's changes in the isolated copy, committed to a new branch and proposed into \(base). The project itself isn't touched.")
@@ -35,7 +35,7 @@ struct CreatePullRequestSheet: View {
                         Text("The copy isn't a git repository on a branch, so there's nothing to open a pull request against.")
                     }
                 }
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
@@ -46,11 +46,11 @@ struct CreatePullRequestSheet: View {
             field("Branch") {
                 TextField("Branch", text: $branch)
                     .textFieldStyle(.roundedBorder)
-                    .font(.orbit(.code))
+                    .orbitFont(.code)
             }
             field("Description") {
                 TextEditor(text: $description)
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .scrollContentBackground(.hidden)
                     .padding(6)
                     .frame(height: 150)
@@ -58,7 +58,7 @@ struct CreatePullRequestSheet: View {
             }
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.orbit(.caption))
+                    .orbitFont(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -67,7 +67,7 @@ struct CreatePullRequestSheet: View {
                 if isWorking {
                     ProgressView().controlSize(.small)
                     Text("Committing, pushing, opening the pull request…")
-                        .font(.orbit(.caption))
+                        .orbitFont(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -95,7 +95,7 @@ struct CreatePullRequestSheet: View {
     private func field(_ label: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.orbit(.caption, weight: .medium))
+                .orbitFont(.caption, weight: .medium)
                 .foregroundStyle(.secondary)
             content()
         }
@@ -135,7 +135,7 @@ struct PullRequestBadge: View {
                     .foregroundStyle(color(status))
                 Text(status.map { "PR #\($0.number)" } ?? "Pull request")
             }
-            .font(.orbit(.caption, weight: .medium))
+            .orbitFont(.caption, weight: .medium)
         }
         .buttonStyle(.glass)
         .help(help(status))

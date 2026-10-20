@@ -79,15 +79,34 @@ final class SyntaxPalette {
     func font(for style: SyntaxStyle, base: NSFont) -> NSFont {
         let weight = style.weight.map(Self.weight) ?? .regular
         guard weight != .regular || style.isItalic else { return base }
-        let key = "\(base.pointSize)|\(weight.rawValue)|\(style.isItalic)"
+        let key = "\(base.fontName)|\(base.pointSize)|\(weight.rawValue)|\(style.isItalic)|\(base.fontDescriptor.object(forKey: .featureSettings) != nil)"
         if let font = fonts[key] { return font }
-        var font = NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: weight)
+        // SF Mono (a hidden "." font) has every weight; a picked family (D180) gets its nearest.
+        var font = base.fontName.hasPrefix(".")
+            ? NSFont.monospacedSystemFont(ofSize: base.pointSize, weight: weight)
+            : NSFontManager.shared.font(withFamily: base.familyName ?? "", traits: [], weight: Self.managerWeight(weight), size: base.pointSize).map { font in
+                // Keep the base's features (ligatures off, D188).
+                guard let features = base.fontDescriptor.object(forKey: .featureSettings) else { return font }
+                return NSFont(descriptor: font.fontDescriptor.addingAttributes([.featureSettings: features]), size: base.pointSize) ?? font
+            } ?? base
         if style.isItalic {
             let descriptor = font.fontDescriptor.withSymbolicTraits(.italic)
             font = NSFont(descriptor: descriptor, size: base.pointSize) ?? font
         }
         fonts[key] = font
         return font
+    }
+
+    /// NSFontManager's 0–15 scale: 5 is regular, 9 bold.
+    private static func managerWeight(_ weight: NSFont.Weight) -> Int {
+        switch weight {
+        case ..<NSFont.Weight.light: 2
+        case ..<NSFont.Weight.regular: 3
+        case ..<NSFont.Weight.medium: 5
+        case ..<NSFont.Weight.semibold: 6
+        case ..<NSFont.Weight.bold: 8
+        default: 9
+        }
     }
 
     private static func weight(_ css: Int) -> NSFont.Weight {
@@ -302,7 +321,7 @@ final class SyntaxHighlightCoordinator {
         let manager = textView.textContentManager
         let layoutManager = textView.textLayoutManager
         let alpha = SyntaxPalette.fadedAlpha
-        let plain = (palette.theme.editorForeground?.nsColor ?? textView.textColor ?? .textColor).withAlphaComponent(alpha)
+        let plain = (palette.theme.editorForeground?.nsColor ?? textView.textColor).withAlphaComponent(alpha)
         for part in faded.rangeView {
             let partRange = NSRange(part)
             guard let textRange = NSTextRange(partRange, in: manager) else { continue }

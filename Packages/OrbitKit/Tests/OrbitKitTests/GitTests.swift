@@ -153,6 +153,30 @@ import Testing
         try text.write(to: repo.root.appendingPathComponent(path), atomically: true, encoding: .utf8)
     }
 
+    /// GitLens's file and line history, and a file at a revision (D189).
+    @Test func fileAndLineHistory() throws {
+        let repo = try makeRepository()
+        defer { try? FileManager.default.removeItem(at: repo.root) }
+        try write("one\ntwo\nthree\n", "a.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "Add a")
+        try write("other\n", "b.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "Add b")
+        try write("one\nTWO\nthree\n", "a.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "Change line 2")
+        try write("ONE\nTWO\nthree\n", "a.txt", in: repo)
+        try repo.stage(["."])
+        try repo.commit(message: "Change line 1")
+
+        #expect(repo.fileLog(path: "a.txt").map(\.subject) == ["Change line 1", "Change line 2", "Add a"])
+        #expect(repo.fileLog(path: "a.txt", lines: 2...2).map(\.subject) == ["Change line 2", "Add a"])
+        #expect(repo.fileLog(path: "a.txt", lines: 3...3).map(\.subject) == ["Add a"])
+        let first = try #require(repo.fileLog(path: "a.txt").last)
+        #expect(repo.contents(of: "a.txt", at: first.hash) == .text("one\ntwo\nthree\n"))
+    }
+
     @Test func stashPopAndDrop() throws {
         let repo = try makeRepository()
         defer { try? FileManager.default.removeItem(at: repo.root) }

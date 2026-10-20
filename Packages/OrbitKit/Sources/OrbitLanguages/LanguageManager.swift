@@ -81,6 +81,8 @@ final class LanguageManager: LanguageIntelligence {
         self.environment = environment
         root = workspace.root
         observe()
+        followDisabledSwitches()
+        autoUpdate()
         Task { [weak self] in
             let resolved = await environment.value
             self?.shellEnvironment = resolved
@@ -231,13 +233,15 @@ final class LanguageManager: LanguageIntelligence {
         let file = url.standardizedFileURL
         if let cached = placements[file] { return cached }
         let chosen = languageConfig(for: file, in: root)
-        let language: LanguageServerConfig?
+        var language: LanguageServerConfig?
         switch serverSettings {
         case .success(let layers): language = LanguageServerSettings.resolve(for: file, layers: layers, default: chosen)
         case .failure(let error): language = chosen.map { LanguageServerSettings.broken(file, $0, error.localizedDescription) }
         }
+        if let id = language?.id, disabledServers.contains(id) { language = nil }
         if let language { effective[language.id] = language }
         let companions = LanguageServerConfig.companions(for: url).compactMap { config -> LanguageServerConfig? in
+            guard !disabledServers.contains(config.id) else { return nil }
             var config = config
             switch ToolSettings.companion(config.id, in: toolSettings) {
             case .off?: return nil
@@ -288,10 +292,77 @@ final class LanguageManager: LanguageIntelligence {
     /// A file whose language server the settings turned off: (the language, which file says so).
     func turnedOff(_ url: URL) -> String? {
         _ = settingsRevision
-        guard languageKey(for: url) == nil, let usual = LanguageServerConfig.config(for: url),
-              case .success(let layers) = serverSettings,
-              layers.contains(where: { $0.rule(for: url) == .off }) else { return nil }
+        guard languageKey(for: url) == nil, let usual = LanguageServerConfig.config(for: url) else { return nil }
+        if disabledServers.contains(usual.id) { return usual.name }
+        guard case .success(let layers) = serverSettings, layers.contains(where: { $0.rule(for: url) == .off }) else { return nil }
         return usual.name
+    }
+
+    /// Whether the file's usual server is off by its switch in Settings → Languages, not by a settings file.
+    func turnedOffInSettings(_ url: URL) -> Bool {
+        LanguageServerConfig.config(for: url).map { disabledServers.contains($0.id) } ?? false
+    }
+
+    // MARK: Switches (D186)
+
+    private static let disabledKey = "orbit.languages.disabledServers"
+    static let disabledDidChange = Notification.Name("orbit.languages.disabledServersDidChange")
+
+    /// Servers turned off in Settings → Languages, for every project: they don't start.
+    private(set) var disabledServers = Set(UserDefaults.standard.stringArray(forKey: LanguageManager.disabledKey) ?? [])
+    @ObservationIgnored private var disabledObserver: NSObjectProtocol?
+
+    func isEnabled(_ id: String) -> Bool { !disabledServers.contains(id) }
+
+    func setEnabled(_ enabled: Bool, server id: String) {
+        var disabled = disabledServers
+        if enabled { disabled.remove(id) } else { disabled.insert(id) }
+        UserDefaults.standard.set(disabled.sorted(), forKey: Self.disabledKey)
+        applyDisabled(disabled)
+        NotificationCenter.default.post(name: Self.disabledDidChange, object: nil)
+    }
+
+    private func applyDisabled(_ disabled: Set<String>) {
+        guard disabled != disabledServers else { return }
+        let changed = disabled.symmetricDifference(disabledServers)
+        disabledServers = disabled
+        for key in servers.keys where changed.contains(key.id) { servers.removeValue(forKey: key)?.shutdown() }
+        unavailable = unavailable.filter { !changed.contains($0.key.id) }
+        placements.removeAll()
+        effective.removeAll()
+        settingsRevision += 1
+        scheduleSync()
+    }
+
+    isolated deinit {
+        if let disabledObserver { NotificationCenter.default.removeObserver(disabledObserver) }
+    }
+
+    /// Settings → General → Automatic Updates (D186): once a day, the servers
+    /// Orbit installed that the Mason registry has a newer version of. Each
+    /// restarts with its update; servers found on the Mac are left alone.
+    private func autoUpdate() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard let self, !workspace.isClosed, Preferences.shared.autoUpdatesLanguageServers,
+                  Preferences.shared.claimDailyCheck("languageServers") else { return }
+            await refreshInstalls()
+            for config in LanguageServerConfig.all {
+                guard !workspace.isClosed else { return }
+                guard let package = config.install?.package, let receipt = receipts[package],
+                      let latest = latestVersions[package], latest != receipt.version else { continue }
+                await install(config.id)
+            }
+        }
+    }
+
+    /// Another window flipped a switch.
+    private func followDisabledSwitches() {
+        disabledObserver = NotificationCenter.default.addObserver(forName: Self.disabledDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyDisabled(Set(UserDefaults.standard.stringArray(forKey: LanguageManager.disabledKey) ?? []))
+            }
+        }
     }
 
     /// The server the settings name for this file type, if they do.
@@ -669,7 +740,7 @@ final class LanguageManager: LanguageIntelligence {
             }
             guard server.state == .running, server.formats else { return .failed(nothing) }
             let name = "\(server.config.name) language server"
-            let indent = Indentation.of(url, text: document.text, root: root)
+            let indent = Indentation.of(url, text: document.text, root: root, fallback: Preferences.shared.defaultIndentation)
             guard let edits = await server.formatting(url.standardizedFileURL, tabSize: indent.size, insertSpaces: indent.spaces) else {
                 return .failed("It couldn't format this file.", formatter: name)
             }

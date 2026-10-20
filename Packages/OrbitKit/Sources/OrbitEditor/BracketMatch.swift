@@ -11,7 +11,7 @@ final class BracketMatchController {
         didSet { if color != oldValue { setNeedsLayout() } }
     }
     private var pair: [NSRange] = []
-    private var overlays: [NSView] = []
+    private let overlays = OverlaySet()
     private var isLayoutScheduled = false
 
     init(geometry: DiagnosticsController) {
@@ -73,16 +73,17 @@ final class BracketMatchController {
     }
 
     private func layoutOverlays() {
-        for view in overlays { view.removeFromSuperview() }
-        overlays.removeAll()
+        defer { overlays.commit() }
         guard let textView, !pair.isEmpty else { return }
         let visible = textView.visibleRect
         for range in pair where NSMaxRange(range) <= geometry.length {
             for rect in geometry.rects(for: range) where rect.intersects(visible) {
-                let view = OutlineView(frame: rect.insetBy(dx: -0.5, dy: 0.5))
-                view.layer?.borderColor = color.cgColor
-                textView.addSubview(view, positioned: .below, relativeTo: nil)
-                overlays.append(view)
+                let frame = rect.insetBy(dx: -0.5, dy: 0.5), color = color
+                overlays.place(frame, color, frame: frame, in: textView, below: true) {
+                    let view = OutlineView(frame: frame)
+                    view.layer?.borderColor = color.cgColor
+                    return view
+                }
             }
         }
     }

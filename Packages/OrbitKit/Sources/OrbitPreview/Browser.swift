@@ -209,7 +209,7 @@ struct BrowserView: View {
                 TextField("Address", text: $address)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
-                    .font(.orbit(.body))
+                    .orbitFont(.body)
                     .focused($isEditingAddress)
                     .onSubmit {
                         if let url = BrowserPage.address(address) { page.load(url) } else { NSSound.beep() }

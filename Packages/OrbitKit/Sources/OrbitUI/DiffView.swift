@@ -197,7 +197,7 @@ struct DiffLineRow: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.orbit(.code))
+        .orbitFont(.code)
         .foregroundStyle(.tertiary)
         .padding(.vertical, 1)
         .background(background)
@@ -245,7 +245,7 @@ struct SplitDiffSide: View {
                     .foregroundStyle(.primary)
             }
         }
-        .font(.orbit(.code))
+        .orbitFont(.code)
         .padding(.vertical, 1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(background)
@@ -311,7 +311,7 @@ public struct CompactDiffView: View {
             }
             if truncatedLines > 0 {
                 Text("\(truncatedLines) more lines…")
-                    .font(.orbit(.micro))
+                    .orbitFont(.micro)
                     .foregroundStyle(.secondary)
                     .padding(6)
             }
@@ -370,7 +370,7 @@ public struct DiffGapRow: View {
     public var body: some View {
         if hidden > 0 {
             Text("⋯  \(hidden) unchanged line\(hidden == 1 ? "" : "s")")
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 96)

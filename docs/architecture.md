@@ -57,14 +57,17 @@ A plugin is a class conforming to `OrbitPlugin` with a static `manifest`. In
   `FuzzyMatch` gives pickers shared scoring and match highlighting
 - `ui.addStatusItem` — status bar items (leading/trailing); `isVisible` says when an item has something to show — the bar is hidden while none do
 - `commands.register` — commands with optional shortcuts; they appear in menus
-  (by category) and the command palette automatically; `editorMenu:` also
+  (placed by `App/MenuLayout.swift`, else by category, D176) and the command palette automatically; `editorMenu:` also
   puts one in the editor's right-click menu (D67)
 - `services.register` — typed services for other plugins
 - `settings` — per-plugin namespaced UserDefaults
 
 Each window has its own `PluginHost` (D101), which activates enabled plugins
-when the window opens and stops them when it closes; enable/disable takes
-effect on restart. Plugin state lives in the plugin instance, never in a
+when the window opens and stops them when it closes. A switch takes effect
+right away in every window (D194): each plugin's registries stamp what it
+adds with its id, so turning it off removes all of it; `requires` turns a
+plugin off with what it needs, `isRequired` marks the core (no switch).
+Plugin state lives in the plugin instance, never in a
 static: two windows run two copies side by side. Built-ins use exactly the public API — no private hooks.
 
 ### Plugin roadmap

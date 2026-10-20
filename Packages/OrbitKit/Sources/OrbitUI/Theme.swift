@@ -28,8 +28,45 @@ public enum TypeScale: CGFloat, Sendable {
 
 extension Font {
     /// A size from the type scale; `.code` is monospaced unless a design is given.
-    public static func orbit(_ style: TypeScale, weight: Font.Weight = .regular, design: Font.Design? = nil) -> Font {
-        .system(size: style.rawValue, weight: weight, design: design ?? (style == .code ? .monospaced : .default))
+    /// Views use `.orbitFont(_:)`, which also follows the text size (D181).
+    public static func orbit(_ style: TypeScale, weight: Font.Weight = .regular, design: Font.Design? = nil, scale: CGFloat = 1) -> Font {
+        .system(size: (style.rawValue * scale).rounded(toPlaces: 1), weight: weight, design: design ?? (style == .code ? .monospaced : .default))
+    }
+}
+
+extension CGFloat {
+    fileprivate func rounded(toPlaces places: Int) -> CGFloat {
+        let factor = pow(10, CGFloat(places))
+        return (self * factor).rounded() / factor
+    }
+}
+
+extension EnvironmentValues {
+    /// How much bigger than the type scale UI text is drawn: the window sets the
+    /// interface's (Settings → Appearance → Text Size), the chat its own (D181).
+    @Entry public var orbitTextScale: CGFloat = 1
+}
+
+extension View {
+    /// `.font(.orbit(…))` at the text size of where the view is (D181).
+    public func orbitFont(_ style: TypeScale, weight: Font.Weight = .regular, design: Font.Design? = nil) -> some View {
+        modifier(OrbitFontModifier(style: style, weight: weight, design: design))
+    }
+
+    /// Scales the type scale for everything inside (the window, the chat).
+    public func orbitTextSize(_ size: Double) -> some View {
+        environment(\.orbitTextScale, CGFloat(size / TypeScale.body.rawValue))
+    }
+}
+
+private struct OrbitFontModifier: ViewModifier {
+    let style: TypeScale
+    let weight: Font.Weight
+    let design: Font.Design?
+    @Environment(\.orbitTextScale) private var scale
+
+    func body(content: Content) -> some View {
+        content.font(.orbit(style, weight: weight, design: design, scale: scale))
     }
 }
 
@@ -60,9 +97,14 @@ public enum Theme {
     @MainActor public static var addedGutter: Color { added.opacity(0.22) }
     @MainActor public static var removedGutter: Color { removed.opacity(0.2) }
 
-    /// The app's tint (D97): the color theme's accent, else the text color,
-    /// never the system blue. The window sets it as `.tint`, so `.tint` and
-    /// prominent buttons follow; use it instead of `Color.accentColor`.
+    /// What the window sets as `.tint` (D190): buttons, links, switches and
+    /// "on" icons are in the text color whatever the theme. A theme's accent
+    /// on them (GitHub's blue) made everything clickable look like a link.
+    public static let controlTint = Color(nsColor: .labelColor)
+
+    /// The color theme's accent, else the text color, never the system blue
+    /// (D97): selections, matches, drop marks, the caret. Not clickable
+    /// things since D190 — those take `controlTint`.
     @MainActor public static var accent: Color { Color(nsColor: accentNSColor) }
     @MainActor public static var accentNSColor: NSColor {
         let extensions = Extensions.shared
@@ -93,9 +135,10 @@ public enum Theme {
         light: NSColor(srgbRed: 0.75, green: 0.2, blue: 0.3, alpha: 1),
         dark: NSColor(srgbRed: 0.95, green: 0.47, blue: 0.52, alpha: 1)))
 
-    /// Behind the terminal, so the padding around it matches.
+    /// Behind the terminal, so the padding around it matches: the editor's
+    /// background, not the theme's `terminal.background` (D191).
     @MainActor public static var terminalBackground: Color {
-        themed({ $0.terminalBackground ?? $0.editorBackground }, .textBackgroundColor)
+        themed({ $0.editorBackground }, .textBackgroundColor)
     }
 
     @MainActor private static func themed(_ key: (ColorTheme) -> ThemeColor?, _ fallback: NSColor) -> Color {
@@ -226,7 +269,7 @@ public struct DiffStatBadge: View {
                     .contentTransition(.numericText(value: Double(removed)))
             }
         }
-        .font(.orbit(.caption, weight: .medium, design: .monospaced))
+        .orbitFont(.caption, weight: .medium, design: .monospaced)
         .monospacedDigit()
         .animation(.snappy, value: added)
         .animation(.snappy, value: removed)
@@ -250,7 +293,7 @@ public struct Badge<Label: View>: View {
 
     public var body: some View {
         label
-            .font(.orbit(.micro, weight: .medium))
+            .orbitFont(.micro, weight: .medium)
             .monospacedDigit()
             .lineLimit(1)
             .contentTransition(value.map { .numericText(value: $0) } ?? .identity)
@@ -288,7 +331,7 @@ public struct DisclosureChevron: View {
 
     public var body: some View {
         Image(systemName: "chevron.right")
-            .font(.orbit(.glyph, weight: .bold))
+            .orbitFont(.glyph, weight: .bold)
             .rotationEffect(.degrees(isExpanded ? 90 : 0))
     }
 }
@@ -308,12 +351,13 @@ public struct IconButton: View {
     public var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.orbit(.body, weight: .medium))
+                .orbitFont(.body, weight: .medium)
                 .frame(width: 22, height: 22)
                 .contentShape(.rect)
         }
         .buttonStyle(.borderless)
         .help(help)
+        .accessibilityLabel(spokenName(help))
     }
 }
 
@@ -386,4 +430,42 @@ extension View {
     public func shimmer(_ isActive: Bool = true) -> some View {
         modifier(Shimmer(isActive: isActive))
     }
+}
+
+/// An empty bottom panel, as quiet as Xcode's "No Issues": the title in
+/// gray and at most one short line under it, no symbol (D174). The bottom
+/// area is short; `EmptyStateView` took a third of the window there.
+public struct PanelEmptyState: View {
+    let title: String
+    let message: String?
+
+    public init(_ title: String, message: String? = nil) {
+        self.title = title
+        self.message = message
+    }
+
+    public var body: some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .orbitFont(.title, weight: .medium)
+                .foregroundStyle(.secondary)
+            if let message {
+                Text(message)
+                    .orbitFont(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// What VoiceOver reads for an icon-only button: its tooltip without the
+/// shortcut ("Find References (⇧⌘R)" → "Find References"). Without it the
+/// symbol's own name was read ("Go Down", "Split View Horizontally Left").
+public func spokenName(_ help: String) -> String {
+    guard help.hasSuffix(")"), let open = help.range(of: " (", options: .backwards) else { return help }
+    let inside = help[open.upperBound..<help.index(before: help.endIndex)]
+    return inside.contains(where: { "⌘⌥⌃⇧↩⌫".contains($0) }) ? String(help[..<open.lowerBound]) : help
 }

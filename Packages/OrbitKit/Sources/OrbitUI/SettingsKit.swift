@@ -72,8 +72,15 @@ public final class SettingsNavigator {
         var pages: [Page] = []
     }
 
+    /// An option search pointed at: its row scrolls into view and lights up (D177).
+    public struct Highlight: Equatable {
+        public let item: String
+        let token = UUID()
+    }
+
     private var history: [Location] = []
     private var index = -1
+    public private(set) var highlight: Highlight?
 
     public init() {}
 
@@ -98,10 +105,26 @@ public final class SettingsNavigator {
         go(to: next)
     }
 
-    public func back() { if canGoBack { index -= 1 } }
-    public func forward() { if canGoForward { index += 1 } }
+    /// The pane's first page, with one of its options pointed out.
+    public func reveal(_ item: String, in pane: String) {
+        show(pane)
+        highlight = Highlight(item: item)
+    }
+
+    public func back() {
+        guard canGoBack else { return }
+        highlight = nil
+        index -= 1
+    }
+
+    public func forward() {
+        guard canGoForward else { return }
+        highlight = nil
+        index += 1
+    }
 
     private func go(to location: Location) {
+        highlight = nil
         history.removeSubrange((index + 1)...)
         history.append(location)
         // Enough to walk back through a visit, not a log of every click.
@@ -113,6 +136,7 @@ public final class SettingsNavigator {
 /// A pane's page: the header card (on its first page), then its sections.
 public struct SettingsForm<Content: View>: View {
     @Environment(\.settingsPaneInfo) private var info
+    @Environment(SettingsNavigator.self) private var navigator: SettingsNavigator?
     let content: Content
 
     public init(@ViewBuilder content: () -> Content) {
@@ -120,15 +144,69 @@ public struct SettingsForm<Content: View>: View {
     }
 
     public var body: some View {
-        Form {
-            if let info {
-                Section {
-                    SettingsHeaderCard(info: info)
+        ScrollViewReader { proxy in
+            Form {
+                if let info {
+                    Section {
+                        SettingsHeaderCard(info: info)
+                    }
+                }
+                content
+            }
+            .formStyle(.grouped)
+            .task(id: navigator?.highlight) {
+                guard let item = navigator?.highlight?.item else { return }
+                // A pane that just opened has no rows to scroll to before its first layout.
+                try? await Task.sleep(for: .milliseconds(60))
+                withAnimation(.smooth) { proxy.scrollTo(SettingsItemMarker.scrollID(item), anchor: .center) }
+            }
+        }
+    }
+}
+
+extension View {
+    /// Marks a row as the option `id` of the pane's `SettingsItem`s, so
+    /// search can scroll to it and light it up (D177).
+    public func settingsItem(_ id: String) -> some View {
+        modifier(SettingsItemMarker(id: id))
+    }
+}
+
+/// Lights up like System Settings' found option: two quick pulses, then a fade.
+struct SettingsItemMarker: ViewModifier {
+    let id: String
+    @Environment(SettingsNavigator.self) private var navigator: SettingsNavigator?
+    @State private var isLit = false
+
+    static func scrollID(_ item: String) -> String { "settings.item.\(item)" }
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: Theme.smallCorner, style: .continuous)
+                    .fill(Theme.matchFill)
+                    // Out to the row's edges: the form insets its content.
+                    .padding(.horizontal, -8)
+                    .padding(.vertical, -4)
+                    .opacity(isLit ? 1 : 0)
+            }
+            .id(Self.scrollID(id))
+            .task(id: navigator?.highlight) {
+                guard navigator?.highlight?.item == id else {
+                    isLit = false
+                    return
+                }
+                // After the scroll has brought the row in.
+                try? await Task.sleep(for: .milliseconds(280))
+                for hold in [0.35, 1.4] {
+                    withAnimation(.easeOut(duration: 0.18)) { isLit = true }
+                    try? await Task.sleep(for: .seconds(hold))
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeInOut(duration: hold > 1 ? 0.7 : 0.25)) { isLit = false }
+                    try? await Task.sleep(for: .seconds(0.3))
+                    guard !Task.isCancelled else { return }
                 }
             }
-            content
-        }
-        .formStyle(.grouped)
     }
 }
 
@@ -141,10 +219,10 @@ struct SettingsHeaderCard: View {
             SettingsTile(info.systemImage, tint: info.tint, size: 38)
             VStack(alignment: .leading, spacing: 2) {
                 Text(info.title)
-                    .font(.orbit(.control, weight: .semibold))
+                    .orbitFont(.control, weight: .semibold)
                 if let summary = info.summary {
                     Text(summary)
-                        .font(.orbit(.body))
+                        .orbitFont(.body)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -176,7 +254,7 @@ public struct SettingsLabel: View {
                 Text(title)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.orbit(.caption))
+                        .orbitFont(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -212,7 +290,7 @@ public struct SettingsLink<Label: View, Destination: View>: View {
                         .foregroundStyle(.secondary)
                 }
                 Image(systemName: "chevron.right")
-                    .font(.orbit(.caption, weight: .semibold))
+                    .orbitFont(.caption, weight: .semibold)
                     .foregroundStyle(.tertiary)
             }
             .contentShape(.rect)
@@ -254,6 +332,101 @@ public struct SettingsSearchField: View {
                 .buttonStyle(.plain)
                 .help("Clear")
             }
+        }
+    }
+}
+
+/// A slider in points, its value, and a reset.
+public struct FontSizeControl: View {
+    @Binding var size: Double
+    let reset: Double
+    let range: ClosedRange<Double>
+
+    public init(size: Binding<Double>, reset: Double, range: ClosedRange<Double> = Preferences.codeFontSizes) {
+        _size = size
+        self.reset = reset
+        self.range = range
+    }
+
+    public var body: some View {
+        HStack(spacing: 10) {
+            Slider(value: $size, in: range, step: 0.5)
+                .frame(width: 160)
+            Text(size.formatted(.number.precision(.fractionLength(0...1))) + " pt")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: 48, alignment: .trailing)
+            Button {
+                size = reset
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+            }
+            .buttonStyle(.borderless)
+            .disabled(size == reset)
+            .help("Reset to \(reset.formatted(.number.precision(.fractionLength(0...1)))) pt")
+        }
+    }
+}
+
+/// Under an option a project's settings file decides (D179): a "Project" badge
+/// and the key, so it reads as overridden rather than broken.
+public struct ProjectOverrideNote: View {
+    let key: String
+    let origin: String
+
+    public init(key: String, origin: String) {
+        self.key = key
+        self.origin = origin
+    }
+
+    public var body: some View {
+        HStack(spacing: 5) {
+            Badge("Project", tint: .orange)
+            Text("\"\(key)\" in \(origin)")
+                .orbitFont(.caption, design: .monospaced)
+                .foregroundStyle(.secondary)
+        }
+        .help(origin == ProjectSettings.projectPath
+            ? "This project's \(origin) sets it. Right-click to remove it from the project."
+            : "\(origin) sets it for every project. Right-click to set it for this project instead.")
+    }
+}
+
+extension View {
+    /// Right-click sets the option for this project in `.orbit/settings.json`,
+    /// or takes it out of the file again (D183).
+    public func projectSetting(_ key: String, in workspace: Workspace, choices: [(title: String, value: ProjectSettings.Value)]) -> some View {
+        contextMenu {
+            if workspace.root != nil {
+                if workspace.settings.projectSets(key) {
+                    Button("Remove from This Project") { ProjectSettingWriter.write(key, nil, in: workspace) }
+                } else {
+                    ForEach(Array(choices.enumerated()), id: \.offset) { _, choice in
+                        Button("\(choice.title) for This Project") { ProjectSettingWriter.write(key, choice.value, in: workspace) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A switch's "Turn On / Turn Off for This Project".
+    public func projectSetting(_ key: String, in workspace: Workspace) -> some View {
+        projectSetting(key, in: workspace, choices: [("Turn On", .bool(true)), ("Turn Off", .bool(false))])
+    }
+}
+
+@MainActor
+public enum ProjectSettingWriter {
+    public static func write(_ key: String, _ value: ProjectSettings.Value?, in workspace: Workspace) {
+        do {
+            try workspace.setProjectSetting(key, value)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't change \(ProjectSettings.projectPath)"
+            alert.informativeText = error.localizedDescription
+            _ = alert.runSheetModal()
         }
     }
 }

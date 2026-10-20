@@ -317,7 +317,7 @@ enum TranscriptRow: Identifiable {
         var rows: [TranscriptRow] = []
         var run: [TranscriptEntry] = []
         func flush() {
-            if run.count { $0.kind == .tool } > 1 { rows.append(.group(run)) } else { rows += run.map(TranscriptRow.entry) }
+            if run.count(where: { $0.kind == .tool }) > 1 { rows.append(.group(run)) } else { rows += run.map(TranscriptRow.entry) }
             run = []
         }
         for entry in entries {

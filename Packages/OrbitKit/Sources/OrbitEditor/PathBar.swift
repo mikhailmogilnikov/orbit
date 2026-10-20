@@ -49,7 +49,7 @@ struct PathBar<Trailing: View>: View {
             trailing()
                 .padding(.trailing, 6)
         }
-        .font(.orbit(.body))
+        .orbitFont(.body)
         .lineLimit(1)
         // The hairline takes the bottom point; centered in what's left, the text looked low.
         .padding(.bottom, 3)
@@ -76,8 +76,9 @@ struct PathBar<Trailing: View>: View {
 
     private var separator: some View {
         Image(systemName: "chevron.right")
-            .font(.orbit(.glyph, weight: .semibold))
+            .orbitFont(.glyph, weight: .semibold)
             .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
     }
 
     // MARK: Folders and the file
@@ -129,7 +130,7 @@ struct PathBar<Trailing: View>: View {
             return path.enumerated().map { position, index in
                 let symbol = symbols[index]
                 let label = HStack(spacing: 4) {
-                    Image(systemName: symbol.kind.systemImage).foregroundStyle(.secondary)
+                    Image(systemName: symbol.kind.systemImage).foregroundStyle(.secondary).accessibilityHidden(true)
                     Text(symbol.name).foregroundStyle(position == path.count - 1 ? .primary : .secondary)
                 }
                 return AnyView(symbolMenu(siblings(of: index), label: label))

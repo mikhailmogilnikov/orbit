@@ -287,7 +287,7 @@ struct SearchPanel: View {
                     SearchField(systemImage: "arrow.2.squarepath", placeholder: "Replace", text: $model.replacement, kind: .replace, focus: $focusedField) {
                         Button { isConfirmingReplaceAll = true } label: {
                             Image(systemName: "text.badge.checkmark")
-                                .font(.orbit(.caption, weight: .medium))
+                                .orbitFont(.caption, weight: .medium)
                                 .frame(width: 22, height: 20)
                                 .contentShape(.rect)
                         }
@@ -336,7 +336,7 @@ struct SearchPanel: View {
                 .foregroundStyle(.tertiary)
                 .help("Dismiss")
             }
-            .font(.orbit(.caption))
+            .orbitFont(.caption)
             .padding(.horizontal, 14)
             .padding(.bottom, 4)
         }
@@ -347,7 +347,7 @@ struct SearchPanel: View {
                 Spacer()
                 if model.isSearching { ProgressView().controlSize(.mini) }
             }
-            .font(.orbit(.caption))
+            .orbitFont(.caption)
             .padding(.horizontal, 14)
             .padding(.bottom, 4)
         }
@@ -412,7 +412,7 @@ private struct SearchField<Accessories: View>: View {
                 .focused(focus, equals: kind)
             HStack(spacing: 1) { accessories }
         }
-        .font(.orbit(.body))
+        .orbitFont(.body)
         .padding(.leading, 8)
         .padding(.trailing, 3)
         .frame(height: 26)
@@ -449,10 +449,10 @@ private struct OptionToggle: View {
             Group {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.orbit(.caption, weight: .medium))
+                        .orbitFont(.caption, weight: .medium)
                 } else {
                     Text(label ?? "")
-                        .font(.orbit(.caption, weight: .semibold, design: .monospaced))
+                        .orbitFont(.caption, weight: .semibold, design: .monospaced)
                         .underline(underline)
                 }
             }
@@ -495,7 +495,7 @@ private struct FileRow: View {
             if let onReplace, isHovered {
                 Button(action: onReplace) {
                     Image(systemName: "text.badge.checkmark")
-                        .font(.orbit(.caption, weight: .medium))
+                        .orbitFont(.caption, weight: .medium)
                         .foregroundStyle(.tint)
                 }
                 .buttonStyle(.borderless)
@@ -519,7 +519,7 @@ private struct MatchRow: View {
                 .foregroundStyle(.tertiary)
                 .frame(minWidth: 22, alignment: .trailing)
             Text(highlighted)
-                .font(.orbit(.code))
+                .orbitFont(.code)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }

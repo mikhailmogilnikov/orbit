@@ -23,7 +23,7 @@ struct AgentChangesBar: View {
                         Text("\(files.count) file\(files.count == 1 ? "" : "s") changed")
                             .contentTransition(.numericText(value: Double(files.count)))
                             .animation(.snappy, value: files.count)
-                            .font(.orbit(.caption, weight: .medium))
+                            .orbitFont(.caption, weight: .medium)
                         DiffStatBadge(added: stats.reduce(0) { $0 + $1.added }, removed: stats.reduce(0) { $0 + $1.removed })
                     }
                     .contentShape(.rect)
@@ -80,10 +80,10 @@ private struct ChangedFileRow: View {
         HStack(spacing: 6) {
             FileIconView(url: url, size: 13)
             Text(url.lastPathComponent)
-                .font(.orbit(.body))
+                .orbitFont(.body)
                 .lineLimit(1)
             Text(url.deletingLastPathComponent().lastPathComponent)
-                .font(.orbit(.caption))
+                .orbitFont(.caption)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.head)
@@ -132,7 +132,7 @@ struct PendingChangesStatus: View {
                 Label("\(count) to review", systemImage: "plusminus")
                     .contentTransition(.numericText(value: Double(count)))
                     .animation(.snappy, value: count)
-                    .font(.orbit(.micro))
+                    .orbitFont(.micro)
                     .foregroundStyle(.orange)
                     .contentShape(.rect)
             }
