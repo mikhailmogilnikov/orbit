@@ -1,7 +1,9 @@
 import Foundation
 @testable import OrbitACP
 @testable import OrbitAPI
+#if canImport(OrbitEditor)
 @testable import OrbitEditor
+#endif
 @testable import OrbitLanguages
 import Testing
 
@@ -20,9 +22,11 @@ import Testing
         #expect(SemanticColors.captures(for: "variable", modifiers: []).isEmpty)
         #expect(SemanticColors.captures(for: "keyword", modifiers: []).isEmpty)
         #expect(SemanticColors.captures(for: "parameter", modifiers: []) == ["variable.parameter"])
+#if canImport(OrbitEditor)
         let spans = SemanticTokensController.spans(tokens + [SemanticToken(line: 0, character: 0, length: 3, type: "keyword")],
                                                    starts: [0, 12, 20], length: 20)
         #expect(spans.map(\.range) == [NSRange(location: 4, length: 3), NSRange(location: 10, length: 1), NSRange(location: 14, length: 5)])
+#endif
     }
 
     /// D201: lenses whose command Orbit can run; the rest are left out.

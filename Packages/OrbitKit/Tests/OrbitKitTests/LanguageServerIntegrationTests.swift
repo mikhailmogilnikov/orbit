@@ -45,6 +45,7 @@ struct LanguageServerIntegrationTests {
         #expect(message.contains("no tsserver.js here"))
     }
 
+#if canImport(CoreServices)
     /// D77: a file written straight to disk (an agent's shell) reaches a server
     /// that leaves watching to the editor, so the type it adds is found.
     @Test(.enabled(if: LanguageCase.swift.isAvailable))
@@ -69,6 +70,8 @@ struct LanguageServerIntegrationTests {
         }
         server.shutdown()
     }
+
+#endif
 
     /// D200: callers and callees of a function, supertypes and subtypes of a type.
     @Test(.enabled(if: LanguageCase.swift.isAvailable))

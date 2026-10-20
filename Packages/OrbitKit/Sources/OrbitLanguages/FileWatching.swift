@@ -1,4 +1,6 @@
+#if canImport(CoreServices)
 import CoreServices
+#endif
 import Foundation
 import OrbitACP
 
@@ -96,6 +98,7 @@ enum Glob {
     }
 }
 
+#if canImport(CoreServices)
 /// FSEvents for every file under a folder, a burst at a time. Paths come back
 /// under `root` as given, even when FSEvents reports them by their real path.
 @MainActor
@@ -170,3 +173,4 @@ final class FileEventStream {
         if !changes.isEmpty { onChanges(changes) }
     }
 }
+#endif

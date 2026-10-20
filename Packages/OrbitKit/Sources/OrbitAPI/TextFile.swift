@@ -52,12 +52,20 @@ public enum TextFile {
         ("UTF-16 LE", .utf16LittleEndian),
         ("UTF-16 BE", .utf16BigEndian),
         ("Windows-1251 (Cyrillic)", .windowsCP1251),
-        ("KOI8-R", String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.KOI8_R.rawValue)))),
+    ] + koi8R + [
         ("Windows-1252 (Western)", .windowsCP1252),
         ("ISO Latin 1", .isoLatin1),
         ("Mac Roman", .macOSRoman),
         ("Shift JIS", .shiftJIS),
     ]
+
+    // CoreFoundation's encodings and Foundation's detector are Darwin-only; the
+    // Linux build (D55) only needs line endings.
+    #if canImport(Darwin)
+    private static let koi8R = [("KOI8-R", String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.KOI8_R.rawValue))))]
+    #else
+    private static let koi8R: [(name: String, encoding: String.Encoding)] = []
+    #endif
 
     private static let boms: [(bytes: [UInt8], encoding: String.Encoding)] = [
         ([0xEF, 0xBB, 0xBF], .utf8),
@@ -93,6 +101,7 @@ public enum TextFile {
         } else if String(data: data, encoding: .utf8) != nil {
             encoding = .utf8
         } else {
+            #if canImport(Darwin)
             var converted: NSString?
             var lossy = ObjCBool(false)
             let detected = NSString.stringEncoding(
@@ -105,6 +114,9 @@ public enum TextFile {
             )
             guard detected != 0 else { throw ReadError.undecodable }
             encoding = String.Encoding(rawValue: detected)
+            #else
+            throw ReadError.undecodable
+            #endif
         }
         guard let raw = String(data: body, encoding: encoding) else { throw ReadError.undecodable }
         let ending = lineEnding(of: raw)

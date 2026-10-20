@@ -14,13 +14,13 @@ let package = Package(
         .target(name: "OrbitACP"),
         .target(
             name: "OrbitAPI",
-            sources: ["LanguageIntelligence.swift", "Completion.swift", "Grammars.swift", "LanguageEdits.swift", "LineDiff.swift"],
+            sources: ["LanguageIntelligence.swift", "Completion.swift", "Grammars.swift", "LanguageEdits.swift", "LineDiff.swift", "SemanticColors.swift", "TextFile.swift", "Indentation.swift"],
             resources: [.copy("Resources/Grammars.json")]
         ),
         .target(
             name: "OrbitLanguages",
             dependencies: ["OrbitAPI", "OrbitACP"],
-            sources: ["LanguageServer.swift", "LanguageServerConfig.swift", "LanguageServerSettings.swift", "ImportedServers.swift", "TextChange.swift", "LanguageInstaller.swift", "ProjectFormatter.swift"],
+            sources: ["LanguageServer.swift", "LanguageServerConfig.swift", "LanguageServerSettings.swift", "ImportedServers.swift", "TextChange.swift", "LanguageInstaller.swift", "ProjectFormatter.swift", "FileWatching.swift", "ExtensionServers.swift", "SettingsSchema.swift", "DependentFiles.swift"],
             resources: [.copy("Resources/Servers.json")]
         ),
         .testTarget(
