@@ -52,6 +52,8 @@ On another Mac, import it with `generate_keys -f <file>`.
    build numbers, not version strings.
 2. **Commit everything.** The script warns about uncommitted changes, since
    they'd end up in the build without being in any commit.
+   If a dependency changed since the last release, run
+   `make acknowledgements` first: the licenses in About Orbit come from it (D207).
 3. **Build:**
    ```bash
    make release VERSION=0.2.0

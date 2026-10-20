@@ -1,5 +1,10 @@
 # Orbit
 
+[![CI](https://github.com/mikhailmogilnikov/orbit/actions/workflows/ci.yml/badge.svg)](https://github.com/mikhailmogilnikov/orbit/actions/workflows/ci.yml)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+![macOS 26+](https://img.shields.io/badge/macOS-26%2B-black?logo=apple)
+![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
+
 A native macOS IDE for AI coding agents — Claude Code, Codex and any other
 [ACP](https://agentclientprotocol.com) agent. Think "Cursor in IDE mode", built
 with SwiftUI and AppKit instead of Electron: light, fast, and at home on macOS.
@@ -81,4 +86,5 @@ Orbit is licensed under the [GNU General Public License v3.0](LICENSE).
 It uses [STTextView](https://github.com/krzyzanowskim/STTextView) (GPL-3.0),
 [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (MIT),
 [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter) (BSD-3-Clause)
-and [Sparkle](https://sparkle-project.org) (MIT).
+and [Sparkle](https://sparkle-project.org) (MIT); their licenses are in
+**About Orbit**.

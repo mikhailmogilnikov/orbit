@@ -7,7 +7,7 @@ APP := $(DERIVED)/Build/Products/$(CONFIG)/Orbit.app
 # -Onone for previews and the debugger.
 OPTIMIZE := SWIFT_OPTIMIZATION_LEVEL=-O GCC_OPTIMIZATION_LEVEL=s
 
-.PHONY: project build run test test-languages test-language-installs import-lspconfig import-grammars release release-setup release-publish clean
+.PHONY: project build run test test-languages test-language-installs import-lspconfig import-grammars acknowledgements release release-setup release-publish clean
 
 project:
 	xcodegen generate --quiet
@@ -34,6 +34,11 @@ test-languages:
 test-language-installs:
 	cd Packages/OrbitKit && ORBIT_INSTALL_TESTS=1 PATH="/opt/swift/usr/bin:$$PATH" swift test --filter "LanguageInstall|Grammar"; \
 		status=$$?; [ "$$(uname)" = Linux ] && git checkout -q -- Package.resolved; exit $$status
+
+# Rewrites App/Acknowledgements.txt, the licenses shown in About Orbit (D207),
+# from the checked-out packages. Run it after a dependency changes.
+acknowledgements: build
+	python3 -I scripts/acknowledgements.py
 
 # Regenerates OrbitLanguages/Resources/Servers.json from nvim-lspconfig,
 # Neovim's and Linguist's file types and Mason's registry (D65). Bump the pins

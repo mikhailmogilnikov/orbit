@@ -142,6 +142,9 @@ struct OrbitMenus: Commands {
     }
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Orbit") { Acknowledgements.showAboutPanel() }
+        }
         // Settings open inside the main window (see SettingsScreen), not as a separate one.
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { Updater.shared.checkForUpdates() }
