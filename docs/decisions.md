@@ -173,6 +173,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D161. Command palette and Open Quickly look like Spotlight
 - D162. Alerts and open panels are sheets on the window
 - D163. The chat: Claude Code's flow, Apple's look
+- D166. The empty editor: quiet, like Xcode's "No Editor"
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3415,3 +3416,14 @@ N files changed · Review") and looks more like a Mac app:
   or a call runs, that row shimmers and the line just says "Working…" with
   the timer (it used to show "Thinking…" twice). This changes D121's line,
   which named the running call.
+
+### D166. The empty editor: quiet, like Xcode's "No Editor"
+
+With no tab open the editor area showed a big icon, "Orbit", the project's
+name, a card of rows with key caps and the version: a launcher in the middle
+of the window. Apple's apps keep that space quiet (Xcode's "No Editor",
+Finder's empty folder), so it now shows a small icon, the project's name, one
+line on what to do, and four shortcuts as plain text centered on a line,
+names on the left and their keys on the right in menu glyphs, both brightening
+under the pointer. No card, no key caps, no version (it's in About). The
+same view without a folder offers Open Folder first.

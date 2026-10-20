@@ -1210,67 +1210,56 @@ struct StatusBar: View {
     }
 }
 
+/// The editor area with nothing open, quiet like Xcode's "No Editor" (D166):
+/// the project's name and a few shortcuts as plain text, no card.
 struct WelcomeView: View {
     let host: PluginHost
 
-    private var version: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-    }
-
     var body: some View {
         let workspace = host.workspace
-        VStack(spacing: 28) {
-            VStack(spacing: 4) {
+        VStack(spacing: 26) {
+            VStack(spacing: 6) {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
-                    .frame(width: 112, height: 112)
-                    .padding(.bottom, 6)
-                Text("Orbit")
-                    .font(.orbit(.display, weight: .semibold))
-                Text(workspace.root == nil ? "Open a folder to start working with agents." : workspace.name)
+                    .frame(width: 64, height: 64)
+                    .padding(.bottom, 4)
+                Text(workspace.root == nil ? "Orbit" : workspace.name)
+                    .font(.orbit(.large, weight: .semibold))
+                Text(workspace.root == nil ? "Open a folder to start working with agents." : "Open a file or start an agent session.")
                     .font(.orbit(.control))
                     .foregroundStyle(.secondary)
             }
 
-            VStack(spacing: 2) {
+            VStack(spacing: 8) {
                 if workspace.root == nil {
                     WelcomeActionRow(command: host.commands.all.first { $0.id == "workspace.openFolder" })
                 }
                 WelcomeActionRow(command: host.commands.all.first { $0.id == "agents.new" })
                 WelcomeActionRow(command: host.commands.all.first { $0.id == "agents.focus" })
-                WelcomeActionRow(title: "Command Palette", systemImage: "command", shortcut: "⇧⌘P") {
-                    CommandPalette.toggle(in: host)
-                }
                 if workspace.root != nil {
                     WelcomeActionRow(command: host.commands.all.first { $0.id == "search.quickOpen" })
-                    WelcomeActionRow(command: host.commands.all.first { $0.id == "workspace.openFolder" })
+                }
+                WelcomeActionRow(title: "Command Palette", shortcut: "⇧⌘P") {
+                    CommandPalette.toggle(in: host)
                 }
             }
-            .padding(5)
-            .frame(width: 320)
-            .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.largeCorner))
-            .overlay(RoundedRectangle(cornerRadius: Theme.largeCorner).strokeBorder(Theme.hairline))
-
-            Text("Version \(version)")
-                .font(.orbit(.micro))
-                .foregroundStyle(.tertiary)
         }
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
+/// "New Agent Session   ⇧⌘N": the name on the left of a center line, its
+/// shortcut on the right, both quiet until the pointer is over them.
 struct WelcomeActionRow: View {
     let title: String
-    let systemImage: String
     let shortcut: String?
     let isEnabled: Bool
     let action: () -> Void
     @State private var isHovering = false
 
-    init(title: String, systemImage: String, shortcut: String?, isEnabled: Bool = true, action: @escaping () -> Void) {
+    init(title: String, shortcut: String?, isEnabled: Bool = true, action: @escaping () -> Void) {
         self.title = title
-        self.systemImage = systemImage
         self.shortcut = shortcut
         self.isEnabled = isEnabled
         self.action = action
@@ -1279,7 +1268,6 @@ struct WelcomeActionRow: View {
     init(command: OrbitCommand?) {
         self.init(
             title: command?.title ?? "",
-            systemImage: command?.systemImage ?? "command",
             shortcut: command?.displayShortcut?.displayString,
             isEnabled: command?.isEnabled() ?? false,
             action: { command?.run() }
@@ -1288,27 +1276,23 @@ struct WelcomeActionRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.orbit(.control))
-                    .foregroundStyle(.tint)
-                    .frame(width: 20)
+            HStack(spacing: 14) {
                 Text(title)
-                    .font(.orbit(.control))
-                Spacer(minLength: 8)
-                if let shortcut {
-                    KeyCaps(shortcut)
-                }
+                    .frame(width: 180, alignment: .trailing)
+                Text(shortcut ?? "")
+                    .tracking(1.5)
+                    .foregroundStyle(isHovering && isEnabled ? .secondary : .tertiary)
+                    .frame(width: 180, alignment: .leading)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(isHovering && isEnabled ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.corner))
+            .font(.orbit(.control))
+            .foregroundStyle(isHovering && isEnabled ? .primary : .secondary)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
         .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
     }
 }
 
