@@ -14,6 +14,11 @@ shows up inline in the editor — green added lines, red ghost lines for what wa
 removed — with Keep / Undo per block, whether the agent edited through its own
 tools or the shell.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshot-dark.webp">
+  <img alt="Orbit: an agent's changes reviewed inline in the editor, with the agent chat beside it" src="docs/images/screenshot-light.webp">
+</picture>
+
 > Orbit is built first of all as its author's daily driver. It's usable, moving
 > fast, and has rough edges; see the [roadmap](docs/roadmap.md).
 
