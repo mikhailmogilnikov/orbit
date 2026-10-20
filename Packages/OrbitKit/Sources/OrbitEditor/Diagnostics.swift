@@ -14,6 +14,9 @@ final class DiagnosticsController {
     /// Tagged unnecessary or deprecated (D78), hints included: faded or struck
     /// through, and their messages show on hover.
     private var tagged: [Diagnostic] = []
+    /// What the server sent last: the shown ones move with edits (D202) and
+    /// mustn't be put back where they were by the same set coming again.
+    private var received: [Diagnostic] = []
     /// The unnecessary code's text, for the highlighter to fade.
     var onFadedChange: ((IndexSet) -> Void)?
     private let overlays = OverlaySet()
@@ -46,18 +49,24 @@ final class DiagnosticsController {
 
     /// Hints are suggestions ("unused"), not problems: no squiggle.
     func update(_ diagnostics: [Diagnostic]) {
+        guard diagnostics != received else { return }
+        received = diagnostics
         let shown = diagnostics.filter { $0.severity != .hint }.sorted { $0.severity < $1.severity }
         let tagged = diagnostics.filter { !$0.tags.isEmpty }
         guard shown != self.diagnostics || tagged != self.tagged else { return }
         self.diagnostics = shown
         self.tagged = tagged
+        updateFaded()
+        setNeedsLayout()
+    }
+
+    private func updateFaded() {
         let starts = lineStarts, length = length
         var faded = IndexSet()
         for diagnostic in tagged where diagnostic.tags.contains(.unnecessary) {
             if let range = Range(diagnostic.range.nsRange(in: starts, length: length)) { faded.insert(integersIn: range) }
         }
         onFadedChange?(faded)
-        setNeedsLayout()
     }
 
     /// Measuring text while TextKit is laying it out (the viewport callback,
@@ -71,11 +80,44 @@ final class DiagnosticsController {
         }
     }
 
-    /// The text changed: positions are re-read on the next layout.
-    func textDidChange() {
+    /// The text changed: problems move with the text around them until the
+    /// server sends new ones (D202); one the edit was inside stretches or
+    /// shrinks with it. Without the edit (a whole new text) they're hidden.
+    func textDidChange(_ edit: TextEdit? = nil) {
+        let oldStarts = cachedLineStarts
         cachedLineStarts = nil
-        // Old positions no longer match the text; the server sends new ones shortly.
-        overlays.removeAll()
+        guard let edit, let oldStarts, !diagnostics.isEmpty || !tagged.isEmpty else {
+            // Old positions no longer match the text; the server sends new ones shortly.
+            overlays.removeAll()
+            return
+        }
+        let oldLength = length - edit.delta
+        let starts = lineStarts
+        func move(_ diagnostic: Diagnostic) -> Diagnostic {
+            let range = Self.moved(diagnostic.range.nsRange(in: oldStarts, length: oldLength), by: edit)
+            var moved = diagnostic
+            moved.range = SourceRange(start: SourcePosition(offset: range.location, in: starts), end: SourcePosition(offset: NSMaxRange(range), in: starts))
+            return moved
+        }
+        diagnostics = diagnostics.map(move)
+        tagged = tagged.map(move)
+        if tagged.contains(where: { $0.tags.contains(.unnecessary) }) { updateFaded() }
+        setNeedsLayout()
+    }
+
+    /// A range in the old text, in the new one: after the edit it shifts; one
+    /// the edit was inside (or an empty one right at it) stretches over it.
+    nonisolated static func moved(_ range: NSRange, by edit: TextEdit) -> NSRange {
+        var start = range.location, end = NSMaxRange(range)
+        let editEnd = NSMaxRange(edit.range), newEnd = edit.range.location + edit.newLength
+        if start >= editEnd, !(range.length == 0 && start == edit.range.location) {
+            start += edit.delta
+            end += edit.delta
+        } else if end > edit.range.location || (end == edit.range.location && range.length == 0) {
+            start = min(start, newEnd)
+            end = end >= editEnd ? end + edit.delta : max(start, newEnd)
+        }
+        return NSRange(location: start, length: max(0, end - start))
     }
 
     var lineStarts: [Int] {

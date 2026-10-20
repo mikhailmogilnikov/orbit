@@ -172,6 +172,13 @@ struct GitRepository: Sendable {
         return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
     }
 
+    /// Remote-tracking branches (`origin/main`), newest first, without the remotes' `HEAD`.
+    func remoteBranches() -> [String] {
+        let data = (try? run(["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/remotes"])) ?? Data()
+        return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
+            .filter { $0.contains("/") && !$0.hasSuffix("/HEAD") }
+    }
+
     func switchBranch(_ name: String, create: Bool = false) throws(GitError) {
         try run(create ? ["switch", "--create", name] : ["switch", name])
     }
@@ -372,6 +379,12 @@ extension GitRepository {
     /// history; one entry per line.
     func blame(path: String, contents: String) -> [GitBlameLine]? {
         guard let data = try? run(["blame", "--porcelain", "--contents", "-", "--", path], input: contents) else { return nil }
+        return GitParse.blame(data)
+    }
+
+    /// The file as `revision` has it, line by line (D204).
+    func blame(path: String, at revision: String) -> [GitBlameLine]? {
+        guard let data = try? run(["blame", "--porcelain", revision, "--", path]) else { return nil }
         return GitParse.blame(data)
     }
 }

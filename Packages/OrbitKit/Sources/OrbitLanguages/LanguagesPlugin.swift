@@ -26,6 +26,7 @@ public final class LanguagesPlugin: OrbitPlugin {
         manager.editing = { services.resolve(SourceEditing.self) }
         manager.changes = { services.resolve(ChangeTracking.self) }
         manager.tasks = { services.resolve(TaskProblems.self) }
+        manager.projectFiles = { services.resolve(ProjectFileIndex.self) }
         Self.followExtensionServers(lifetime: context.lifetime, workspace: context.workspace, manager: manager)
 
         context.ui.addStatusItem(StatusItem(
@@ -149,6 +150,15 @@ public final class LanguagesPlugin: OrbitPlugin {
             return caret
         }
 
+        manager.showLocations = { origin, locations in
+            references.show(locations, origin: origin, workspace: workspace)
+            ui.revealBottomPanel("references")
+        }
+        manager.runInTerminal = { request in
+            guard let terminals = services.resolve(AgentTerminalHosting.self) else { return false }
+            terminals.run(request).reveal()
+            return true
+        }
         ui.addBottomPanel(PanelContribution(id: "references", title: "References", systemImage: "link", order: 55, badge: {
             references.count > 0 ? PanelBadge(references.count) : nil
         }) {
@@ -188,6 +198,33 @@ public final class LanguagesPlugin: OrbitPlugin {
             }
             SymbolPicks.peekReferences(caret, languages: manager, workspace: workspace, ui: ui)
         })
+        let hierarchy = HierarchyModel()
+        ui.addBottomPanel(PanelContribution(id: "hierarchy", title: "Hierarchy", systemImage: "list.bullet.indent", order: 56) {
+            HierarchyPanel(model: hierarchy, workspace: workspace)
+        })
+        // Xcode's Find Call Hierarchy key.
+        for (kind, id, title, shortcut) in [
+            (HierarchyKind.calls, "languages.callHierarchy", "Show Call Hierarchy", KeyboardShortcut("h", modifiers: [.command, .control, .shift]) as KeyboardShortcut?),
+            (HierarchyKind.types, "languages.typeHierarchy", "Show Type Hierarchy", nil),
+        ] {
+            context.commands.register(OrbitCommand(
+                id: id,
+                title: title,
+                category: "Code",
+                systemImage: kind == .calls ? "arrow.triangle.branch" : "square.stack.3d.up",
+                shortcut: shortcut,
+                editorMenu: EditorMenuPlacement(.navigate) {
+                    Self.activeFile(workspace).map { manager.server(for: $0) != nil } ?? false
+                }
+            ) {
+                guard let caret = caret() else {
+                    NSSound.beep()
+                    return
+                }
+                hierarchy.show(kind, at: caret, languages: manager)
+                ui.revealBottomPanel("hierarchy")
+            })
+        }
         context.commands.register(OrbitCommand(
             id: "languages.fileSymbols",
             title: "Go to Symbol in File…",

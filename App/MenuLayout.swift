@@ -42,7 +42,8 @@ enum MenuLayout {
 
     static let find: [Section] = [
         [.command("search.findInProject")],
-        [.command("languages.findReferences"), .command("languages.peekReferences")],
+        [.command("languages.findReferences"), .command("languages.peekReferences"),
+         .command("languages.callHierarchy"), .command("languages.typeHierarchy")],
         [.command("terminal.find")],
     ]
 
@@ -60,7 +61,8 @@ enum MenuLayout {
          .submenu("Lines", ["editor.moveLineUp", "editor.moveLineDown", "editor.copyLineUp", "editor.copyLineDown",
                             "editor.sortLinesAscending", "editor.sortLinesDescending", "editor.removeDuplicateLines", "editor.reverseLines"]),
          .submenu("Transform", TextTransformIDs.all),
-         .submenu("Selection", ["editor.addNextOccurrence", "editor.selectAllOccurrences", "editor.addCaretAbove", "editor.addCaretBelow"]),
+         .submenu("Selection", ["editor.addNextOccurrence", "editor.selectAllOccurrences", "editor.addCaretAbove", "editor.addCaretBelow",
+                                "editor.expandSelection", "editor.shrinkSelection"]),
          .submenu("Folding", ["editor.fold", "editor.unfold", "editor.foldAll", "editor.unfoldAll"])],
         [.command("languages.restart")],
     ]

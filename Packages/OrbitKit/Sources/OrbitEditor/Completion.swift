@@ -43,7 +43,11 @@ final class CompletionController: NSObject {
     }
 
     let signatures: SignatureHelpController
-    private var snippet: SnippetSession?
+    private var snippet: SnippetSession? {
+        didSet { onSnippetChange?(snippet?.placeholders ?? []) }
+    }
+    /// The active snippet's placeholders left to fill, drawn as tokens (D202).
+    var onSnippetChange: (([NSRange]) -> Void)?
 
     init(editor: CodeEditor.Coordinator) {
         self.editor = editor
@@ -54,7 +58,15 @@ final class CompletionController: NSObject {
 
     private var textView: STTextView? { editor.textView }
     private var text: NSString? { editor.diagnosticsController.string }
-    private var caret: Int { textView?.textSelection.location ?? 0 }
+    /// The caret the list completes at: with several carets, the one in the
+    /// word being completed (D202).
+    private var caret: Int {
+        guard let textView else { return 0 }
+        guard textView.hasMultipleSelections, isActive else { return textView.textSelection.location }
+        let end = wordEnd(after: anchor) ?? anchor
+        return textView.selectionRanges.first { $0.length == 0 && $0.location >= anchor && $0.location <= end }?.location
+            ?? textView.textSelection.location
+    }
 
     // MARK: Following the text
 
@@ -119,7 +131,8 @@ final class CompletionController: NSObject {
         // Typing also moves the caret, possibly before the text-change call:
         // judge once both have arrived.
         DispatchQueue.main.async { [weak self] in
-            guard let self, !isApplying, let selection = textView?.textSelection else { return }
+            guard let self, !isApplying, let textView else { return }
+            let selection = textView.hasMultipleSelections ? NSRange(location: caret, length: 0) : textView.textSelection
             if isActive, selection.length > 0 || selection.location < anchor || selection.location > (wordEnd(after: anchor) ?? anchor) {
                 close()
             }
@@ -412,6 +425,11 @@ final class CompletionController: NSObject {
         let body = item.token < 0 ? reindented(item.insertText, at: start, in: text) : item.insertText
         let snippet = item.isSnippet ? Snippet(body) : nil
         let inserted = snippet?.text ?? item.insertText
+        if textView.hasMultipleSelections {
+            acceptAtEveryCaret(inserted, snippet: snippet, before: caret - start, after: end - caret, in: text)
+            applyAdditionalEdits(of: item, before: textView.selectionRanges.map(\.location).min() ?? start)
+            return
+        }
 
         isApplying = true
         textView.breakUndoCoalescing()
@@ -432,6 +450,27 @@ final class CompletionController: NSObject {
         if inserted.hasSuffix("("), editor.languages?.triggers(for: editor.document.url).signatureHelp.contains("(") == true {
             signatures.request(trigger: "(", isRetrigger: false)
         }
+    }
+
+    /// The same text at each caret, over as much of its line before and after
+    /// as the list replaced at the caret it was opened at (D202). A snippet
+    /// selects its first placeholder at every caret; there's no Tab walk.
+    private func acceptAtEveryCaret(_ inserted: String, snippet: Snippet?, before: Int, after: Int, in text: NSString) {
+        guard let textView else { return }
+        let first = snippet?.tabStops.first?.range
+        let changes = textView.selectionRanges.map { selection -> CaretEditing.Change in
+            let line = text.lineRange(for: NSRange(location: selection.location, length: 0))
+            let lineEnd = NSMaxRange(line) - (NSMaxRange(line) > line.location && text.character(at: NSMaxRange(line) - 1) == 0x0A ? 1 : 0)
+            let start = max(line.location, selection.location - before)
+            let end = min(lineEnd, NSMaxRange(selection) + after)
+            return CaretEditing.Change(range: NSRange(location: start, length: end - start), text: inserted,
+                                       selection: first ?? NSRange(location: (inserted as NSString).length, length: 0))
+        }
+        guard let edit = CaretEditing.combine(changes, in: text) else { return }
+        self.snippet = nil
+        isApplying = true
+        textView.apply(edit)
+        isApplying = false
     }
 
     /// A snippet's body as this file indents (D195): its tabs are one level
@@ -560,6 +599,13 @@ struct SnippetSession {
         current = next
         if current == stops.count - 1 { isFinished = true }
         return stops[current]
+    }
+
+    /// The current placeholder and the ones Tab goes to next, as long as they
+    /// hold text (the final caret and empty stops aren't drawn).
+    var placeholders: [NSRange] {
+        guard !isFinished else { return [] }
+        return stops[max(0, current)...].filter { $0.length > 0 }
     }
 
     func contains(_ selection: NSRange) -> Bool {

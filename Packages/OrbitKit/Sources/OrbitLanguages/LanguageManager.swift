@@ -74,6 +74,14 @@ final class LanguageManager: LanguageIntelligence {
     @ObservationIgnored private var checked: [URL] = []
     @ObservationIgnored private var diskTexts: [URL: (generation: Int, text: String)] = [:]
     private static let checkedLimit = 100
+    /// The Search plugin's file list, to find importers of changed files.
+    @ObservationIgnored var projectFiles: () -> ProjectFileIndex? = { nil }
+    /// Files using what the agent changed (D198), checked like the changed ones.
+    @ObservationIgnored private var dependents: [URL] = []
+    @ObservationIgnored private var dependentsTask: Task<Void, Never>?
+    /// The changes `dependents` were found for (each file and its line counts).
+    @ObservationIgnored private var dependentsKey: [String] = []
+    private static let dependentsLimit = 40
 
     init(workspace: Workspace) {
         self.workspace = workspace
@@ -135,6 +143,9 @@ final class LanguageManager: LanguageIntelligence {
             placements.removeAll()
             checked.removeAll()
             diskTexts.removeAll()
+            dependents.removeAll()
+            dependentsKey.removeAll()
+            dependentsTask?.cancel()
         }
         guard let root else { return }
 
@@ -186,6 +197,7 @@ final class LanguageManager: LanguageIntelligence {
             }
             for file in documents { server.sync(file.url, text: file.text) }
         }
+        findDependentsIfChanged(in: root)
     }
 
     /// The agent's changed files as they are on disk, so their servers report
@@ -193,8 +205,9 @@ final class LanguageManager: LanguageIntelligence {
     /// problems are fixed (D75).
     private func checkedFiles(excluding open: Set<URL>, in root: URL) -> [(url: URL, text: String)] {
         let changed = changes()?.changedFiles ?? []
-        let kept = checked.filter { changed.contains($0) || !diagnostics(for: $0).isEmpty }
-        checked = Array((kept + changed.filter { !kept.contains($0) }).filter { url in
+        let wanted = changed + dependents.filter { !changed.contains($0) }
+        let kept = checked.filter { wanted.contains($0) || !diagnostics(for: $0).isEmpty }
+        checked = Array((kept + wanted.filter { !kept.contains($0) }).filter { url in
             url.path.hasPrefix(root.path + "/") && FileManager.default.fileExists(atPath: url.path) && !keys(for: url).isEmpty
         }.prefix(Self.checkedLimit))
         let generation = workspace.fileSystemGeneration
@@ -212,6 +225,78 @@ final class LanguageManager: LanguageIntelligence {
         }
         diskTexts = diskTexts.filter { checked.contains($0.key) }
         return files
+    }
+
+    /// Looks again for the changed files' users once the agent's edits settle.
+    /// With nothing left to review the list empties; a user that still has
+    /// problems stays checked until they're fixed, like a reviewed file (D75).
+    private func findDependentsIfChanged(in root: URL) {
+        guard let changes = changes() else { return }
+        let changed = changes.changedFiles
+        let key = changed.map { url in
+            let stats = changes.stats(for: url)
+            return "\(url.path):\(stats.added):\(stats.removed)"
+        }
+        guard key != dependentsKey else { return }
+        dependentsKey = key
+        dependentsTask?.cancel()
+        guard !changed.isEmpty else {
+            dependents.removeAll()
+            return
+        }
+        dependentsTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let found = await self?.dependents(of: changed, in: root),
+                  !Task.isCancelled, let self, !workspace.isClosed, found != dependents else { return }
+            dependents = found
+            scheduleSync()
+        }
+    }
+
+    /// Files referring to the symbols whose lines changed (the server knows,
+    /// in any language), then files importing a changed file by name (finds
+    /// users of a removed export too).
+    private func dependents(of changed: [URL], in root: URL) async -> [URL] {
+        let skipped = Set(changed.map(\.standardizedFileURL))
+        var found: [URL] = []
+        func add(_ url: URL) {
+            let file = url.standardizedFileURL
+            guard found.count < Self.dependentsLimit, !skipped.contains(file), !found.contains(file),
+                  file.path.hasPrefix(root.path + "/") else { return }
+            found.append(file)
+        }
+        for url in changed.prefix(20) {
+            guard let server = runningServer(for: url), server.openDocuments.contains(url),
+                  let hunks = changes()?.hunks(for: url), !hunks.isEmpty,
+                  let symbols = await server.symbols(in: url) else { continue }
+            let touched = symbols.filter { symbol in
+                guard symbol.depth <= 1, let extent = symbol.extent else { return false }
+                let lines = extent.start.line...extent.end.line
+                return hunks.contains { hunk in
+                    lines.contains(hunk.newRange.lowerBound) || (!hunk.newRange.isEmpty && hunk.newRange.contains(extent.start.line))
+                }
+            }
+            for symbol in touched.prefix(8) {
+                guard !Task.isCancelled, found.count < Self.dependentsLimit else { return found }
+                for location in await server.references(at: symbol.location.range.start, in: url) { add(location.url) }
+            }
+        }
+        guard found.count < Self.dependentsLimit, let index = projectFiles() else { return found }
+        let sources: [(config: LanguageServerConfig, names: Set<String>)] = changed.compactMap { url in
+            guard let config = config(for: url) else { return nil }
+            let names = DependentFiles.moduleNames(for: url)
+            return names.isEmpty ? nil : (config, names)
+        }
+        guard !sources.isEmpty else { return found }
+        var candidates: [(url: URL, names: Set<String>)] = []
+        for path in await index.allPaths() {
+            let url = root.appendingPathComponent(path).standardizedFileURL
+            guard !skipped.contains(url), !found.contains(url) else { continue }
+            let names = sources.filter { $0.config.serves(url) }.reduce(into: Set<String>()) { $0.formUnion($1.names) }
+            if !names.isEmpty { candidates.append((url, names)) }
+        }
+        for url in await DependentFiles.importers(candidates, limit: Self.dependentsLimit - found.count) { add(url) }
+        return found
     }
 
     private func scheduleIdleShutdown(_ key: ServerKey) {
@@ -520,6 +605,7 @@ final class LanguageManager: LanguageIntelligence {
     func shutdown() {
         fileEvents = nil
         syncTask?.cancel()
+        dependentsTask?.cancel()
         for task in idleTasks.values { task.cancel() }
         for server in servers.values { server.shutdown() }
         servers.removeAll()
@@ -682,20 +768,35 @@ final class LanguageManager: LanguageIntelligence {
     }
 
     func rename(at position: SourcePosition, in url: URL, to newName: String) async -> Result<Int, RenameFailure> {
+        switch await renameEdit(at: position, in: url, to: newName) {
+        case .success(let edit):
+            guard apply(edit) else { return .failure(RenameFailure("Some files couldn't be changed.")) }
+            return .success(edit.touchedFiles.count)
+        case .failure(let failure):
+            return .failure(failure)
+        }
+    }
+
+    func renameEdit(at position: SourcePosition, in url: URL, to newName: String) async -> Result<WorkspaceEdit, RenameFailure> {
         guard let server = await flush(url) else { return .failure(RenameFailure("The language server isn't running.")) }
         do {
             let edit = try await server.rename(at: position, in: url.standardizedFileURL, to: newName)
             guard !edit.isEmpty else { return .failure(RenameFailure("Nothing to rename here.")) }
-            guard apply(edit) else { return .failure(RenameFailure("Some files couldn't be changed.")) }
-            return .success(edit.files.filter { !$0.value.isEmpty }.count)
+            return .success(edit)
         } catch {
             return .failure(RenameFailure(error.localizedDescription))
         }
     }
 
+    func formatOnType(_ character: String, at position: SourcePosition, in url: URL) async -> [SourceEdit] {
+        guard let server = await flush(url), let document = workspace.documents.existingDocument(for: url) else { return [] }
+        let indent = Indentation.of(url, text: document.text, root: root, fallback: Preferences.shared.defaultIndentation)
+        return await server.onTypeFormatting(character, at: position, in: url.standardizedFileURL, tabSize: indent.size, insertSpaces: indent.spaces) ?? []
+    }
+
     func canFormat(_ url: URL) -> Bool {
         switch try? formatterChoice(for: url) {
-        case .tool?, nil: return true
+        case .tool?, .chain?, nil: return true
         case .off?: return false
         case .server?:
             guard let server = formatter(for: url), server.state == .running else { return false }
@@ -717,6 +818,8 @@ final class LanguageManager: LanguageIntelligence {
         switch choice {
         case .off(let source):
             return .failed("Formatting .\(url.pathExtension) files is turned off in \(source).")
+        case .chain(let steps):
+            return await formatChain(steps, url: url, document: document, lines: lines, environment: environment)
         case .tool(let formatter):
             let text = document.text
             let formatted: String
@@ -755,6 +858,45 @@ final class LanguageManager: LanguageIntelligence {
             guard apply(WorkspaceEdit(files: [url.standardizedFileURL: change])) else { return .failed("The file couldn't be changed.", formatter: name) }
             return FormatOutcome(formatter: name, changed: true)
         }
+    }
+
+    /// Each formatter on the one before's result (D203), the server first if
+    /// listed; one edit at the end. A step that fails stops the chain.
+    private func formatChain(_ steps: [FormatterChoice], url: URL, document: TextDocument, lines: ClosedRange<Int>?, environment: [String: String]) async -> FormatOutcome {
+        let original = document.text
+        var text = original
+        var names: [String] = []
+        for step in steps {
+            switch step {
+            case .server:
+                guard let server = await formattingServer(url), server.state == .running, server.formats else {
+                    return .failed("The language server can't format .\(url.pathExtension) files.", formatter: names.joined(separator: " → "))
+                }
+                let indent = Indentation.of(url, text: text, root: root, fallback: Preferences.shared.defaultIndentation)
+                guard let edits = await server.formatting(url.standardizedFileURL, tabSize: indent.size, insertSpaces: indent.spaces) else {
+                    return .failed("It couldn't format this file.", formatter: "\(server.config.name) language server")
+                }
+                text = SourceEdit.apply(edits, to: text)
+                names.append("\(server.config.name) language server")
+            case .tool(let formatter):
+                do {
+                    text = try await formatter.format(text, file: url, environment: environment)
+                } catch {
+                    return .failed(error.localizedDescription, formatter: formatter.name)
+                }
+                names.append(formatter.name)
+            case .off, .chain:
+                continue
+            }
+        }
+        let name = names.joined(separator: " → ")
+        let kept = lines.map { LineDiff.changes(from: original, to: text, within: $0) } ?? text
+        // Typed into while it ran: those keystrokes win.
+        guard document.text == original, kept != original else { return FormatOutcome(formatter: name) }
+        guard apply(WorkspaceEdit(files: [url.standardizedFileURL: [Self.replacement(of: original, with: kept)]])) else {
+            return .failed("The file couldn't be changed.", formatter: name)
+        }
+        return FormatOutcome(formatter: name, changed: true)
     }
 
     /// One edit over just the part that differs: the caret and scroll stay put outside it.
@@ -831,35 +973,73 @@ final class LanguageManager: LanguageIntelligence {
         }
     }
 
-    /// Open files change through the editor (one undo step each); others are edited on disk.
+    /// Open files change through the editor (one undo step each); others are
+    /// edited on disk. Files are created, renamed (tabs follow) and deleted to
+    /// the Trash in the order the server gave (D199).
     @discardableResult
     func apply(_ edit: WorkspaceEdit) -> Bool {
         var worked = true
-        for (url, edits) in edit.files where !edits.isEmpty {
-            if editing()?.apply(edits, to: url) == true { continue }
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                worked = false
-                continue
-            }
-            // A file that isn't open is edited on disk without opening a buffer for
-            // it: a project-wide rename would otherwise keep every file in memory.
-            let document = workspace.documents.existingDocument(for: url)
-            guard let current = document?.text ?? workspace.documents.currentText(of: url) else {
-                worked = false
-                continue
-            }
-            let text = SourceEdit.apply(edits, to: current)
-            do {
-                if let document, document.isDirty {
-                    document.text = text
-                } else {
-                    try workspace.documents.write(TextFile.normalized(text), to: url)
+        let manager = FileManager.default
+        for step in edit.steps {
+            switch step {
+            case .edit(let url, let edits):
+                if !edits.isEmpty, !applyText(edits, to: url) { worked = false }
+            case .create(let url, let overwrite, let ignoreIfExists):
+                if manager.fileExists(atPath: url.path) {
+                    guard overwrite, !ignoreIfExists else {
+                        if !ignoreIfExists { worked = false }
+                        continue
+                    }
                 }
-            } catch {
-                worked = false
+                do {
+                    try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try Data().write(to: url)
+                    workspace.fileSystemDidChange()
+                } catch {
+                    worked = false
+                }
+            case .rename(let from, let to, let overwrite, let ignoreIfExists):
+                if manager.fileExists(atPath: to.path), from.standardizedFileURL != to.standardizedFileURL {
+                    if ignoreIfExists && !overwrite { continue }
+                    guard overwrite, workspace.trashItems([to]).problems.isEmpty else {
+                        worked = false
+                        continue
+                    }
+                }
+                do {
+                    try workspace.moveItem(from, to: to)
+                } catch {
+                    worked = false
+                }
+            case .delete(let url, _, let ignoreIfNotExists):
+                guard manager.fileExists(atPath: url.path) else {
+                    if !ignoreIfNotExists { worked = false }
+                    continue
+                }
+                if !workspace.trashItems([url]).problems.isEmpty { worked = false }
             }
         }
         return worked
+    }
+
+    private func applyText(_ edits: [SourceEdit], to url: URL) -> Bool {
+        if editing()?.apply(edits, to: url) == true { return true }
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        // A file that isn't open is edited on disk without opening a buffer for
+        // it: a project-wide rename would otherwise keep every file in memory.
+        let document = workspace.documents.existingDocument(for: url)
+        guard let current = document?.text ?? workspace.documents.currentText(of: url) else { return false }
+        let text = SourceEdit.apply(edits, to: current)
+        do {
+            if let document, document.isDirty {
+                document.text = text
+            } else {
+                try workspace.documents.write(TextFile.normalized(text), to: url)
+            }
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// The first of the file's servers (its language's, then ESLint, Tailwind…) that isn't installed.
@@ -941,10 +1121,11 @@ final class LanguageManager: LanguageIntelligence {
         for key in keys(for: url) {
             guard let server = servers[key], server.state == .running else { continue }
             triggers.completion.formUnion(server.triggers.completion)
-            // Signature help is the language server's alone.
+            // Signature help and typing's formatting are the language server's alone.
             if !server.config.isCompanion {
                 triggers.signatureHelp = server.triggers.signatureHelp
                 triggers.signatureHelpRetrigger = server.triggers.signatureHelpRetrigger
+                triggers.formatOnType = server.triggers.formatOnType
             }
         }
         return triggers
@@ -992,6 +1173,76 @@ final class LanguageManager: LanguageIntelligence {
 
     func symbols(in url: URL) async -> [LanguageSymbol]? {
         await flush(url)?.symbols(in: url.standardizedFileURL)
+    }
+
+    // MARK: Linked editing and selection ranges (D202)
+
+    func linkedEditingRanges(at position: SourcePosition, in url: URL) async -> [SourceRange]? {
+        await flush(url)?.linkedEditingRanges(at: position, in: url.standardizedFileURL)
+    }
+
+    func selectionRanges(at positions: [SourcePosition], in url: URL) async -> [[SourceRange]]? {
+        await flush(url)?.selectionRanges(at: positions, in: url.standardizedFileURL)
+    }
+
+    // MARK: Semantic tokens and code lenses (D201)
+
+    func semanticTokens(in url: URL) async -> [SemanticToken]? {
+        await flush(url)?.semanticTokens(in: url.standardizedFileURL)
+    }
+
+    func semanticTokensRevision(for url: URL) -> Int {
+        runningServer(for: url)?.semanticTokensRevision ?? 0
+    }
+
+    /// Shows a lens's locations (References); set by the plugin.
+    @ObservationIgnored var showLocations: (_ origin: SourceLocation?, _ locations: [SourceLocation]) -> Void = { _, _ in }
+    /// Runs a command in a terminal the user watches; set by the plugin.
+    @ObservationIgnored var runInTerminal: (_ request: AgentTerminalRequest) -> Bool = { _ in false }
+
+    /// Every server's lenses (rust-analyzer's beside a companion's), each remembering its server.
+    func codeLenses(in url: URL) async -> [CodeLens] {
+        let file = url.standardizedFileURL
+        return await gather(url, deadline: .seconds(10)) { await $0.codeLenses(in: file) }.flatMap { server, lenses in
+            lenses.map { lens in
+                var lens = lens
+                lens.server = server.config.id
+                return lens
+            }
+        }
+    }
+
+    func run(_ lens: CodeLens, in url: URL) async -> String? {
+        guard let server = lens.server.flatMap({ server(id: $0, for: url) }) ?? runningServer(for: url) else { return "The language server isn't running." }
+        switch server.lensAction(lens) {
+        case .server(let name, let arguments)?:
+            return await server.executeCommand(name, arguments: arguments) ? nil : "The language server couldn't run “\(lens.title)”."
+        case .locations(let origin, let locations)?:
+            showLocations(origin, locations)
+            return nil
+        case .cargo(let arguments, let directory)?:
+            let environment = await environment.value
+            let folder = directory.map { URL(fileURLWithPath: $0) } ?? server.root
+            let request = AgentTerminalRequest(command: "cargo", arguments: arguments, environment: environment, directory: folder)
+            return runInTerminal(request) ? nil : "There's no terminal to run it in."
+        case nil:
+            return "Orbit can't run “\(lens.title)”."
+        }
+    }
+
+    // MARK: Hierarchies (D200)
+
+    /// The server the panel's hierarchy came from: its items go back to it.
+    @ObservationIgnored private weak var hierarchyServer: LanguageServer?
+
+    func prepareHierarchy(_ kind: HierarchyKind, at position: SourcePosition, in url: URL) async -> [HierarchyItem] {
+        guard let server = await flush(url) else { return [] }
+        hierarchyServer = server
+        return await server.prepareHierarchy(kind, at: position, in: url.standardizedFileURL)
+    }
+
+    func hierarchy(_ direction: HierarchyDirection, of item: HierarchyItem) async -> [HierarchyItem] {
+        await hierarchyServer?.hierarchy(direction, of: item) ?? []
     }
 
     // MARK: Inlay hints

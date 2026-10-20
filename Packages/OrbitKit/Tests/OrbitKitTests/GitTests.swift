@@ -1,6 +1,7 @@
 import Foundation
 @testable import OrbitGit
 import OrbitAPI
+import SwiftUI
 import Testing
 
 @Suite struct GitTests {
@@ -236,6 +237,49 @@ import Testing
         #expect(blame[0].summary == "First" && blame[1].summary == "Second | with bars")
         #expect(blame[0].author == "Ann Dev")
         #expect(!blame[3].isCommitted && blame[2].isCommitted)
+    }
+
+    /// D204: remote-tracking branches, and a file's blame as an older commit left it.
+    @Test func remoteBranchesAndBlameAtARevision() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-git-\(UUID().uuidString)")
+        let root = base.appendingPathComponent("work"), remote = base.appendingPathComponent("remote.git")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        var env = ProcessInfo.processInfo.environment
+        env["GIT_AUTHOR_NAME"] = "Ann"; env["GIT_AUTHOR_EMAIL"] = "a@e.st"
+        env["GIT_COMMITTER_NAME"] = "Ann"; env["GIT_COMMITTER_EMAIL"] = "a@e.st"
+        let repo = GitRepository(root: root, environment: env)
+        try repo.initialize()
+        let file = root.appendingPathComponent("a.txt")
+        try "one\ntwo\n".write(to: file, atomically: true, encoding: .utf8)
+        try repo.stage(["."])
+        try repo.commit(message: "First")
+        let first = String(decoding: try repo.run(["rev-parse", "HEAD"]), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        try "one\nTWO\nthree\n".write(to: file, atomically: true, encoding: .utf8)
+        try repo.stage(["."])
+        try repo.commit(message: "Second")
+
+        let old = try #require(repo.blame(path: "a.txt", at: first))
+        #expect(old.count == 2 && old.allSatisfy { $0.summary == "First" })
+        let now = try #require(repo.blame(path: "a.txt", at: "HEAD"))
+        #expect(now.map(\.summary) == ["First", "Second", "Second"])
+        #expect(repo.blame(path: "a.txt", at: first + "^") == nil || repo.blame(path: "a.txt", at: first + "^")?.isEmpty == true)
+
+        _ = try GitRepository(root: base, environment: env).run(["init", "--bare", "remote.git"])
+        _ = try repo.run(["remote", "add", "origin", remote.path])
+        _ = try repo.run(["push", "origin", "HEAD:refs/heads/main", "HEAD:refs/heads/feature"])
+        _ = try repo.run(["fetch", "origin"])
+        #expect(Set(repo.remoteBranches()) == ["origin/main", "origin/feature"])
+        #expect(GitModel.shortRevision(first + "^") == String(first.prefix(7)) + "^")
+    }
+
+    @MainActor @Test func revisionLinesTakeTheirColors() {
+        let lines = ["let a = 1", "", "a"]
+        let spans = [SyntaxSpan(range: NSRange(location: 0, length: 3), color: .red), SyntaxSpan(range: NSRange(location: 8, length: 5), color: .blue)]
+        let colored = GitRevisionView.colored(lines, spans: spans)
+        #expect(colored[0].runs.contains { $0.foregroundColor == .red })
+        #expect(colored[0].runs.contains { $0.foregroundColor == .blue })
+        #expect(colored[2].runs.contains { $0.foregroundColor == .blue })
     }
 
     @Test func parsesNameStatusWithRenames() {

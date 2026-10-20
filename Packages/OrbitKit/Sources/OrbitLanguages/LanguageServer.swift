@@ -44,8 +44,27 @@ final class LanguageServer {
     @ObservationIgnored private(set) var searchesSymbols = false
     @ObservationIgnored private var hasInlayHints = false
     @ObservationIgnored private var folds = false
+    @ObservationIgnored private var hasCallHierarchy = false
+    @ObservationIgnored private var linksEdits = false
+    @ObservationIgnored private var hasSelectionRanges = false
+    @ObservationIgnored private var hasTypeHierarchy = false
+    /// The server's items of the current hierarchy, sent back verbatim to go deeper (D200).
+    @ObservationIgnored private var hierarchyItems: [Int: JSONValue] = [:]
+    @ObservationIgnored private var hierarchyCount = 0
     /// Bumped on `workspace/inlayHint/refresh`: editors fetch their hints again.
     private(set) var inlayHintsRevision = 0
+    /// Bumped on `workspace/semanticTokens/refresh` and `workspace/codeLens/refresh` (D201).
+    private(set) var semanticTokensRevision = 0
+    /// Token types and modifiers by the indexes the server's data uses.
+    @ObservationIgnored private var tokenLegend: (types: [String], modifiers: [String])?
+    @ObservationIgnored private var tokensFull = false
+    @ObservationIgnored private var hasCodeLenses = false
+    @ObservationIgnored private var resolvesCodeLenses = false
+    /// Commands the server runs itself (`workspace/executeCommand`).
+    @ObservationIgnored private var serverCommands: Set<String> = []
+    /// The latest lenses as the server sent them (resolved), to run one.
+    @ObservationIgnored private var lensRaw: [Int: JSONValue] = [:]
+    @ObservationIgnored private var lensCount = 0
     @ObservationIgnored private var actionGeneration = 0
     @ObservationIgnored private var actionRaw: (generation: Int, items: [JSONValue]) = (0, [])
     /// Applies an edit the server asks for (after running one of its commands).
@@ -125,6 +144,10 @@ final class LanguageServer {
                 }
                 if method == "workspace/inlayHint/refresh" {
                     Task { @MainActor in self?.inlayHintsRevision += 1 }
+                    return .null
+                }
+                if method == "workspace/semanticTokens/refresh" || method == "workspace/codeLens/refresh" {
+                    Task { @MainActor in self?.semanticTokensRevision += 1 }
                     return .null
                 }
                 if method == "client/registerCapability" {
@@ -217,6 +240,7 @@ final class LanguageServer {
                     ],
                     "rename": ["prepareSupport": true],
                     "formatting": ["dynamicRegistration": false],
+                    "onTypeFormatting": ["dynamicRegistration": false],
                     "signatureHelp": [
                         "contextSupport": true,
                         "signatureInformation": [
@@ -232,14 +256,33 @@ final class LanguageServer {
                     "inlayHint": ["dynamicRegistration": false],
                     // The editor folds whole lines.
                     "foldingRange": ["dynamicRegistration": false, "lineFoldingOnly": true],
+                    "callHierarchy": ["dynamicRegistration": false],
+                    // Tree-sitter colors the rest (`augmentsSyntaxTokens`).
+                    "semanticTokens": [
+                        "dynamicRegistration": false,
+                        "requests": ["full": true, "range": true],
+                        "tokenTypes": .array(SemanticColors.tokenTypes.map(JSONValue.string)),
+                        "tokenModifiers": .array(SemanticColors.tokenModifiers.map(JSONValue.string)),
+                        "formats": ["relative"],
+                        "overlappingTokenSupport": false,
+                        "multilineTokenSupport": false,
+                        "augmentsSyntaxTokens": true,
+                    ],
+                    "codeLens": ["dynamicRegistration": false],
+                    "linkedEditingRange": ["dynamicRegistration": false],
+                    "selectionRange": ["dynamicRegistration": false],
+                    "typeHierarchy": ["dynamicRegistration": false],
                 ],
                 "workspace": [
                     "workspaceFolders": true, "configuration": true, "applyEdit": true,
                     "didChangeWatchedFiles": ["dynamicRegistration": true, "relativePatternSupport": true],
-                    "workspaceEdit": ["documentChanges": true],
+                    "workspaceEdit": ["documentChanges": true, "resourceOperations": ["create", "rename", "delete"]],
                     // No `resolveSupport`: results must come with their ranges.
                     "symbol": ["dynamicRegistration": false],
                     "inlayHint": ["refreshSupport": true],
+                    "semanticTokens": ["refreshSupport": true],
+                    "codeLens": ["refreshSupport": true],
+                    "executeCommand": ["dynamicRegistration": false],
                 ],
             ],
         ]
@@ -276,7 +319,7 @@ final class LanguageServer {
         case "workspace/workspaceFolders":
             return [["uri": .string(root.absoluteString), "name": .string(root.lastPathComponent)]]
         case "window/workDoneProgress/create", "client/registerCapability", "client/unregisterCapability",
-             "window/showMessageRequest", "workspace/diagnostic/refresh", "workspace/semanticTokens/refresh":
+             "window/showMessageRequest", "workspace/diagnostic/refresh":
             return .null
         default:
             throw JSONRPCError.methodNotFound(method)
@@ -304,10 +347,23 @@ final class LanguageServer {
         searchesSymbols = enabled(capabilities?["workspaceSymbolProvider"])
         hasInlayHints = enabled(capabilities?["inlayHintProvider"])
         folds = enabled(capabilities?["foldingRangeProvider"])
+        hasCallHierarchy = enabled(capabilities?["callHierarchyProvider"])
+        hasTypeHierarchy = enabled(capabilities?["typeHierarchyProvider"])
+        linksEdits = enabled(capabilities?["linkedEditingRangeProvider"])
+        hasSelectionRanges = enabled(capabilities?["selectionRangeProvider"])
+        readTokens(capabilities?["semanticTokensProvider"])
+        let lenses = capabilities?["codeLensProvider"]
+        hasCodeLenses = enabled(lenses)
+        resolvesCodeLenses = lenses?["resolveProvider"]?.bool ?? false
+        serverCommands = strings(capabilities?["executeCommandProvider"]?["commands"])
+        let onType = capabilities?["documentOnTypeFormattingProvider"]
+        var onTypeCharacters = strings(onType?["moreTriggerCharacter"])
+        if let first = onType?["firstTriggerCharacter"]?.string { onTypeCharacters.insert(first) }
         triggers = LanguageTriggers(
             completion: strings(completion?["triggerCharacters"]),
             signatureHelp: strings(signature?["triggerCharacters"]),
-            signatureHelpRetrigger: strings(signature?["retriggerCharacters"])
+            signatureHelpRetrigger: strings(signature?["retriggerCharacters"]),
+            formatOnType: onTypeCharacters
         )
     }
 
@@ -345,6 +401,26 @@ final class LanguageServer {
                 inlayHintsRevision += 1
             case "textDocument/foldingRange":
                 folds = true
+            case "textDocument/prepareCallHierarchy":
+                hasCallHierarchy = true
+            case "textDocument/prepareTypeHierarchy":
+                hasTypeHierarchy = true
+            case "textDocument/linkedEditingRange":
+                linksEdits = true
+            case "textDocument/selectionRange":
+                hasSelectionRanges = true
+            case "textDocument/semanticTokens":
+                readTokens(options)
+                semanticTokensRevision += 1
+            case "textDocument/codeLens":
+                hasCodeLenses = true
+                resolvesCodeLenses = options?["resolveProvider"]?.bool ?? resolvesCodeLenses
+                semanticTokensRevision += 1
+            case "workspace/executeCommand":
+                serverCommands.formUnion(strings(options?["commands"]))
+            case "textDocument/onTypeFormatting":
+                triggers.formatOnType.formUnion(strings(options?["moreTriggerCharacter"]))
+                if let first = options?["firstTriggerCharacter"]?.string { triggers.formatOnType.insert(first) }
             case "workspace/didChangeWatchedFiles":
                 if let id = registration["id"]?.string { fileWatchers[id] = FileWatcher.parse(options) }
             case "textDocument/signatureHelp":
@@ -651,6 +727,199 @@ final class LanguageServer {
         }
     }
 
+    // MARK: Semantic tokens and code lenses (D201)
+
+    private func readTokens(_ provider: JSONValue?) {
+        guard let provider, !provider.isNull, let legend = provider["legend"] else { return }
+        func strings(_ value: JSONValue?) -> [String] { value?.array?.compactMap(\.string) ?? [] }
+        tokenLegend = (strings(legend["tokenTypes"]), strings(legend["tokenModifiers"]))
+        // `full` may be `true` or `{ delta: true }`; servers with only `range` get the whole file as one.
+        tokensFull = provider["full"].map { !$0.isNull && $0.bool != false } ?? false
+    }
+
+    func semanticTokens(in url: URL) async -> [SemanticToken]? {
+        guard let connection, let legend = tokenLegend, let text = documents[url]?.text else { return nil }
+        let document: JSONValue = ["uri": .string(url.absoluteString)]
+        let result: JSONValue?
+        if tokensFull {
+            result = try? await connection.request("textDocument/semanticTokens/full", ["textDocument": document])
+        } else {
+            let string = text as NSString
+            let end = SourcePosition(offset: string.length, in: SourcePosition.lineStarts(of: string))
+            result = try? await connection.request("textDocument/semanticTokens/range", [
+                "textDocument": document, "range": Self.json(SourceRange(start: .init(line: 0, character: 0), end: end)),
+            ])
+        }
+        guard let data = result?["data"]?.array else { return nil }
+        return Self.semanticTokens(data.compactMap(\.int), types: legend.types, modifiers: legend.modifiers)
+    }
+
+    /// LSP's five numbers per token: line and start relative to the token before, length, type, modifier bits.
+    nonisolated static func semanticTokens(_ data: [Int], types: [String], modifiers: [String]) -> [SemanticToken] {
+        var tokens: [SemanticToken] = []
+        tokens.reserveCapacity(data.count / 5)
+        var line = 0, character = 0
+        var index = 0
+        while index + 4 < data.count {
+            let deltaLine = data[index], deltaStart = data[index + 1], length = data[index + 2]
+            let type = data[index + 3], bits = data[index + 4]
+            index += 5
+            line += deltaLine
+            character = deltaLine == 0 ? character + deltaStart : deltaStart
+            guard type < types.count, length > 0 else { continue }
+            var set: Set<String> = []
+            if bits != 0 {
+                for (bit, name) in modifiers.enumerated() where bit < Int.bitWidth - 1 && bits & (1 << bit) != 0 { set.insert(name) }
+            }
+            tokens.append(SemanticToken(line: line, character: character, length: length, type: types[type], modifiers: set))
+        }
+        return tokens
+    }
+
+    func codeLenses(in url: URL) async -> [CodeLens] {
+        guard let connection, hasCodeLenses, documents[url] != nil,
+              let result = try? await connection.request("textDocument/codeLens", ["textDocument": ["uri": .string(url.absoluteString)]]) else { return [] }
+        var items = result.array ?? []
+        // Lenses without a command are filled in one by one (TypeScript counts references then).
+        if resolvesCodeLenses {
+            for index in items.indices where items[index]["command"] == nil {
+                guard !Task.isCancelled, index < 200 else { break }
+                if let resolved = try? await connection.request("codeLens/resolve", items[index]) { items[index] = resolved }
+            }
+        }
+        lensRaw.removeAll()
+        return items.compactMap { item in
+            guard let line = Self.range(item["range"])?.start.line, let command = item["command"],
+                  let title = command["title"]?.string, !title.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            let name = command["command"]?.string ?? ""
+            let action = Self.lensAction(name, arguments: command["arguments"]?.array ?? [], serverCommands: serverCommands)
+            // A command only another editor could run would be a dead button: left out.
+            if !name.isEmpty, action == nil { return nil }
+            lensCount += 1
+            lensRaw[lensCount] = item
+            return CodeLens(token: lensCount, line: line, title: title, isActionable: action != nil)
+        }
+    }
+
+    /// What clicking a lens does; nil when Orbit can't run its command.
+    enum LensAction: Equatable {
+        case server(String, [JSONValue])
+        /// Where the symbol is, and its uses.
+        case locations(SourceLocation?, [SourceLocation])
+        /// `cargo <arguments>` in a folder (rust-analyzer's ▶ Run).
+        case cargo([String], directory: String?)
+    }
+
+    nonisolated static func lensAction(_ name: String, arguments: [JSONValue], serverCommands: Set<String>) -> LensAction? {
+        if serverCommands.contains(name) { return .server(name, arguments) }
+        switch name {
+        case "editor.action.showReferences", "rust-analyzer.showReferences", "editor.action.peekLocations", "editor.action.goToLocations":
+            let locations = (arguments.count > 2 ? arguments[2].array ?? [] : []).compactMap { location -> SourceLocation? in
+                guard let uri = location["uri"]?.string ?? location["targetUri"]?.string, let url = fileURL(uri),
+                      let range = range(location["range"] ?? location["targetSelectionRange"]) else { return nil }
+                return SourceLocation(url: url, range: range)
+            }
+            let origin = arguments.first?.string.flatMap(fileURL).flatMap { url in
+                position(arguments.count > 1 ? arguments[1] : nil).map { SourceLocation(url: url, range: SourceRange(start: $0, end: $0)) }
+            }
+            return locations.isEmpty ? nil : .locations(origin, locations)
+        case "rust-analyzer.runSingle":
+            let runnable = arguments.first
+            guard runnable?["kind"]?.string == "cargo", let args = runnable?["args"] else { return nil }
+            let cargo = (args["cargoArgs"]?.array ?? []).compactMap(\.string)
+            let executable = (args["executableArgs"]?.array ?? []).compactMap(\.string)
+            guard !cargo.isEmpty else { return nil }
+            return .cargo(cargo + (executable.isEmpty ? [] : ["--"] + executable),
+                          directory: args["cwd"]?.string ?? args["workspaceRoot"]?.string)
+        default:
+            return nil
+        }
+    }
+
+    /// The lens's action, with paths under the folder as opened.
+    func lensAction(_ lens: CodeLens) -> LensAction? {
+        guard let command = lensRaw[lens.token]?["command"], let name = command["command"]?.string else { return nil }
+        let action = Self.lensAction(name, arguments: command["arguments"]?.array ?? [], serverCommands: serverCommands)
+        if case .locations(let origin, let locations) = action {
+            return .locations(origin.map { SourceLocation(url: local($0.url), range: $0.range) },
+                              locations.map { SourceLocation(url: local($0.url), range: $0.range) })
+        }
+        return action
+    }
+
+    func executeCommand(_ name: String, arguments: [JSONValue]) async -> Bool {
+        guard let connection else { return false }
+        return (try? await connection.request("workspace/executeCommand", ["command": .string(name), "arguments": .array(arguments)])) != nil
+    }
+
+    // MARK: Linked editing and selection ranges (D202)
+
+    func linkedEditingRanges(at position: SourcePosition, in url: URL) async -> [SourceRange]? {
+        guard let connection, linksEdits, documents[url] != nil,
+              let result = try? await connection.request("textDocument/linkedEditingRange", Self.positionParams(url, position)),
+              let ranges = result["ranges"]?.array?.compactMap({ Self.range($0) }), ranges.count > 1 else { return nil }
+        return ranges
+    }
+
+    func selectionRanges(at positions: [SourcePosition], in url: URL) async -> [[SourceRange]]? {
+        guard let connection, hasSelectionRanges, documents[url] != nil,
+              let result = try? await connection.request("textDocument/selectionRange", [
+                  "textDocument": ["uri": .string(url.absoluteString)], "positions": .array(positions.map(Self.json)),
+              ]), let items = result.array else { return nil }
+        return items.map { item in
+            var chain: [SourceRange] = []
+            var current: JSONValue? = item
+            while let node = current, let range = Self.range(node["range"]), chain.count < 200 {
+                chain.append(range)
+                current = node["parent"]
+            }
+            return chain
+        }
+    }
+
+    // MARK: Hierarchies (D200)
+
+    func prepareHierarchy(_ kind: HierarchyKind, at position: SourcePosition, in url: URL) async -> [HierarchyItem] {
+        guard let connection, documents[url] != nil, kind == .calls ? hasCallHierarchy : hasTypeHierarchy else { return [] }
+        let method = kind == .calls ? "textDocument/prepareCallHierarchy" : "textDocument/prepareTypeHierarchy"
+        guard let result = try? await connection.request(method, Self.positionParams(url, position)) else { return [] }
+        hierarchyItems.removeAll()
+        return (result.array ?? []).compactMap { hierarchyItem($0, kind: kind) }
+    }
+
+    func hierarchy(_ direction: HierarchyDirection, of item: HierarchyItem) async -> [HierarchyItem] {
+        guard let connection, let raw = hierarchyItems[item.token] else { return [] }
+        let method = switch (item.kind, direction) {
+        case (.calls, .incoming): "callHierarchy/incomingCalls"
+        case (.calls, .outgoing): "callHierarchy/outgoingCalls"
+        case (.types, .incoming): "typeHierarchy/supertypes"
+        case (.types, .outgoing): "typeHierarchy/subtypes"
+        }
+        guard let result = try? await connection.request(method, ["item": raw]) else { return [] }
+        return (result.array ?? []).compactMap { value in
+            guard item.kind == .calls else { return hierarchyItem(value, kind: .types) }
+            // A caller holds the calls (`fromRanges` are in it); for a callee
+            // they're in the item asked about.
+            guard let other = value[direction == .incoming ? "from" : "to"], var found = hierarchyItem(other, kind: .calls) else { return nil }
+            let file = direction == .incoming ? found.location.url : item.location.url
+            found.callSites = (value["fromRanges"]?.array ?? []).compactMap { Self.range($0).map { SourceLocation(url: file, range: $0) } }
+            return found
+        }
+    }
+
+    private func hierarchyItem(_ value: JSONValue, kind: HierarchyKind) -> HierarchyItem? {
+        guard let name = value["name"]?.string, let uri = value["uri"]?.string, let url = Self.fileURL(uri).map(local),
+              let range = Self.range(value["selectionRange"]) ?? Self.range(value["range"]) else { return nil }
+        hierarchyCount += 1
+        hierarchyItems[hierarchyCount] = value
+        return HierarchyItem(
+            token: hierarchyCount, kind: kind, name: name,
+            detail: value["detail"]?.string.flatMap { $0.isEmpty ? nil : $0 },
+            symbolKind: value["kind"]?.int.flatMap(SymbolKind.init(rawValue:)) ?? .function,
+            location: SourceLocation(url: url, range: range)
+        )
+    }
+
     // MARK: Completion
 
     /// Parsing a long list (TypeScript sends every global) happens off the main actor.
@@ -873,28 +1142,53 @@ final class LanguageServer {
         return (result.array ?? []).compactMap(Self.textEdit)
     }
 
+    /// Edits around what was just typed (D203); nil when the server has none.
+    func onTypeFormatting(_ character: String, at position: SourcePosition, in url: URL, tabSize: Int, insertSpaces: Bool) async -> [SourceEdit]? {
+        guard let connection, !triggers.formatOnType.isEmpty, triggers.formatOnType.contains(character), documents[url] != nil else { return nil }
+        var params = Self.positionParams(url, position).object ?? [:]
+        params["ch"] = .string(character)
+        params["options"] = ["tabSize": .number(Double(tabSize)), "insertSpaces": .bool(insertSpaces)]
+        guard let result = try? await connection.request("textDocument/onTypeFormatting", .object(params)) else { return nil }
+        return (result.array ?? []).compactMap(Self.textEdit)
+    }
+
     private func applyFromServer(_ params: JSONValue) -> Bool {
         guard let edit = params["edit"] else { return false }
         return onApplyEdit?(workspaceEdit(edit)) ?? false
     }
 
-    /// `changes` or `documentChanges`, under the folder as opened.
+    /// `changes` or `documentChanges` (with file operations, D199), under the folder as opened.
     func workspaceEdit(_ value: JSONValue) -> WorkspaceEdit {
-        var files: [URL: [SourceEdit]] = [:]
-        var hasFileOperations = false
-        for (uri, edits) in value["changes"]?.object ?? [:] {
+        var steps: [WorkspaceEdit.Step] = []
+        for (uri, edits) in (value["changes"]?.object ?? [:]).sorted(by: { $0.key < $1.key }) {
             guard let url = Self.fileURL(uri).map(local) else { continue }
-            files[url, default: []] += (edits.array ?? []).compactMap(Self.textEdit)
+            steps.append(.edit(url, (edits.array ?? []).compactMap(Self.textEdit)))
         }
         for change in value["documentChanges"]?.array ?? [] {
-            if change["kind"] != nil {
-                hasFileOperations = true
+            let options = change["options"]
+            let overwrite = options?["overwrite"]?.bool ?? false
+            let ignore = options?["ignoreIfExists"]?.bool ?? false
+            func file(_ key: String) -> URL? { change[key]?.string.flatMap(Self.fileURL).map(local) }
+            switch change["kind"]?.string {
+            case "create":
+                if let url = file("uri") { steps.append(.create(url, overwrite: overwrite, ignoreIfExists: ignore)) }
+            case "rename":
+                if let from = file("oldUri"), let to = file("newUri") {
+                    steps.append(.rename(from, to: to, overwrite: overwrite, ignoreIfExists: ignore))
+                }
+            case "delete":
+                if let url = file("uri") {
+                    steps.append(.delete(url, recursive: options?["recursive"]?.bool ?? false,
+                                         ignoreIfNotExists: options?["ignoreIfNotExists"]?.bool ?? false))
+                }
+            case nil:
+                guard let uri = change["textDocument"]?["uri"]?.string, let url = Self.fileURL(uri).map(local) else { continue }
+                steps.append(.edit(url, (change["edits"]?.array ?? []).compactMap(Self.textEdit)))
+            default:
                 continue
             }
-            guard let uri = change["textDocument"]?["uri"]?.string, let url = Self.fileURL(uri).map(local) else { continue }
-            files[url, default: []] += (change["edits"]?.array ?? []).compactMap(Self.textEdit)
         }
-        return WorkspaceEdit(files: files, hasFileOperations: hasFileOperations)
+        return WorkspaceEdit(steps: steps)
     }
 
     nonisolated static func text(in range: SourceRange, of text: String) -> String {

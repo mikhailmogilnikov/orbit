@@ -105,8 +105,19 @@
   Rust, Go, C/C++/ObjC, JSON, CSS, HTML, YAML, Shell, Markdown, TOML, Lua,
   Dockerfile, PHP, Zig, Svelte, Terraform, Ruby + Swift, TypeScript)
 - Code actions ⇧⌘A, rename ⌃⌘E, format ⌃⇧I / on save, Problems panel ⇧⌘M (D59)
+- Rename preview (⇧↩, a sheet of every file's diff, rows can be left out); server edits that
+  create, rename and delete files (D199)
+- Call and type hierarchies (⌃⇧⌘H) in a Hierarchy bottom panel, a level at a time (D200)
+- Semantic highlighting over tree-sitter (types, parameters, properties…) and code lenses after the
+  line, clickable when Orbit can run them (D201)
+- Remote branches in History's scope menu; a file at any commit with its blame, walking back (D204)
+- Formatter chains in `.orbit/settings.json` (`["prettier", "eslint"]`) and format on type (D203)
+- Typing rules and completion at every caret, bracket match outside strings and comments, linked
+  tag editing, Expand / Shrink Selection ⌃⇧⌘→ ⌃⇧⌘←, squiggles that move with edits, snippet
+  placeholders drawn as tokens (D202)
 - Problems for every file the agent changed, open or not; kept after review
-  until fixed (D75)
+  until fixed (D75); and for the files using them, found by references and
+  imports (D198)
 - Settings pushed to servers on start; Tailwind at-rules not flagged in CSS;
   tsserver 8 GB and function-call completions; names in code type in
   problem messages; crashed servers restart (D76)
@@ -238,17 +249,14 @@ Everything below is known to be missing; nothing here is in progress.
 **Language features (LSP)**
 - An inline peek editor for references (Peek References is a jump list, D111);
   no outline panel on purpose (D82)
-- Code lens, semantic tokens and selection ranges; inlay hints
+- Inlay hints
   can't be clicked, double-clicked to insert or hovered for their tooltip
-- Call / type hierarchy, linked editing (renaming an HTML tag's pair)
 - Other companions (Stylelint, Biome's server, Prettier's lint); companions
   and project roots are picked per file when it opens (a dependency or
   lockfile added later needs Restart Language Servers)
 - Diagnostics for the whole project (workspace diagnostics): Problems lists
-  open files, the agent's changed files (D75) and what servers push on their
-  own; a file the agent broke without touching it (an importer) is missed
-- File operations in workspace edits (create / rename / delete files from a
-  rename or a code action); rename has no preview of the files it touches
+  open files, the agent's changed files (D75), the files using them (D198)
+  and what servers push on their own; nothing else is checked
 - Imported servers (D65) aren't tested one by one (only Prisma's install
   runs in `make test-language-installs`); 93 of nvim-lspconfig's need code
   and are missing (Angular, Flow, Julia, PowerShell, Roslyn…); choosing
@@ -256,9 +264,9 @@ Everything below is known to be missing; nothing here is in progress.
   the first one not; RubyGems / NuGet / opam packages can't be installed (D57)
 
 **Formatting**
-- Format on type; Format Selection (D140) formats the whole file and keeps only the selection's changes
-- Running more than one tool in a row (Prettier, then ESLint fixes); ESLint
-  is only used when nothing else formats the file
+- Format Selection (D140) formats the whole file and keeps only the selection's changes
+- Formatter chains (D203) come only from settings; detection picks one tool, ESLint only when
+  nothing else formats the file
 - Presets for languages Orbit has no server for (ktfmt / ktlint,
   google-java-format, `mix format`, `dart format`, CSharpier, nixfmt,
   sqlfluff); they work only as custom commands in `.orbit/settings.json`
@@ -272,15 +280,11 @@ Everything below is known to be missing; nothing here is in progress.
 - Combined injections (PHP's HTML as one document, `injection.combined`):
   each piece is parsed on its own; embedded languages in read-only views
   (diffs, agent transcripts) aren't colored
-- Completion placeholders drawn as tokens (they're only selected)
-- Squiggles that follow edits before the server republishes
-- Multiple carets: indentation rules,
-  bracket pairs and completion work only with one caret (D105); bracket
-  match counts brackets in strings and comments
+- Multiple carets (D202): a snippet accepted at several carets has no Tab walk; linked editing
+  with several carets isn't linked
 
 **Git and terminal**
-- Remote branches in the history's menu (All shows them); a three-pane
-  merge editor; blame of a file at an older commit
+- A three-pane merge editor (conflicts are resolved inline, D134)
 
 ## Known gaps / to verify
 - Packages (D195): unverified on a Mac (snippets in the completion list and their Tab stops, Insert Snippet…,
@@ -321,8 +325,11 @@ Everything below is known to be missing; nothing here is in progress.
 - Bottom area header and status-bar panel buttons (D63): unverified on a Mac
   (terminal tabs in the header, badge colors, spacing next to agent items).
 - Code actions / rename / formatting (D59): editor side unverified on a Mac
-  (menu placement, rename field, undo). File operations in edits (create,
-  rename files) are skipped.
+  (menu placement, rename field, undo).
+- Rename preview and file operations in edits (D199): tested without a server; unverified on a Mac
+  (the sheet's look, ⇧↩ reaching Preview Changes from the field, a real rust-analyzer module rename,
+  TypeScript's Move to a new file). Renaming a file in the explorer doesn't ask servers to update imports
+  (`workspace/willRenameFiles`).
 - Formatting (D60, D61): the Formatting section in Settings → Languages, the
   corner note after ⌃⇧I and the failure alerts are unverified on a Mac; every
   formatter itself runs for real in the Linux install tests.
@@ -341,11 +348,11 @@ Everything below is known to be missing; nothing here is in progress.
   Mac. RubyGems/NuGet/opam packages aren't installable (Ruby is found on PATH
   only). One server per file type.
 - Completion (D56): unverified on a Mac (popup look, keys, placement near
-  screen edges, IME). Placeholders aren't drawn as tokens, only selected.
+  screen edges, IME). Placeholder tokens (D202) not seen live.
 - LSP (D54): the client is tested against real servers on Linux (D55); the
   editor side (squiggles, hover card, ⌘-click) only by hand. sourcekit-lsp understands SwiftPM packages
   fully; Xcode projects (App/) get single-file results only (no build server).
-  Squiggle positions lag edits until the server republishes. Servers that
+  Squiggles move with edits until the server republishes (D202). Servers that
   fail stay off until Restart Language Servers or reopening the folder.
 - Agent registry (D52): unverified on a Mac (the cloud container can't reach
   the registry CDN): install of npx and binary agents, the first-launch
@@ -408,13 +415,27 @@ Everything below is known to be missing; nothing here is in progress.
   aren't restored on launch; code colors don't change with the theme until
   the next edit.
 - Agents overview and notification actions (D130): unverified on a Mac and with real agents (the popover from the status bar, the window coming forward, Allow from a notification while Orbit is behind).
+- Git (D204): remote branches and revision blame tested against a real repository; the revision tab's
+  look (author column, run separators, horizontal scrolling of long lines) unverified on a Mac.
+- Formatting (D203): chains tested with commands, format on type against vtsls; the Settings row and
+  the toast's arrows, and format on type while typing fast, unverified on a Mac.
+- Editor (D202): rules tested without a view, linked editing and selection ranges against vtsls; in
+  the app unverified (typing with ⌘D carets: Return, brackets, completion; a JSX tag rename; the
+  placeholder boxes; squiggles while typing above them).
+- Semantic tokens and code lenses (D201): tokens checked against sourcekit-lsp; in the app unverified
+  (colors in real themes, flicker while typing, a big file's token load). Lenses not seen with a real
+  server (rust-analyzer's Run and references, TypeScript's references count needs its preference on).
+- Hierarchy panel (D200): server side tested with sourcekit-lsp; the panel unverified on a Mac (row
+  indentation, the segmented switch in the header, the chevron turning into a spinner while a level loads).
+- Users of changed files (D198): unverified with a real agent and project (how many files a big
+  turn pulls in, the extra load on tsserver; false matches of common module names like `types`).
 - Rewind (D132): unverified with a real agent (does it follow the note to disregard the rewound part?).
 - Create PR (D133): the git and `gh` path runs in the tests against a local remote and a stand-in `gh`; against GitHub, and the sheet and badge, unverified. Later turns are pushed with Push N (D144), also unverified against GitHub.
 - Releases (D129): no release made yet — the first `make release` (keychain access for the Sparkle key) and an update from one release to the next are unverified; Gatekeeper's first-launch prompt for an ad hoc build.
 - Tasks (D128): unverified on a Mac (typing into a shell that's still starting, e.g. with a slow prompt; ⌃C then restart of a dev server; ⌘R reaching the menu from the terminal and the chat). Problem matchers (D137) cover tsc, clang / Swift / Go, Rust and ESLint only (no Python tracebacks, Vite / esbuild boxes, Jest); a fixed error stays listed until the task reruns.
 - ⌘K (D127): unverified on a Mac and with a real agent (the popover's place above the selection, how Claude Code's plan mode and Codex's read-only mode answer the prompt, the time a warm agent takes).
 - Folder watching (D126): unverified on a Mac (latency in the tree, CPU while a terminal build runs in the project).
-- Review comments (D125): unverified on a Mac and with a real agent (the popover's place under a block and its keys, the note in the block's bar and the chip off blocks, the bar above the composer). Notes aren't saved across launches; a note follows its code only when the code is unchanged.
+- Review comments (D125): unverified on a Mac and with a real agent (the popover's place under a block and its keys, the note in the block's bar and the chip off blocks, the bar above the composer). Notes are saved across launches (D131); a note follows its code only when the code is unchanged.
 - Usage popover (D124): unverified on a Mac; Claude limits only as its events come (one window each), Codex limits only as fresh as its last logged turn.
 - Tool call folding (D122): unverified on a Mac and with a real agent (the line spacing, a running command folded away while its output streams).
 - Transcript (D121): rows are a `LazyVStack`, so rows not made yet have guessed heights; scrolling up a long chat can still shift as they come in. Streaming while scrolled up is unverified on a Mac.
@@ -465,8 +486,8 @@ Everything below is known to be missing; nothing here is in progress.
   accepts the list and starts the servers); the Settings section is
   unverified on a Mac. No per-agent status of which servers connected.
 - Restore points (D85): unverified on a Mac (the hover button, the dialog,
-  the note to the agent); not available in isolated sessions; the
-  conversation isn't rewound with the files.
+  the note to the agent); not available in isolated sessions. Rewinding the
+  chat with the files is D132's Rewind.
 - Isolated sessions: a project on a non-APFS volume gets a full (slow) copy; Apply is
   all-or-nothing per file (no picking files); undoing an applied change in
   the project counts it as not applied again; untested by hand.

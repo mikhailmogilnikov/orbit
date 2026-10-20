@@ -2,8 +2,8 @@ import AppKit
 import OrbitAPI
 import STTextView
 
-/// Comments and brackets by the file's language, from Zed's language configs
-/// (D73): nothing per language is written here.
+/// Comments by the file's language, from Zed's language configs (D73):
+/// nothing per language is written here. Brackets are `CaretEditing`'s (D202).
 @MainActor
 enum EditingRules {
     private static func text(_ textView: STTextView) -> NSString {
@@ -91,61 +91,5 @@ enum EditingRules {
             result = indent + start + space(start) + inner + space(end) + end
         }
         return result + (trailingNewline ? "\n" : "")
-    }
-
-    // MARK: Brackets
-
-    /// A typed character: closes an opening bracket or quote, wraps a selection
-    /// in a pair, or steps over the closing character that's already there.
-    /// Returns false to let the text view insert it as usual.
-    static func type(_ typed: String, in textView: STTextView, language: SyntaxLanguage) -> Bool {
-        guard let brackets = language.brackets, !brackets.isEmpty else { return false }
-        let string = text(textView)
-        let selection = NSIntersectionRange(textView.textSelection, NSRange(location: 0, length: string.length))
-        let next = selection.length == 0 && selection.location < string.length
-            ? string.substring(with: string.rangeOfComposedCharacterSequence(at: selection.location)) : nil
-
-        // Over a closing character: move past it rather than doubling it.
-        if selection.length == 0, next == typed, brackets.contains(where: { $0.end == typed }),
-           selection.location == 0 || string.character(at: selection.location - 1) != 92 { // not after a backslash
-            textView.textSelection = NSRange(location: selection.location + (typed as NSString).length, length: 0)
-            return true
-        }
-        // Multi-character openers (`/*`, `"""`) complete on their last character.
-        let before = string.substring(to: selection.location)
-        guard let bracket = brackets
-            .filter({ ($0.start.hasSuffix(typed)) && (before + typed).hasSuffix($0.start) })
-            .max(by: { $0.start.count < $1.start.count }) else { return false }
-
-        if selection.length > 0 {
-            guard bracket.start == typed else { return false }
-            let inner = string.substring(with: selection)
-            textView.insertText(bracket.start + inner + bracket.end, replacementRange: selection)
-            textView.textSelection = NSRange(location: selection.location + (bracket.start as NSString).length, length: (inner as NSString).length)
-            return true
-        }
-        // As Zed: only before whitespace, the end, or a character the language lists.
-        if let next, !next.allSatisfy(\.isWhitespace), !(language.autocloseBefore ?? "").contains(next) { return false }
-        // A quote right after a word is an apostrophe or a closing one.
-        if bracket.start == bracket.end, let previous = before.last, previous.isLetter || previous.isNumber { return false }
-        textView.insertText(typed + bracket.end, replacementRange: selection)
-        textView.textSelection = NSRange(location: selection.location + (typed as NSString).length, length: 0)
-        return true
-    }
-
-    /// Backspace between an empty pair (`(|)`) removes both.
-    static func deleteBackward(in textView: STTextView, language: SyntaxLanguage) -> Bool {
-        guard let brackets = language.brackets else { return false }
-        let string = text(textView)
-        let selection = textView.textSelection
-        guard selection.length == 0, selection.location > 0, selection.location < string.length else { return false }
-        for bracket in brackets where (bracket.start as NSString).length == 1 && (bracket.end as NSString).length == 1 {
-            let pair = NSRange(location: selection.location - 1, length: 2)
-            if string.substring(with: pair) == bracket.start + bracket.end {
-                textView.insertText("", replacementRange: pair)
-                return true
-            }
-        }
-        return false
     }
 }

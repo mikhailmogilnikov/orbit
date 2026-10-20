@@ -1,17 +1,52 @@
 import Foundation
 
-/// Edits across files from a language server: a rename, a quick fix (D59).
+/// Edits across files from a language server: a rename, a quick fix (D59),
+/// in the order they apply; file operations too (D199).
 public struct WorkspaceEdit: Sendable, Hashable {
-    public var files: [URL: [SourceEdit]]
-    /// It also wanted to create, rename or delete files, which Orbit doesn't do.
-    public var hasFileOperations: Bool
-
-    public init(files: [URL: [SourceEdit]], hasFileOperations: Bool = false) {
-        self.files = files
-        self.hasFileOperations = hasFileOperations
+    public enum Step: Sendable, Hashable {
+        case edit(URL, [SourceEdit])
+        case create(URL, overwrite: Bool, ignoreIfExists: Bool)
+        case rename(URL, to: URL, overwrite: Bool, ignoreIfExists: Bool)
+        /// Goes to the Trash, so it can be put back.
+        case delete(URL, recursive: Bool, ignoreIfNotExists: Bool)
     }
 
-    public var isEmpty: Bool { files.values.allSatisfy(\.isEmpty) }
+    public var steps: [Step]
+
+    public init(steps: [Step]) {
+        self.steps = steps
+    }
+
+    /// Text edits only, file by file.
+    public init(files: [URL: [SourceEdit]]) {
+        steps = files.sorted { $0.key.path < $1.key.path }.map { .edit($0.key, $0.value) }
+    }
+
+    /// Each file's text edits together (a file renamed in between keeps two entries).
+    public var files: [URL: [SourceEdit]] {
+        steps.reduce(into: [:]) { files, step in
+            if case .edit(let url, let edits) = step { files[url, default: []] += edits }
+        }
+    }
+
+    public var hasFileOperations: Bool {
+        steps.contains { if case .edit = $0 { false } else { true } }
+    }
+
+    public var isEmpty: Bool {
+        steps.allSatisfy { if case .edit(_, let edits) = $0 { edits.isEmpty } else { false } }
+    }
+
+    /// Files it touches: edited, created, renamed (both names) or deleted.
+    public var touchedFiles: Set<URL> {
+        steps.reduce(into: []) { urls, step in
+            switch step {
+            case .edit(let url, let edits): if !edits.isEmpty { urls.insert(url) }
+            case .create(let url, _, _), .delete(let url, _, _): urls.insert(url)
+            case .rename(let from, let to, _, _): urls.formUnion([from, to])
+            }
+        }
+    }
 }
 
 extension SourceEdit {

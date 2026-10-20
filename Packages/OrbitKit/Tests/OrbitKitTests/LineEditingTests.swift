@@ -88,6 +88,11 @@ import Testing
         #expect(BracketMatchController.match(around: 10, in: text, pairs: pairs)! == (10, 11))
         #expect(BracketMatchController.match(around: 3, in: text, pairs: pairs) == nil)
         #expect(BracketMatchController.match(around: 1, in: "f(a" as NSString, pairs: pairs) == nil)
+        // D202: a bracket in a string pairs past it, and one inside pairs within.
+        let code = "f(\")\", x)" as NSString
+        let string = IndexSet(integersIn: 2..<5)
+        #expect(BracketMatchController.match(around: 1, in: code, pairs: pairs, literals: string)! == (1, 8))
+        #expect(BracketMatchController.match(around: 3, in: code, pairs: pairs, literals: string) == nil)
     }
 
     @Test func indentGuidesRunThroughBlankLinesOfABlock() {

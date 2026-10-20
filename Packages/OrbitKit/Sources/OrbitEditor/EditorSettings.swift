@@ -10,6 +10,7 @@ final class EditorOptions {
     /// The options a settings file can set, by their key in the "editor" section.
     enum Option: String, CaseIterable {
         case wordWrap, highlightCurrentLine, formatOnSave, inlayHints, stickyScroll, pathBar, indentGuides, blame, imageThumbnails, autoClose
+        case semanticHighlighting, codeLens, formatOnType
 
         /// Their names in Orbit's own defaults (older than the file).
         var storageKey: String {
@@ -25,10 +26,13 @@ final class EditorOptions {
             case .blame: "showsInlineBlame"
             case .imageThumbnails: "showsImageThumbnails"
             case .autoClose: "closesBrackets"
+            case .semanticHighlighting: "semanticHighlighting"
+            case .codeLens: "showsCodeLenses"
+            case .formatOnType: "formatsOnType"
             }
         }
 
-        var defaultValue: Bool { self != .wordWrap && self != .formatOnSave }
+        var defaultValue: Bool { self != .wordWrap && self != .formatOnSave && self != .formatOnType }
         var fileKey: String { "editor.\(rawValue)" }
     }
 
@@ -78,6 +82,7 @@ final class EditorOptions {
     var wrapsLines: Bool { get { self[.wordWrap] } set { self[.wordWrap] = newValue } }
     var highlightsCurrentLine: Bool { get { self[.highlightCurrentLine] } set { self[.highlightCurrentLine] = newValue } }
     var formatsOnSave: Bool { get { self[.formatOnSave] } set { self[.formatOnSave] = newValue } }
+    var formatsOnType: Bool { get { self[.formatOnType] } set { self[.formatOnType] = newValue } }
     var showsInlayHints: Bool { get { self[.inlayHints] } set { self[.inlayHints] = newValue } }
     var showsStickyScroll: Bool { get { self[.stickyScroll] } set { self[.stickyScroll] = newValue } }
     var showsBreadcrumbs: Bool { get { self[.pathBar] } set { self[.pathBar] = newValue } }
@@ -85,6 +90,8 @@ final class EditorOptions {
     /// Who last changed the caret's line, after its end (D187).
     var showsBlame: Bool { get { self[.blame] } set { self[.blame] = newValue } }
     var showsImageThumbnails: Bool { get { self[.imageThumbnails] } set { self[.imageThumbnails] = newValue } }
+    var semanticHighlighting: Bool { get { self[.semanticHighlighting] } set { self[.semanticHighlighting] = newValue } }
+    var showsCodeLenses: Bool { get { self[.codeLens] } set { self[.codeLens] = newValue } }
 }
 
 /// A toggle that says so, and can't be flipped, when a settings file decides it.
@@ -195,6 +202,14 @@ struct EditorSettingsPane: View {
                     Text("Inlay hints")
                     Text("Types and parameter names from the language server, drawn in the code.")
                 }
+                OptionToggle(options: options, option: .semanticHighlighting) {
+                    Text("Semantic highlighting")
+                    Text("Types, parameters, properties and enum cases colored by what the language server knows them to be.")
+                }
+                OptionToggle(options: options, option: .codeLens) {
+                    Text("Code lens")
+                    Text("The language server's notes after a line, like “3 references” or “▶ Run”; click one to run it.")
+                }
                 OptionToggle(options: options, option: .stickyScroll) {
                     Text("Sticky scroll")
                     Text("The class and function you're scrolling through stay pinned at the top.")
@@ -238,6 +253,10 @@ struct EditorSettingsPane: View {
                 OptionToggle(options: options, option: .formatOnSave) {
                     Text("Format on save")
                     Text("With the project's formatter (Prettier, Biome, Ruff…), else the language server. ⌃⇧I formats any time.")
+                }
+                OptionToggle(options: options, option: .formatOnType) {
+                    Text("Format on type")
+                    Text("The language server tidies the line after characters it picks, like “;”, “}” or Return.")
                 }
             } header: {
                 Text("Saving")

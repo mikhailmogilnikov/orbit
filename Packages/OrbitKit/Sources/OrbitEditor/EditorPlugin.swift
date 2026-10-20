@@ -60,9 +60,12 @@ public final class EditorPlugin: OrbitPlugin {
                 SettingsItem(EditorOptions.Option.blame.rawValue, "Blame", keywords: ["git", "gitlens", "author", "annotate", "who changed", "inline blame"]),
                 SettingsItem(EditorOptions.Option.imageThumbnails.rawValue, "Images and colors", keywords: ["thumbnails", "swatches", "color preview"]),
                 SettingsItem(EditorOptions.Option.inlayHints.rawValue, "Inlay hints", keywords: ["types", "parameter names"]),
+                SettingsItem(EditorOptions.Option.semanticHighlighting.rawValue, "Semantic highlighting", keywords: ["semantic tokens", "colors", "syntax"]),
+                SettingsItem(EditorOptions.Option.codeLens.rawValue, "Code lens", keywords: ["codelens", "references count", "run test"]),
                 SettingsItem(EditorOptions.Option.stickyScroll.rawValue, "Sticky scroll", keywords: ["pinned", "scope"]),
                 SettingsItem(EditorOptions.Option.pathBar.rawValue, "Path bar", keywords: ["breadcrumbs", "jump bar"]),
                 SettingsItem(EditorOptions.Option.formatOnSave.rawValue, "Format on save", keywords: ["formatter", "prettier"]),
+                SettingsItem(EditorOptions.Option.formatOnType.rawValue, "Format on type", keywords: ["formatter", "on type", "semicolon"]),
             ] }
         ) {
             EditorSettingsPane(options: options, hasBlame: { services.resolve(LineBlaming.self) != nil })
@@ -394,6 +397,15 @@ public final class EditorPlugin: OrbitPlugin {
             OrbitCommand(
                 id: "editor.addCaretBelow", title: "Add Cursor Below", category: "Code", systemImage: "arrow.down",
                 editorShortcut: KeyboardShortcut(.downArrow, modifiers: [.control, .shift]), run: editor { $0.addCaret(up: false) }
+            ),
+            // VS Code's keys (D202).
+            OrbitCommand(
+                id: "editor.expandSelection", title: "Expand Selection", category: "Code", systemImage: "arrow.up.left.and.arrow.down.right",
+                editorShortcut: KeyboardShortcut(.rightArrow, modifiers: [.control, .shift, .command]), run: editor { $0.expandSelection() }
+            ),
+            OrbitCommand(
+                id: "editor.shrinkSelection", title: "Shrink Selection", category: "Code", systemImage: "arrow.down.right.and.arrow.up.left",
+                editorShortcut: KeyboardShortcut(.leftArrow, modifiers: [.control, .shift, .command]), run: editor { $0.shrinkSelection() }
             ),
         ]
         for command in commands { context.commands.register(command) }
@@ -742,6 +754,10 @@ struct FileEditorView: View {
                     showsStickyScroll: options.showsStickyScroll && !limited,
                     showsIndentGuides: options.showsIndentGuides && !limited,
                     inlayHintsRevision: languages?.inlayHintsRevision(for: url) ?? 0,
+                    semanticHighlighting: options.semanticHighlighting,
+                    showsCodeLenses: options.showsCodeLenses,
+                    formatsOnType: options.formatsOnType && !limited,
+                    semanticTokensRevision: languages?.semanticTokensRevision(for: url) ?? 0,
                     onOpenLocation: { workspace.open($0) },
                     grammarRevision: GrammarRegistry.shared.revision,
                     highlights: !limited,

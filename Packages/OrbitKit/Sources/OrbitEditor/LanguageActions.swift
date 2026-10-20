@@ -29,7 +29,10 @@ final class OpenEditors: SourceEditing {
     }
 
     func apply(_ edits: [SourceEdit], to url: URL) -> Bool {
-        guard let coordinator = entries[url.standardizedFileURL]?.coordinator, coordinator.textView != nil else { return false }
+        let url = url.standardizedFileURL
+        // A file renamed since its editor opened (a server's rename, D199) is found by its document.
+        guard let coordinator = entries[url]?.coordinator ?? coordinators.first(where: { $0.document.url.standardizedFileURL == url }),
+              coordinator.textView != nil else { return false }
         coordinator.applyEdits(edits)
         return true
     }
@@ -188,19 +191,25 @@ extension CodeEditor.Coordinator {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = false
-        let field = RenameField(original: target.placeholder) { [weak popover] newName in
-            popover?.close()
+        func run(_ newName: String, preview: Bool) {
             guard newName != target.placeholder, !newName.isEmpty else { return }
-            Task {
-                switch await languages.rename(at: position, in: url, to: newName) {
-                case .success: break
+            Task { [weak self] in
+                switch await languages.renameEdit(at: position, in: url, to: newName) {
+                case .success(let edit):
+                    // Moving files is worth a look even when not asked for (D199).
+                    if preview || edit.hasFileOperations {
+                        self?.presentRenamePreview(edit, oldName: target.placeholder, newName: newName)
+                    } else if !languages.apply(edit) {
+                        Self.renameFailed(target.placeholder, "Some files couldn't be changed.")
+                    }
                 case .failure(let failure):
-                    let alert = NSAlert()
-                    alert.messageText = "Couldn't rename “\(target.placeholder)”"
-                    alert.informativeText = failure.message
-                    alert.runSheetModal()
+                    Self.renameFailed(target.placeholder, failure.message)
                 }
             }
+        }
+        let field = RenameField(original: target.placeholder) { [weak popover] newName, preview in
+            popover?.close()
+            run(newName, preview: preview)
         } cancel: { [weak popover] in
             popover?.close()
         }
@@ -209,6 +218,34 @@ extension CodeEditor.Coordinator {
         popover.contentViewController = host
         closeHover()
         popover.show(relativeTo: rect, of: textView, preferredEdge: .maxY)
+    }
+
+    private static func renameFailed(_ name: String, _ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't rename “\(name)”"
+        alert.informativeText = message
+        alert.runSheetModal()
+    }
+
+    private func presentRenamePreview(_ edit: WorkspaceEdit, oldName: String, newName: String) {
+        guard let languages, let presenter = textView?.window?.contentViewController else { return }
+        let preview = RenamePreview(edit: edit, oldName: oldName, newName: newName, root: imageRoot) { url in
+            if let open = OpenEditors.shared.coordinators.first(where: { $0.document.url.standardizedFileURL == url.standardizedFileURL }) {
+                return open.document.text
+            }
+            return try? String(contentsOf: url, encoding: .utf8)
+        }
+        var host: NSHostingController<RenamePreviewSheet>?
+        let sheet = RenamePreviewSheet(preview: preview) { chosen in
+            if let host { presenter.dismiss(host) }
+            guard !chosen.isEmpty, !languages.apply(chosen) else { return }
+            Self.renameFailed(oldName, "Some files couldn't be changed.")
+        } cancel: {
+            if let host { presenter.dismiss(host) }
+        }
+        host = NSHostingController(rootView: sheet)
+        host?.sizingOptions = [.preferredContentSize]
+        if let host { presenter.presentAsSheet(host) }
     }
 
     // MARK: Formatting (⌃⇧I)
@@ -353,15 +390,17 @@ final class CodeActionTarget: NSObject {
     }
 }
 
-/// The new name, typed where the symbol is; Return renames everywhere, Esc cancels.
+/// The new name, typed where the symbol is; Return renames everywhere, ⇧↩
+/// shows what would change first (D199), Esc cancels.
 struct RenameField: View {
     let original: String
-    let commit: (String) -> Void
+    /// The name, and whether to preview.
+    let commit: (String, Bool) -> Void
     let cancel: () -> Void
     @State private var name: String
     @FocusState private var focused: Bool
 
-    init(original: String, commit: @escaping (String) -> Void, cancel: @escaping () -> Void) {
+    init(original: String, commit: @escaping (String, Bool) -> Void, cancel: @escaping () -> Void) {
         self.original = original
         self.commit = commit
         self.cancel = cancel
@@ -378,8 +417,16 @@ struct RenameField: View {
                 .orbitFont(.control, design: .monospaced)
                 .frame(width: 260)
                 .focused($focused)
-                .onSubmit { commit(name.trimmingCharacters(in: .whitespaces)) }
+                .onSubmit { commit(name.trimmingCharacters(in: .whitespaces), false) }
                 .onExitCommand(perform: cancel)
+            HStack {
+                Spacer()
+                Button("Preview Changes") { commit(name.trimmingCharacters(in: .whitespaces), true) }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
+                    .keyboardShortcut(.return, modifiers: .shift)
+                    .help("See every change before renaming (⇧↩)")
+            }
         }
         .padding(10)
         .onAppear { focused = true }

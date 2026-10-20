@@ -20,6 +20,8 @@ final class InlineBlameController {
             setNeedsLayout()
         }
     }
+    /// Room the line's code lenses take after its end (D201): the blame sits after them.
+    var lensWidth: (Int) -> CGFloat? = { _ in nil }
     /// Opens what a commit changed in the file.
     var showCommit: (String) -> Void = { _ in }
     /// Where the label is, in text-view coordinates, for the hover card.
@@ -81,7 +83,7 @@ final class InlineBlameController {
         let anchor = end > start ? NSRange(location: end - 1, length: 1) : NSRange(location: start, length: 1)
         guard NSMaxRange(anchor) <= string.length, let rect = geometry.rects(for: anchor).last else { return }
         let font = NSFont.systemFont(ofSize: (textView.font.pointSize * 0.92).rounded())
-        let x = (end > start ? rect.maxX : rect.minX) + ceil(font.pointSize * 2.5)
+        let x = (end > start ? rect.maxX : rect.minX) + ceil(font.pointSize * 2.5) + (lensWidth(line) ?? 0)
         let visible = textView.visibleRect
         let text = Self.label(for: lines[line])
         let width = min(ceil((text as NSString).size(withAttributes: [.font: font]).width) + 2, visible.maxX - x - 12)

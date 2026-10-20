@@ -28,7 +28,7 @@ enum SettingsSchema {
           "type": "object",
           "additionalProperties": false,
           "patternProperties": {
-            "^editor\\\\.(wordWrap|highlightCurrentLine|formatOnSave|inlayHints|stickyScroll|pathBar|indentGuides|blame|imageThumbnails|autoClose)$": { "type": "boolean" },
+            "^editor\\\\.(wordWrap|highlightCurrentLine|formatOnSave|inlayHints|stickyScroll|pathBar|indentGuides|blame|imageThumbnails|autoClose|semanticHighlighting|codeLens|formatOnType)$": { "type": "boolean" },
             "^agents\\\\.isolated$": { "type": "boolean" },
             "^agents\\\\.default$": { "type": "string" }
           },
@@ -42,13 +42,16 @@ enum SettingsSchema {
                 "wordWrap": { "type": "boolean", "description": "Wrap long lines.", "default": false },
                 "highlightCurrentLine": { "type": "boolean", "description": "Highlight the line with the caret.", "default": true },
                 "formatOnSave": { "type": "boolean", "description": "Format with the project's formatter, else the language server, on ⌘S.", "default": false },
+                "formatOnType": { "type": "boolean", "description": "The language server tidies the line after characters it picks (“;”, “}”, Return).", "default": false },
                 "inlayHints": { "type": "boolean", "description": "Types and parameter names from the language server, drawn in the code.", "default": true },
                 "stickyScroll": { "type": "boolean", "description": "Keep the enclosing class and function pinned at the top.", "default": true },
                 "pathBar": { "type": "boolean", "description": "The file's folders and the symbol at the caret, above the editor.", "default": true },
                 "indentGuides": { "type": "boolean", "description": "Lines at each indentation level.", "default": true },
                 "blame": { "type": "boolean", "description": "Who last changed the caret's line, faded after its end.", "default": true },
                 "imageThumbnails": { "type": "boolean", "description": "Thumbnails of images and swatches of colors a line refers to.", "default": true },
-                "autoClose": { "type": "boolean", "description": "Typing an opening bracket or quote adds the closing one.", "default": true }
+                "autoClose": { "type": "boolean", "description": "Typing an opening bracket or quote adds the closing one.", "default": true },
+                "semanticHighlighting": { "type": "boolean", "description": "Color types, parameters, properties and enum cases by what the language server knows them to be.", "default": true },
+                "codeLens": { "type": "boolean", "description": "The language server's notes after a line (“3 references”, “▶ Run”).", "default": true }
               }
             },
             "agents": {
@@ -77,7 +80,7 @@ enum SettingsSchema {
               }
             },
             "formatters": {
-              "description": "The formatter per file type (\\"ts, tsx\\" works): a preset, \\"server\\", \\"off\\" or a command that reads stdin.",
+              "description": "The formatter per file type (\\"ts, tsx\\" works): a preset, \\"server\\", \\"off\\", a command that reads stdin, or a list of them run one after another.",
               "type": "object",
               "additionalProperties": {
                 "anyOf": [
@@ -89,6 +92,17 @@ enum SettingsSchema {
                     "properties": {
                       "command": { "type": "string" },
                       "arguments": { "type": "array", "items": { "type": "string" }, "description": "{file} is the file's path." }
+                    }
+                  },
+                  {
+                    "type": "array",
+                    "description": "Run in order, each on the one before's result; \\"server\\" only first.",
+                    "items": {
+                      "anyOf": [
+                        { "enum": FORMATTERS },
+                        { "type": "string" },
+                        { "type": "object", "required": ["command"], "properties": { "command": { "type": "string" }, "arguments": { "type": "array", "items": { "type": "string" } } } }
+                      ]
                     }
                   }
                 ]

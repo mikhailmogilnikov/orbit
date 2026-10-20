@@ -170,12 +170,14 @@ struct FormatterPreset: Sendable {
 }
 
 /// What formats a file, and why.
-enum FormatterChoice: Sendable, Equatable {
+indirect enum FormatterChoice: Sendable, Equatable {
     case tool(ProjectFormatter)
     /// The language server, indented per `.editorconfig`.
     case server
     /// Turned off in settings.
     case off(source: String)
+    /// Several in a row, each on the one before's result (D203): `.tool`s, the server only first.
+    case chain([FormatterChoice])
 }
 
 /// A command a file's text is run through.
@@ -199,30 +201,36 @@ struct ProjectFormatter: Sendable, Equatable {
         let folder = file.deletingLastPathComponent()
         for settings in try FormatterSettings.layers(root: root, home: home) {
             guard let rule = settings.rule(for: type) else { continue }
-            let directory = root ?? folder
-            switch rule {
-            case .server: return .server
-            case .off: return .off(source: settings.displayPath)
-            case .preset(let id):
-                guard let preset = FormatterPreset.preset(id: id) else {
-                    throw FormatterSettings.Failure.invalid("\(settings.displayPath): no formatter called “\(id)”. Known: \(FormatterPreset.all.map(\.id).joined(separator: ", ")), server, off.")
-                }
-                guard let command = preset.command(from: folder, root: root, environment: environment) else {
-                    throw FormatterSettings.Failure.invalid("\(settings.displayPath) asks for \(preset.name), but “\(preset.binary)” isn't installed here.")
-                }
-                return .tool(preset.formatter(command, directory: directory, source: settings.displayPath))
-            case .command(let command, let arguments):
-                let expanded = (command as NSString).expandingTildeInPath
-                let executable: String? = expanded.hasPrefix("/") ? expanded
-                    : command.contains("/") ? directory.appendingPathComponent(command).standardizedFileURL.path
-                    : Self.command(command, locations: [.nodeModules, .virtualEnvironment, .composer, .binstub, .path], from: folder, root: root, environment: environment)?.executable
-                guard let executable, FileManager.default.isExecutableFile(atPath: executable) else {
-                    throw FormatterSettings.Failure.invalid("\(settings.displayPath): “\(command)” isn't installed here.")
-                }
-                return .tool(ProjectFormatter(name: (command as NSString).lastPathComponent, executable: executable, arguments: arguments, directory: directory, source: settings.displayPath))
-            }
+            return try resolve(rule, settings: settings, folder: folder, root: root, environment: environment)
         }
         return detected(for: file, root: root, environment: environment).map(FormatterChoice.tool) ?? .server
+    }
+
+    private static func resolve(_ rule: FormatterSettings.Rule, settings: FormatterSettings, folder: URL, root: URL?, environment: [String: String]) throws -> FormatterChoice {
+        let directory = root ?? folder
+        switch rule {
+        case .chain(let rules):
+            return .chain(try rules.map { try resolve($0, settings: settings, folder: folder, root: root, environment: environment) })
+        case .server: return .server
+        case .off: return .off(source: settings.displayPath)
+        case .preset(let id):
+            guard let preset = FormatterPreset.preset(id: id) else {
+                throw FormatterSettings.Failure.invalid("\(settings.displayPath): no formatter called “\(id)”. Known: \(FormatterPreset.all.map(\.id).joined(separator: ", ")), server, off.")
+            }
+            guard let command = preset.command(from: folder, root: root, environment: environment) else {
+                throw FormatterSettings.Failure.invalid("\(settings.displayPath) asks for \(preset.name), but “\(preset.binary)” isn't installed here.")
+            }
+            return .tool(preset.formatter(command, directory: directory, source: settings.displayPath))
+        case .command(let command, let arguments):
+            let expanded = (command as NSString).expandingTildeInPath
+            let executable: String? = expanded.hasPrefix("/") ? expanded
+                : command.contains("/") ? directory.appendingPathComponent(command).standardizedFileURL.path
+                : Self.command(command, locations: [.nodeModules, .virtualEnvironment, .composer, .binstub, .path], from: folder, root: root, environment: environment)?.executable
+            guard let executable, FileManager.default.isExecutableFile(atPath: executable) else {
+                throw FormatterSettings.Failure.invalid("\(settings.displayPath): “\(command)” isn't installed here.")
+            }
+            return .tool(ProjectFormatter(name: (command as NSString).lastPathComponent, executable: executable, arguments: arguments, directory: directory, source: settings.displayPath))
+        }
     }
 
     /// The nearest configured preset above `file`, not looking past `root`;
@@ -447,14 +455,17 @@ struct ProjectFormatter: Sendable, Equatable {
 ///         "py": "ruff",
 ///         "sh": { "command": "shfmt", "arguments": ["-i", "2", "-filename", "{file}"] },
 ///         "md": "off",
-///         "ts, tsx": "server"
+///         "ts, tsx": "server",
+///         "vue": ["prettier", "eslint"]
 ///     } }
 struct FormatterSettings: Sendable {
-    enum Rule: Sendable, Equatable {
+    indirect enum Rule: Sendable, Equatable {
         case preset(String)
         case server
         case off
         case command(String, arguments: [String])
+        /// One after another (D203): `["prettier", "eslint"]`.
+        case chain([Rule])
     }
 
     enum Failure: LocalizedError {
@@ -503,11 +514,10 @@ struct FormatterSettings: Sendable {
         guard let formatters = object["formatters"] else { return FormatterSettings(rules: [:], displayPath: displayPath) }
         guard let table = formatters as? [String: Any] else { throw Failure.invalid("\(displayPath): “formatters” should be an object keyed by file type.") }
         var rules: [String: Rule] = [:]
-        for (key, value) in table {
-            let rule: Rule
+        func single(_ value: Any, key: String) throws -> Rule {
             switch value {
             case let name as String:
-                rule = switch name.lowercased() {
+                return switch name.lowercased() {
                 case "server": .server
                 case "off", "none": .off
                 default: .preset(name.lowercased())
@@ -516,10 +526,25 @@ struct FormatterSettings: Sendable {
                 guard let executable = command["command"] as? String, !executable.isEmpty else {
                     throw Failure.invalid("\(displayPath): “\(key)” needs a “command”.")
                 }
-                let arguments = command["arguments"] as? [String] ?? []
-                rule = .command(executable, arguments: arguments)
+                return .command(executable, arguments: command["arguments"] as? [String] ?? [])
             default:
-                throw Failure.invalid("\(displayPath): “\(key)” should be a formatter name or { \"command\": … }.")
+                throw Failure.invalid("\(displayPath): “\(key)” should be a formatter name, { \"command\": … } or a list of them.")
+            }
+        }
+        for (key, value) in table {
+            let rule: Rule
+            if let list = value as? [Any] {
+                let steps = try list.map { try single($0, key: key) }
+                guard !steps.isEmpty, !steps.contains(.off) else {
+                    throw Failure.invalid("\(displayPath): “\(key)” lists formatters to run one after another; “off” can't be one of them.")
+                }
+                // The server formats the document it has: only the text as typed, so only first.
+                guard !steps.dropFirst().contains(.server) else {
+                    throw Failure.invalid("\(displayPath): in “\(key)”, “server” can only come first.")
+                }
+                rule = steps.count == 1 ? steps[0] : .chain(steps)
+            } else {
+                rule = try single(value, key: key)
             }
             for type in key.split(separator: ",") {
                 let type = type.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
@@ -566,21 +591,7 @@ struct FormattingOverview: Sendable, Equatable {
                 for key in order {
                     let types = byRule[key] ?? []
                     guard let rule = settings.rules[types[0]] else { continue }
-                    var warning: String?
-                    let name: String
-                    switch rule {
-                    case .server: name = "Language server"
-                    case .off: name = "Off"
-                    case .preset(let id):
-                        let preset = FormatterPreset.preset(id: id)
-                        name = preset?.name ?? id
-                        if preset == nil {
-                            warning = "No formatter called “\(id)”."
-                        } else if let preset, let root, preset.command(from: root, root: root, environment: environment) == nil {
-                            warning = "“\(preset.binary)” isn't installed."
-                        }
-                    case .command(let command, let arguments): name = ([command] + arguments).joined(separator: " ")
-                    }
+                    let (name, warning) = Self.describe(rule, root: root, environment: environment)
                     rows.append(Row(fileTypes: Self.list(types), formatter: name, source: display, warning: warning))
                 }
             } catch {
@@ -606,6 +617,24 @@ struct FormattingOverview: Sendable, Equatable {
                 fileTypes: Self.list(preset.fileTypes.sorted()), formatter: "\(preset.name) (when nothing else formats)",
                 source: command.executable
             ))
+        }
+    }
+
+    /// A rule's name in Settings, and what's wrong with it.
+    private static func describe(_ rule: FormatterSettings.Rule, root: URL?, environment: [String: String]) -> (String, String?) {
+        switch rule {
+        case .server: return ("Language server", nil)
+        case .off: return ("Off", nil)
+        case .preset(let id):
+            guard let preset = FormatterPreset.preset(id: id) else { return (id, "No formatter called “\(id)”.") }
+            if let root, preset.command(from: root, root: root, environment: environment) == nil {
+                return (preset.name, "“\(preset.binary)” isn't installed.")
+            }
+            return (preset.name, nil)
+        case .command(let command, let arguments): return (([command] + arguments).joined(separator: " "), nil)
+        case .chain(let rules):
+            let parts = rules.map { describe($0, root: root, environment: environment) }
+            return (parts.map(\.0).joined(separator: " → "), parts.compactMap(\.1).first)
         }
     }
 

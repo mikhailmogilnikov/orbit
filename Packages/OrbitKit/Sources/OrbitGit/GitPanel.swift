@@ -401,6 +401,13 @@ private struct HistoryRows: View {
                             Text(branch).tag(GitModel.HistoryScope.branch(branch))
                         }
                     }
+                    // Remote-tracking branches (D204): what a pull would bring, a colleague's branch.
+                    if !model.remoteBranches.isEmpty {
+                        Divider()
+                        ForEach(model.remoteBranches.prefix(30), id: \.self) { branch in
+                            Label(branch, systemImage: "network").tag(GitModel.HistoryScope.branch(branch))
+                        }
+                    }
                     // GitLens's file and line history (D189).
                     let activePath = model.workspace.activeTab?.url.flatMap(model.repositoryPath)
                     if activePath != nil || model.historyScope.path != nil {
@@ -466,7 +473,7 @@ private struct HistoryRows: View {
 
 /// Two lines (D156): the message across the whole width, then its branches,
 /// author and age; the graph runs the full height. A click lists its files.
-private struct CommitRow: View {
+struct CommitRow: View {
     let commit: GitCommit
     let model: GitModel
     let graph: GitGraphRow?
@@ -518,6 +525,11 @@ private struct CommitRow: View {
             Button("Copy Message") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(commit.subject, forType: .string)
+            }
+            // One file's history: the file as this commit left it, with its blame (D204).
+            if let path = model.historyScope.path {
+                Divider()
+                Button("Open File at This Commit") { model.openRevision(path: path, at: commit.hash) }
             }
         }
     }
@@ -619,6 +631,12 @@ private struct CommitFiles: View {
                 ForEach(files) { file in
                     row { CommitFileRow(file: file) }
                         .onTapGesture { model.openDiff(file, in: commit) }
+                        .contextMenu {
+                            Button("Open Changes") { model.openDiff(file, in: commit) }
+                            if file.status != .deleted {
+                                Button("Open File at This Commit") { model.openRevision(path: file.path, at: commit.hash) }
+                            }
+                        }
                 }
             } else {
                 row { ProgressView().controlSize(.mini) }

@@ -120,11 +120,14 @@ public struct LanguageTriggers: Sendable, Hashable {
     public var completion: Set<String>
     public var signatureHelp: Set<String>
     public var signatureHelpRetrigger: Set<String>
+    /// Characters after which the server reformats around the caret (D203); `"\n"` for Return.
+    public var formatOnType: Set<String>
 
-    public init(completion: Set<String> = [], signatureHelp: Set<String> = [], signatureHelpRetrigger: Set<String> = []) {
+    public init(completion: Set<String> = [], signatureHelp: Set<String> = [], signatureHelpRetrigger: Set<String> = [], formatOnType: Set<String> = []) {
         self.completion = completion
         self.signatureHelp = signatureHelp
         self.signatureHelpRetrigger = signatureHelpRetrigger
+        self.formatOnType = formatOnType
     }
 }
 

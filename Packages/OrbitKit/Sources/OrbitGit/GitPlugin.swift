@@ -53,6 +53,14 @@ public final class GitPlugin: OrbitPlugin {
                 .id(tab.id)
         })
 
+        ui.addEditorProvider(EditorProvider(
+            id: "git.revision",
+            accepts: { $0.kind == GitModel.revisionKind }
+        ) { tab in
+            GitRevisionView(model: model, tab: tab)
+                .id(tab.id)
+        })
+
         ui.addSidebarPanel(PanelContribution(id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", order: 15) {
             GitPanel(model: model)
         }.command("git.show"))

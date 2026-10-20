@@ -7,6 +7,8 @@ import OrbitAPI
 final class BracketMatchController {
     weak var textView: STTextView?
     let geometry: DiagnosticsController
+    /// Strings and comments in a range (the highlighter's); nil without one.
+    var literals: ((NSRange) -> IndexSet)?
     var color: NSColor = .clear {
         didSet { if color != oldValue { setNeedsLayout() } }
     }
@@ -25,19 +27,28 @@ final class BracketMatchController {
             show([])
             return
         }
-        let found = Self.match(around: textView.textSelection.location, in: textView.documentText, pairs: pairs)
+        let caret = textView.textSelection.location
+        let text = textView.documentText
+        let window = NSRange(location: max(0, caret - Self.limit), length: min(text.length, caret + Self.limit) - max(0, caret - Self.limit))
+        let found = Self.match(around: caret, in: text, pairs: pairs, literals: literals?(window) ?? IndexSet())
         show(found.map { [$0.0, $0.1].map { NSRange(location: $0, length: 1) } } ?? [])
     }
 
+    static let limit = 50_000
+
     /// The bracket after the caret first, then the one before it, as Zed;
     /// nesting counts only the same pair. Far partners aren't searched for.
-    static func match(around caret: Int, in text: NSString, pairs: [SyntaxLanguage.Bracket], limit: Int = 50_000) -> (Int, Int)? {
+    /// Brackets in strings and comments (`literals`) only pair with each
+    /// other: `")"` in a string doesn't close code's `(` (D202).
+    static func match(around caret: Int, in text: NSString, pairs: [SyntaxLanguage.Bracket], limit: Int = limit, literals: IndexSet = IndexSet()) -> (Int, Int)? {
         let opens = pairs.map { $0.start.utf16.first! }, closes = pairs.map { $0.end.utf16.first! }
         for offset in [caret, caret - 1] where offset >= 0 && offset < text.length {
             let unit = text.character(at: offset)
+            let inLiteral = literals.contains(offset)
+            func counts(_ candidate: Int) -> Bool { literals.contains(candidate) == inLiteral }
             if let index = opens.firstIndex(of: unit) {
                 var depth = 0
-                for candidate in offset..<min(text.length, offset + limit) {
+                for candidate in offset..<min(text.length, offset + limit) where counts(candidate) {
                     let next = text.character(at: candidate)
                     if next == unit { depth += 1 } else if next == closes[index] { depth -= 1 }
                     if depth == 0 { return (offset, candidate) }
@@ -46,7 +57,7 @@ final class BracketMatchController {
             }
             if let index = closes.firstIndex(of: unit) {
                 var depth = 0
-                for candidate in stride(from: offset, through: max(0, offset - limit), by: -1) {
+                for candidate in stride(from: offset, through: max(0, offset - limit), by: -1) where counts(candidate) {
                     let next = text.character(at: candidate)
                     if next == unit { depth += 1 } else if next == opens[index] { depth -= 1 }
                     if depth == 0 { return (candidate, offset) }

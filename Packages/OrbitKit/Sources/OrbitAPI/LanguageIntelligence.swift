@@ -167,6 +167,14 @@ public protocol LanguageIntelligence: AnyObject {
     func prepareRename(at position: SourcePosition, in url: URL) async -> RenameTarget?
     /// The number of files changed, or why it failed.
     func rename(at position: SourcePosition, in url: URL, to newName: String) async -> Result<Int, RenameFailure>
+    /// What a rename would change, without changing it: for a preview (D199).
+    func renameEdit(at position: SourcePosition, in url: URL, to newName: String) async -> Result<WorkspaceEdit, RenameFailure>
+    /// Applies a server's edit (open files through the editor, file operations
+    /// through the workspace); false when some part failed.
+    @discardableResult
+    func apply(_ edit: WorkspaceEdit) -> Bool
+    /// The server's edits after `character` was typed at `position` (D203); empty when there are none.
+    func formatOnType(_ character: String, at position: SourcePosition, in url: URL) async -> [SourceEdit]
     func canFormat(_ url: URL) -> Bool
     /// Formats the file with the repo's formatter or the server; with `lines`
     /// (0-based), only the changes there are kept (D140).
@@ -187,6 +195,11 @@ public protocol LanguageIntelligence: AnyObject {
     func symbols(in url: URL) async -> [LanguageSymbol]?
     /// Symbols matching a query across the project, from every running server.
     func projectSymbols(matching query: String) async -> [LanguageSymbol]
+    /// The symbol at a spot as the root of a call or type hierarchy (D200);
+    /// empty when there's none or the server can't.
+    func prepareHierarchy(_ kind: HierarchyKind, at position: SourcePosition, in url: URL) async -> [HierarchyItem]
+    /// An item's callers or callees, supertypes or subtypes.
+    func hierarchy(_ direction: HierarchyDirection, of item: HierarchyItem) async -> [HierarchyItem]
 
     /// Inlay hints for part of the file; empty when its server has none.
     func inlayHints(in range: SourceRange, url: URL) async -> [InlayHint]
@@ -195,10 +208,104 @@ public protocol LanguageIntelligence: AnyObject {
 
     /// Regions that can be folded; nil when the file's server can't tell (the editor folds by indentation then).
     func foldingRanges(in url: URL) async -> [FoldingRange]?
+
+    /// The ranges edited together with the one at a spot (an HTML tag's name
+    /// and its closing tag's, D202); nil when there are none.
+    func linkedEditingRanges(at position: SourcePosition, in url: URL) async -> [SourceRange]?
+    /// For each spot, the syntax around it from the narrowest outwards (Expand
+    /// Selection, D202); nil when the server can't tell.
+    func selectionRanges(at positions: [SourcePosition], in url: URL) async -> [[SourceRange]]?
+
+    /// What the server knows each name in the file to be (D201); nil when it can't say.
+    func semanticTokens(in url: URL) async -> [SemanticToken]?
+    /// Bumped when the file's server says its semantic tokens or code lenses went stale.
+    func semanticTokensRevision(for url: URL) -> Int
+    /// The file's code lenses Orbit can show (D201): resolved, and only those
+    /// whose command it can run or that only say something.
+    func codeLenses(in url: URL) async -> [CodeLens]
+    /// Runs a lens's command; nil when it ran, else why not.
+    func run(_ lens: CodeLens, in url: URL) async -> String?
 }
 
 extension LanguageIntelligence {
     public func format(_ url: URL) async -> FormatOutcome { await format(url, lines: nil) }
+}
+
+/// A name the language server classified (D201): a parameter, a property,
+/// a type… with modifiers like `readonly` or `defaultLibrary`. One line long.
+public struct SemanticToken: Sendable, Hashable {
+    public var line: Int
+    /// UTF-16, like every LSP position here.
+    public var character: Int
+    public var length: Int
+    public var type: String
+    public var modifiers: Set<String>
+
+    public init(line: Int, character: Int, length: Int, type: String, modifiers: Set<String> = []) {
+        self.line = line
+        self.character = character
+        self.length = length
+        self.type = type
+        self.modifiers = modifiers
+    }
+}
+
+/// A server's note on a line (D201): "3 references", "▶ Run test".
+public struct CodeLens: Sendable, Hashable, Identifiable {
+    /// The server's own lens, to run it.
+    public var token: Int
+    public var line: Int
+    public var title: String
+    /// False for a lens that only says something.
+    public var isActionable: Bool
+    /// The server that gave it when a file has several.
+    public var server: String?
+
+    public var id: Int { token }
+
+    public init(token: Int, line: Int, title: String, isActionable: Bool, server: String? = nil) {
+        self.token = token
+        self.line = line
+        self.title = title
+        self.isActionable = isActionable
+        self.server = server
+    }
+}
+
+public enum HierarchyKind: Sendable, Hashable {
+    case calls, types
+}
+
+/// Callers or supertypes (`incoming`), callees or subtypes (`outgoing`).
+public enum HierarchyDirection: Sendable, Hashable {
+    case incoming, outgoing
+}
+
+/// A function or type in a hierarchy (D200); the server's own item stays
+/// with it (`token`), as it wants that back to go a level deeper.
+public struct HierarchyItem: Sendable, Hashable, Identifiable {
+    public var token: Int
+    public var kind: HierarchyKind
+    public var name: String
+    public var detail: String?
+    public var symbolKind: SymbolKind
+    /// Its name, where to put the caret.
+    public var location: SourceLocation
+    /// For calls: where the call is, in the caller (incoming) or in this
+    /// item's parent (outgoing).
+    public var callSites: [SourceLocation]
+
+    public var id: Int { token }
+
+    public init(token: Int, kind: HierarchyKind, name: String, detail: String? = nil, symbolKind: SymbolKind, location: SourceLocation, callSites: [SourceLocation] = []) {
+        self.token = token
+        self.kind = kind
+        self.name = name
+        self.detail = detail
+        self.symbolKind = symbolKind
+        self.location = location
+        self.callSites = callSites
+    }
 }
 
 /// Lines that can be folded away: `startLine` stays visible, the lines after it through `endLine` hide.

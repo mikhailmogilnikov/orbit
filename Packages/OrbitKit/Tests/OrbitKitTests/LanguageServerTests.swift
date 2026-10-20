@@ -1,10 +1,65 @@
 import Foundation
 @testable import OrbitACP
 @testable import OrbitAPI
+@testable import OrbitEditor
 @testable import OrbitLanguages
 import Testing
 
 @Suite struct LanguageServerTests {
+    /// D201: LSP's relative token data, and which tokens recolor what.
+    @Test func semanticTokensDecodeAndMap() {
+        let types = ["type", "parameter", "variable", "keyword"]
+        let modifiers = ["readonly", "defaultLibrary"]
+        // Line 0 col 4 len 3 type; same line +6 parameter; next line col 2 variable with defaultLibrary.
+        let tokens = LanguageServer.semanticTokens([0, 4, 3, 0, 0, 0, 6, 1, 1, 1, 1, 2, 5, 2, 2], types: types, modifiers: modifiers)
+        #expect(tokens == [
+            SemanticToken(line: 0, character: 4, length: 3, type: "type"),
+            SemanticToken(line: 0, character: 10, length: 1, type: "parameter", modifiers: ["readonly"]),
+            SemanticToken(line: 1, character: 2, length: 5, type: "variable", modifiers: ["defaultLibrary"]),
+        ])
+        #expect(SemanticColors.captures(for: "variable", modifiers: []).isEmpty)
+        #expect(SemanticColors.captures(for: "keyword", modifiers: []).isEmpty)
+        #expect(SemanticColors.captures(for: "parameter", modifiers: []) == ["variable.parameter"])
+        let spans = SemanticTokensController.spans(tokens + [SemanticToken(line: 0, character: 0, length: 3, type: "keyword")],
+                                                   starts: [0, 12, 20], length: 20)
+        #expect(spans.map(\.range) == [NSRange(location: 4, length: 3), NSRange(location: 10, length: 1), NSRange(location: 14, length: 5)])
+    }
+
+    /// D201: lenses whose command Orbit can run; the rest are left out.
+    @Test func codeLensActions() {
+        let location: JSONValue = ["uri": "file:///p/a.ts", "range": ["start": ["line": 3, "character": 1], "end": ["line": 3, "character": 4]]]
+        let references = LanguageServer.lensAction("editor.action.showReferences", arguments: [
+            "file:///p/a.ts", ["line": 0, "character": 9], [location, location],
+        ], serverCommands: [])
+        guard case .locations(let origin, let locations)? = references else {
+            Issue.record("expected locations, got \(String(describing: references))")
+            return
+        }
+        #expect(origin?.range.start == SourcePosition(line: 0, character: 9) && locations.count == 2)
+        let run = LanguageServer.lensAction("rust-analyzer.runSingle", arguments: [[
+            "kind": "cargo", "args": ["cargoArgs": ["test", "--package", "demo"], "executableArgs": ["tests::it", "--exact"], "cwd": "/p"],
+        ]], serverCommands: [])
+        #expect(run == .cargo(["test", "--package", "demo", "--", "tests::it", "--exact"], directory: "/p"))
+        #expect(LanguageServer.lensAction("gopls.tidy", arguments: [], serverCommands: ["gopls.tidy"]) == .server("gopls.tidy", []))
+        #expect(LanguageServer.lensAction("swift.debug", arguments: [], serverCommands: []) == nil)
+    }
+
+    /// D198: importers of a changed file are found by the name they import it by.
+    @Test func importersOfAChangedFile() {
+        #expect(DependentFiles.moduleNames(for: URL(fileURLWithPath: "/p/src/format.ts")) == ["format"])
+        #expect(DependentFiles.moduleNames(for: URL(fileURLWithPath: "/p/src/utils/index.ts")) == ["utils"])
+        #expect(DependentFiles.moduleNames(for: URL(fileURLWithPath: "/p/pkg/__init__.py")) == ["pkg"])
+        #expect(DependentFiles.moduleNames(for: URL(fileURLWithPath: "/p/src/main.rs")).isEmpty)
+        let names: Set = ["format"]
+        #expect(DependentFiles.imports("import { a } from './format'\n", anyOf: names))
+        #expect(DependentFiles.imports("const f = require(\"../lib/format\");", anyOf: names))
+        #expect(DependentFiles.imports("from app.format import parse", anyOf: names))
+        #expect(DependentFiles.imports("use crate::format::parse;", anyOf: names))
+        #expect(DependentFiles.imports("import (\n\t\"example.com/x/format\"\n)", anyOf: names))
+        #expect(!DependentFiles.imports("import { formatter } from './formatter'", anyOf: names))
+        #expect(!DependentFiles.imports("const s = format(date)", anyOf: names))
+    }
+
     /// A Node crash names its error above the frames; the tail alone hid it.
     /// LSP globs as servers register them for `didChangeWatchedFiles` (D77).
     @Test func watchersMatchLikeVSCode() throws {

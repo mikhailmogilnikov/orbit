@@ -70,6 +70,125 @@ struct LanguageServerIntegrationTests {
         server.shutdown()
     }
 
+    /// D200: callers and callees of a function, supertypes and subtypes of a type.
+    @Test(.enabled(if: LanguageCase.swift.isAvailable))
+    func swiftCallAndTypeHierarchies() async throws {
+        let root = try LanguageCase.swift.makeProject()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let file = root.appendingPathComponent("Sources/Demo/Shapes.swift")
+        let text = """
+        protocol Shape { func area() -> Double }
+        struct Square: Shape {
+            func area() -> Double { side() * side() }
+            func side() -> Double { 2 }
+        }
+        func total() -> Double { Square().area() }
+
+        """
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        let server = LanguageServer(config: .swift, root: root)
+        let started = await server.start(environment: Task { ProcessInfo.processInfo.environment })
+        try #require(started, "Swift didn't start: \(server.state)")
+        defer { server.shutdown() }
+        server.sync(file, text: text)
+
+        let side = try #require(Self.position(of: "side() -> Double { 2", in: text))
+        var callers: [HierarchyItem] = []
+        try await eventually(LanguageCase.swift.timeout, "area() among the callers of side()") {
+            callers.contains { $0.name.contains("area") }
+        } poll: {
+            if let item = await server.prepareHierarchy(.calls, at: side, in: file).first {
+                callers = await server.hierarchy(.incoming, of: item)
+            }
+        }
+        let area = try #require(callers.first { $0.name.contains("area") })
+        #expect(area.callSites.count == 2, "\(area.callSites)")
+        #expect(area.callSites.allSatisfy { $0.url.path == file.standardizedFileURL.path && $0.range.start.line == 2 })
+        // Going up from the caller (the item came from the server and goes back to it).
+        let higher = await server.hierarchy(.incoming, of: area)
+        #expect(higher.contains { $0.name.contains("total") }, "\(higher.map(\.name))")
+        let callees = await server.hierarchy(.outgoing, of: area)
+        #expect(callees.contains { $0.name.contains("side") }, "\(callees.map(\.name))")
+
+        let square = try #require(Self.position(of: "Square: Shape", in: text))
+        let type = try #require(await server.prepareHierarchy(.types, at: square, in: file).first)
+        #expect(type.name.contains("Square"))
+        let supertypes = await server.hierarchy(.incoming, of: type)
+        #expect(supertypes.contains { $0.name.contains("Shape") }, "\(supertypes.map(\.name))")
+    }
+
+    /// D202: a JSX tag's name and its closing tag's edit together; selections grow by syntax.
+    @Test(.enabled(if: LanguageServerConfig.config(id: "vtsls").map {
+        $0.command(file: nil, root: FileManager.default.temporaryDirectory, environment: ProcessInfo.processInfo.environment, installer: .shared) != nil
+    } ?? false))
+    func typeScriptLinkedEditingAndSelectionRanges() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("orbit-linked-\(UUID().uuidString)").standardizedFileURL
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try #"{ "compilerOptions": { "jsx": "preserve", "strict": true } }"#.write(to: root.appendingPathComponent("tsconfig.json"), atomically: true, encoding: .utf8)
+        let file = root.appendingPathComponent("app.tsx")
+        let text = "export const app = <section className=\"x\">{1 + 2}</section>;\n"
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        let config = try #require(LanguageServerConfig.config(id: "vtsls"))
+        let server = LanguageServer(config: config, root: root)
+        let started = await server.start(environment: Task { await ShellEnvironment.resolve() })
+        try #require(started, "vtsls didn't start: \(server.state)")
+        defer { server.shutdown() }
+        server.sync(file, text: text)
+
+        let tag = try #require(Self.position(of: "section", in: text, inside: true))
+        var linked: [SourceRange] = []
+        try await eventually(.seconds(60), "the tag's linked ranges") { linked.count == 2 } poll: {
+            linked = await server.linkedEditingRanges(at: tag, in: file) ?? []
+        }
+        let closing = try #require(Self.position(of: "section>;", in: text))
+        #expect(linked.contains { $0.start == closing }, "\(linked)")
+
+        // D203: `;` tidies the statement it ends.
+        let script = root.appendingPathComponent("tidy.ts")
+        let statement = "export const a=1;\n"
+        try statement.write(to: script, atomically: true, encoding: .utf8)
+        server.sync(script, text: statement)
+        #expect(server.triggers.formatOnType.contains(";"), "\(server.triggers.formatOnType)")
+        let edits = await server.onTypeFormatting(";", at: SourcePosition(line: 0, character: 17), in: script, tabSize: 2, insertSpaces: true) ?? []
+        #expect(SourceEdit.apply(edits, to: statement) == "export const a = 1;\n", "\(edits)")
+
+        let inner = try #require(Self.position(of: "1 + 2", in: text))
+        let chains = try #require(await server.selectionRanges(at: [inner], in: file))
+        let chain = try #require(chains.first)
+        #expect(chain.count > 2, "\(chain)")
+        // Each step holds the one before it.
+        for (narrow, wide) in zip(chain, chain.dropFirst()) {
+            #expect(wide.start <= narrow.start && narrow.end <= wide.end)
+        }
+    }
+
+    /// D201: the server's semantic tokens arrive and land on the right names.
+    @Test(.enabled(if: LanguageCase.swift.isAvailable))
+    func swiftSemanticTokens() async throws {
+        let root = try LanguageCase.swift.makeProject()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let file = root.appendingPathComponent("Sources/Demo/Greeter.swift")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let server = LanguageServer(config: .swift, root: root)
+        let started = await server.start(environment: Task { ProcessInfo.processInfo.environment })
+        try #require(started, "Swift didn't start: \(server.state)")
+        defer { server.shutdown() }
+        server.sync(file, text: text)
+        var tokens: [SemanticToken] = []
+        try await eventually(LanguageCase.swift.timeout, "a property token") {
+            tokens.contains { $0.type == "property" }
+        } poll: {
+            tokens = await server.semanticTokens(in: file) ?? []
+        }
+        // Declarations are tree-sitter's; the server adds what a name refers to:
+        // the standard library's String, the property read inside the interpolation.
+        let string = try #require(Self.position(of: "String", in: text))
+        #expect(tokens.contains { $0.line == string.line && $0.character == string.character && $0.modifiers.contains("defaultLibrary") }, "\(tokens)")
+        let property = try #require(Self.position(of: "name)", in: text))
+        #expect(tokens.contains { $0.line == property.line && $0.character == property.character && $0.type == "property" }, "\(tokens)")
+    }
+
     /// D78: unused code comes tagged (drawn faded), deprecated code too (struck through).
     @Test(.enabled(if: LanguageCase.typeScriptBare.isAvailable))
     func typeScriptTagsUnusedAndDeprecated() async throws {

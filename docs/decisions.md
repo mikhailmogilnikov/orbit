@@ -207,6 +207,13 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D195. Extensions bring snippets, agents, language servers and tasks; the Extensions page lists packages
 - D196. Blank chats stay out of Recent, even when the agent lists them
 - D197. A click anywhere on the selected folder's row toggles it
+- D198. Problems also check the files that use what the agent changed
+- D199. Server edits create, rename and delete files; rename can be previewed
+- D200. Call and type hierarchies in a bottom panel
+- D201. Semantic tokens over tree-sitter's colors; code lenses after the line
+- D202. Every caret gets the typing rules; linked tags, Expand Selection, squiggles that move
+- D203. Formatters in a row from settings; format on type
+- D204. Remote branches in History; a file at a commit, with its blame
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -875,6 +882,7 @@ project, and stops 10 minutes after its last file closes or when the folder
 changes. Typing is coalesced (120 ms) and sent as one incremental change
 (common prefix/suffix, UTF-16 positions like `NSString`). Hover waits for the
 pointer to rest 450 ms. Semantic tokens are not used: tree-sitter colors code.
+> **D201: semantic tokens now recolor what tree-sitter can't tell (types, parameters, properties).**
 
 The editor gets everything through the `LanguageIntelligence` service (plugins
 don't import each other): diagnostics are drawn as small squiggle views only
@@ -1027,6 +1035,7 @@ language comes from Zed's catalog, installed the same lazy way.
   `workspace/applyEdit`, which the client now answers.
 - **Rename** (⌃⌘E): a field over the symbol (`prepareRename`, or the word
   when the server has none); Return renames across the project.
+  > **D199: ⇧↩ previews it first; file operations in edits are applied.**
 - **Formatting** (⌃⇧I, Xcode's Format File; Option-only shortcuts never
   reach the menu in a text view, they type a character) with the file's own indentation; "Format on save" in
   Settings → Editor (off by default; a server slower than 2 s doesn't hold
@@ -1626,6 +1635,8 @@ LSP's workspace diagnostics are rare (Pyright has them behind
 
 Not covered: files the agent didn't touch but broke (an importer of a changed
 module) unless the server reports them on its own.
+
+> **Covered since D198: the users of changed files are checked too.**
 
 ### D76. Server defaults borrowed from Zed: settings pushed, Tailwind at-rules, TS memory
 
@@ -2377,6 +2388,7 @@ What any editor has and Orbit didn't (bracket autoclose was already there, D73):
   (indentation on Return/Tab/Backspace, bracket pairs, completion) step aside
   while there are several: Return is a plain newline, Tab inserts one indent,
   completion closes.
+  > **D202: the rules and completion now work at every caret; bracket match skips strings and comments.**
 - **Bracket match**: the bracket after the caret (else before it) and its
   partner get a thin outline in the text color. Plain text scan of the
   language's single-character pairs within 50k characters; brackets inside
@@ -4049,3 +4061,175 @@ The explorer now watches mouse clicks on its outline view (a local event
 monitor, `ReclickMonitor`): a plain click that starts and ends on the row
 already selected alone toggles that folder, wherever in the row it lands.
 The disclosure triangle and the rename field are left alone; a drag isn't a click.
+
+### D198. Problems also check the files that use what the agent changed
+
+D75 checked the files an agent changed; an importer it broke without
+touching (a renamed export, a changed signature) stayed silent until opened.
+LSP's workspace diagnostics would cover it but almost no server has them
+(tsserver none, Pyright only in a slow mode), so Orbit finds the users itself,
+2 s after the agent's edits settle:
+
+- **References**: for each changed file (up to 20), the server's outline gives
+  the top-level symbols and their members whose lines changed; their
+  references (up to 8 symbols a file) name the files using them. Works in
+  every language whose server answers references, Swift included.
+- **Imports by name**: the Search plugin's file list, filtered to files the
+  changed file's server serves, is scanned off the main actor for a line that
+  names the module (its stem, or its folder for `index`, `__init__`, `mod`)
+  beside an import word, or as a path's last part (Go's import blocks). This
+  finds users of an export that's gone, which references can't.
+
+At most 40 such files; they're opened on their servers in the background like
+D75's and leave once nothing is left to review, except the ones still
+reporting problems. Without the Search plugin only references are used.
+
+### D199. Server edits create, rename and delete files; rename can be previewed
+
+Edits from servers came as text only: a `documentChanges` entry with a
+`kind` was dropped, so rust-analyzer's module rename or TypeScript's "Move to
+a new file" left the project half changed. And a rename across the project
+went through with no way to see what it touched.
+
+- **`WorkspaceEdit` is an ordered list of steps** (edit, create, rename,
+  delete), as the server sent them; the client advertises
+  `resourceOperations`. Renames go through `Workspace.moveItem` (tabs and
+  buffers follow; an editor finds its file by its document after that),
+  deletes go to the Trash (`trashItems`), not gone for good. `overwrite` /
+  `ignoreIfExists` are honored; a step that can't run marks the edit as
+  partly failed and the rest still runs, like VS Code.
+- **Rename preview**: the rename field has Preview Changes (⇧↩, VS Code's
+  key). A sheet lists each changed file with its line count, expandable to
+  the diff (`CompactDiffView`, colored), and each file created, renamed or
+  deleted; unchecking a row leaves those steps out. Texts are simulated in
+  step order, so an edit after a rename previews against the moved file.
+- A rename that moves files opens the preview even on Return: moving files
+  is worth a look. Code actions still apply directly (the user picked them).
+
+### D200. Call and type hierarchies in a bottom panel
+
+"Who calls this?" took Find References and reading each hit; following
+calls up two levels meant doing it again per caller.
+
+- **Show Call Hierarchy** (⌃⇧⌘H, Xcode's Find Call Hierarchy) and **Show Type
+  Hierarchy** (no key) in Find and the editor's menu put the symbol at the
+  caret into a **Hierarchy** bottom panel beside References: a tree rooted
+  at it, a segmented switch for Callers / Callees (Supertypes / Subtypes).
+  Rows open a level at a time (`callHierarchy/incomingCalls` and friends,
+  asked on expand); a row without children loses its chevron once asked.
+- A caller opens at its call; more than one call shows a count, and the
+  row's menu lists each. Callees, types and the root open at their name.
+- The server's items go back to it verbatim (they carry `data`), so the
+  server keeps them by token; a new hierarchy starts the store over.
+  Only the language server is asked (companions have none).
+- Tested against sourcekit-lsp (callers with both call sites, a caller's
+  caller, callees, a struct's protocol).
+
+### D201. Semantic tokens over tree-sitter's colors; code lenses after the line
+
+Tree-sitter sees syntax only: `x.name` is "a property" or "a method"
+by its shape, a type used as a value is a variable, `String` looks like any
+other type name. The language server knows. And servers' code lenses
+("3 references", rust-analyzer's "▶ Run") weren't shown at all.
+
+- **Semantic tokens** (`textDocument/semanticTokens/full`, or `/range` over
+  the whole file) are asked after a 400 ms pause in typing, when new
+  problems arrive (the server caught up) and on `semanticTokens/refresh`.
+  They only override where they add something (`SemanticColors`): types,
+  parameters, properties, enum cases, functions and methods, macros,
+  decorators, and the standard library's variables. Variables, keywords,
+  strings and comments stay tree-sitter's. A token recolors only when the
+  theme styles its capture (`variable.parameter` falls back to `variable`,
+  the theme's own way). They're a second layer of rendering attributes,
+  painted like D78's faded code: no relayout; they move with edits and the
+  ones an edit touched go until the next answer. The client says
+  `augmentsSyntaxTokens`. Settings → Editor → Semantic highlighting.
+- **Code lenses** sit after the end of their line in the hint color, like
+  the blame (which moves after them): no room is made above the line, so
+  nothing shifts and the inline diff's paragraph gaps stay alone. Lenses
+  are resolved (`codeLens/resolve`) and only shown when Orbit can do what
+  they say: a server command (`executeCommandProvider`), a references lens
+  (`editor.action.showReferences` and rust-analyzer's) that opens the
+  References panel, rust-analyzer's `runSingle` that runs `cargo …` in a
+  terminal tab, or a lens with no command (only a note). Others (VS Code's
+  own debug commands, sourcekit-lsp's `swift.run`) would be dead buttons and
+  are left out. Clickable lenses take the text color and an underline on
+  hover. Lenses below an edit hide until the server answers again (800 ms).
+  Settings → Editor → Code lens.
+- Tested: token decoding and the mapping, lens actions; sourcekit-lsp's
+  tokens (the standard library's `String`, a property in an interpolation).
+
+### D202. Every caret gets the typing rules; linked tags, Expand Selection, squiggles that move
+
+D105 let the indentation and bracket rules step aside with several carets,
+so ⌘D-then-type lost autoindent, pairs and completion exactly where many
+carets are used. And a few things editors do were missing.
+
+- **Rules per caret** (`CaretEditing`): Return's indentation, Tab to the next
+  stop, Backspace to the previous one, bracket close / wrap / step over, and
+  the empty pair's Backspace are pure functions of the text and one
+  selection. `combine` makes one replacement of every caret's change (one
+  undo step; a change overlapping an earlier one is dropped with its
+  caret); a caret a rule doesn't apply to gets plain typing. One caret is
+  the same path. Tab over lines and ⇧Tab shift every line any selection
+  touches, once. Tested without a text view.
+- **Completion at every caret**: each caret's edit reaches the editor on its
+  own, the bottom one first, so the list follows the top caret (its place no
+  later edit moves). Accepting puts the item at each caret over the same
+  span before and after it as at the list's caret, within the line; a
+  snippet selects its first placeholder at each and has no Tab walk.
+- **Bracket match** skips strings and comments, from the highlighter's
+  cache: `")"` in a string no longer closes code's `(`; brackets inside one
+  pair among themselves.
+- **Linked editing** (`textDocument/linkedEditingRange`): with the caret in
+  a tag name (HTML, JSX via vtsls), its pair is asked for after 100 ms;
+  typing or deleting inside goes to every range as one edit, and anything
+  that isn't part of a name (a space, `>`), an edit elsewhere or the caret
+  leaving ends it. Keys are untouched: it's typing, not a mode.
+- **Expand / Shrink Selection** (⌃⇧⌘→ / ⌃⇧⌘←, VS Code's; Edit ▸ Selection):
+  the narrowest `textDocument/selectionRange` holding more than each
+  selection; without a server, its word, its line, everything. Shrink goes
+  back through the selections Expand came from while nothing else moved them.
+- **Squiggles follow edits**: the problems shown move with the text (one the
+  edit was inside stretches or shrinks) until the server publishes again;
+  the same set arriving again doesn't put them back where they were. Faded
+  unused code moves with them.
+- **Snippet placeholders are tokens**: a soft box behind each placeholder
+  still to fill, so it's clear what Tab walks through.
+
+### D203. Formatters in a row from settings; format on type
+
+A file type had one formatter: a repo running Prettier and then ESLint's
+fixes (or the server, then a linter) got only one of them from ⌃⇧I. On save
+D81's code actions already ran ESLint's fixes before the formatter.
+
+- **A list in `"formatters"`** runs its tools in order, each on the one
+  before's text: `"ts, tsx": ["prettier", "eslint"]`, presets and commands
+  mixed. `"server"` may come only first (it formats the text it has, the
+  document as typed); `"off"` can't be in a list. One edit at the end, so
+  ⌘Z takes it all back and Format Selection keeps only the selection's
+  lines of the final result. A failing step stops the chain and says which.
+  The toast and Settings → Formatting name them with arrows ("Prettier →
+  ESLint"). Detection doesn't chain on its own: ESLint is slow, and running
+  it on every ⌃⇧I unasked would surprise; save already runs its fixes.
+- **Format on type** (`textDocument/onTypeFormatting`), off by default as
+  in VS Code (Settings → Editor, `editor.formatOnType`): after a character
+  the language server lists (`;`, `}`, Return) its edits go in as their own
+  undo step, unless more was typed meanwhile. One caret only; never while
+  completion inserts. Tested against vtsls (`const a=1;` → `const a = 1;`).
+
+### D204. Remote branches in History; a file at a commit, with its blame
+
+History's scope menu had only local branches (a colleague's branch, or what
+a pull would bring, needed All), and blame was only of the working file.
+
+- **Remote-tracking branches** (`refs/remotes`, newest first, no `HEAD`)
+  follow the local ones in the scope menu (up to 30) and in Compare File
+  with… ("Remote branch").
+- **A file at a commit** (`git.revision` tab, GitLens's revision view): Open
+  File at This Commit in a commit's file menu and in File History's commit
+  menu. The file as that commit left it, syntax-colored, each run of lines
+  from one commit with its author and age (`git blame <rev>`), separated by
+  a hairline. A run's menu shows its commit's changes or opens the file
+  **before** that commit (`<hash>^`), walking a line's history back one
+  change at a time. Read-only; Open File goes to the working copy.

@@ -46,10 +46,29 @@ final class ReferencesModel {
         }
     }
 
+    /// Uses a server handed over (a code lens's "3 references", D201); `origin` names the symbol.
+    func show(_ locations: [SourceLocation], origin: SourceLocation?, workspace: Workspace) {
+        search?.cancel()
+        isSearching = true
+        opened = nil
+        search = Task {
+            let found = await Self.load(locations, around: origin, workspace: workspace)
+            guard !Task.isCancelled else { return }
+            symbol = found.symbol
+            files = found.files
+            isSearching = false
+        }
+    }
+
     /// The uses of the symbol at `caret` with their lines: the caret's file
     /// first, then by path. Open files as edited, others from disk.
     static func load(at caret: SourceLocation, languages: LanguageIntelligence, workspace: Workspace) async -> (symbol: String?, files: [File]) {
         let locations = await languages.references(at: caret.range.start, in: caret.url)
+        return await load(locations, around: caret, workspace: workspace)
+    }
+
+    static func load(_ locations: [SourceLocation], around caret: SourceLocation?, workspace: Workspace) async -> (symbol: String?, files: [File]) {
+        let caret = caret ?? locations.first ?? SourceLocation(url: URL(fileURLWithPath: "/"), range: SourceRange(start: .init(line: 0, character: 0), end: .init(line: 0, character: 0)))
         let urls = Set(locations.map(\.url))
         var texts: [URL: String] = [:]
         for url in urls {

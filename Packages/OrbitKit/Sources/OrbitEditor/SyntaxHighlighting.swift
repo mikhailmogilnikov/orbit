@@ -57,14 +57,54 @@ final class SyntaxPalette {
     /// How much of a color faded code keeps (VS Code's unnecessary-code opacity).
     static let fadedAlpha: CGFloat = 0.55
     var onThemeChange: ((ColorTheme) -> Void)?
+    /// Names the language server classified, colored over tree-sitter's (D201),
+    /// in text order. Set by the editor; the highlighter moves them with edits.
+    var semantic: [SemanticSpan] = [] {
+        didSet {
+            guard semantic != oldValue else { return }
+            var changed = IndexSet()
+            for span in oldValue + semantic { changed.insert(integersIn: Range(span.range) ?? 0..<0) }
+            onSemanticChange?(changed)
+        }
+    }
+    var onSemanticChange: ((IndexSet) -> Void)?
     /// Colored runs of a range from the highlighter's cache, for text drawn
     /// outside the text view (sticky headers): nil without a highlighter.
     var colors: ((NSRange) -> [(range: NSRange, color: NSColor, font: NSFont?)])?
+    /// Offsets in a range that are inside strings or comments, from the
+    /// highlighter's cache: bracket matching skips them (D202).
+    var literals: ((NSRange) -> IndexSet)?
     private var styles: [String: SyntaxStyle?] = [:]
     private var fonts: [String: NSFont] = [:]
 
     init(theme: ColorTheme) {
         self.theme = theme
+    }
+
+    /// A semantic span's color: the first of its captures the theme styles.
+    func semanticColor(_ captures: [String]) -> NSColor? {
+        for capture in captures {
+            if let color = style(forCapture: capture)?.color { return color.nsColor }
+        }
+        return nil
+    }
+
+    /// Spans keep their text through an edit; the ones it touched go until the server answers again.
+    func moveSemantic(by edit: TextEdit) {
+        guard !semantic.isEmpty else { return }
+        let end = NSMaxRange(edit.range)
+        // Not through `didSet`: the highlighter repaints the edit itself.
+        let moved = semantic.compactMap { span -> SemanticSpan? in
+            if NSMaxRange(span.range) <= edit.range.location { return span }
+            guard span.range.location >= end else { return nil }
+            var span = span
+            span.range.location += edit.delta
+            return span
+        }
+        let handler = onSemanticChange
+        onSemanticChange = nil
+        semantic = moved
+        onSemanticChange = handler
     }
 
     func style(forCapture capture: String) -> SyntaxStyle? {
@@ -192,7 +232,21 @@ final class SyntaxHighlightCoordinator {
             }
             return runs
         }
+        palette.literals = { [weak self] range in
+            guard let self else { return IndexSet() }
+            var set = IndexSet()
+            cache.spans.forEach(in: range) { span in
+                guard self.isLiteral(span.capture) else { return }
+                set.insert(integersIn: max(span.start, range.location)..<min(span.end, NSMaxRange(range)))
+            }
+            return set
+        }
         palette.onFadedChange = { [weak self] changed in
+            guard let self else { return }
+            painted.subtract(changed)
+            paintVisible()
+        }
+        palette.onSemanticChange = { [weak self] changed in
             guard let self else { return }
             painted.subtract(changed)
             paintVisible()
@@ -237,6 +291,7 @@ final class SyntaxHighlightCoordinator {
         snapshot = new
 
         let version = cache.apply(edit)
+        palette.moveSemantic(by: edit)
         let lines = Range(new.string.lineRange(for: NSRange(location: edit.range.location, length: edit.newLength))) ?? 0..<0
         painted = edit.map(painted)
         painted.remove(integersIn: lines)
@@ -307,10 +362,53 @@ final class SyntaxHighlightCoordinator {
                 guard clipped.length > 0, let spanRange = NSTextRange(clipped, in: manager) else { return }
                 layoutManager.addRenderingAttribute(.foregroundColor, value: style.color, for: spanRange)
             }
+            paintSemantic(in: range)
             paintFaded(in: range)
         }
         painted.formUnion(todo)
         redraw(todo)
+    }
+
+    /// Whether a capture id is a string or a comment, by its name.
+    private var literalCaptures: [Bool] = []
+
+    private func isLiteral(_ id: UInt16) -> Bool {
+        let index = Int(id)
+        if index >= literalCaptures.count {
+            literalCaptures += CaptureTable.names(from: literalCaptures.count).map { $0.hasPrefix("string") || $0.hasPrefix("comment") }
+        }
+        return index < literalCaptures.count && literalCaptures[index]
+    }
+
+    /// Semantic colors by their captures, resolved once per theme.
+    private var semanticColors: [[String]: NSColor?] = [:]
+
+    private func paintSemantic(in range: NSRange) {
+        let spans = palette.semantic
+        guard let textView, !spans.isEmpty else { return }
+        let manager = textView.textContentManager
+        let layoutManager = textView.textLayoutManager
+        // The first span ending after the range starts.
+        var low = 0, high = spans.count
+        while low < high {
+            let middle = (low + high) / 2
+            if NSMaxRange(spans[middle].range) <= range.location { low = middle + 1 } else { high = middle }
+        }
+        var index = low
+        while index < spans.count, spans[index].range.location < NSMaxRange(range) {
+            let span = spans[index]
+            index += 1
+            let color: NSColor?
+            if let cached = semanticColors[span.captures] {
+                color = cached
+            } else {
+                color = palette.semanticColor(span.captures)
+                semanticColors[span.captures] = color
+            }
+            let clipped = NSIntersectionRange(span.range, range)
+            guard let color, clipped.length > 0, let textRange = NSTextRange(clipped, in: manager) else { continue }
+            layoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
+        }
     }
 
     /// Faded code keeps its colors at lower opacity; plain text in it fades from the text color.
@@ -444,6 +542,7 @@ final class SyntaxHighlightCoordinator {
     /// Theme, font size or text color changed: repaint everything from the cache.
     private func restyle() {
         styles.removeAll()
+        semanticColors.removeAll()
         painted.removeAll()
         fontsDone.removeAll()
         paintVisible()
@@ -535,4 +634,10 @@ final class StaticHighlighter: SyntaxHighlighting {
     nonisolated static func firstLine(of text: String) -> String {
         String(text.prefix(256).prefix { !$0.isNewline })
     }
+}
+
+/// A name the server classified, as the captures to color it with (D201).
+struct SemanticSpan: Equatable {
+    var range: NSRange
+    var captures: [String]
 }

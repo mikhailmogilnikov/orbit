@@ -32,13 +32,10 @@ final class EditorIndentation {
     }
 }
 
-/// Tab, ⇧Tab, Return and Backspace by the file's indentation, as other editors do.
+/// Tabs drawn as wide as the file indents; Tab, ⇧Tab, Return and Backspace
+/// by its indentation are `CaretEditing`'s (D202).
 @MainActor
 enum IndentEditing {
-    private static func text(_ textView: STTextView) -> NSString {
-        ((textView.textContentManager as? NSTextContentStorage)?.textStorage?.string ?? textView.text ?? "") as NSString
-    }
-
     /// Draws tabs `size` columns wide; false when they already were.
     @discardableResult
     static func apply(_ indentation: Indentation, to textView: STTextView) -> Bool {
@@ -49,118 +46,6 @@ enum IndentEditing {
         style.tabStops = []
         style.defaultTabInterval = interval
         textView.defaultParagraphStyle = style
-        return true
-    }
-
-    /// Columns from the line's start to `offset`, tabs expanded.
-    private static func column(of offset: Int, lineStart: Int, in string: NSString, size: Int) -> Int {
-        var column = 0
-        for index in lineStart..<offset {
-            column = string.character(at: index) == 0x09 ? column + size - column % size : column + 1
-        }
-        return column
-    }
-
-    private static func leadingWhitespace(of line: NSRange, in string: NSString) -> NSRange {
-        var end = line.location
-        while end < NSMaxRange(line), [0x20, 0x09].contains(string.character(at: end)) { end += 1 }
-        return NSRange(location: line.location, length: end - line.location)
-    }
-
-    /// Tab: up to the next indent stop, or indents every selected line.
-    static func insertTab(in textView: STTextView, indentation: Indentation) {
-        let string = text(textView)
-        let selection = textView.textSelection
-        if selection.length > 0, string.substring(with: selection).contains("\n") {
-            shiftLines(in: textView, indentation: indentation, outward: false)
-            return
-        }
-        let lineStart = string.lineRange(for: NSRange(location: selection.location, length: 0)).location
-        let unit = indentation.spaces
-            ? String(repeating: " ", count: indentation.size - column(of: selection.location, lineStart: lineStart, in: string, size: indentation.size) % indentation.size)
-            : "\t"
-        textView.insertText(unit, replacementRange: selection)
-    }
-
-    /// ⇧Tab: one level out on every line the selection touches.
-    static func insertBacktab(in textView: STTextView, indentation: Indentation) {
-        shiftLines(in: textView, indentation: indentation, outward: true)
-    }
-
-    private static func shiftLines(in textView: STTextView, indentation: Indentation, outward: Bool) {
-        let string = text(textView)
-        let selection = textView.textSelection
-        var lines = string.lineRange(for: selection)
-        // A selection ending at a line's start doesn't take that line.
-        if selection.length > 0, NSMaxRange(selection) > lines.location, string.character(at: NSMaxRange(selection) - 1) == 0x0A {
-            lines.length = NSMaxRange(selection) - lines.location
-        }
-        var result: [String] = []
-        var firstDelta = 0
-        for (index, line) in string.substring(with: lines).components(separatedBy: "\n").enumerated() {
-            var changed = line
-            if outward {
-                if line.hasPrefix("\t") {
-                    changed.removeFirst()
-                } else {
-                    changed.removeFirst(min(indentation.size, line.prefix { $0 == " " }.count))
-                }
-            } else if !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                changed = indentation.unit + line
-            }
-            if index == 0 { firstDelta = (changed as NSString).length - (line as NSString).length }
-            result.append(changed)
-        }
-        let replacement = result.joined(separator: "\n")
-        guard replacement != string.substring(with: lines) else { return }
-        textView.breakUndoCoalescing()
-        textView.insertText(replacement, replacementRange: lines)
-        textView.breakUndoCoalescing()
-        let length = (replacement as NSString).length
-        textView.textSelection = selection.length == 0
-            ? NSRange(location: max(lines.location, selection.location + firstDelta), length: 0)
-            : NSRange(location: lines.location, length: length)
-    }
-
-    /// Return keeps the line's indentation, one level deeper after an opening
-    /// bracket; between a pair (`{|}`) the closing one goes on its own line.
-    static func insertNewline(in textView: STTextView, indentation: Indentation) {
-        let string = text(textView)
-        let selection = textView.textSelection
-        let line = string.lineRange(for: NSRange(location: selection.location, length: 0))
-        let leading = leadingWhitespace(of: line, in: string)
-        let indent = string.substring(with: NSRange(location: leading.location, length: min(leading.length, selection.location - leading.location)))
-        let before = string.substring(with: NSRange(location: line.location, length: selection.location - line.location))
-            .trimmingCharacters(in: .whitespaces)
-        let after = NSMaxRange(selection) < string.length ? string.substring(with: NSRange(location: NSMaxRange(selection), length: 1)) : ""
-        let pairs: [Character: String] = ["{": "}", "[": "]", "(": ")"]
-
-        var inserted = "\n" + indent
-        var caret: Int?
-        if let opener = before.last, let closer = pairs[opener] {
-            inserted += indentation.unit
-            if after == closer {
-                caret = (inserted as NSString).length
-                inserted += "\n" + indent
-            }
-        }
-        textView.breakUndoCoalescing()
-        textView.insertText(inserted, replacementRange: selection)
-        textView.breakUndoCoalescing()
-        if let caret { textView.textSelection = NSRange(location: selection.location + caret, length: 0) }
-    }
-
-    /// Backspace in a line's leading spaces deletes back to the previous indent stop.
-    static func deleteBackward(in textView: STTextView, indentation: Indentation) -> Bool {
-        guard indentation.spaces, indentation.size > 1 else { return false }
-        let string = text(textView)
-        let selection = textView.textSelection
-        guard selection.length == 0, selection.location > 0 else { return false }
-        let lineStart = string.lineRange(for: NSRange(location: selection.location, length: 0)).location
-        let before = NSRange(location: lineStart, length: selection.location - lineStart)
-        guard before.length > 0, string.substring(with: before).allSatisfy({ $0 == " " }) else { return false }
-        let count = (before.length - 1) % indentation.size + 1
-        textView.insertText("", replacementRange: NSRange(location: selection.location - count, length: count))
         return true
     }
 }

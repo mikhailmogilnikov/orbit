@@ -42,6 +42,12 @@ struct CodeEditor: NSViewRepresentable {
     var showsIndentGuides = true
     /// Bumped when the server's hints went stale.
     var inlayHintsRevision = 0
+    /// Recolors names the server classified (D201).
+    var semanticHighlighting = true
+    var showsCodeLenses = true
+    var formatsOnType = false
+    /// Bumped when the server's semantic tokens or lenses went stale.
+    var semanticTokensRevision = 0
     var onOpenLocation: (SourceLocation) -> Void = { _ in }
     /// `GrammarRegistry.revision`: a grammar was installed, re-pick this file's.
     var grammarRevision = 0
@@ -107,6 +113,7 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.definitionLink.characterOffset = { [weak coordinator] point in coordinator?.characterOffset(at: point) }
         textView.addPlugin(SymbolHighlightPlugin(controller: coordinator.symbolHighlights))
         coordinator.bracketMatch.textView = textView
+        coordinator.bracketMatch.literals = { [weak palette = coordinator.palette] range in palette?.literals?(range) ?? IndexSet() }
         coordinator.indentGuides.textView = textView
         coordinator.indentGuides.isEnabled = showsIndentGuides
         textView.addPlugin(IndentGuidesPlugin(controller: coordinator.indentGuides))
@@ -116,6 +123,23 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.inlayHints.textView = textView
         coordinator.inlayHints.url = document.url
         textView.addPlugin(InlayHintPlugin(controller: coordinator.inlayHints))
+        coordinator.semanticTokens.url = document.url
+        coordinator.linkedEditing.textView = textView as? OrbitTextView
+        coordinator.snippetPlaceholders.textView = textView
+        coordinator.completion.onSnippetChange = { [weak coordinator] ranges in coordinator?.snippetPlaceholders.ranges = ranges }
+        textView.addPlugin(SnippetPlaceholderPlugin(controller: coordinator.snippetPlaceholders))
+        coordinator.linkedEditing.url = document.url
+        coordinator.codeLenses.textView = textView
+        coordinator.codeLenses.url = document.url
+        coordinator.codeLenses.onFailure = { [weak textView] message in
+            guard textView?.window != nil else { return }
+            let alert = NSAlert()
+            alert.messageText = "Couldn't run the code lens"
+            alert.informativeText = message
+            alert.runSheetModal()
+        }
+        coordinator.inlineBlame.lensWidth = { [weak coordinator] line in coordinator?.codeLenses.width(onLine: line) }
+        textView.addPlugin(CodeLensPlugin(controller: coordinator.codeLenses))
         coordinator.folding.textView = textView
         coordinator.folding.url = document.url
         (textView.textContentManager as? NSTextContentStorage)?.delegate = coordinator.folding
@@ -196,6 +220,8 @@ struct CodeEditor: NSViewRepresentable {
                 coordinator.diagnosticsController.textDidChange()
                 coordinator.symbolHighlights.textDidChange()
                 coordinator.inlayHints.textWasReplaced()
+                coordinator.semanticTokens.textDidChange()
+                coordinator.codeLenses.textWasReplaced()
                 coordinator.folding.textWasReplaced(old: old)
             }
         }
@@ -248,6 +274,14 @@ struct CodeEditor: NSViewRepresentable {
             coordinator.folding.refresh()
         }
         coordinator.inlayHints.isEnabled = showsInlayHints
+        if coordinator.semanticTokens.languages == nil, languages != nil {
+            coordinator.semanticTokens.languages = languages
+            coordinator.codeLenses.languages = languages
+            coordinator.linkedEditing.languages = languages
+        }
+        coordinator.semanticTokens.isEnabled = semanticHighlighting && highlights
+        coordinator.codeLenses.isEnabled = showsCodeLenses && highlights
+        coordinator.formatsOnType = formatsOnType
         coordinator.stickyScroll.isEnabled = showsStickyScroll
         coordinator.indentGuides.isEnabled = showsIndentGuides
         // New problems mean the server has caught up with the text: its hints may have changed too.
@@ -255,6 +289,13 @@ struct CodeEditor: NSViewRepresentable {
             coordinator.inlayHintsRevision = inlayHintsRevision
             coordinator.inlayHints.refresh(after: .milliseconds(150))
             coordinator.folding.refresh(after: .milliseconds(150))
+            coordinator.semanticTokens.refresh(after: .milliseconds(150))
+        }
+        // Lenses count references across files: asked less eagerly than per keystroke's problems.
+        if coordinator.semanticTokensRevision != semanticTokensRevision {
+            coordinator.semanticTokensRevision = semanticTokensRevision
+            coordinator.semanticTokens.refresh(after: .milliseconds(150))
+            coordinator.codeLenses.refresh(after: .milliseconds(300))
         }
 
         if let reveal {
@@ -340,6 +381,16 @@ struct CodeEditor: NSViewRepresentable {
         let indentGuides = IndentGuidesController()
         lazy var definitionLink = DefinitionLinkController(geometry: diagnosticsController)
         lazy var inlayHints = InlayHintController(geometry: diagnosticsController)
+        lazy var semanticTokens = SemanticTokensController(geometry: diagnosticsController, palette: palette)
+        lazy var codeLenses = CodeLensController(geometry: diagnosticsController)
+        lazy var linkedEditing = LinkedEditingController(geometry: diagnosticsController)
+        lazy var snippetPlaceholders = SnippetPlaceholderController(geometry: diagnosticsController)
+        /// Selections before each Expand Selection, for Shrink (D202).
+        var expandedFrom: [[NSRange]] = []
+        var expandedTo: [NSRange]?
+        var semanticTokensRevision: Int?
+        var formatsOnType = false
+        private var onTypeFormatting: Task<Void, Never>?
         lazy var folding = FoldingController(geometry: diagnosticsController)
         lazy var stickyScroll = StickyScrollController(geometry: diagnosticsController, folding: folding, palette: palette)
         var inlayHintsRevision: Int?
@@ -372,6 +423,8 @@ struct CodeEditor: NSViewRepresentable {
         private var grammarRevision: Int?
         /// The edit being made, from `willChangeTextIn`, for completion after it lands.
         private var pendingEdit: (location: Int, length: Int, replacement: String)?
+        /// The last of a multi-caret keystroke's edits, for completion.
+        private var completionEdit: (location: Int, length: Int, replacement: String)?
 
         init(document: TextDocument) {
             self.document = document
@@ -425,6 +478,11 @@ struct CodeEditor: NSViewRepresentable {
             bracketMatch.color = foreground.withAlphaComponent(isDark ? 0.5 : 0.4)
             inlineBlame.color = theme.hint?.nsColor ?? foreground.withAlphaComponent(isDark ? 0.38 : 0.42)
             indentGuides.color = theme.indentGuide?.nsColor ?? ink.withAlphaComponent(isDark ? 0.12 : 0.1)
+            snippetPlaceholders.color = ink.withAlphaComponent(isDark ? 0.22 : 0.16)
+            codeLenses.colors = CodeLensController.Colors(
+                text: theme.hint?.nsColor ?? foreground.withAlphaComponent(isDark ? 0.38 : 0.42),
+                active: foreground
+            )
             inlayHints.colors = InlayHintController.Colors(
                 text: theme.hint?.nsColor ?? ink.withAlphaComponent(0.5),
                 background: theme.hintBackground?.nsColor ?? ink.withAlphaComponent(isDark ? 0.08 : 0.05)
@@ -505,7 +563,11 @@ struct CodeEditor: NSViewRepresentable {
             restoredTopLine = nil
             scheduleGitMarkers()
             scheduleImageReferences()
-            diagnosticsController.textDidChange()
+            let typed = isApplyingExternalChange ? nil : pendingEdit.map {
+                TextEdit(range: NSRange(location: $0.location, length: $0.length), newLength: $0.replacement.utf16.count)
+            }
+            diagnosticsController.textDidChange(typed)
+            linkedEditing.textDidChange()
             updateOverview()
             symbolHighlights.textDidChange()
             inlineBlame.textDidChange()
@@ -517,6 +579,8 @@ struct CodeEditor: NSViewRepresentable {
                 let change = TextEdit(range: NSRange(location: edit.location, length: edit.length), newLength: edit.replacement.utf16.count)
                 inlayHints.textDidChange(change)
                 folding.textDidChange(change)
+                codeLenses.textDidChange(change)
+                semanticTokens.textDidChange()
             }
             guard !isApplyingExternalChange, let textView else {
                 closePopups()
@@ -524,11 +588,38 @@ struct CodeEditor: NSViewRepresentable {
             }
             document.text = textView.text ?? ""
             syncedRevision = document.revision
-            // Completion inserts at one caret: with several it would leave the others behind.
+            guard let edit else { return }
+            formatAfterTyping(edit.replacement)
             if textView.hasMultipleSelections {
-                closePopups()
-            } else if let edit {
+                // Each caret's edit comes on its own, the bottom one first: the list
+                // follows the top one, whose place no later edit moves (D202).
+                let isScheduled = completionEdit != nil
+                completionEdit = edit
+                guard !isScheduled else { return }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let edit = completionEdit else { return }
+                    completionEdit = nil
+                    completion.textDidChange(location: edit.location, oldLength: edit.length, replacement: edit.replacement)
+                }
+            } else {
                 completion.textDidChange(location: edit.location, oldLength: edit.length, replacement: edit.replacement)
+            }
+        }
+
+        /// A trigger character the server asked for (`;`, `}`, Return) tidies
+        /// around the caret, unless more typing came first (D203).
+        private func formatAfterTyping(_ replacement: String) {
+            onTypeFormatting?.cancel()
+            guard formatsOnType, let languages, let textView, !textView.hasMultipleSelections, !completion.isApplying else { return }
+            let typed = replacement.hasPrefix("\n") ? "\n" : replacement
+            guard typed.utf16.count == 1, languages.triggers(for: document.url).formatOnType.contains(typed) else { return }
+            let position = SourcePosition(offset: textView.textSelection.location, in: diagnosticsController.lineStarts)
+            let revision = document.revision
+            let url = document.url
+            onTypeFormatting = Task { [weak self] in
+                let edits = await languages.formatOnType(typed, at: position, in: url)
+                guard !Task.isCancelled, let self, document.revision == revision, !edits.isEmpty else { return }
+                applyEdits(edits)
             }
         }
 
@@ -605,6 +696,7 @@ struct CodeEditor: NSViewRepresentable {
             if let textView { symbolHighlights.caretMoved(to: textView.textSelection) }
             bracketMatch.caretMoved()
             inlineBlame.caretMoved()
+            linkedEditing.caretMoved()
             folding.revealCaret()
             ActiveEditor.shared.coordinator = self
             ruler?.needsDisplay = true
@@ -898,6 +990,9 @@ final class OrbitTextView: STTextView {
     var syntaxLanguage: SyntaxLanguage?
     var closesBrackets = true
     var indentation = Indentation(size: 4, spaces: true)
+    /// Ranges typing goes to together (a tag's name and its closing tag's, D202).
+    var linkedRanges: [NSRange] = []
+    var isLinkedEditing = false
     /// An image pasted into Markdown (D152): saved beside the file, the text to insert instead.
     var onPasteImage: ((NSPasteboard) -> String?)?
     private var hoverArea: NSTrackingArea?
@@ -911,38 +1006,69 @@ final class OrbitTextView: STTextView {
     }
 
     /// Typing (no replacement range; marked text from an input method passes through).
+    /// Brackets close at every caret (D202).
     override func insertText(_ string: Any, replacementRange: NSRange) {
-        if closesBrackets, replacementRange.location == NSNotFound, !hasMarkedText(), !hasMultipleSelections, let language = syntaxLanguage,
-           let typed = (string as? String) ?? (string as? NSAttributedString)?.string, typed.count == 1,
-           EditingRules.type(typed, in: self, language: language) {
+        if replacementRange.location == NSNotFound, !linkedRanges.isEmpty,
+           let typed = (string as? String) ?? (string as? NSAttributedString)?.string, linkedEdit(typed, deleting: false) {
             return
+        }
+        if closesBrackets, replacementRange.location == NSNotFound, !hasMarkedText(), let brackets = syntaxLanguage?.brackets,
+           let typed = (string as? String) ?? (string as? NSAttributedString)?.string, typed.count == 1 {
+            let text = documentText
+            let selections = selectionRanges
+            let changes = selections.map {
+                CaretEditing.typed(typed, in: text, at: $0, brackets: brackets, autocloseBefore: syntaxLanguage?.autocloseBefore)
+            }
+            if changes.contains(where: { $0 != nil }) {
+                applyCarets(zip(changes, selections).map { $0 ?? CaretEditing.plain(typed, at: $1) })
+                return
+            }
         }
         super.insertText(string, replacementRange: replacementRange)
     }
 
-    // The indentation and bracket rules know one caret; with several, plain edits at each.
-    override func insertTab(_ sender: Any?) {
-        guard !hasMultipleSelections else {
-            return insertText(indentation.spaces ? String(repeating: " ", count: indentation.size) : "\t", replacementRange: .notFound)
+    /// Every caret's change as one edit (one undo step); a change that only moves carets moves them.
+    private func applyCarets(_ changes: [CaretEditing.Change]) {
+        let text = documentText
+        guard let edit = CaretEditing.combine(changes, in: text) else { return }
+        if text.substring(with: edit.range) == edit.replacement {
+            selectionRanges = edit.selections
+            return
         }
-        IndentEditing.insertTab(in: self, indentation: indentation)
+        apply(edit)
+    }
+
+    /// Lines any selection spans get indented together; otherwise each caret goes to its next stop.
+    override func insertTab(_ sender: Any?) {
+        let text = documentText
+        let selections = selectionRanges
+        if selections.contains(where: { $0.length > 0 && text.substring(with: $0).contains("\n") }) {
+            if let edit = CaretEditing.shiftLines(text, selections: selections, indentation: indentation, outward: false) { apply(edit) }
+            return
+        }
+        applyCarets(selections.map { CaretEditing.tab(text, at: $0, indentation: indentation) })
     }
 
     override func insertBacktab(_ sender: Any?) {
-        guard !hasMultipleSelections else { return }
-        IndentEditing.insertBacktab(in: self, indentation: indentation)
+        if let edit = CaretEditing.shiftLines(documentText, selections: selectionRanges, indentation: indentation, outward: true) { apply(edit) }
     }
 
     override func insertNewline(_ sender: Any?) {
-        guard !hasMultipleSelections else { return super.insertNewline(sender) }
-        IndentEditing.insertNewline(in: self, indentation: indentation)
+        let text = documentText
+        applyCarets(selectionRanges.map { CaretEditing.newline(text, at: $0, indentation: indentation) })
     }
 
     override func deleteBackward(_ sender: Any?) {
-        guard !hasMultipleSelections else { return super.deleteBackward(sender) }
-        if IndentEditing.deleteBackward(in: self, indentation: indentation) { return }
-        if closesBrackets, let language = syntaxLanguage, EditingRules.deleteBackward(in: self, language: language) { return }
-        super.deleteBackward(sender)
+        if linkedEdit("", deleting: true) { return }
+        let text = documentText
+        let selections = selectionRanges
+        let brackets = closesBrackets ? syntaxLanguage?.brackets ?? [] : []
+        let changes = selections.map { selection in
+            CaretEditing.indentBackspace(text, at: selection, indentation: indentation)
+                ?? CaretEditing.deletePair(text, at: selection, brackets: brackets)
+        }
+        guard changes.contains(where: { $0 != nil }) else { return super.deleteBackward(sender) }
+        applyCarets(zip(changes, selections).map { $0 ?? CaretEditing.plainDelete(text, at: $1) })
     }
 
     override func updateTrackingAreas() {

@@ -29,6 +29,8 @@ final class GitModel {
     /// Absolute paths (no trailing slash) matched by `.gitignore`.
     private(set) var ignoredPaths: Set<String> = []
     private(set) var branches: [String] = []
+    /// `origin/main` and the like, for History's scope and Compare (D204).
+    private(set) var remoteBranches: [String] = []
     private(set) var stashes: [GitStash] = []
     /// Recent commits of HEAD, newest first.
     private(set) var history: [GitCommit] = [] {
@@ -198,7 +200,7 @@ final class GitModel {
         let query = historyQuery.trimmingCharacters(in: .whitespaces)
         // Weakly: a model turned off (D194) goes even while git still runs.
         refreshTask = Task { [weak self] in
-            let result = await Task.detached(priority: .utility) { () -> (GitStatus, [String], [GitStash], [GitCommit], [String])? in
+            let result = await Task.detached(priority: .utility) { () -> (GitStatus, [String], [String], [GitStash], [GitCommit], [String])? in
                 guard repository.isRepository(), let status = try? repository.status() else { return nil }
                 let history: [GitCommit]
                 switch scope {
@@ -214,19 +216,20 @@ final class GitModel {
                     history = query.isEmpty ? repository.log(revisions: revisions, limit: revisions.isEmpty ? 200 : 400)
                         : repository.searchLog(query, revisions: revisions)
                 }
-                return (status, (try? repository.branches()) ?? [], repository.stashes(), history, repository.ignoredPaths())
+                return (status, (try? repository.branches()) ?? [], repository.remoteBranches(), repository.stashes(), history, repository.ignoredPaths())
             }.value
             // Cancelled: the folder changed and a run for the new one took over.
             guard !Task.isCancelled, let self else { return }
             isRefreshing = false
             defer { if needsRefresh { refresh() } }
             guard repository.root == root else { return }
-            if let (status, branches, stashes, history, ignored) = result {
+            if let (status, branches, remoteBranches, stashes, history, ignored) = result {
                 let rootPath = repository.root.standardizedFileURL.path
                 let ignoredPaths = Set(ignored.map { rootPath + "/" + ($0.hasSuffix("/") ? String($0.dropLast()) : $0) })
                 if self.ignoredPaths != ignoredPaths { self.ignoredPaths = ignoredPaths }
                 if self.status != status { self.status = status }
                 if self.branches != branches { self.branches = branches }
+                if self.remoteBranches != remoteBranches { self.remoteBranches = remoteBranches }
                 if self.stashes != stashes { self.stashes = stashes }
                 if self.history != history { self.history = history }
                 state = .ready
@@ -646,8 +649,46 @@ extension GitModel: LineBlaming {
         guard let repository, let path = repositoryPath(of: url) else { return [] }
         let branches = self.branches
         let commits = await Task.detached(priority: .userInitiated) { repository.fileLog(path: path, limit: 30) }.value
-        return branches.map { ($0, "Branch", $0) }
+        return branches.map { ($0, "Branch", $0) } + remoteBranches.map { ($0, "Remote branch", $0) }
             + commits.map { ($0.subject.isEmpty ? $0.shortHash : $0.subject, "\($0.shortHash) · \($0.author), \($0.date.formatted(.relative(presentation: .named)))", $0.hash) }
+    }
+
+    // MARK: - A file at a revision (D204)
+
+    static let revisionKind = "git.revision"
+
+    /// The file as a commit left it, each line with who wrote it.
+    func openRevision(path: String, at hash: String) {
+        guard let root else { return }
+        let url = root.appendingPathComponent(path)
+        workspace.open(EditorTab(
+            id: "\(Self.revisionKind):\(hash):\(path)",
+            kind: Self.revisionKind,
+            title: "\(url.lastPathComponent) @ \(Self.shortRevision(hash))",
+            systemImage: "person.text.rectangle",
+            url: url
+        ))
+    }
+
+    /// `abc1234`, or `abc1234^` for the one before it.
+    nonisolated static func shortRevision(_ revision: String) -> String {
+        let parent = revision.hasSuffix("^")
+        let base = parent ? String(revision.dropLast()) : revision
+        let short = base.count == 40 && base.allSatisfy(\.isHexDigit) ? String(base.prefix(7)) : base
+        return parent ? short + "^" : short
+    }
+
+    /// A revision tab's file: the commit, its text and its blame.
+    func revision(for tab: EditorTab) async -> (hash: String, path: String, commit: GitCommit?, text: String?, blame: [GitBlameLine])? {
+        let parts = tab.id.split(separator: ":", maxSplits: 2).map(String.init)
+        guard parts.count == 3, let repository else { return nil }
+        let hash = parts[1], path = parts[2]
+        let (side, blame, commit) = await Task.detached(priority: .userInitiated) {
+            (repository.contents(of: path, at: hash), repository.blame(path: path, at: hash) ?? [],
+             repository.log(revisions: [hash], limit: 1).first)
+        }.value
+        guard case .text(let text)? = side else { return (hash, path, commit, nil, []) }
+        return (hash, path, commit, text, blame)
     }
 
     func showCommit(_ hash: String, file url: URL) {
