@@ -3423,7 +3423,7 @@ With no tab open the editor area showed a big icon, "Orbit", the project's
 name, a card of rows with key caps and the version: a launcher in the middle
 of the window. Apple's apps keep that space quiet (Xcode's "No Editor",
 Finder's empty folder), so it now shows a small icon, the project's name, one
-line on what to do, and four shortcuts as plain text centered on a line,
-names on the left and their keys on the right in menu glyphs, both brightening
+line on what to do, and four shortcuts as plain text in a grid centered
+on its own width, names on the left and their keys on the right in menu glyphs, both brightening
 under the pointer. No card, no key caps, no version (it's in About). The
 same view without a folder offers Open Folder first.

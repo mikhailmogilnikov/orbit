@@ -1230,7 +1230,8 @@ struct WelcomeView: View {
                     .foregroundStyle(.secondary)
             }
 
-            VStack(spacing: 8) {
+            // Sized to its rows, so the block centers on its real width.
+            Grid(horizontalSpacing: 14, verticalSpacing: 8) {
                 if workspace.root == nil {
                     WelcomeActionRow(command: host.commands.all.first { $0.id == "workspace.openFolder" })
                 }
@@ -1249,8 +1250,8 @@ struct WelcomeView: View {
     }
 }
 
-/// "New Agent Session   ⇧⌘N": the name on the left of a center line, its
-/// shortcut on the right, both quiet until the pointer is over them.
+/// "New Agent Session   ⇧⌘N": a row of `WelcomeView`'s grid, the name
+/// right-aligned and its shortcut left-aligned, quiet until hovered.
 struct WelcomeActionRow: View {
     let title: String
     let shortcut: String?
@@ -1275,24 +1276,26 @@ struct WelcomeActionRow: View {
     }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Text(title)
-                    .frame(width: 180, alignment: .trailing)
-                Text(shortcut ?? "")
-                    .tracking(1.5)
-                    .foregroundStyle(isHovering && isEnabled ? .secondary : .tertiary)
-                    .frame(width: 180, alignment: .leading)
-            }
-            .font(.orbit(.control))
-            .foregroundStyle(isHovering && isEnabled ? .primary : .secondary)
-            .contentShape(.rect)
+        GridRow {
+            cell(Text(title))
+                .gridColumnAlignment(.trailing)
+            cell(Text(shortcut ?? "").tracking(1.5).foregroundStyle(isHovering && isEnabled ? .secondary : .tertiary))
+                .gridColumnAlignment(.leading)
         }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
+        .font(.orbit(.control))
+        .foregroundStyle(isHovering && isEnabled ? .primary : .secondary)
         .opacity(isEnabled ? 1 : 0.45)
-        .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovering)
+    }
+
+    /// Either half of the row hovers and clicks as the whole row.
+    private func cell(_ content: some View) -> some View {
+        content
+            .contentShape(.rect)
+            .onHover { isHovering = $0 }
+            .onTapGesture { if isEnabled { action() } }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(title)
     }
 }
 
