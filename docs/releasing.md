@@ -72,9 +72,10 @@ On another Mac, import it with `generate_keys -f <file>`.
    make release-publish VERSION=0.2.0
    ```
    Creates the GitHub release `v0.2.0` at the current commit (tagging it),
-   uploads both files and writes release notes from the commits since the
-   previous release. Needs `gh` logged in. Edit the notes on GitHub
-   afterwards if they need a human summary.
+   uploads both files and generates release notes: the pull requests merged
+   since the previous release, grouped by label (`.github/release.yml`),
+   and a link to the full diff. Commits pushed straight to `master` aren't
+   listed, so write a human summary on GitHub afterwards. Needs `gh` logged in.
 6. **Check the update.** On a Mac with the previous version installed,
    **Check for Updates…** should offer the new one, then install and
    relaunch.
