@@ -178,6 +178,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D168. Tabs like Xcode 26 and Safari 26
 - D169. The sidebar switcher is Xcode's navigator bar
 - D170. A quieter status bar
+- D171. Source Control looks like Xcode's navigator
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3476,3 +3477,13 @@ bottom area, plus the errors or warnings a panel reports (a red octagon or
 yellow triangle with the count), which open that panel. Plain counts
 (references found) stay on the panel's tab, and the divider after the
 toggles is gone.
+
+### D171. Source Control looks like Xcode's navigator
+
+The panel was already the system's sidebar list with Staged / Changes
+sections. Two pieces now match Xcode and the rest of Orbit:
+- A file's status letter (M, A, D, U…) sits on a small square tinted with
+  its color, as in Xcode's source control navigator, in the changes and in a
+  commit's files.
+- The commit message field is glass like the chat's composer (D163) instead
+  of a filled box with a hairline. Commit stays the prominent button under it.

@@ -150,11 +150,11 @@ private struct CommitBox: View {
                         .disabled(model.status.files.isEmpty)
                 }
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 4)
-            .padding(.vertical, 6)
-            .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
-            .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(Theme.hairline))
+            .padding(.leading, 10)
+            .padding(.trailing, 6)
+            .padding(.vertical, 8)
+            // Glass like the chat's composer (D171).
+            .glassEffect(.regular, in: .rect(cornerRadius: Theme.corner, style: .continuous))
             .onKeyPress(.return, phases: .down) { press in
                 // ⌘↩ commits from the field; plain Return keeps adding lines.
                 guard press.modifiers.contains(.command) else { return .ignored }
@@ -637,10 +637,7 @@ private struct CommitFileRow: View {
                     .truncationMode(.head)
             }
             Spacer(minLength: 4)
-            Text(String(file.status.rawValue))
-                .font(.orbit(.caption, weight: .semibold, design: .monospaced))
-                .foregroundStyle(file.status.color)
-                .frame(width: 12)
+            StatusLetter(kind: file.status)
         }
         .contentShape(.rect)
         .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
@@ -717,10 +714,7 @@ private struct ChangeRow: View {
             } else if kind == .conflicted, isHovered {
                 IconButton("plus", help: "Mark Resolved") { model.stage([file]) }
             }
-            Text(String(kind.rawValue))
-                .font(.orbit(.caption, weight: .semibold, design: .monospaced))
-                .foregroundStyle(kind.color)
-                .frame(width: 12)
+            StatusLetter(kind: kind)
         }
         .contentShape(.rect)
         .onHover { isHovered = $0 }
@@ -745,6 +739,20 @@ private struct ChangeRow: View {
         .help(file.originalPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 
+}
+
+/// "M", "A", "D" on a tinted square at the row's end, like Xcode's
+/// source control navigator (D171).
+private struct StatusLetter: View {
+    let kind: GitFileStatus.Kind
+
+    var body: some View {
+        Text(String(kind.rawValue))
+            .font(.orbit(.micro, weight: .bold, design: .monospaced))
+            .foregroundStyle(kind.color)
+            .frame(width: 16, height: 16)
+            .background(kind.color.opacity(0.15), in: .rect(cornerRadius: Theme.tinyCorner, style: .continuous))
+    }
 }
 
 extension GitFileStatus.Kind {

@@ -412,6 +412,7 @@ Everything below is known to be missing; nothing here is in progress.
 - Tabs (D168): checked in the preview copy (glass current tab, a drag reorder that slides into place); the hover close button, unsaved dot and chat tabs not seen live.
 - Navigator bar (D169): checked in the preview copy (dark, no theme accent).
 - Status bar (D170): the panel button checked in the preview copy; the error / warning counts not seen with real problems yet.
+- Source Control look (D171): checked in the preview copy (dark); light mode and conflicts not looked at.
 - Sheets (D162): the open panel checked on a Mac as a sheet; alerts (delete, discard, unsaved changes, install failures) not raised live yet.
 - Palette like Spotlight (D161): checked on a Mac (dark); the theme selector's rows and plugins' picks with long titles not looked at.
 - Welcome screen like Xcode's (D160): checked on a Mac in both modes; Return on a selected project and the context menu not tried.
