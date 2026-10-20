@@ -2313,6 +2313,20 @@ ignoring the safe area in SwiftUI (the inset comes from AppKit),
 `.inspector` on the whole `NavigationSplitView` (then the inspector is
 counted twice).
 
+The cancel is written a run loop late (window changes go async). Opening
+the sidebar, the editor column kept the whole inherited inset for a frame on
+top of its own padding: logged per frame, the tabs and code jumped to twice
+the sidebar's width, then back. `EditorArea` now ignores its leading safe
+area (outside its padding, or it has no effect), so the padding alone clears
+the sidebar and the content follows it frame by frame; the cancel only keeps
+the min width right.
+
+The tab row's room for the traffic lights switched between 76 and 6 pt on the
+visibility flag: it jumped when the slide began and animated on its own
+clock, so the tabs went one way, then the other. It is now
+`76 − sidebar inset` (at least 6), so it shrinks exactly as the sidebar
+covers the traffic lights; logged per frame, the tabs move one way only.
+
 ### D105. Text editing basics: line moves, multiple carets, Go to Line, bracket match, zoom
 
 What any editor has and Orbit didn't (bracket autoclose was already there, D73):

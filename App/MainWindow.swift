@@ -314,7 +314,7 @@ struct EditorArea: View {
     var body: some View {
         let workspace = host.workspace
         VStack(spacing: 0) {
-            WindowTopBar(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector, areaWidth: width)
+            WindowTopBar(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector, areaWidth: width, sidebarInset: sidebarInset)
             Divider()
             Group {
                 if workspace.allTabs.isEmpty {
@@ -352,6 +352,11 @@ struct EditorArea: View {
         // Switching tabs swaps the editor view; its min size must not reach the
         // split view (constraint-loop crash, same as InspectorHost).
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        // The column's inherited inset is cancelled a run loop late
+        // (SidebarInsetCanceller): for a frame after the sidebar opens it
+        // counted on top of the padding and everything jumped twice as far,
+        // then back. Ignored here, the padding alone clears the sidebar.
+        .ignoresSafeArea(.container, edges: .leading)
         .nativeSurface(.background)
         .background(SidebarInsetCanceller(inset: sidebarInset))
     }
@@ -496,11 +501,13 @@ struct WindowTopBar: View {
     @Binding var showsInspector: Bool
     /// The editor area's width: a split puts each group's tabs over its editor.
     let areaWidth: CGFloat
+    /// How much of the window the sidebar covers right now (it slides).
+    let sidebarInset: CGFloat
     @State private var tabsMinX: CGFloat = 0
     @State private var isFullScreen = false
 
-    /// With the sidebar hidden, the traffic lights sit over the start of this
-    /// row (not in full screen).
+    /// The traffic lights take the window's first 76 pt (not in full screen):
+    /// the row clears what of them the sidebar doesn't cover.
     private static let windowedInset: CGFloat = 76
     private static let fullScreenInset: CGFloat = 6
 
@@ -535,7 +542,10 @@ struct WindowTopBar: View {
                 showsInspector.toggle()
             }
         }
-        .padding(.leading, sidebarHidden ? (isFullScreen ? Self.fullScreenInset : Self.windowedInset) : 6)
+        // Follows the sliding sidebar frame by frame (D104). Switched on the
+        // visibility flag, it jumped at the start of the slide and animated
+        // on its own clock, so the tabs went one way and then the other.
+        .padding(.leading, isFullScreen ? Self.fullScreenInset : max(Self.fullScreenInset, Self.windowedInset - sidebarInset))
         .padding(.trailing, 8)
         .frame(height: Theme.topBarHeight)
         .background {
