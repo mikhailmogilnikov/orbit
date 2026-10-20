@@ -42,8 +42,16 @@ struct MainWindow: View {
         // A tab being dragged follows the pointer over the whole window (D91).
         .overlay { TabDragOverlay(workspace: workspace) }
         .overlay { TabSwitcherOverlay(workspace: workspace) }
+        // The first launch's tour (D205), over everything, the top bar too.
+        .overlay {
+            if Onboarding.shared.isShowing(in: host) {
+                OnboardingView(host: host)
+                    .transition(.opacity)
+            }
+        }
         .environment(tabDrag)
         .onAppear {
+            Onboarding.shared.windowAppeared(host)
             registerLayoutCommands()
             let services = host.services
             tabDrag.agent = { services.resolve(AgentTasks.self) }

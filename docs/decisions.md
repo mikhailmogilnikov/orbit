@@ -214,6 +214,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D202. Every caret gets the typing rules; linked tags, Expand Selection, squiggles that move
 - D203. Formatters in a row from settings; format on type
 - D204. Remote branches in History; a file at a commit, with its blame
+- D205. A first-launch tour: a short film, four setup steps, one closing line
 - D206. GPL-3.0, and the files an open-source repo is expected to have
 - D207. Dependencies' licenses in About Orbit
 
@@ -4235,6 +4236,46 @@ a pull would bring, needed All), and blame was only of the working file.
   a hairline. A run's menu shows its commit's changes or opens the file
   **before** that commit (`<hash>^`), walking a line's history back one
   change at a time. Read-only; Open File goes to the working copy.
+
+### D205. A first-launch tour: a short film, four setup steps, one closing line
+
+A new user landed on the welcome window with no agent installed and no idea
+that agent changes are reviewed in the editor, the one thing Orbit is about.
+Dia's onboarding (a cinematic intro, then a card of steps) showed how much a
+first minute can say; ours borrows the shape, not the look.
+
+- **The film** (~16 s, Skip Intro / Esc): night and stars; Orbit's mark
+  comes out of a blur, the agents themselves (their icons on dark tiles,
+  installed or from the registry) circle it on nested orbits in one plane; it settles above "Agents write the code. / You decide what
+  stays."; then a
+  small editor where Claude rewrites a line, the change shows inline (red
+  ghost, green lines, the banner) and Keep is pressed. The demo uses the
+  real color theme, so it looks like the editor it advertises.
+- **Setup**, a Liquid Glass card over a planet's faint horizon, a segmented
+  white rail on top, each step with a live picture on the right:
+  1. *Agents*: Claude, Codex, Gemini, Cursor, Copilot, OpenCode from the
+     agents' `ExtensionSource` (D192) with Get buttons; installed agents
+     circle Orbit's mark in the picture, joining it as they install.
+  2. *Look*: System / Light / Dark tiles, then installed themes and the most
+     downloaded of Zed's catalog (installed on click); hover tries one on
+     the demo editor.
+  3. *Review*: the keys of reviewing, read from the commands so rebound keys
+     show (D107), beside the demo playing on a loop.
+  4. *Terminal*: installs the `orbit` command (D142), with `orbit .` typed
+     in a little terminal.
+- **The close**: "Your agents are in orbit." with a glint of light passing
+  over it, then the window underneath.
+
+No glossy 3D planet, crossing "atom" rings, glowing colored dots or rainbow
+gradients: the first version had them and read as generic AI art. Night,
+white, and the agents' real icons. The step area takes exactly the size the
+card gives it (min 0, clipped): content taller than that pushed the rail and
+the buttons up and down.
+
+It's shell UI (`App/Onboarding.swift`), an overlay over the whole window
+including the top bar, forced dark: the film is night whatever the
+appearance. Shown once (`orbit.onboardingDone`), in the first window that
+appears; Help → Welcome to Orbit plays it again in the active window.
 
 ### D206. GPL-3.0, and the files an open-source repo is expected to have
 

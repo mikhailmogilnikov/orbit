@@ -89,6 +89,7 @@ enum MenuLayout {
     ]
 
     static let help: [Section] = [
+        [.command("shell.welcome")],
         [.command("shell.shortcuts")],
     ]
 

@@ -56,6 +56,9 @@ agents and review their work.
 
 ## Key UX decisions
 
+- **First launch:** a short film (agents orbiting a project, an agent change
+  kept inline), then four setup steps (agents, look, review keys, `orbit`
+  command) and a closing line (D205). Help → Welcome to Orbit replays it.
 - **Layout:** left navigator (Explorer, Search, Source Control), center tabs + editor + status
   bar, right inspector with agent sessions. Tabs sit in the title bar next to the traffic lights; the inspector toggle is at the end of that row.
 - **Agent chat:** multiple sessions as chips; transcript shows streamed text

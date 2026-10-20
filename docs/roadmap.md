@@ -4,6 +4,7 @@
 - App shell: navigator / tabs / inspector / status bar, command palette, menus from commands, settings
 - Open-source basics (D206): GPL-3.0, README, contributing / security / conduct, issue forms, CI on macOS and Linux;
   dependencies' licenses in About Orbit (D207)
+- First-launch tour (D205): an intro film, setup of agents / look / review keys / `orbit` command, Help → Welcome to Orbit
 - Extension packages bring snippets, agents, language servers and tasks besides themes and icons (D195):
   snippets in completion and Insert Snippet…, Zed's snippet extensions, a page per package, New Extension…
 - Plugin kernel (UI, commands, services registries); plugins turn on and off live, in every window,

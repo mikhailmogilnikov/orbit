@@ -266,6 +266,11 @@ final class ProjectWindows {
             if let host { ThemeSelector.show(in: host) }
         })
         host.commands.register(OrbitCommand(
+            id: "shell.welcome", title: "Welcome to Orbit", category: "Help", systemImage: "sparkles"
+        ) { [weak host] in
+            if let host { Onboarding.shared.show(in: host) }
+        })
+        host.commands.register(OrbitCommand(
             id: "shell.shortcuts", title: "Keyboard Shortcuts", category: "Help", systemImage: "keyboard"
         ) { [weak host] in
             CheatSheetState.shared.shownFor = host?.commands
