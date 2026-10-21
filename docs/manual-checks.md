@@ -194,6 +194,11 @@ code actions, rename, formatting and its corner note, the agent registry
   a page and a switch, Show All, "Get More Agents"; snippets in completion and
   their Tab stops, Insert Snippet…, a package's page, New Extension… / New
   Snippet File…, the catalog's Snippets tab.
+- Extension registry (D224) against the live `orbit-extensions`: Get More
+  Packages… and its count, the Packages filter's Available list, Install of
+  the examples, the sheet listing programs on the Settings window (try a
+  package with a task through `orbit.extensionRegistryURL` and a local
+  index), Update after a newer entry, offline with the cached index.
 - Extensions catalog: listing, download and unpack, try-on and the bar over
   the editor against the live Zed API; the theme selector (D49) and thumbnails.
 - Automatic updates and server switches (D186): a real daily update.

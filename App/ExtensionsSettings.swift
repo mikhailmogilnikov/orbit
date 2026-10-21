@@ -75,7 +75,7 @@ struct ExtensionsSettings: View {
                     }
                 }
             }
-            if let kind, let source = sources.first, query.isEmpty, kind != .packages, kind != .features {
+            if let kind, let source = sources.first, query.isEmpty, kind != .features {
                 // One kind, nothing typed: its whole catalog under what's installed.
                 AvailableSection(source: source, query: "", limit: nil)
             }
@@ -131,6 +131,15 @@ struct ExtensionsSettings: View {
                 .settingsItem("getMore." + source.kind.rawValue)
             }
         case .packages:
+            if kind == nil {
+                Button {
+                    withAnimation(.snappy) { kind = .packages }
+                } label: {
+                    AddRow(title: "Get More Packages…", trailing: source.isLoading ? nil : "\(source.available(matching: "").count)")
+                }
+                .buttonStyle(.plain)
+                .settingsItem("getMore.packages")
+            }
             catalogLink(query: "")
             SettingsLink("Your Snippets") {
                 SnippetsPage(root: host.workspace.root)
@@ -410,17 +419,22 @@ private struct ExtensionProblemsSection: View {
     }
 }
 
-/// Extension folders (D195): what each brings, its own page, uninstalling.
-/// Zed's catalog has a page of its own, where themes are tried on.
+/// Extension folders (D195): what each brings, its own page, uninstalling;
+/// Orbit's registry is their catalog (D224). Zed's catalog has a page of its
+/// own, where themes are tried on.
 final class PackageExtensionSource: ExtensionSource {
     let host: PluginHost
     init(host: PluginHost) { self.host = host }
 
     var kind: ExtensionKind { .packages }
-    var catalogName: String { "From Zed's extension catalog: themes, icons and snippets." }
+    var catalogName: String { "From Orbit's extension registry, github.com/mikhailmogilnikov/orbit-extensions. A package that runs programs asks before it's installed." }
+    var isLoading: Bool { ExtensionRegistry.shared.isLoading }
+    var loadError: String? { ExtensionRegistry.shared.loadError }
+    func refresh() async { await ExtensionRegistry.shared.refresh() }
 
     var installed: [ExtensionItem] {
         let catalog = ExtensionCatalog.shared
+        let registry = ExtensionRegistry.shared
         let host = host
         return Extensions.shared.installed.map { installed in
             var item = ExtensionItem(
@@ -435,14 +449,97 @@ final class PackageExtensionSource: ExtensionSource {
             if installed.manifest.description?.isEmpty == false {
                 item.summary += " — " + PackageContents.summary(of: installed)
             }
-            item.failure = catalog.failures[installed.id]
-            item.isBusy = catalog.busy.contains(installed.id)
+            item.failure = catalog.failures[installed.id] ?? registry.failures[installed.id]
+            item.isBusy = catalog.busy.contains(installed.id) || registry.busy.contains(installed.id)
+            if let entry = registry.entries.first(where: { $0.id == installed.id }), registry.hasUpdate(entry) {
+                item.latestVersion = entry.version
+                item.update = { await registry.install(entry, confirm: ProgramConsent.ask) }
+            }
             item.page = { AnyView(PackagePage(id: installed.id, host: host)) }
             return item
         }
     }
 
-    func available(matching query: String) -> [ExtensionItem] { [] }
+    func available(matching query: String) -> [ExtensionItem] {
+        let registry = ExtensionRegistry.shared
+        return registry.entries
+            .filter { registry.installed($0) == nil && !registry.isTaken($0) }
+            .map { entry in
+                let kinds = Self.kinds(entry.provides)
+                var item = ExtensionItem(
+                    id: "registry:" + entry.id, name: entry.name,
+                    summary: [entry.description, kinds.isEmpty ? nil : kinds.joined(separator: " · ")]
+                        .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " — "),
+                    detail: entry.version,
+                    keywords: ["extension", "package"] + kinds + entry.authors,
+                    isInstalled: false
+                ) {
+                    RegistryTile(entry: entry, size: 28)
+                }
+                item.isBusy = registry.busy.contains(entry.id)
+                item.failure = registry.failures[entry.id]
+                item.install = { await registry.install(entry, confirm: ProgramConsent.ask) }
+                return item
+            }
+            .filter { $0.matches(query) }
+    }
+
+    /// The registry's `provides`, said plainly.
+    static func kinds(_ provides: [String]) -> [String] {
+        let names = ["agents": "Agents", "language-servers": "Language servers", "tasks": "Tasks",
+                     "themes": "Themes", "icon-themes": "Icons", "snippets": "Snippets"]
+        return provides.compactMap { names[$0] }
+    }
+}
+
+/// Asks before a download that starts programs is installed (D224), naming each one.
+@MainActor
+enum ProgramConsent {
+    static func ask(_ entry: RegistryEntry, _ programs: [ExtensionProgram]) async -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "“\(entry.name)” runs programs on your Mac"
+        let authors = entry.authors.map { $0.split(separator: "<").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? $0 }
+        let lines = programs.map { program in
+            let kind = switch program.kind {
+            case .agent: "Agent"
+            case .languageServer: "Language server"
+            case .task: "Task"
+            }
+            return "\(kind) “\(program.name)”: \(program.command)"
+        }
+        alert.informativeText = """
+            Install it only if you trust \(authors.isEmpty ? "its author" : authors.formatted()). It can start:
+
+            \(lines.joined(separator: "\n"))
+
+            Agents and language servers start when you use them, tasks when you run them.
+            """
+        alert.addButton(withTitle: "Install")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runSheetModal() == .alertFirstButtonReturn
+    }
+}
+
+/// A registry entry's tile, picked as `PackageTile` picks an installed one's.
+struct RegistryTile: View {
+    let entry: RegistryEntry
+    let size: CGFloat
+
+    var body: some View {
+        let provides = Set(entry.provides)
+        let (symbol, tint): (String, Color) = if entry.runsPrograms {
+            ("shippingbox.fill", .pink)
+        } else if provides.contains("themes") {
+            ("paintpalette.fill", .purple)
+        } else if provides.contains("icon-themes") {
+            ("doc.richtext.fill", .orange)
+        } else if provides.contains("snippets") {
+            ("text.badge.plus", .teal)
+        } else {
+            ("shippingbox.fill", .gray)
+        }
+        SettingsTile(symbol, tint: tint, size: size)
+    }
 }
 
 /// What a package brings, said plainly: "2 themes · 14 snippets · 1 agent".
@@ -662,31 +759,16 @@ enum PackagePrograms {
     }
 
     static func list(of installed: InstalledExtension) -> [Program] {
-        let extensions = Extensions.shared
-        var programs: [Program] = []
-        for file in extensions.agentFiles where file.extensionID == installed.id {
-            let object = json(file.url)
-            let command = object?["command"] as? [String: Any]
-            let line = ([command?["executable"] as? String ?? "?"] + (command?["arguments"] as? [String] ?? [])).joined(separator: " ")
-            programs.append(Program(name: object?["name"] as? String ?? file.url.deletingPathExtension().lastPathComponent, command: line, symbol: "sparkles"))
-        }
-        for file in extensions.languageServerFiles where file.extensionID == installed.id {
-            for server in json(file.url)?["servers"] as? [[String: Any]] ?? [] {
-                let install = (server["install"] as? [String: Any])?["mason"] as? String
-                let command = server["command"] as? String ?? install.map { "Mason: \($0)" } ?? "?"
-                programs.append(Program(name: server["name"] as? String ?? "Language server", command: command, symbol: "curlybraces"))
+        // Read with the files' revision, so the page follows edits.
+        _ = Extensions.shared.revision
+        return Extensions.programs(in: installed.directory).map { program in
+            let symbol = switch program.kind {
+            case .agent: "sparkles"
+            case .languageServer: "curlybraces"
+            case .task: "play"
             }
+            return Program(name: program.name, command: program.command, symbol: symbol)
         }
-        for file in extensions.taskFiles where file.extensionID == installed.id {
-            for task in json(file.url)?["tasks"] as? [[String: Any]] ?? [] {
-                programs.append(Program(name: task["name"] as? String ?? "Task", command: task["command"] as? String ?? "?", symbol: "play"))
-            }
-        }
-        return programs
-    }
-
-    private static func json(_ url: URL) -> [String: Any]? {
-        (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.json5Allowed]) as? [String: Any] }
     }
 }
 

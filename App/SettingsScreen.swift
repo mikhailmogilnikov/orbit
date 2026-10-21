@@ -77,6 +77,7 @@ struct SettingsScreen: View {
                         SettingsItem("catalog", "Browse Themes, Icons & Snippets", keywords: ["install", "themes", "icons", "snippets", "zed"]),
                         SettingsItem("snippets", "Your Snippets", keywords: ["~/.orbit/snippets", "templates", "prefix"]),
                         SettingsItem("newExtension", "New Extension…", keywords: ["create", "package", "~/.orbit/extensions"]),
+                        SettingsItem("getMore.packages", "Get More Packages", keywords: ["install", "registry", "orbit-extensions", "tasks"]),
                     ]
                     + host.ui.extensionSources.map { SettingsItem("getMore." + $0.kind.rawValue, "Get More \($0.kind.title)", keywords: ["install", "catalog"]) }
                     + (host.ui.extensionSources + [PackageExtensionSource(host: host), FeatureExtensionSource(host: host)])

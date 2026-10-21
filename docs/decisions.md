@@ -233,6 +233,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D221. Launched outside Applications, Orbit offers to move itself there
 - D222. Developer ID releases: the certificate is found in the keychain; Sparkle's helpers signed one by one
 - D223. The site counts visits and Download clicks with GoatCounter, without cookies
+- D224. Orbit's own extension registry: one index.json on GitHub, checked archives, a question before programs
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4055,7 +4056,7 @@ The Extensions page (D192) gets the polish System Settings has:
 
 Not yet: a catalog of Orbit's own for agents, servers and tasks (Zed's can't
 carry them), and asking before a downloaded package runs a program — nothing
-downloadable can bring one until that catalog exists.
+downloadable can bring one until that catalog exists. (Both came with D224.)
 
 ### D196. Blank chats stay out of Recent, even when the agent lists them
 
@@ -4672,3 +4673,46 @@ click; Vercel's needs Vercel (the site is on GitHub Pages).
   The privacy page describes the counter once it's on.
 - Downloads themselves are GitHub's release asset counts; how many people
   use Orbit (Sparkle's update checks) isn't counted yet.
+
+### D224. Orbit's own extension registry: one index.json on GitHub, checked archives, a question before programs
+
+D37's registry, after D195 made packages carry agents, language servers and
+tasks that Zed's catalog can't. The registry is the public repository
+`mikhailmogilnikov/orbit-extensions`; Orbit reads its `index.json` from
+`raw.githubusercontent.com` (no server of ours; `orbit.extensionRegistryURL`
+in the defaults points it at a fork or a local file).
+
+- **An entry** names one version: id, name, version, description, authors,
+  repository, the archive's https URL (a .tar.gz or .zip anywhere: a release
+  asset, GitHub's archive of a tag or commit), its SHA-256, an optional
+  `path` to the extension's folder inside the archive, what it `provides`
+  (to list it before downloading) and an optional `minimumOrbitVersion`.
+  An id may be listed several times; each Orbit takes the newest version it
+  can run. One file rather than a file per entry: Zed's registry works the
+  same way, and conflicts in it are one line.
+- **Publishing** is a pull request: `scripts/registry.py add <archive>`
+  downloads, hashes and reads the manifest and writes the entry; CI runs
+  `validate`, which downloads every archive and checks its hash, that it
+  holds the id and version named, what it provides, and that its agents,
+  servers and tasks parse. Pointing at a branch fails the hash on its next
+  commit, so entries pin a tag or commit.
+- **Installing** (`ExtensionRegistry`, OrbitAPI): the archive must match its
+  hash, the manifest the entry's id and version, and `path` mustn't leave
+  the archive. The folder gets a `.orbit-registry.json` marker: Zed's
+  catalog leaves such a package alone, and only those update from here (a
+  folder of the user's with the same id isn't offered for replacing).
+- **Programs**: a package with agents, language servers or tasks is
+  installed only after a sheet lists each program and its command ("Install
+  it only if you trust …"). An update asks again only when that list
+  changed; the daily automatic update (D186) skips those and leaves the
+  Update button, which asks.
+- **In Settings → Extensions** the registry is the packages' catalog: Get
+  More Packages… under Packages, the Packages filter lists everything not
+  installed, and a search shows its matches as for agents and servers.
+  Installed packages from it show Update. Zed's catalog keeps its own page
+  for trying themes on. The index is fetched once per launch when the page
+  opens and cached for offline use.
+
+The registry starts with Orbit's three example packages (archives of this
+repository at a commit, `path` into `examples/extensions/`).
+

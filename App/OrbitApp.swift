@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(40))
             await ExtensionCatalog.shared.updateInstalled()
+            await ExtensionRegistry.shared.updateInstalled()
         }
     }
 

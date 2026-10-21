@@ -7,6 +7,8 @@
 - The agent's working shimmer runs in Core Animation: no per-frame redraw of the window while an agent works (D208)
 - Website in `site/` (D216): a working Orbit window, measured numbers against Zed / VS Code / Cursor, shortcuts, extensions guide, changelog and roadmap read from the repo; on GitHub Pages; GoatCounter counts visits and Download clicks, no cookies (D223)
 - First-launch tour (D205): an intro film, setup of agents / look / review keys / `orbit` command, Help → Welcome to Orbit
+- Orbit's own extension registry (D224): `mikhailmogilnikov/orbit-extensions`, a pull request to publish,
+  checked archives, a question listing the programs before a package that starts them is installed
 - Extension packages bring snippets, agents, language servers and tasks besides themes and icons (D195):
   snippets in completion and Insert Snippet…, Zed's snippet extensions, a page per package, New Extension…
 - Plugin kernel (UI, commands, services registries); plugins turn on and off live, in every window,
@@ -247,10 +249,8 @@
 - Text editing basics (D105): move / copy lines ⌥↑↓ ⇧⌥↑↓, multiple carets (⌘D, ⇧⌘L, ⌥-click, ⌃⇧↑↓), Go to Line ⌃G, matching bracket outline, font zoom ⌘= ⌘- ⌘0
 
 ## Next (rough priority)
-1. Own extension registry (GitHub repo with `index.json`, PR to publish) for
-   extensions Zed's catalog can't carry (languages, agents, code plugins)
-2. Code plugins in TypeScript via JavaScriptCore, same package format
-3. Developer ID signing and notarization: the script is ready (D222); waits for
+1. Code plugins in TypeScript via JavaScriptCore, same package format
+2. Developer ID signing and notarization: the script is ready (D222); waits for
    an Apple Developer Program membership and its certificate
 
 ## Not implemented yet
@@ -360,8 +360,9 @@ tried by hand are in [manual-checks.md](manual-checks.md).
   native lists outside it select in the system accent.
 - Cloning shows only a spinner and has no sign-in prompt (a private
   repository needs git credentials already set up).
-- Downloaded packages that run programs get no consent prompt yet; nothing
-  downloadable brings one until Orbit has its own catalog.
+- Registry packages (D224): only the newest version is offered; packages
+  from it have no page of their own before they're installed (no screenshots,
+  no README), and there's no download count or sorting by it.
 
 **Terminal, tasks and browser**
 - The terminal panel hides when the last shell exits.

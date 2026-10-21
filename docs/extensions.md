@@ -229,11 +229,18 @@ try it.
 
 ## Publishing
 
-Settings → Extensions → Browse Themes, Icons & Snippets lists Zed's extension
-catalog, so a theme, icon theme or snippet extension published for Zed (see
-Zed's docs on publishing extensions) shows up in Orbit too — themes ready to
-try on and install, and in the theme selector (⌃⌘T). Name a family's light
-and dark themes alike ("Name Dark" / "Name Light"): picking one also picks
-its partner for the other mode. Orbit keeps only the themes, icon themes,
-icons and snippets from it. Agents, language servers and tasks can't be
-published there; until Orbit has a catalog of its own, share the folder.
+Orbit's registry, [orbit-extensions](https://github.com/mikhailmogilnikov/orbit-extensions),
+lists packages of every kind: Settings → Extensions → Get More Packages….
+To publish, put the extension in a public repository, tag its version and
+open a pull request there with its entry — `scripts/registry.py add <archive
+URL>` writes it (the hash, what it provides). Its README has the details.
+A package with agents, language servers or tasks shows every program it
+starts and asks before it's installed, and again when an update changes them.
+
+Themes, icon themes and snippets published for Zed (see Zed's docs on
+publishing extensions) show up in Orbit too, through Settings → Extensions →
+Browse Themes, Icons & Snippets — themes ready to try on and install, and in
+the theme selector (⌃⌘T). Name a family's light and dark themes alike
+("Name Dark" / "Name Light"): picking one also picks its partner for the
+other mode. From Zed's catalog Orbit keeps only the themes, icon themes,
+icons and snippets.

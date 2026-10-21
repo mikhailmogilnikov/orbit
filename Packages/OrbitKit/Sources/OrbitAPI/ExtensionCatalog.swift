@@ -94,7 +94,8 @@ public final class ExtensionCatalog {
     }
 
     public func installed(_ entry: CatalogEntry) -> InstalledExtension? {
-        extensions.installed.first { $0.id == entry.id && !$0.isBuiltin }
+        // A package from Orbit's registry with the same id updates from there (D224).
+        extensions.installed.first { $0.id == entry.id && !$0.isBuiltin && !ExtensionRegistry.isFromRegistry($0.directory) }
     }
 
     public func hasUpdate(_ entry: CatalogEntry) -> Bool {
