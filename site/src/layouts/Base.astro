@@ -4,6 +4,7 @@ import "../styles/liquid-blur.css";
 import "../styles/site.css";
 import Nav from "../components/Nav.astro";
 import Footer from "../components/Footer.astro";
+import { GOATCOUNTER_CODE } from "../lib/analytics";
 
 interface Props {
   title: string;
@@ -47,6 +48,14 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site);
       } catch {}
       document.documentElement.classList.add("js");
     </script>
+    {GOATCOUNTER_CODE && (
+      <script
+        is:inline
+        async
+        src="https://gc.zgo.at/count.js"
+        data-goatcounter={`https://${GOATCOUNTER_CODE}.goatcounter.com/count`}
+      ></script>
+    )}
   </head>
   <body>
     <Nav current={current} />

@@ -220,7 +220,14 @@ kbd { font-family: var(--font); font-size: 0.875em; white-space: nowrap; }
   font-weight: 500;
   white-space: nowrap;
 }
+.brand__home {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .brand__by { color: var(--ink-3); font-weight: 400; }
+.brand__by a { color: inherit; }
+.brand__by a:hover { color: var(--ink); }
 
 .nav__links {
   display: flex;

@@ -19,6 +19,8 @@ tools or the shell.
   <img alt="Orbit: an agent's changes reviewed inline in the editor, with the agent chat beside it" src="docs/images/screenshot-light.webp">
 </picture>
 
+**[Download Orbit at orbit.mogilnikov.dev](https://orbit.mogilnikov.dev)**
+
 > Orbit is built first of all as its author's daily driver. It's usable, moving
 > fast, and has rough edges; see the [roadmap](docs/roadmap.md).
 
@@ -50,8 +52,9 @@ tools or the shell.
 
 ## Install
 
-Download `Orbit-<version>.zip` from
-[Releases](https://github.com/mikhailmogilnikov/orbit/releases), unzip it and
+Download Orbit from [orbit.mogilnikov.dev](https://orbit.mogilnikov.dev) (or
+`Orbit-<version>.zip` from
+[Releases](https://github.com/mikhailmogilnikov/orbit/releases)), unzip it and
 move `Orbit.app` to Applications. Builds aren't notarized yet, so macOS
 blocks the first launch: open Orbit once, then click **Open Anyway** in
 **System Settings → Privacy & Security** and confirm. Orbit updates itself

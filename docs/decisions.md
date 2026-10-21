@@ -232,6 +232,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D220. Python, pytest, Jest, Vitest, esbuild and Vite errors reach Problems
 - D221. Launched outside Applications, Orbit offers to move itself there
 - D222. Developer ID releases: the certificate is found in the keychain; Sparkle's helpers signed one by one
+- D223. The site counts visits and Download clicks with GoatCounter, without cookies
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4466,12 +4467,15 @@ floating glass nav, and the app shown working rather than in screenshots.
   numbers link to this log), `/shortcuts` every default key from the
   `OrbitCommand` registrations in the Swift sources, `/changelog` and the
   download link come from GitHub Releases. Nothing there is copied by hand,
-  so nothing drifts. Hosting: Vercel with `site/` as the root (the build
-  reads `../docs` and `../Packages`).
+  so nothing drifts. Hosting: GitHub Pages, built by
+  `.github/workflows/site.yml` from the whole checkout (the build reads
+  `../docs` and `../Packages`) on a push that touches them and on every
+  release.
 - **Look:** monochrome; the only colors of its own are the diff's green and
   red. Liquid Web's glass (`@liquid-web/blur`, not on npm yet) is vendored as
   `site/src/styles/liquid-blur.css`. Inter is self-hosted, so the site makes
-  no third-party request (its privacy page says so).
+  no third-party request (its privacy page says so) — except
+  GoatCounter's counter since D223.
 - **The window** on the home page is HTML: an agent turn plays when it
   scrolls into view, then its changes wait for Keep / Undo by click or by
   the app's keys (⌥⌘↩, ⌥⌘⌫, ⌥⌘↑↓, ⇧⌘↩, ⇧⌘⌫). It follows the app as of
@@ -4648,3 +4652,23 @@ the grammar dylibs Orbit compiles on the Mac ("different Team IDs"), and
 loads them with the entitlement (tried with an ad hoc hardened binary on
 a real grammar).
 
+### D223. The site counts visits and Download clicks with GoatCounter, without cookies
+
+To know whether the site works — how many come, from where, and how many of
+them download — it loads GoatCounter's counter. GoatCounter sets no cookies
+and keeps no IP addresses, so there is no consent banner, and its script is
+small. Its free plan takes any number of sites on one account, so the
+author's other sites can sit next to this one. Umami Cloud's free plan
+allows too few sites; Google Analytics needs a consent banner and a heavy
+script, and developers block it; Cloudflare Web Analytics can't count a
+click; Vercel's needs Vercel (the site is on GitHub Pages).
+
+- Every Download link counts as a click event: `download-nav`,
+  `download-hero`, `download-footer`, and `download-<version>` on the
+  changelog.
+- GoatCounter's script skips `localhost`, so `pnpm dev` isn't counted.
+- The site's code lives in `site/src/lib/analytics.ts`; while it's empty
+  the script isn't added and the privacy page still says "no analytics".
+  The privacy page describes the counter once it's on.
+- Downloads themselves are GitHub's release asset counts; how many people
+  use Orbit (Sparkle's update checks) isn't counted yet.

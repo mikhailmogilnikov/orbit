@@ -20,10 +20,13 @@ const pages = [
 
 <header class="nav">
   <div class="nav__bar lb">
-    <a class="brand" href="/" aria-label="Orbit, home">
-      <OrbitMark size={20} />
-      Orbit <span class="brand__by">for AI coding agents</span>
-    </a>
+    <div class="brand">
+      <a class="brand__home" href="/" aria-label="Orbit, home">
+        <OrbitMark size={20} />
+        Orbit
+      </a>
+      <span class="brand__by">by <a href="https://mogilnikov.dev">Mikhail Mogilnikov</a></span>
+    </div>
     <nav class="nav__links" aria-label="Pages">
       {pages.map(([id, name]) => <a href={`/${id}`} aria-current={current === id ? "page" : undefined}>{name}</a>)}
     </nav>
@@ -32,7 +35,7 @@ const pages = [
       <a class="icon-link" href={REPO} aria-label="Orbit on GitHub" title="GitHub">
         <Icon name="github" size={19} />
       </a>
-      <a class="button button--ink button--small" href={download}>Download</a>
+      <a class="button button--ink button--small" href={download} data-goatcounter-click="download-nav" data-goatcounter-title="Download from nav">Download</a>
     </div>
   </div>
 </header>

@@ -5,7 +5,7 @@
 - Open-source basics (D206): GPL-3.0, README, contributing / security / conduct, issue forms, CI on macOS and Linux;
   dependencies' licenses in About Orbit (D207)
 - The agent's working shimmer runs in Core Animation: no per-frame redraw of the window while an agent works (D208)
-- Website in `site/` (D216): a working Orbit window, measured numbers against Zed / VS Code / Cursor, shortcuts, extensions guide, changelog and roadmap read from the repo
+- Website in `site/` (D216): a working Orbit window, measured numbers against Zed / VS Code / Cursor, shortcuts, extensions guide, changelog and roadmap read from the repo; on GitHub Pages; GoatCounter counts visits and Download clicks, no cookies (D223)
 - First-launch tour (D205): an intro film, setup of agents / look / review keys / `orbit` command, Help → Welcome to Orbit
 - Extension packages bring snippets, agents, language servers and tasks besides themes and icons (D195):
   snippets in completion and Insert Snippet…, Zed's snippet extensions, a page per package, New Extension…

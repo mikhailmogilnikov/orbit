@@ -42,7 +42,7 @@ const notes = list.map((r) => {
                 )}
                 <p class="release__links">
                   {r.zip && (
-                    <a href={r.zip.url}>
+                    <a href={r.zip.url} data-goatcounter-click={`download-${r.version}`} data-goatcounter-title="Download from changelog">
                       <Icon name="download" size={15} class="inline-icon" />
                       Orbit-{r.version}.zip, {Math.round(r.zip.bytes / 1_000_000)} MB
                     </a>

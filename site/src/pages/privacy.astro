@@ -1,6 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import { REPO } from "../lib/release";
+import { GOATCOUNTER_CODE } from "../lib/analytics";
 ---
 
 <Base title="Privacy — Orbit" description="Orbit has no account, no analytics and no server of its own." current="privacy">
@@ -40,7 +41,16 @@ import { REPO } from "../lib/release";
         </li>
       </ul>
       <h2 id="site">This site</h2>
-      <p>No cookies, no analytics, no tracking. The theme you pick is remembered in your browser and nowhere else.</p>
+      {GOATCOUNTER_CODE ? (
+        <p>
+          No cookies and no tracking across sites. Visits and clicks on Download are counted by{" "}
+          <a href="https://www.goatcounter.com/help/privacy">GoatCounter</a>, anonymously: no cookies, no IP
+          addresses kept, nothing that tells one person from another. The theme you pick is remembered in your
+          browser and nowhere else.
+        </p>
+      ) : (
+        <p>No cookies, no analytics, no tracking. The theme you pick is remembered in your browser and nowhere else.</p>
+      )}
       <h2 id="code">Check it</h2>
       <p>The code is on <a href={REPO}>GitHub</a>.</p>
     </div>

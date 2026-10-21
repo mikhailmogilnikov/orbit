@@ -224,8 +224,9 @@ code actions, rename, formatting and its corner note, the agent registry
   glass nav and theme switch, the demo window's turn and
   its keys (⌥⌘↩ / ⌥⌘⌫ shouldn't reach Safari's own shortcuts), the FAQ's
   opening animation. Checked only in the Claude browser pane (Chromium).
-- Deploying it (Vercel, root `site/`): `../docs` and `../Packages` must be
-  readable during the build.
+- Once GoatCounter's code is in `site/src/lib/analytics.ts` (D223): a visit
+  to the deployed site and a Download click show up in GoatCounter, and a
+  visit from `pnpm dev` doesn't.
 - Once deployed: a link to the site pasted in Telegram / X / Slack shows the
   large picture (`og.jpg`); the home-screen icon on an iPhone
   (`apple-touch-icon.png`); `sitemap-index.xml` submitted in Search Console.
