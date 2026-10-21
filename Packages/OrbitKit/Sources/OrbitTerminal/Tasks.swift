@@ -187,6 +187,11 @@ enum ProjectTasks {
         if exists("Cargo.toml") {
             tasks += ["build", "test", "run", "check", "clippy"].map { ProjectTask(name: $0, command: "cargo \($0)", source: "Cargo.toml") }
         }
+        // pytest, as the project's tool runs it, so its failures reach Problems (D220).
+        if let source = ["pyproject.toml", "pytest.ini", "setup.py", "setup.cfg"].first(where: exists) {
+            let runner = exists("uv.lock") ? "uv run pytest" : exists("poetry.lock") ? "poetry run pytest" : "python3 -m pytest"
+            tasks.append(ProjectTask(name: "pytest", command: runner, source: source))
+        }
         if exists("go.mod") {
             tasks += [
                 ProjectTask(name: "build", command: "go build ./...", source: "go.mod"),

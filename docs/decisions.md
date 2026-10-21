@@ -229,6 +229,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D217. ⌃ letters in the terminal by the key's Latin letter; ⌃C a signal while the pty makes it one
 - D218. The editor's keys follow code editors where AppKit's text rules don't fit code
 - D219. The chat's composer and the terminal get the keys and gestures other apps have
+- D220. Python, pytest, Jest, Vitest, esbuild and Vite errors reach Problems
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3117,6 +3118,7 @@ Colors and cursor moves are stripped; a lone `\r` (a progress bar) replaces
 the line. A line counts only when its file exists (relative to the task's
 folder, then the project), so log lines that look like errors don't.
 `note:` / `help:` lines are skipped; at most 1000 per task.
+(D220 adds Python tracebacks, pytest, Jest, Vitest, esbuild and Vite.)
 
 Problems are per tab and from its last run: running the task again, a
 cleared screen (watch modes) or closing the tab drops them. They reach the
@@ -4556,3 +4558,33 @@ lines the arrows move through it instead of jumping to the next one.
 Kept: ⌘⌫ sends ⌃U, which zsh binds to deleting the whole line, not the part
 before the cursor, as in iTerm and VS Code; ⌘W in the terminal closes the
 editor's tab, as in VS Code and Cursor.
+
+### D220. Python, pytest, Jest, Vitest, esbuild and Vite errors reach Problems
+
+D137's parser read only one-line errors. These runners say what failed on
+one line and where on another, so each gets a little state in
+`TaskOutputParser`, and every format was taken from a real run with colors
+on (the tests replay those captures):
+
+- **Python**: `File "…", line N` frames, then the exception at the line's
+  start; the problem goes on the deepest frame in the project (not
+  `site-packages` or the standard library), as `JSONDecodeError: …` without
+  the module path. A SyntaxError has one frame and works the same; a
+  `file.py:3: DeprecationWarning: …` line is a warning.
+- **pytest**, both traceback styles: the first `E   …` line is the message,
+  the place is `file.py:12: AssertionError` (long) or the last
+  `file.py:12: in test_x` in the project before the next section (short).
+- **Jest** (`● name`) and **Vitest** (`FAIL  file > name`): the name and
+  the first message line, at the first stack line (`at … (file:4:21)`,
+  `❯ file:5:21`) in the project, skipping `node_modules`.
+- **esbuild** blocks (`✘ [ERROR] message`, then `    src/a.ts:1:8:`), which
+  Vite's dependency scan prints too, and its one-line form
+  (`/abs/a.ts:1:8: ERROR: …`: the compiler pattern now knows the capitals).
+- **Vite**: `[vite] Internal server error: …` or `[plugin:…] …`, then
+  `File: /abs/App.vue:3:1`; skipped where esbuild's own line already put a
+  problem (Vite prints its errors in both forms). Problems at one spot with
+  one message are now the same problem whatever their source.
+
+Python projects (`pyproject.toml`, `pytest.ini`, `setup.py`, `setup.cfg`)
+get a `pytest` task, through `uv run` or `poetry run` when their lockfile
+is there, else `python3 -m pytest`: problems come only from task tabs.

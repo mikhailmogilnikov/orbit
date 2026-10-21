@@ -157,6 +157,9 @@ code actions, rename, formatting and its corner note, the agent registry
   several lines; dropping files from the explorer and Finder on a terminal;
   ⌥-click in zsh, Claude Code and vim (no `mouse=a`), on Retina and not; the
   terminal's right-click menu.
+- D220: a Vite dev server, `vitest --watch`, Jest and pytest as tasks in a real
+  project: problems appear, clear on rerun, and Vue / Svelte plugin errors (not
+  captured yet) land on the right line.
 - Terminal find (D110): ⌘F reaching SwiftTerm's find bar, its look beside Orbit's glass.
 - Tasks (D128, D138): typing into a shell that's still starting, ⌃C then
   restart of a dev server, ⌘R from the terminal and the chat, the running-task

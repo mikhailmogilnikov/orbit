@@ -3,7 +3,8 @@ import OrbitAPI
 
 /// Reads a task's terminal output for errors and warnings (D137): `tsc`,
 /// clang / Swift / Go (`file:line:col: error: …`), Rust (`error[E…]` then
-/// `--> file:line:col`) and ESLint's per-file blocks. Only lines naming a
+/// `--> file:line:col`) and ESLint's per-file blocks; Python tracebacks,
+/// pytest, Jest, Vitest, esbuild and Vite (D220). Only lines naming a
 /// file that exists count, so a log line that looks like one is ignored.
 struct TaskOutputParser {
     /// Where relative paths start: the task's folder, then the project's.
@@ -18,6 +19,13 @@ struct TaskOutputParser {
     private var afterCarriageReturn = false
     private var rustMessage: (severity: Diagnostic.Severity, message: String, code: String?)?
     private var eslintFile: URL?
+    private var pythonFrames: [(url: URL, line: Substring)] = []
+    private var pytestMessage: String?
+    private var pytestLocation: (url: URL, line: Substring)?
+    /// A failed test (Jest's `●`, Vitest's `FAIL`) waiting for its first line in the project.
+    private var testFailure: (name: String, message: String?, source: String)?
+    private var esbuildMessage: (severity: Diagnostic.Severity, message: String)?
+    private var viteMessage: String?
     private var exists: [String: URL?] = [:]
 
     static let limit = 1000
@@ -99,6 +107,7 @@ struct TaskOutputParser {
             eslintFile = nil
             return
         }
+        if parseRunners(text) { return }
         if let match = text.wholeMatch(of: Self.tsc) {
             add(file: String(match.file), line: match.line, column: match.column, severity: severity(match.severity), message: String(match.message), source: String(match.code))
         } else if let match = text.wholeMatch(of: Self.compiler) {
@@ -117,8 +126,125 @@ struct TaskOutputParser {
         }
     }
 
+    /// Runners that say what failed on one line and where on another (D220);
+    /// true when the line was one of theirs.
+    private mutating func parseRunners(_ text: String) -> Bool {
+        // Python: `File "…", line N` frames (or one, for a SyntaxError), then the exception, unindented.
+        if let match = text.wholeMatch(of: Self.pythonFrame) {
+            if let url = resolve(String(match.file)) {
+                pythonFrames.append((url, match.line))
+                if pythonFrames.count > 200 { pythonFrames.removeFirst() }
+            }
+            return true
+        }
+        if let last = pythonFrames.last, text.first?.isWhitespace == false {
+            let frames = pythonFrames
+            pythonFrames = []
+            guard let match = text.wholeMatch(of: Self.pythonException) else { return false }
+            let frame = frames.last { isProjectFile($0.url) } ?? last
+            let type = match.type.split(separator: ".").last.map(String.init) ?? String(match.type)
+            add(url: frame.url, line: frame.line, column: "1", severity: type.hasSuffix("Warning") ? .warning : .error,
+                message: match.message.map { "\(type): \($0)" } ?? type, source: "python")
+            return true
+        }
+        if let match = text.wholeMatch(of: Self.pythonWarning) {
+            add(file: String(match.file), line: match.line, column: "1", severity: .warning, message: "\(match.type): \(match.message)", source: "python")
+            return true
+        }
+
+        // pytest: `E   …` lines and `file.py:12: in test_x` frames, ended by the next section;
+        // or, in its long format, `file.py:12: AssertionError` after the `E` lines.
+        if let match = text.wholeMatch(of: Self.pytestFrame), let url = resolve(String(match.file)) {
+            if let type = match.type {
+                add(url: url, line: match.line, column: "1", severity: .error, message: pytestMessage ?? String(type), source: "pytest")
+                pytestMessage = nil
+                pytestLocation = nil
+            } else if isProjectFile(url) || pytestLocation == nil {
+                pytestLocation = (url, match.line)
+            }
+            return true
+        }
+        if let match = text.wholeMatch(of: Self.pytestError) {
+            if pytestMessage == nil { pytestMessage = String(match.message) }
+            return true
+        }
+        if text.wholeMatch(of: Self.pytestSection) != nil {
+            if let location = pytestLocation, let message = pytestMessage {
+                add(url: location.url, line: location.line, column: "1", severity: .error, message: message, source: "pytest")
+            }
+            pytestMessage = nil
+            pytestLocation = nil
+            return true
+        }
+
+        // Jest (`● name`) and Vitest (`FAIL  file > name`): the message, then the first stack line in the project.
+        if let match = text.wholeMatch(of: Self.jestHeader) {
+            testFailure = (String(match.name), nil, "jest")
+            return true
+        }
+        if let match = text.wholeMatch(of: Self.vitestHeader) {
+            testFailure = (String(match.name), nil, "vitest")
+            return true
+        }
+        if let failure = testFailure {
+            if text.hasPrefix("Test Suites:") || text.hasPrefix(" Test Files") {
+                testFailure = nil
+                return false
+            }
+            if let match = text.wholeMatch(of: Self.jestStack) ?? text.wholeMatch(of: Self.vitestLocation) {
+                if let url = resolve(String(match.file)), isProjectFile(url) {
+                    testFailure = nil
+                    add(url: url, line: match.line, column: match.column, severity: .error,
+                        message: "\(failure.name): \(failure.message ?? "failed")", source: failure.source)
+                }
+                return true
+            }
+            if failure.message == nil, text.wholeMatch(of: Self.codeFrame) == nil {
+                testFailure?.message = text.trimmingCharacters(in: .whitespaces)
+                return true
+            }
+        }
+
+        // esbuild (and Vite's dependency scan): `✘ [ERROR] message`, then `    src/a.ts:1:8:`.
+        if let match = text.wholeMatch(of: Self.esbuildHeader) {
+            esbuildMessage = (severity(match.severity), String(match.message))
+            return true
+        }
+        if let pending = esbuildMessage, let match = text.wholeMatch(of: Self.esbuildLocation) {
+            esbuildMessage = nil
+            add(file: String(match.file), line: match.line, column: match.column, severity: pending.severity, message: pending.message, source: "esbuild")
+            return true
+        }
+
+        // Vite: `[vite] Internal server error: …` or `[plugin:vite:vue] …`, then `File: /abs/App.vue:3:1`.
+        if let match = text.firstMatch(of: Self.viteError) {
+            var message = String(match.message)
+            // `/abs/App.vue: Element is missing end tag.`
+            if message.hasPrefix("/"), let separator = message.range(of: ": ") { message = String(message[separator.upperBound...]) }
+            viteMessage = message
+            return false
+        }
+        if let message = viteMessage, let match = text.wholeMatch(of: Self.viteFile), let url = resolve(String(match.file)) {
+            viteMessage = nil
+            let line = max(0, (Int(match.line) ?? 1) - 1), column = max(0, (Int(match.column ?? "1") ?? 1) - 1)
+            // esbuild's own line for the same error came first, with the better message.
+            if problems[url]?.contains(where: { $0.range.start == SourcePosition(line: line, character: column) }) != true {
+                add(url: url, line: match.line, column: match.column ?? "1", severity: .error, message: message, source: "vite")
+            }
+            return true
+        }
+        return false
+    }
+
+    /// In the project, not a dependency's or the standard library's: where a traceback is worth pointing.
+    private func isProjectFile(_ url: URL) -> Bool {
+        let path = url.path
+        guard !["/site-packages/", "/dist-packages/", "/node_modules/"].contains(where: path.contains) else { return false }
+        return directories.contains { path.hasPrefix($0.standardizedFileURL.path + "/") }
+    }
+
     private func severity(_ word: Substring?) -> Diagnostic.Severity {
-        word?.hasPrefix("warning") == true ? .warning : .error
+        word?.lowercased().hasPrefix("warning") == true ? .warning : .error
     }
 
     private mutating func add(file: String, line: Substring, column: Substring, severity: Diagnostic.Severity, message: String, source: String?) {
@@ -133,8 +259,8 @@ struct TaskOutputParser {
             range: SourceRange(start: position, end: position), severity: severity,
             message: message.trimmingCharacters(in: .whitespaces), source: source
         )
-        // Watch modes and reruns in one tab print the same error again.
-        guard problems[url]?.contains(diagnostic) != true else { return }
+        // Watch modes and reruns in one tab print the same error again; Vite prints esbuild's twice, in two forms.
+        guard problems[url]?.contains(where: { $0.range == diagnostic.range && $0.message == diagnostic.message }) != true else { return }
         problems[url, default: []].append(diagnostic)
         revision += 1
     }
@@ -155,12 +281,42 @@ struct TaskOutputParser {
     // `src/a.ts(12,5): error TS2322: Type …`
     nonisolated(unsafe) static let tsc = /(?<file>[^\s(][^(]*?)\((?<line>\d+),(?<column>\d+)\): (?<severity>error|warning) (?<code>TS\d+): (?<message>.+)/
     // `a.swift:3:7: error: …`, `src/a.ts:3:7 - error TS2322: …`, `./main.go:3:2: undefined: x`
-    nonisolated(unsafe) static let compiler = /(?<file>[^\s:"'][^:"']*?\.\w+):(?<line>\d+):(?<column>\d+):?\s*(?:-\s*)?(?:(?<severity>fatal error|error|warning)(?:\[[^\]]*\])?:?\s*(?:TS\d+:\s*)?)?(?<message>\S.*)/
+    // esbuild says `ERROR:` / `WARNING:`.
+    nonisolated(unsafe) static let compiler = /(?<file>[^\s:"'][^:"']*?\.\w+):(?<line>\d+):(?<column>\d+):?\s*(?:-\s*)?(?:(?<severity>fatal error|error|warning|ERROR|WARNING)(?:\[[^\]]*\])?:?\s*(?:TS\d+:\s*)?)?(?<message>\S.*)/
     nonisolated(unsafe) static let rustHeader = /(?<severity>error|warning)(?:\[(?<code>[A-Z]+\d+)\])?: (?<message>.+)/
     nonisolated(unsafe) static let rustLocation = /\s*--> (?<file>.+?):(?<line>\d+):(?<column>\d+)/
     // `  12:5  error  'x' is defined but never used  no-unused-vars`
     nonisolated(unsafe) static let eslintRow = /\s+(?<line>\d+):(?<column>\d+)\s+(?<severity>error|warning)\s+(?<message>.+?)(?:\s{2,}(?<rule>[\w@\/-]+))?/
     static let notes = ["note:", "remark:", "help:", "info:"]
+
+    // `  File "/abs/main.py", line 3, in <module>`, `  File "x.py", line 1` (a SyntaxError)
+    nonisolated(unsafe) static let pythonFrame = /\s*File "(?<file>[^"]+)", line (?<line>\d+)(?:, in .+)?/
+    // `json.decoder.JSONDecodeError: Expecting …`, `SyntaxError: invalid syntax`, `KeyboardInterrupt`
+    nonisolated(unsafe) static let pythonException = /(?<type>[A-Za-z_][\w.]*(?:Error|Exception|Warning|Exit|Interrupt|Iteration|Failure|Fault))(?::\s*(?<message>.+))?/
+    // `/abs/a.py:3: DeprecationWarning: …`
+    nonisolated(unsafe) static let pythonWarning = /(?<file>\S+\.py):(?<line>\d+): (?<type>\w*Warning): (?<message>.+)/
+    // `test_a.py:2: in test_eq` (short tracebacks), `test_a.py:2: AssertionError` (long ones)
+    nonisolated(unsafe) static let pytestFrame = /(?<file>[^\s:]+\.py):(?<line>\d+): (?:in \S+|(?<type>[A-Za-z_]\w*))/
+    nonisolated(unsafe) static let pytestError = /E\s+(?<message>\S.*)/
+    // `_____ test_eq _____`, `===== short test summary info =====`
+    nonisolated(unsafe) static let pytestSection = /(?:_{3,} .+ _{3,}|={3,}.*)/
+    nonisolated(unsafe) static let jestHeader = /\s*● (?<name>.+)/
+    // ` FAIL  tests/sum.test.ts > math > adds`
+    nonisolated(unsafe) static let vitestHeader = /\s*FAIL\s+\S+\s+>\s+(?<name>.+)/
+    // `      at Object.toBe (tests/sum.test.js:4:21)`, `    at /abs/a.js:3:9`
+    nonisolated(unsafe) static let jestStack = /\s*at (?:.+? \()?(?<file>[^\s()]+):(?<line>\d+):(?<column>\d+)\)?/
+    // ` ❯ tests/sum.test.ts:5:21`
+    nonisolated(unsafe) static let vitestLocation = /\s*❯ (?<file>\S+):(?<line>\d+):(?<column>\d+)/
+    // The source lines Jest and Vitest show: `> 4 |   expect(…)`, `   |   ^`, `      5| })`
+    nonisolated(unsafe) static let codeFrame = /\s*>?\s*\d*\s*\|.*/
+    // `✘ [ERROR] Expected ";" but found "y"`, `▲ [WARNING] …`
+    nonisolated(unsafe) static let esbuildHeader = /\s*(?:[✘▲X]\s*)?\[(?<severity>ERROR|WARNING)\]\s+(?<message>.+)/
+    // `    src/bad.ts:1:8:`
+    nonisolated(unsafe) static let esbuildLocation = /\s+(?<file>[^\s:][^:]*):(?<line>\d+):(?<column>\d+):/
+    // `[vite] Internal server error: …`, `[plugin:vite:vue] …`, `[vite:esbuild] …` (a build)
+    nonisolated(unsafe) static let viteError = /\[(?:vite\] (?:Internal server error|Pre-transform error):|(?:plugin:|vite:)[^\]]+\]) (?<message>\S.*)/
+    // `  File: /abs/src/App.vue:3:1`, `file: /abs/src/bad.ts:1:8` (a build)
+    nonisolated(unsafe) static let viteFile = /\s*[Ff]ile: (?<file>[^:]+):(?<line>\d+)(?::(?<column>\d+))?/
 }
 
 /// Problems from every task tab of the window, for the Problems panel.

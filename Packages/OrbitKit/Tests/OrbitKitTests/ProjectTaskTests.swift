@@ -45,4 +45,14 @@ import Testing
         let commands = ProjectTasks.find(in: root).map(\.command)
         #expect(commands == ["bun run dev", "swift build", "swift test", "swift run"])
     }
+
+    @Test func pythonProjectsGetPytestThroughTheirTool() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("py-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "[project]\nname = \"x\"\n".write(to: root.appendingPathComponent("pyproject.toml"), atomically: true, encoding: .utf8)
+        #expect(ProjectTasks.find(in: root).map(\.command) == ["python3 -m pytest"])
+        try "".write(to: root.appendingPathComponent("uv.lock"), atomically: true, encoding: .utf8)
+        #expect(ProjectTasks.find(in: root).map(\.command) == ["uv run pytest"])
+    }
 }
