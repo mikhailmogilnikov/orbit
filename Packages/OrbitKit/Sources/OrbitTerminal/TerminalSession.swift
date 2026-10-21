@@ -241,6 +241,7 @@ final class OrbitTerminalView: LocalProcessTerminalView {
         // Option types special characters (macOS keyboard layouts), as in Terminal.app,
         // unless Settings → Terminal makes it Meta (`TerminalOptions`).
         optionAsMetaKey = false
+        registerForDraggedTypes([.fileURL])
         applyColors()
         themeObserver = NotificationCenter.default.addObserver(forName: Extensions.themeDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyColors() }
@@ -283,13 +284,91 @@ final class OrbitTerminalView: LocalProcessTerminalView {
         guard let action = TerminalKeys.action(keyCode: event.keyCode, modifiers: event.modifierFlags) else { return false }
         switch action {
         case .send(let bytes): send(bytes)
-        case .clear:
-            clearScrollback()
-            send([0x0C])
+        case .clear: clear()
         case .scrollToTop: scrollUp(lines: Int(Int32.max))
         case .scrollToBottom: scrollDown(lines: Int(Int32.max))
         }
         return true
+    }
+
+    @objc func clear() {
+        clearScrollback()
+        send([0x0C])
+    }
+
+    /// Something runs here to take keys (not an agent command shown without one).
+    private var takesInput: Bool { process.running }
+
+    // MARK: Mouse, as in Terminal.app and iTerm (D219)
+
+    /// Where an ⌥-click went down; the cursor moves if it comes up there (a drag selects).
+    private var optionClick: (col: Int, row: Int)?
+
+    /// ⌥-click moves the cursor there, while the program doesn't take the mouse itself.
+    override func mouseDown(with event: NSEvent) {
+        optionClick = nil
+        super.mouseDown(with: event)
+        guard event.clickCount == 1, event.modifierFlags.intersection([.command, .option, .control, .shift]) == .option,
+              takesInput, getTerminal().mouseMode == .off,
+              // The cursor's row is on screen only while scrolled to the bottom.
+              !canScroll || scrollPosition >= 1 else { return }
+        optionClick = cell(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        guard let target = optionClick, let up = cell(at: convert(event.locationInWindow, from: nil)), up == target else { return }
+        optionClick = nil
+        let terminal = getTerminal()
+        let cursor = terminal.getCursorLocation()
+        let arrows = TerminalKeys.arrows(from: (cursor.x, cursor.y), to: target, cols: terminal.cols, application: terminal.applicationCursor)
+        if !arrows.isEmpty { send(arrows) }
+    }
+
+    /// The screen cell under a point: SwiftTerm's cell size (the font's "W", snapped to pixels) and the caret's height.
+    private func cell(at point: NSPoint) -> (col: Int, row: Int)? {
+        let scale = window?.backingScaleFactor ?? 2
+        let width = (font.advancement(forGlyph: font.glyph(withName: "W")).width * scale).rounded() / scale
+        let height = caretFrame.height
+        guard width > 0, height > 0 else { return nil }
+        let terminal = getTerminal()
+        return (min(max(0, Int(point.x / width)), terminal.cols - 1), min(max(0, Int((frame.height - point.y) / height)), terminal.rows - 1))
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        func add(_ title: String, _ action: Selector, _ key: String, enabled: Bool = true) {
+            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
+            item.target = self
+            item.isEnabled = enabled
+        }
+        add("Copy", #selector(copy(_:)), "c", enabled: selectionActive)
+        add("Paste", #selector(paste(_:)), "v", enabled: takesInput && NSPasteboard.general.string(forType: .string) != nil)
+        add("Select All", #selector(selectAll(_:)), "a")
+        menu.addItem(.separator())
+        add("Clear", #selector(clear), "k")
+        return menu
+    }
+
+    // MARK: Files dropped in type their paths (D219)
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        droppedPaths(sender) == nil ? [] : .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let paths = droppedPaths(sender) else { return false }
+        send(txt: paths.map(TerminalKeys.shellQuoted).joined(separator: " ") + " ")
+        window?.makeFirstResponder(self)
+        return true
+    }
+
+    private func droppedPaths(_ info: NSDraggingInfo) -> [String]? {
+        guard takesInput,
+              let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              !urls.isEmpty else { return nil }
+        return urls.map(\.path)
     }
 
     /// ⌃ letters SwiftTerm gets wrong (D217): in a Cyrillic layout it sent

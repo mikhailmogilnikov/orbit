@@ -62,4 +62,22 @@ enum TerminalKeys {
         guard status == noErr, length == 1, let scalar = Unicode.Scalar(characters[0]) else { return nil }
         return Character(scalar)
     }
+
+    /// A dropped file's path as a shell word: as is when it's plain, else in single quotes.
+    static func shellQuoted(_ path: String) -> String {
+        let plain = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_./+-@%:,="))
+        guard !path.isEmpty, path.unicodeScalars.allSatisfy(plain.contains) else {
+            return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        return path
+    }
+
+    /// ⌥-click: the arrow presses that take the cursor to the clicked cell, as
+    /// in Terminal.app (a shell's line wraps, so rows count as whole widths).
+    static func arrows(from cursor: (col: Int, row: Int), to target: (col: Int, row: Int), cols: Int, application: Bool) -> [UInt8] {
+        let distance = (target.row - cursor.row) * cols + target.col - cursor.col
+        guard distance != 0, cols > 0 else { return [] }
+        let key: [UInt8] = [0x1B, application ? 0x4F : 0x5B, distance < 0 ? 0x44 : 0x43]
+        return Array([[UInt8]](repeating: key, count: min(abs(distance), cols * 200)).joined())
+    }
 }

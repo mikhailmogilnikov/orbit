@@ -228,6 +228,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D216. A website in `site/`: Astro, one type size, a working window, measured numbers
 - D217. ⌃ letters in the terminal by the key's Latin letter; ⌃C a signal while the pty makes it one
 - D218. The editor's keys follow code editors where AppKit's text rules don't fit code
+- D219. The chat's composer and the terminal get the keys and gestures other apps have
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4529,3 +4530,29 @@ code; each now does what Xcode, VS Code and Cursor do (`CaretMotion`):
 
 Left out: ⌃T (transpose) does nothing, and ⌘↩ (insert a line below in VS
 Code) is the chat's Allow Once.
+
+### D219. The chat's composer and the terminal get the keys and gestures other apps have
+
+The same pass as D218, over the agent chat's composer and the terminal.
+
+**Composer.** ⇧↩ (D217) now goes through the text field itself, as the
+`insertNewlineIgnoringFieldEditor:` action ⌥↩ sends, so ⌘Z takes it back
+like typing; setting the draft from outside skipped the field's undo. ↑
+recalls an older prompt only with the caret on the first line and ↓ only on
+the last, as in Claude Code and Cursor: in a recalled prompt of several
+lines the arrows move through it instead of jumping to the next one.
+
+**Terminal**, as in Terminal.app, iTerm and Ghostty:
+- Files dropped in (from the explorer or Finder) type their paths, plain or
+  in single quotes, then a space; the terminal takes focus.
+- ⌥-click moves the cursor there by arrow presses, counting a wrapped line's
+  rows as whole widths. Only on a click that comes up where it went down
+  (an ⌥-drag still selects), with the program not taking the mouse, and
+  while scrolled to the bottom (else the cursor's row isn't on screen). The
+  cell is found from SwiftTerm's own cell size (the font's "W" snapped to
+  pixels, the caret's height): its hit test isn't public.
+- Right-click: Copy, Paste, Select All, Clear (⌘K's clear).
+
+Kept: ⌘⌫ sends ⌃U, which zsh binds to deleting the whole line, not the part
+before the cursor, as in iTerm and VS Code; ⌘W in the terminal closes the
+editor's tab, as in VS Code and Cursor.

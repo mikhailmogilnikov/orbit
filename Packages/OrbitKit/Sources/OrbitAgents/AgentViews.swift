@@ -1619,6 +1619,7 @@ struct Composer: View {
 
     /// ↑ goes back through the sent messages from an empty draft (or one recalled), ↓ forward.
     private func recall(by step: Int) -> KeyPress.Result {
+        guard caretIsOnEdgeLine(up: step > 0) else { return .ignored }
         let history = session.promptHistory
         let recalled = historyIndex.map { history.indices.contains($0) ? history[$0] : "" }
         guard session.draft.isEmpty || session.draft == recalled else { return .ignored }
@@ -1634,6 +1635,14 @@ struct Composer: View {
         session.draft = history[next]
         selection = TextSelection(insertionPoint: session.draft.endIndex)
         return .handled
+    }
+
+    /// ↑ recalls only from the first line and ↓ only from the last, so the
+    /// arrows still move through a recalled message of several lines (D219).
+    private func caretIsOnEdgeLine(up: Bool) -> Bool {
+        let draft = session.draft
+        guard case .selection(let range)? = selection?.indices, range.upperBound <= draft.endIndex else { return true }
+        return !(up ? draft[..<range.lowerBound] : draft[range.upperBound...]).contains("\n")
     }
 
     private var placeholder: String {
@@ -1706,7 +1715,9 @@ struct Composer: View {
         return .handled
     }
 
+    /// Through the field editor, as ⌥↩ does, so ⌘Z takes it back like typing (D219).
     private func insertLineBreak() -> KeyPress.Result {
+        if NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil) { return .handled }
         var draft = session.draft
         var range = draft.endIndex..<draft.endIndex
         if case .selection(let selected)? = selection?.indices, selected.upperBound <= draft.endIndex {

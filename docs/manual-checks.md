@@ -153,6 +153,10 @@ code actions, rename, formatting and its corner note, the agent registry
   (the Edit menu stays off; the key must still work), ⌘← on a soft-wrapped
   line, ⇧⌘K / ⌘] / ⌘[ beside other windows' keys, word moves with the
   completion list open.
+- D219: ⇧↩ then ⌘Z in the chat composer; ↑/↓ in a recalled prompt of
+  several lines; dropping files from the explorer and Finder on a terminal;
+  ⌥-click in zsh, Claude Code and vim (no `mouse=a`), on Retina and not; the
+  terminal's right-click menu.
 - Terminal find (D110): ⌘F reaching SwiftTerm's find bar, its look beside Orbit's glass.
 - Tasks (D128, D138): typing into a shell that's still starting, ⌃C then
   restart of a dev server, ⌘R from the terminal and the chat, the running-task

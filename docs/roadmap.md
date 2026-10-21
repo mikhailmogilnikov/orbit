@@ -212,6 +212,7 @@
 - Terminal editing keys (D155): ⌥←/→, ⌘←/→, ⌥⌫, ⌘⌫, ⇧↩ new line, ⌘K clear, ⌘↑/↓ scroll
 - ⌃C in any keyboard layout and after a program left the kitty keyboard protocol on; ⇧↩ new line in the agent chat; ⌘⌫ at a line's start joins it to the line above (D217)
 - Code-editor keys (D218): ⌥←/→ and ⌥⌫ stop at punctuation and line ends, ⌘← to the code first, ⌘⌦ / ⌃K at a line's end, ⌃↩ / ⌥↩ as Return, ⌘C / ⌘X without a selection take the line, Delete Line ⇧⌘K, Indent / Outdent ⌘] / ⌘[
+- Terminal: files dropped in type their paths, ⌥-click moves the cursor, a right-click menu; the chat's ↑/↓ recall only from the first / last line (D219)
 - Fix with Agent from Problems (D147); ⌘-click `file:line` in the terminal (D148)
 - Color swatches in the gutter with the color panel (D149); Copy GitHub Link / Open on GitHub (D150)
 - Sort / dedupe / reverse lines and case conversions (D151); pasted images in Markdown saved to assets/ (D152)
