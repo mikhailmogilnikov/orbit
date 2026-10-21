@@ -1,0 +1,19 @@
+---
+/** An agent's mark, the same paths the app draws (Simple Icons, CC0; lobe-icons, MIT). */
+import logos from "../data/agent-logos.json";
+
+export type Agent = keyof typeof logos;
+
+interface Props {
+  agent: Agent;
+  size?: number;
+  class?: string;
+}
+
+const { agent, size = 18, class: className } = Astro.props;
+const { d, evenOdd } = logos[agent];
+---
+
+<svg class={className} width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+  <path d={d} fill-rule={evenOdd ? "evenodd" : undefined} />
+</svg>

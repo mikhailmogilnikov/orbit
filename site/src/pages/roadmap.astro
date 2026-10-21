@@ -1,0 +1,45 @@
+---
+import Base from "../layouts/Base.astro";
+import Doc from "../components/Doc.astro";
+import { render, repoFile } from "../lib/markdown";
+import { REPO } from "../lib/release";
+
+/**
+ * docs/roadmap.md without its long "Done" list (that's the changelog's job): what comes next,
+ * what's missing, what works differently than you'd expect. Decision numbers (D12) link to the log.
+ */
+const all = repoFile("docs/roadmap.md");
+const sections = all.split(/^(?=## )/m).filter((s) => s.startsWith("## ") && !s.startsWith("## Done"));
+const done = (all.match(/^## Done\n([\s\S]*?)(?=^## )/m)?.[1].match(/^- /gm) ?? []).length;
+// GitHub's anchor for a heading: lowercased, punctuation dropped, spaces to dashes
+const anchors = new Map(
+  [...repoFile("docs/decisions.md").matchAll(/^### (D\d+)\. (.*)$/gm)].map(([, id, title]) => [
+    id,
+    `${id} ${title}`
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+      .replace(/ /g, "-"),
+  ]),
+);
+const markdown = sections
+  .join("\n")
+  .replace(/\bD(\d{1,3})\b/g, (id) => `[${id}](${REPO}/blob/master/docs/decisions.md#${anchors.get(id) ?? ""})`);
+const { html, headings } = render(markdown);
+---
+
+<Base
+  title="Roadmap — Orbit"
+  description="What Orbit does next, what it doesn't do yet, and what works differently than you'd expect."
+  current="roadmap"
+>
+  <section class="page">
+    <div class="page__head">
+      <div class="lead">
+        <h1><b>Roadmap.</b></h1> What comes next, what isn't there yet and what works differently than you'd expect — said
+        plainly. {done} things are done; the <a href="/changelog">changelog</a> has them by release. Numbers like D45
+        are entries in the <a href={`${REPO}/blob/master/docs/decisions.md`}>decision log</a>.
+      </div>
+    </div>
+    <Doc html={html} headings={headings} />
+  </section>
+</Base>

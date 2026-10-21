@@ -1,0 +1,89 @@
+---
+import Base from "../layouts/Base.astro";
+import Icon from "../components/Icon.astro";
+import { render } from "../lib/markdown";
+import { REPO, releases } from "../lib/release";
+
+const list = await releases();
+const notes = list.map((r) => {
+  // GitHub's generated notes start with a comment and may hold nothing but the compare link
+  const body = r.body.replace(/<!--[\s\S]*?-->/g, "").trim();
+  const onlyLink = /^\*\*Full Changelog\*\*/.test(body);
+  return { ...r, html: body && !onlyLink ? render(body).html : "" };
+});
+---
+
+<Base title="Changelog — Orbit" description="Every Orbit release, newest first." current="changelog">
+  <section class="page">
+    <div class="page__head">
+      <div class="lead">
+        <h1><b>Changelog.</b></h1> Every release, newest first. Orbit updates itself once a day; Orbit → Check for Updates…
+        looks right away.
+      </div>
+    </div>
+
+    {
+      notes.length ? (
+        <ol class="releases">
+          {notes.map((r, i) => (
+            <li class="release">
+              <div class="release__head">
+                <b>{r.version}</b>
+                <time datetime={r.date.toISOString()}>
+                  {r.date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+                </time>
+                {i === 0 && <span class="badge">Latest</span>}
+              </div>
+              <div class="prose">
+                {r.html ? (
+                  <Fragment set:html={r.html} />
+                ) : (
+                  <p>{i === list.length - 1 ? "The first public release." : "Fixes and improvements."}</p>
+                )}
+                <p class="release__links">
+                  {r.zip && (
+                    <a href={r.zip.url}>
+                      <Icon name="download" size={15} class="inline-icon" />
+                      Orbit-{r.version}.zip, {Math.round(r.zip.bytes / 1_000_000)} MB
+                    </a>
+                  )}
+                  <a href={r.url}>On GitHub</a>
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p class="lead">
+          The releases are on <a href={`${REPO}/releases`}>GitHub</a>.
+        </p>
+      )
+    }
+  </section>
+</Base>
+
+<style>
+  .releases { list-style: none; margin: 0; padding: 0; max-width: 820px; }
+  .release {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 16px 48px;
+    padding: 32px 0;
+    border-top: 1px solid var(--hair);
+  }
+  .release__head { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+  .release__head time { color: var(--ink-3); }
+  .badge {
+    margin-top: 8px;
+    padding: 1px 9px;
+    border-radius: 999px;
+    background: var(--pill);
+    color: var(--ink-2);
+    font-size: 13px;
+  }
+  .release__links { display: flex; flex-wrap: wrap; gap: 6px 20px; }
+  .release__links :global(.inline-icon) { margin-left: 0; }
+  @media (max-width: 640px) {
+    .release { grid-template-columns: 1fr; }
+  }
+</style>

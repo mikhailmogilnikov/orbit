@@ -1,0 +1,526 @@
+---
+import Base from "../layouts/Base.astro";
+import DemoWindow from "../components/DemoWindow.astro";
+import Bars from "../components/Bars.astro";
+import Icon, { type IconName } from "../components/Icon.astro";
+import AgentLogo, { type Agent } from "../components/AgentLogo.astro";
+import OrbitMark from "../components/OrbitMark.astro";
+import { metrics } from "../data/numbers";
+import { REPO, latest } from "../lib/release";
+
+const release = await latest();
+const us = (key: keyof typeof metrics) => metrics[key].rows[0]?.value;
+
+const features: { icon: IconName; title: string; text: string }[] = [
+  { icon: "search", title: "Open Quickly.", text: "⌘P. File names first, matched letters lit; an empty field lists open tabs." },
+  { icon: "code", title: "Find in Project.", text: "⇧⌘F. Searches as you type, with case, word and regex; replace across files." },
+  { icon: "terminal", title: "Terminal.", text: "⌃` under the editor. Your login shell in the project; several shells in a list beside it." },
+  { icon: "branch", title: "Source Control.", text: "Stage, commit, branches, stash, history, blame. ✨ writes the message." },
+  { icon: "braces", title: "Language servers.", text: "Installed from Mason in a click: completion, hover, rename, fixes, formatting." },
+  { icon: "highlight", title: "Tree-sitter.", text: "Highlighting for every language Zed knows, with the same grammars." },
+  { icon: "carets", title: "Multiple carets.", text: "⌥-click, ⌘D for the next match, ⇧⌘L for all of them; each caret types with the full rules." },
+  { icon: "command", title: "Command palette.", text: "⇧⌘P. Every command any plugin registers, with its shortcut." },
+  { icon: "palette", title: "Zed themes.", text: "Color themes, icon themes and snippets from Zed's catalog load unchanged." },
+  { icon: "gear", title: "Settings, like the Mac's.", text: "Laid out like System Settings and searchable by option." },
+  { icon: "refresh", title: "Updates itself.", text: "Once a day through Sparkle, signed; Check for Updates… looks right away." },
+  { icon: "github", title: "Open source.", text: "GPL-3.0 on GitHub. Read it, build it with make run, send a fix." },
+];
+
+const agents: Agent[] = ["Claude Code", "Codex", "Cursor", "OpenCode", "Grok"];
+
+const faq = [
+  {
+    q: "What is Orbit?",
+    a: [
+      "A Mac IDE for working with AI coding agents. The agent writes the code in a chat beside the editor; you read its changes where they landed, in the file, and keep or undo them block by block.",
+      "It's built with SwiftUI and AppKit, not Electron, and started as its author's daily driver.",
+    ],
+  },
+  {
+    q: "Which agents does it run?",
+    a: [
+      "Any agent that speaks the <a href='https://agentclientprotocol.com'>Agent Client Protocol</a>: Claude Code, Codex, Cursor, Gemini, OpenCode, Grok and the rest of the ACP registry install from Settings → Agents. Anything else is a JSON file away.",
+    ],
+  },
+  {
+    q: "Do I pay for it?",
+    a: [
+      "Orbit is free. The agents are the same CLIs you'd run in a terminal, signed in with your own account or key, so they cost what they cost anywhere.",
+    ],
+  },
+  {
+    q: "Why does macOS ask before the first launch?",
+    a: [
+      "Builds aren't notarized yet, so macOS stops the first launch. Open Orbit once, then click <b>Open Anyway</b> in System Settings → Privacy &amp; Security and confirm. Updates after that install without asking.",
+    ],
+  },
+  {
+    q: "Which Macs?",
+    a: ["Apple silicon, on macOS 26 Tahoe or later."],
+  },
+  {
+    q: "How is it different from Cursor or Zed?",
+    a: [
+      "Cursor is VS Code with an agent inside: Electron, and its own models. Zed is fast and runs ACP agents too, but draws its own interface. Orbit hosts the agents you already use, in a window that's a Mac app all the way down, and makes reviewing their work the main thing it does.",
+    ],
+  },
+  {
+    q: "Does my code leave the Mac?",
+    a: [
+      "Not through Orbit: it has no account, no analytics and no server of its own. The agents talk to their providers exactly as they would in a terminal. <a href='/privacy'>Privacy</a>.",
+    ],
+  },
+  {
+    q: "Can it do what my IDE does?",
+    a: [
+      "Much of it: language servers, formatting, Git, a terminal, search. Not a debugger yet, and not every refactoring. The <a href='/roadmap'>roadmap</a> says plainly what's missing.",
+    ],
+  },
+  {
+    q: "Can I extend it?",
+    a: [
+      "Everything in Orbit is a plugin on one public API. Today an extension is a folder with themes, icon themes, snippets, agents, language servers or tasks: <a href='/extensions'>how to write one</a>.",
+    ],
+  },
+  {
+    q: "Something's wrong.",
+    a: [`<a href='${REPO}/issues'>Open an issue</a> on GitHub.`],
+  },
+];
+---
+
+<Base
+  title="Orbit — a native Mac IDE for AI coding agents"
+  description="Claude Code, Codex or any ACP agent writes the code; you review it inline, in the editor. Built with SwiftUI and AppKit. Free and open source."
+  current="home"
+>
+  <section class="hero">
+    <div class="hero__mark rise"><OrbitMark size={64} /></div>
+    <div class="lead rise" style="--i: 1">
+      <h1><b>Orbit</b> is a Mac IDE for AI coding agents.</h1> Claude Code, Codex or any ACP agent writes the code,
+      and you review it <Icon name="sparkle" size={16} class="inline-icon" /><b>right in the editor</b>: green for
+      what it added, red for what it took out, Keep or Undo on every block. Built with SwiftUI and AppKit, so it's{" "}
+      <Icon name="box" size={16} class="inline-icon" /><b>{us("disk")} MB</b> on disk and takes{" "}
+      <Icon name="memory" size={16} class="inline-icon" /><b>{us("memory")} MB</b> of memory; the agents bring their
+      own. Free and open source, for macOS 26.
+    </div>
+    <div class="actions rise" style="--i: 2">
+      <a class="button button--ink breathe" href={release.download}><Icon name="download" size={18} />Download for macOS</a>
+      <a class="button button--wash" href="/numbers">The numbers</a>
+    </div>
+    <p class="fine rise" style="--i: 3">
+      {release.version && <>Version {release.version} · </>}
+      {release.megabytes && <>{release.megabytes} MB · </>}
+      Apple silicon · GPL-3.0 · <a href={`${REPO}`}>Source</a>
+    </p>
+  </section>
+
+  <section class="block block--demo" aria-label="Orbit, working">
+    <div class="stage reveal">
+      <DemoWindow />
+    </div>
+    <p class="caption reveal">
+      <b>It works.</b> Watch the agent's turn, then keep a block, undo another — or press ⌥⌘↩ and ⌥⌘⌫ like in the app.
+    </p>
+  </section>
+
+  <!-- Review -->
+  <section class="block">
+    <div class="lead reveal">
+      <h2><b>Review where the code is.</b></h2> No review tab, no diff in a side panel: an agent's changes appear in the file
+      it changed, whether it edited through its own tools or the shell. Walk them with ⌥⌘↑ and ⌥⌘↓, across files.
+    </div>
+    <div class="cards">
+      <article class="card reveal">
+        <div class="card__scene scene-block" aria-hidden="true">
+          <div class="mini">
+            <div class="ln is-ctx"><span class="ln__bar"></span><code>  async current(at) {"{"}</code></div>
+            <div class="ln is-add"><span class="ln__bar"></span><code>    const cached = cache.get(at);</code></div>
+            <div class="ln is-add"><span class="ln__bar"></span><code>    if (cached) return cached;</code></div>
+            <div class="ln is-del"><span class="ln__bar"></span><code>    return fetchNow(at);</code></div>
+            <div class="ln is-ctx"><span class="ln__bar"></span><code>  {"}"}</code></div>
+            <span class="chip lb is-shown">
+              <span class="chip__note"><Icon name="comment" size={13} /></span><span class="chip__undo">Undo</span><span
+                class="chip__keep">Keep</span>
+            </span>
+          </div>
+        </div>
+        <p><b>Per block.</b> Keep it with ⌥⌘↩, undo it with ⌥⌘⌫. Everything at once: ⇧⌘↩ and ⇧⌘⌫.</p>
+      </article>
+      <article class="card reveal" style="--d: 80ms">
+        <div class="card__scene scene-note" aria-hidden="true">
+          <div class="mini">
+            <div class="ln is-add"><span class="ln__bar"></span><code>    const store = {"{}"};</code></div>
+            <div class="ln is-add"><span class="ln__bar"></span><code>    store[key] = value;</code></div>
+            <span class="chip lb is-shown">
+              <span class="chip__label"><Icon name="commentFill" size={13} />Use a Map: keys are objects</span><span
+                class="chip__undo">Undo</span><span class="chip__keep">Keep</span>
+            </span>
+          </div>
+          <div class="comments">
+            <div class="comments__head">
+              <Icon name="chevron" size={11} />
+              <span>1 comment for the agent</span>
+              <span class="comments__spacer"></span>
+              <span class="mini-btn">Discard</span>
+              <span class="mini-btn mini-btn--ink">Send</span>
+            </div>
+            <div class="comments__row">
+              <Icon name="comment" size={12} />
+              <span>Use a Map: keys are objects</span>
+              <small>store.ts:13</small>
+            </div>
+          </div>
+        </div>
+        <p>
+          <b>Comments for the agent.</b> ⌥⌘/ on a change or on any lines writes one; they wait above the chat and go
+          to the agent as one message.
+        </p>
+      </article>
+      <article class="card reveal" style="--d: 160ms">
+        <div class="card__scene scene-rewrite" aria-hidden="true">
+          <div class="mini">
+            <div class="ln is-ctx"><span class="ln__bar"></span><code>  function first(list) {"{"}</code></div>
+            <div class="ln is-ctx is-sel"><span class="ln__bar"></span><code>    return list[0];</code></div>
+            <div class="ln is-ctx"><span class="ln__bar"></span><code>  {"}"}</code></div>
+          </div>
+          <div class="popover">
+            <div class="popover__field">
+              <Icon name="sparkle" size={13} />
+              <span class="typed">Make it generic, empty lists too</span>
+            </div>
+            <div class="popover__foot">
+              <span>The change shows inline to Keep or Undo</span>
+              <span class="comments__spacer"></span>
+              <span class="mini-btn">Cancel</span>
+              <span class="mini-btn mini-btn--ink">Generate <i>↩</i></span>
+            </div>
+          </div>
+        </div>
+        <p>
+          <b>⌘K, edit this.</b> Tell the agent what to do with the selection, or what to write at the caret; the result
+          lands as an agent change, to keep or undo.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <!-- Agents -->
+  <section class="block split">
+    <div class="lead reveal">
+      <h2><b>Any agent, several at once.</b></h2> Claude Code, Codex, Cursor, Gemini, OpenCode and the rest of the ACP registry
+      install from Settings in a click; a JSON file adds any other. Run chats side by side — each in its own clone of
+      the project if you like — rewind one to an earlier message, files and all, and turn its work into a pull request.
+    </div>
+    <div class="sessions reveal" aria-label="Agent chats in every window">
+      <div class="sessions__agents">
+        {agents.map((a) => <span class:list={["lb", { claude: a === "Claude Code" }]} title={a}><AgentLogo agent={a} size={18} /></span>)}
+        <span class="sessions__more">+ the ACP registry</span>
+      </div>
+      <ul>
+        <li>
+          <AgentLogo agent="Claude Code" size={16} class="claude" />
+          <span><b>WeatherClient cache</b> skyline</span>
+          <em class="state"><i class="spin"></i>Editing client.ts · 0:42</em>
+        </li>
+        <li>
+          <AgentLogo agent="Codex" size={16} />
+          <span><b>Flaky retry test</b> skyline <small class="tag"><Icon name="clone" size={11} />Isolated</small></span>
+          <em class="state state--ask">Wants to run <code>npm test</code><button class="pill">Allow</button></em>
+        </li>
+        <li>
+          <AgentLogo agent="OpenCode" size={16} />
+          <span><b>Docs for the API</b> skyline</span>
+          <em class="state">Worked for 2m · <span class="plus">+120</span> <span class="minus">−8</span><button class="pill"><Icon name="pr" size={12} />Create PR</button></em>
+        </li>
+        <li>
+          <AgentLogo agent="Cursor" size={16} />
+          <span><b>Rename units to unitSystem</b> orbit</span>
+          <em class="state"><Icon name="rewind" size={12} />Rewound to “Rename it everywhere”</em>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Numbers -->
+  <section class="band" aria-label="The numbers">
+    <div class="lead reveal">
+      <h2><b>Light enough to forget it's there.</b></h2> Measured against Zed, VS Code and Cursor on the same Mac, the same
+      afternoon, the same small project. Medians of three runs; agents not counted — they cost the same anywhere. <a
+        href="/numbers">All the numbers</a>, time to the first window too.
+    </div>
+    <div class="numbers">
+      <Bars metric={metrics.disk} icon="box" />
+      <Bars metric={metrics.memory} icon="memory" />
+      <Bars metric={metrics.processes} icon="stack" />
+      <Bars metric={metrics.idle} icon="gauge" />
+    </div>
+  </section>
+
+  <!-- Everything else -->
+  <section class="block">
+    <div class="grid">
+      {
+        features.map((f, i) => (
+          <div class="grid__item reveal" style={`--d: ${(i % 4) * 60}ms`}>
+            <Icon name={f.icon} size={20} />
+            <p>
+              <b>{f.title}</b> {f.text}
+            </p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <!-- Plugins -->
+  <section class="block split">
+    <div class="lead reveal">
+      <h2><b>Everything is a plugin.</b></h2> The explorer, the editor, the review, the agents: each one is a plugin on the
+      same public API, and Settings turns any of them off. An extension is a folder — <a href="/extensions"
+        >write one</a
+      >.
+    </div>
+    <pre class="tree-code reveal"><code><span class="dim">~/.orbit/extensions/</span>
+my-extension/
+  extension.json        <span class="dim"># or Zed's extension.toml</span>
+  themes/*.json         <span class="dim"># color themes</span>
+  icon_themes/*.json    <span class="dim"># file icons</span>
+  snippets/*.json       <span class="dim"># VS Code's format</span>
+  agents/*.json         <span class="dim"># ACP agents</span>
+  language_servers.json
+  tasks.json            <span class="dim"># for Run Task…</span></code></pre>
+  </section>
+
+  <!-- FAQ -->
+  <section class="block split">
+    <div class="lead reveal"><h2><b>Questions?</b></h2> Answers.</div>
+    <div class="faq reveal">
+      {
+        faq.map((item) => (
+          <details>
+            <summary>
+              {item.q}
+              <Icon name="plus" size={16} />
+            </summary>
+            <div>
+              {item.a.map((p) => (
+                <p set:html={p} />
+              ))}
+            </div>
+          </details>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="end">
+    <div class="end__mark reveal"><OrbitMark size={40} /></div>
+    <div class="lead reveal">
+      <h2><b>Agents write the code. You decide what stays.</b></h2> Orbit is free and open source, for Macs with Apple silicon on
+      macOS 26 or later.
+    </div>
+    <div class="actions reveal">
+      <a class="button button--ink breathe" href={release.download}><Icon name="download" size={18} />Download for macOS</a>
+      <a class="button button--wash" href={REPO}><Icon name="github" size={18} />GitHub</a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .block--demo { padding-top: clamp(56px, 7vw, 88px); }
+
+  /* Review cards */
+  .mini {
+    position: absolute;
+    inset: 40px 0 auto 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 22px;
+    counter-reset: ln 11;
+  }
+  .mini .ln { height: 22px; }
+  .mini .ln { --num: 40px; }
+  .mini code { color: var(--ink); }
+  .mini .chip { right: auto; left: 150px; top: 91px; }
+  .mini .chip span { display: inline-flex; align-items: center; height: 20px; padding: 0 9px; }
+  .mini .chip .chip__note { padding: 0 6px 0 8px; }
+  .scene-block .chip { animation: chip-pulse 3s var(--glide) infinite; }
+  @keyframes chip-pulse { 0%, 70%, 100% { scale: 1; } 80% { scale: 1.06; } }
+
+  .mini .chip .chip__label { gap: 5px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+  .scene-note .chip { left: 70px; top: 47px; }
+
+  /* The comments bar over the composer (ReviewCommentsBar) */
+  .comments {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    padding: 6px 4px 6px;
+    border-radius: 12px;
+    background: var(--win);
+    box-shadow: 0 0 0 0.5px var(--hair);
+    font-size: 12.5px;
+  }
+  .comments__head,
+  .comments__row,
+  .popover__foot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .comments__head { padding: 0 6px 4px 8px; font-weight: 500; }
+  .comments__head > :global(svg:first-child) { color: var(--ink-3); }
+  .comments__row { height: 24px; padding: 0 8px; color: var(--ink); }
+  .comments__row :global(svg) { color: var(--ink-3); }
+  .comments__row span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .comments__row small { color: var(--ink-3); font-size: 11.5px; }
+  .comments__spacer { flex: 1; }
+  .mini-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 22px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: var(--win-select);
+    box-shadow: inset 0 0 0 0.5px var(--hair);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .mini-btn--ink { background: var(--ink); color: var(--on-ink); box-shadow: none; }
+  .mini-btn i { font-style: normal; opacity: 0.6; }
+
+  /* The ⌘K popover (InlineEditPrompt) */
+  .ln.is-sel { background: rgb(0 122 255 / 0.16); }
+  .popover {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    top: 120px;
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--win);
+    box-shadow: 0 0 0 0.5px var(--hair), 0 12px 32px rgb(0 0 0 / 0.16);
+    font-size: 13px;
+  }
+  .popover::before {
+    content: "";
+    position: absolute;
+    left: 72px;
+    top: -6px;
+    width: 12px;
+    height: 12px;
+    rotate: 45deg;
+    background: inherit;
+    box-shadow: -0.5px -0.5px 0 0 var(--hair);
+  }
+  .popover__field { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .popover__field :global(svg) { color: var(--ink-2); }
+  .popover__foot { font-size: 11.5px; }
+  .popover__foot > span:first-child { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+  /* The box is as wide as the text, so the caret (its right border) sits right after the last letter */
+  .typed {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    line-height: 1.3;
+    border-right: 1.5px solid var(--ink);
+    animation: type 5s steps(32) infinite, caret 0.8s step-end infinite;
+  }
+  @keyframes type { 0% { max-width: 0; } 55%, 100% { max-width: 100%; } }
+  @keyframes caret { 50% { border-color: transparent; } }
+
+  /* Agents */
+  .sessions {
+    border-radius: var(--radius);
+    background: var(--wash);
+    padding: clamp(16px, 3vw, 32px);
+  }
+  .sessions__agents { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+  .sessions__agents .lb { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; }
+  .sessions__agents .claude,
+  .sessions .claude { color: var(--claude); }
+  .sessions__more { color: var(--ink-3); margin-left: 4px; }
+  .sessions ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .sessions li {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+    padding: 8px 14px;
+    border-radius: 12px;
+    background: var(--ground);
+    box-shadow: 0 0 0 0.5px var(--hair);
+    font-size: 14px;
+  }
+  .sessions li > span { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sessions li b { color: var(--ink); margin-right: 6px; }
+  .tag { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--pill); color: var(--ink-2); font-size: 12px; }
+  .state { display: flex; align-items: center; gap: 6px; color: var(--ink-3); font-style: normal; white-space: nowrap; }
+  .state--ask { color: #c18a00; }
+  .state code { font-size: 12px; }
+  .plus { color: var(--add); }
+  .minus { color: var(--del); }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 26px;
+    margin-left: 4px;
+    padding: 0 11px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--on-ink);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: default;
+  }
+  .spin {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1.5px solid var(--ink-4);
+    border-top-color: var(--ink);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 640px) {
+    .sessions li { grid-template-columns: 16px minmax(0, 1fr); }
+    .state { grid-column: 2; }
+  }
+
+  /* Numbers */
+  .band > .lead { margin-bottom: 48px; }
+  .numbers { display: grid; grid-template-columns: 1fr 1fr; gap: 56px 64px; }
+  @media (max-width: 860px) {
+    .numbers { grid-template-columns: 1fr; }
+  }
+
+  /* Plugins */
+  .tree-code {
+    margin: 0;
+    padding: 24px 28px;
+    border-radius: var(--radius);
+    background: var(--wash);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.75;
+    overflow-x: auto;
+  }
+  .tree-code code { padding: 0; background: none; font-size: inherit; }
+  .dim { color: var(--ink-3); }
+
+  .hero__mark { margin-bottom: 40px; }
+  .end__mark { margin-bottom: 28px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .typed,
+    .spin,
+    .scene-block .chip { animation: none; }
+  }
+</style>

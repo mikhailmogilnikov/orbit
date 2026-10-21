@@ -1,0 +1,67 @@
+---
+/** One measurement across apps: Orbit first and in ink, the others in grey, bars to scale. */
+import Icon, { type IconName } from "./Icon.astro";
+import type { Metric } from "../data/numbers";
+
+interface Props {
+  metric: Metric;
+  icon: IconName;
+}
+
+const { metric, icon } = Astro.props;
+const max = Math.max(...metric.rows.map((r) => r.value));
+const format = (v: number) =>
+  v.toLocaleString("en-US", { minimumFractionDigits: metric.digits ?? 0, maximumFractionDigits: metric.digits ?? 0 });
+---
+
+<figure class="bars reveal">
+  <figcaption>
+    <Icon name={icon} size={16} class="inline-icon" />
+    <b>{metric.headline}</b>{" "}{metric.note}
+  </figcaption>
+  <ol>
+    {
+      metric.rows.map((row, i) => (
+        <li class:list={{ "is-us": i === 0 }} style={`--v: ${row.value / max}`}>
+          <span class="bars__name">{row.app}</span>
+          <span class="bars__track">
+            <span class="bars__fill" />
+          </span>
+          <span class="bars__value">
+            {format(row.value)} {metric.unit}
+          </span>
+        </li>
+      ))
+    }
+  </ol>
+</figure>
+
+<style>
+  .bars figcaption { color: var(--ink-2); padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--hair); }
+  .bars figcaption :global(.inline-icon) { margin-left: 0; color: var(--ink); }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  li {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    color: var(--ink-3);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  li.is-us { color: var(--ink); font-weight: 500; }
+  .bars__track { height: 6px; }
+  .bars__fill {
+    display: block;
+    height: 100%;
+    min-width: 3px;
+    width: calc(var(--v) * 100%);
+    border-radius: 3px;
+    background: var(--ink-4);
+    transform-origin: left;
+    transition: transform 1.2s var(--glide) 0.15s;
+  }
+  .is-us .bars__fill { background: var(--ink); }
+  :global(.js) .bars:not(:global(.is-in)) .bars__fill { transform: scaleX(0); }
+  .bars__value { text-align: right; min-width: 72px; }
+</style>

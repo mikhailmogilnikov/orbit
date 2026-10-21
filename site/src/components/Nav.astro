@@ -1,0 +1,38 @@
+---
+import Icon from "./Icon.astro";
+import OrbitMark from "./OrbitMark.astro";
+import ThemeSwitch from "./ThemeSwitch.astro";
+import { REPO, latest } from "../lib/release";
+
+interface Props {
+  current: string;
+}
+
+const { current } = Astro.props;
+const { download } = await latest();
+const pages = [
+  ["shortcuts", "Shortcuts"],
+  ["extensions", "Extensions"],
+  ["changelog", "Changelog"],
+  ["roadmap", "Roadmap"],
+];
+---
+
+<header class="nav">
+  <div class="nav__bar lb">
+    <a class="brand" href="/" aria-label="Orbit, home">
+      <OrbitMark size={20} />
+      Orbit <span class="brand__by">for AI coding agents</span>
+    </a>
+    <nav class="nav__links" aria-label="Pages">
+      {pages.map(([id, name]) => <a href={`/${id}`} aria-current={current === id ? "page" : undefined}>{name}</a>)}
+    </nav>
+    <div class="nav__end">
+      <ThemeSwitch />
+      <a class="icon-link" href={REPO} aria-label="Orbit on GitHub" title="GitHub">
+        <Icon name="github" size={19} />
+      </a>
+      <a class="button button--ink button--small" href={download}>Download</a>
+    </div>
+  </div>
+</header>

@@ -45,6 +45,8 @@ make release VERSION=0.2.0   # Release build + appcast in .build/release/0.2.0
 make release-publish VERSION=0.2.0   # GitHub release with both (asks nothing: confirm first; docs/releasing.md)
 make clean
 cd Packages/OrbitKit && swift build   # fast compile check of all modules
+pnpm --dir site dev    # the website (Astro, D216) at localhost:4321
+site/bench/run.sh && node site/bench/summarize.mjs <output>   # re-measure the site's numbers
 ```
 
 `Orbit.xcodeproj` is generated — edit `project.yml`, never the project.
@@ -70,6 +72,7 @@ Packages/OrbitKit/
   Sources/OrbitKit        BuiltinPlugins list
   Tests/OrbitKitTests     Swift Testing
 docs/                     product & architecture docs (extensions.md: authoring guide)
+site/                     the website (Astro); reads docs/ and the Swift sources at build time
 examples/extensions/      sample extensions (theme, icon theme)
 ```
 

@@ -195,3 +195,18 @@ code actions, rename, formatting and its corner note, the agent registry
 - Welcome screen (D160): Return on a selected project, the context menu.
 - Empty states and animations (D159): digit rolls, the waiting hand's wiggle.
 - Side-by-side diffs (D111): row heights with long wrapped lines, the header toggle.
+
+## Website
+
+- The site (D216) in Safari, light and dark, on a Mac and an iPhone: the
+  glass nav and theme switch, the demo window's turn and
+  its keys (⌥⌘↩ / ⌥⌘⌫ shouldn't reach Safari's own shortcuts), the FAQ's
+  opening animation. Checked only in the Claude browser pane (Chromium).
+- Deploying it (Vercel, root `site/`): `../docs` and `../Packages` must be
+  readable during the build.
+- Once deployed: a link to the site pasted in Telegram / X / Slack shows the
+  large picture (`og.jpg`); the home-screen icon on an iPhone
+  (`apple-touch-icon.png`); `sitemap-index.xml` submitted in Search Console.
+- First launch of a downloaded release on macOS 26: the steps in the FAQ and
+  README (Open Anyway in Privacy & Security) are the ones macOS asks for.
+

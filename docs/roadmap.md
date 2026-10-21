@@ -5,6 +5,7 @@
 - Open-source basics (D206): GPL-3.0, README, contributing / security / conduct, issue forms, CI on macOS and Linux;
   dependencies' licenses in About Orbit (D207)
 - The agent's working shimmer runs in Core Animation: no per-frame redraw of the window while an agent works (D208)
+- Website in `site/` (D216): a working Orbit window, measured numbers against Zed / VS Code / Cursor, shortcuts, extensions guide, changelog and roadmap read from the repo
 - First-launch tour (D205): an intro film, setup of agents / look / review keys / `orbit` command, Help → Welcome to Orbit
 - Extension packages bring snippets, agents, language servers and tasks besides themes and icons (D195):
   snippets in completion and Insert Snippet…, Zed's snippet extensions, a page per package, New Extension…
@@ -249,6 +250,11 @@
 
 ## Not implemented yet
 Everything below is known to be missing; nothing here is in progress.
+
+**Beyond an editor (non-goals for now, [product.md](product.md))**
+- No debugger (no breakpoints, no Debug Adapter Protocol)
+- No refactoring tools of Orbit's own: refactorings are what the language
+  server offers as code actions and rename
 
 **Language features (LSP)**
 - An inline peek editor for references (Peek References is a jump list, D111);

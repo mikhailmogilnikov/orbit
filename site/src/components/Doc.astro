@@ -1,0 +1,44 @@
+---
+/** A long page of prose with its contents beside it, sticky, on wide screens. */
+import type { Heading } from "../lib/markdown";
+
+interface Props {
+  html: string;
+  headings: Heading[];
+}
+
+const { html, headings } = Astro.props;
+---
+
+<div class="doc">
+  <nav class="doc__toc" aria-label="Contents">
+    {
+      headings
+        .filter((h) => h.depth === 2)
+        .map((h) => <a href={`#${h.slug}`}>{h.text}</a>)
+    }
+  </nav>
+  <article class="prose" set:html={html} />
+</div>
+
+<style>
+  .doc {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 64px;
+    align-items: start;
+  }
+  .doc__toc {
+    position: sticky;
+    top: 96px;
+    display: grid;
+    gap: 8px;
+    font-size: 15px;
+  }
+  .doc__toc a { color: var(--ink-3); transition: color 0.15s; }
+  .doc__toc a:hover { color: var(--ink); }
+  @media (max-width: 900px) {
+    .doc { grid-template-columns: 1fr; gap: 32px; }
+    .doc__toc { position: static; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  }
+</style>

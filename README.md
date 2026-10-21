@@ -52,9 +52,10 @@ tools or the shell.
 
 Download `Orbit-<version>.zip` from
 [Releases](https://github.com/mikhailmogilnikov/orbit/releases), unzip it and
-move `Orbit.app` to Applications. Builds aren't notarized yet, so the first
-launch needs right-click → **Open**. Orbit updates itself after that
-(Sparkle).
+move `Orbit.app` to Applications. Builds aren't notarized yet, so macOS
+blocks the first launch: open Orbit once, then click **Open Anyway** in
+**System Settings → Privacy & Security** and confirm. Orbit updates itself
+after that (Sparkle).
 
 Agents run as the CLIs they are: install them from **Settings → Agents** and
 sign in the way each one asks.

@@ -251,7 +251,7 @@ public final class ExtensionCatalog {
     }
 
     /// Updates every installed catalog extension with a newer version
-    /// (Settings → General → Automatic Updates, D186), once a day.
+    /// (Settings → General → Keep Up to Date, D186), once a day.
     public func updateInstalled() async {
         guard Preferences.shared.autoUpdatesExtensions, Preferences.shared.claimDailyCheck("extensions") else { return }
         var seen = Set<String>()

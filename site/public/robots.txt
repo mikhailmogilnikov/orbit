@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://orbit.mogilnikov.dev/sitemap-index.xml

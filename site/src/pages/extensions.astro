@@ -1,0 +1,27 @@
+---
+import Base from "../layouts/Base.astro";
+import Doc from "../components/Doc.astro";
+import { render, repoFile } from "../lib/markdown";
+import { REPO } from "../lib/release";
+
+// The guide is docs/extensions.md; its title and first paragraph become the page's head
+const source = repoFile("docs/extensions.md").replace(/^# .*\n+/, "");
+const { html, headings } = render(source);
+---
+
+<Base
+  title="Writing extensions — Orbit"
+  description="Color themes, icon themes, snippets, agents, language servers and tasks: an Orbit extension is a folder."
+  current="extensions"
+>
+  <section class="page">
+    <div class="page__head">
+      <div class="lead">
+        <h1><b>Writing extensions.</b></h1> An extension is a folder of JSON files: color themes, file icon themes, snippets,
+        agents, language servers and tasks. Zed's themes and icon themes work unchanged. Samples are in{" "}
+        <a href={`${REPO}/tree/master/examples/extensions`}>examples/extensions</a>.
+      </div>
+    </div>
+    <Doc html={html} headings={headings} />
+  </section>
+</Base>

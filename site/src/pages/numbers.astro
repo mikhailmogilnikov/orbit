@@ -1,0 +1,111 @@
+---
+import Base from "../layouts/Base.astro";
+import Bars from "../components/Bars.astro";
+import { agent, metrics, runs, setup } from "../data/numbers";
+import { REPO } from "../lib/release";
+
+const apps = [...new Set(runs.map((r) => r.app))];
+---
+
+<Base
+  title="The numbers — Orbit"
+  description="Orbit against Zed, VS Code and Cursor: size on disk, time to the first window, memory, processes and idle CPU."
+>
+  <section class="page">
+    <div class="page__head">
+      <div class="lead">
+        <h1><b>The numbers.</b></h1> Orbit against Zed, VS Code and Cursor, measured on one Mac on {setup.date}: {`${setup.mac}, ${setup.macos}`}. Each app opened the same small TypeScript project ({setup.project}), three times after a
+        warm-up launch; the bars are medians.
+      </div>
+    </div>
+
+    <div class="numbers">
+      <Bars metric={metrics.disk} icon="box" />
+      <Bars metric={metrics.launch} icon="bolt" />
+      <Bars metric={metrics.memory} icon="memory" />
+      <Bars metric={metrics.processes} icon="stack" />
+      <Bars metric={metrics.idle} icon="gauge" />
+    </div>
+
+    <div class="prose method">
+      <h2 id="agents">Agents aren't counted</h2>
+      <p>
+        An agent is its own program — Claude Code and Codex are CLIs Orbit starts and talks to over ACP — and it costs
+        the same in any editor that runs it. An Orbit window opens with a chat, so the agent you used last starts with
+        it; the numbers above leave it and everything it starts out. With it, on the same runs: <strong
+          >{agent.memory} MB in {agent.processes} processes</strong
+        >, of which Orbit's own share is the {metrics.memory.rows[0]?.value} MB above.
+      </p>
+      <p>
+        Cursor and VS Code ran with fresh profiles and no extensions, Zed with a fresh profile too: each as light as it
+        gets. Orbit ran as it's installed here, with its settings, extensions and language servers.
+      </p>
+
+      <h2 id="how">How</h2>
+      <ul>
+        <li><strong>Size on disk</strong> is the app bundle, as Finder counts it.</li>
+        <li>
+          <strong>First window</strong> is the time from <code>open -a</code> to the first window of at least 400 × 300 on
+          screen, polled every 5 ms. The app wasn't running, but its files were in the disk cache — what you get
+          opening it a second time in a day, not after a restart.
+        </li>
+        <li>
+          <strong>Memory</strong> is the sum of <code>footprint</code> — Activity Monitor's “Memory” — over every process
+          the app owns, 15 seconds after the window appears: those from its bundle, and everything they start
+          (helpers, language servers, the terminal's shell, git).
+        </li>
+        <li><strong>Processes</strong> counts the same set.</li>
+        <li>
+          <strong>Idle CPU</strong> is the CPU time all of them used in the next 30 seconds, with nobody touching anything.
+        </li>
+      </ul>
+      <p>
+        The tool is a hundred lines of Swift; it and the project are in{" "}
+        <a href={`${REPO}/tree/master/site/bench`}>site/bench</a>. Run it on your Mac — the numbers will differ, the
+        proportions shouldn't much.
+      </p>
+
+      <h2 id="runs">Every run</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>App</th>
+            <th>Run</th>
+            <th>First window</th>
+            <th>Memory</th>
+            <th>Processes</th>
+            <th>Idle CPU</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            runs.map((r) => (
+              <tr>
+                <td>{r.app}</td>
+                <td>{r.run}</td>
+                <td>{r.launch} ms</td>
+                <td>{r.memory} MB</td>
+                <td>{r.processes}</td>
+                <td>{r.cpu.toFixed(2)} s</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+      <p>Versions: {apps.map((a) => `${a} ${setup.versions[a] ?? ""}`).join(", ")}.</p>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .numbers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 56px 64px;
+    margin-bottom: 96px;
+  }
+  @media (max-width: 860px) {
+    .numbers { grid-template-columns: 1fr; }
+  }
+  .method td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+</style>

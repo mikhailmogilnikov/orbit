@@ -1,0 +1,139 @@
+{
+  "date": "2026-10-21",
+  "mac": "MacBook Pro, Apple M3 Pro, 18 GB",
+  "macos": "macOS 27.0.1",
+  "versions": {
+    "Orbit": "0.1.0",
+    "Zed": "1.24.4",
+    "VS Code": "1.141.0",
+    "Cursor": "3.24.12"
+  },
+  "disk": {
+    "Orbit": 37,
+    "Zed": 270,
+    "VS Code": 946,
+    "Cursor": 1017
+  },
+  "runs": [
+    {
+      "app": "Orbit",
+      "run": 1,
+      "launch": 543,
+      "memory": 68,
+      "processes": 2,
+      "cpu": 0.01
+    },
+    {
+      "app": "Orbit",
+      "run": 2,
+      "launch": 651,
+      "memory": 68,
+      "processes": 2,
+      "cpu": 0
+    },
+    {
+      "app": "Orbit",
+      "run": 3,
+      "launch": 623,
+      "memory": 68,
+      "processes": 2,
+      "cpu": 0
+    },
+    {
+      "app": "Orbit+agent",
+      "run": 1,
+      "launch": 1062,
+      "memory": 648,
+      "processes": 14,
+      "cpu": 0.4
+    },
+    {
+      "app": "Orbit+agent",
+      "run": 2,
+      "launch": 566,
+      "memory": 662,
+      "processes": 14,
+      "cpu": 0.45
+    },
+    {
+      "app": "Orbit+agent",
+      "run": 3,
+      "launch": 529,
+      "memory": 671,
+      "processes": 14,
+      "cpu": 0.5
+    },
+    {
+      "app": "Zed",
+      "run": 1,
+      "launch": 2101,
+      "memory": 183,
+      "processes": 2,
+      "cpu": 0.78
+    },
+    {
+      "app": "Zed",
+      "run": 2,
+      "launch": 407,
+      "memory": 158,
+      "processes": 2,
+      "cpu": 0.7
+    },
+    {
+      "app": "Zed",
+      "run": 3,
+      "launch": 402,
+      "memory": 155,
+      "processes": 2,
+      "cpu": 0.65
+    },
+    {
+      "app": "VS Code",
+      "run": 1,
+      "launch": 539,
+      "memory": 949,
+      "processes": 11,
+      "cpu": 3.69
+    },
+    {
+      "app": "VS Code",
+      "run": 2,
+      "launch": 567,
+      "memory": 885,
+      "processes": 11,
+      "cpu": 4.05
+    },
+    {
+      "app": "VS Code",
+      "run": 3,
+      "launch": 587,
+      "memory": 883,
+      "processes": 11,
+      "cpu": 3.43
+    },
+    {
+      "app": "Cursor",
+      "run": 1,
+      "launch": 1019,
+      "memory": 2490,
+      "processes": 26,
+      "cpu": 8.93
+    },
+    {
+      "app": "Cursor",
+      "run": 2,
+      "launch": 900,
+      "memory": 2429,
+      "processes": 22,
+      "cpu": 32.43
+    },
+    {
+      "app": "Cursor",
+      "run": 3,
+      "launch": 759,
+      "memory": 1719,
+      "processes": 18,
+      "cpu": 11.75
+    }
+  ]
+}

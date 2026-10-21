@@ -1,0 +1,20 @@
+---
+import { REPO } from "../lib/release";
+
+const links = [
+  ["/numbers", "The numbers"],
+  ["/shortcuts", "Shortcuts"],
+  ["/extensions", "Extensions"],
+  ["/changelog", "Changelog"],
+  ["/roadmap", "Roadmap"],
+  ["/privacy", "Privacy"],
+  [REPO, "GitHub"],
+];
+---
+
+<footer class="foot">
+  <span>Made by <a href="https://github.com/mikhailmogilnikov">Mikhail Mogilnikov</a> · GPL-3.0</span>
+  <nav class="foot__links" aria-label="More">
+    {links.map(([href, name]) => <a href={href}>{name}</a>)}
+  </nav>
+</footer>

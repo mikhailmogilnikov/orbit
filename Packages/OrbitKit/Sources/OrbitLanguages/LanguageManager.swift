@@ -423,7 +423,7 @@ final class LanguageManager: LanguageIntelligence {
         if let disabledObserver { NotificationCenter.default.removeObserver(disabledObserver) }
     }
 
-    /// Settings → General → Automatic Updates (D186): once a day, the servers
+    /// Settings → General → Keep Up to Date (D186): once a day, the servers
     /// Orbit installed that the Mason registry has a newer version of. Each
     /// restarts with its update; servers found on the Mac are left alone.
     private func autoUpdate() {

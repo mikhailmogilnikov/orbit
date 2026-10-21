@@ -1,0 +1,483 @@
+/*
+ * Liquid Blur — a glass material. Not a copy of iOS Liquid Glass: a calm, blurred surface built only
+ * from things every engine renders the same way. No refraction, no SVG filters, no blend modes,
+ * no pseudo-elements, no sub-pixel hairlines.
+ *
+ * Layers, back to front:
+ *   1. backdrop: blur + saturate
+ *   2. fill: one color (or the tint) at a computed opacity
+ *   3. volume: the surface darkens toward its edges on a smooth curve, strongest at the ends,
+ *      and catches a little light just under the top and bottom rims
+ *   4. rims: light hairlines along the top and bottom (inset box-shadows, so on a capsule they
+ *      fade toward the ends by following the curve)
+ *   5. edge: a dark hairline just outside
+ *   6. drop shadow
+ *
+ * Usage: class="lb", plus modifiers
+ *   lb-clear      at least transparency 1, for glass over photos and video
+ *   lb-tinted     the fill is --lb-tint; volume and rims stay
+ * Press behaviors, independent, combine as needed (driven by installLiquidBlur() from
+ * interaction.ts; without it highlight and swell fall back to :active, centered):
+ *   lb-highlight  lights up where it's pressed
+ *   lb-swell      grows while pressed, more the smaller it is
+ *   lb-stretch    pulls toward the finger and stretches along the drag, less the bigger it is;
+ *                 also blocks touch scrolling and text selection on the element
+ *   lb-interactive all three at once: the usual set for a button, chip or icon
+ * With the script, highlight and swell animate on springs written to the element's inline `scale`
+ * and a private property, so your own `transition` stays yours; the swell multiplies your `scale`
+ * rather than replacing it. Stretch appends to the element's transform during the gesture and
+ * restores it after.
+ * For single controls, not containers: highlight lights a bar on any press inside it, and stretch
+ * blocks scrolling and text selection in the whole subtree.
+ * Shape is plain border-radius; the default is a capsule.
+ *
+ * Public, inherited (set on any element, like SwiftUI environment values):
+ *   --lb-dark           theme: 0 = light, 1 = dark. Follows the system and data-theme; set it
+ *                       yourself to plug in any theme switch, e.g. `.dark { --lb-dark: 1 }`.
+ *   --lb-transparency   0 = opaque, 0.5 = default, 1 = clear. Moves fill and blur together.
+ *   --lb-depth          0 = flat, 0.5 = default, 1 = pronounced. Moves shade, glow and rims.
+ *   --lb-fill-light, --lb-fill-dark
+ *                       base fill color in each theme.
+ *   --lb-fill           one fill for both themes; unset by default, wins over the two above.
+ *   --lb-text-light, --lb-text-dark, --lb-text
+ *                       text color, the same way.
+ *   --lb-tint           color of tinted glass.
+ *   --lb-tint-text      text color on tinted glass.
+ *   --lb-shade-color    the dark parts: volume shading, edge, drop shadow.
+ *   --lb-shine-color    the light parts: rims, glow, press highlight.
+ *   --lb-highlight-size reach of the press highlight, as a multiplier: 1 = default. The script
+ *                       sizes the light to the element; without it the reach is 130px.
+ *   --lb-swell          scale of a pressed swell at button size; the script scales it by size.
+ *   --lb-stretch        stretch strength: 0 = off, 2 = default.
+ * Everything resolves on the glass itself, so it can be set on any ancestor.
+ * data-lb-material="solid" on any ancestor makes glass opaque.
+ *
+ * Everything prefixed --_ is calibration and may change without notice. Each number has a
+ * light and a dark value (--_lb-light-* / --_lb-dark-*), mixed on the glass by --lb-dark.
+ *
+ * Cascade layers: everything is in @layer liquid-blur, so any unlayered rule of yours wins. With
+ * other layers (Tailwind's utilities among them), declare liquid-blur first:
+ *   @layer liquid-blur, theme, base, components, utilities;
+ */
+
+/*
+ * Per-element switches; not inherited, so nested glass doesn't pick them up. Without @property
+ * (Firefox < 128) they inherit, and every use has a var() fallback.
+ */
+@property --_lb-floor {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+/*
+ * Press point of the highlight, written by the script while the pointer moves. Not inherited, so
+ * moving it restyles only the pressed element, not its subtree.
+ */
+@property --lb-press-x {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 50%;
+}
+/* Reach of the highlight for this element's size, written by the script once per press */
+@property --_lb-press-r {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 130px;
+}
+@property --lb-press-y {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 50%;
+}
+/* Press state, 0..1; registered so the light can fade (written by the script, or :active) */
+@property --_lb-pressed {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+@property --_lb-solid {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@layer liquid-blur {
+  :root {
+    --lb-transparency: 0.5;
+    --lb-depth: 0.5;
+    --lb-stretch: 2;
+    --lb-tint: #007aff;
+    --lb-tint-text: #ffffff;
+    --lb-fill-light: #ffffff;
+    --lb-fill-dark: #3a3a3a;
+    --lb-text-light: #000000;
+    --lb-text-dark: #ffffff;
+    --lb-shade-color: #000000;
+    --lb-shine-color: #ffffff;
+    --lb-highlight-size: 1;
+    --lb-swell: 1.1;
+    /*
+     * Easing of the swell without the script: the script's spring (duration 0.42, bounce 0.22)
+     * sampled into linear()
+     */
+    --_lb-spring: linear(0, 0.0138, 0.0504, 0.1035, 0.1676, 0.2385, 0.3127, 0.3875, 0.4606, 0.5307, 0.5965, 0.6573, 0.7128, 0.7626, 0.8069, 0.8458, 0.8795, 0.9083, 0.9328, 0.9532, 0.97, 0.9836, 0.9944, 1.0028, 1.0091, 1.0136, 1.0168, 1.0187, 1.0197, 1.0199, 1.0196, 1.0188, 1.0177, 1.0164, 1.015, 1.0135, 1.012, 1.0105, 1.0091, 1.0079, 1.0067, 1.0056, 1.0046, 1.0037, 1.003, 1.0023, 1.0017, 1.0013, 1);
+    --_lb-spring-duration: 558ms;
+
+    /* Hairline: one device pixel: 1px on 1x, half a CSS pixel on 2x, a third on 3x */
+    --_lb-hair: 0.5px;
+
+    --_lb-light-alpha: 0.72;
+    --_lb-light-alpha-clear: 0.3;
+    --_lb-light-tint-alpha: 0.85;
+    --_lb-light-blur: 8px;
+    --_lb-light-saturate: 2;
+    --_lb-light-rim-top: 0.5;
+    --_lb-light-rim-bottom: 0.3;
+    --_lb-light-edge: 0.08;
+    --_lb-light-shadow: 0.06;
+    --_lb-light-shade: 0.06;
+    --_lb-light-shade-size: 18px;
+    --_lb-light-shade-v: 0.4;
+    --_lb-light-shade-focus: 0.65;
+    --_lb-light-glow: 0.2;
+    --_lb-light-glow-size: 12px;
+    --_lb-light-press: 0.8;
+
+    --_lb-dark-alpha: 0.62;
+    --_lb-dark-alpha-clear: 0.25;
+    --_lb-dark-tint-alpha: 0.8;
+    --_lb-dark-blur: 10px;
+    --_lb-dark-saturate: 2;
+    --_lb-dark-rim-top: 0.3;
+    --_lb-dark-rim-bottom: 0.2;
+    --_lb-dark-edge: 0.5;
+    --_lb-dark-shadow: 0;
+    --_lb-dark-shade: 0.25;
+    --_lb-dark-shade-size: 18px;
+    --_lb-dark-shade-v: 0.4;
+    --_lb-dark-shade-focus: 0.65;
+    --_lb-dark-glow: 0.08;
+    --_lb-dark-glow-size: 4px;
+    --_lb-dark-press: 0.13;
+  }
+
+  @media (resolution < 1.5dppx) {
+    :root { --_lb-hair: 1px; }
+  }
+  /*
+   * A third on 3x: half would be 1.5 device pixels, which WebKit rounds to one for box-shadows
+   * while a group's canvas draws all 1.5. A hair over a third, so rounding never takes it to none.
+   */
+  @media (resolution >= 2.5dppx) {
+    :root { --_lb-hair: 0.34px; }
+  }
+
+  /* Theme: the page default, the system setting, or data-theme on any element */
+  :root,
+  [data-theme="light"] { --lb-dark: 0; }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --lb-dark: 1; }
+  }
+
+  [data-theme="dark"] { --lb-dark: 1; }
+
+  .lb {
+    /*
+     * Calibration of the theme in effect. Mixed here rather than where the theme is set, so
+     * overrides on any ancestor apply, and any theme switch only has to set --lb-dark.
+     */
+    --_lb-alpha: calc(var(--_lb-light-alpha) + (var(--_lb-dark-alpha) - var(--_lb-light-alpha)) * var(--lb-dark));
+    --_lb-alpha-clear: calc(var(--_lb-light-alpha-clear) + (var(--_lb-dark-alpha-clear) - var(--_lb-light-alpha-clear)) * var(--lb-dark));
+    --_lb-tint-alpha: calc(var(--_lb-light-tint-alpha) + (var(--_lb-dark-tint-alpha) - var(--_lb-light-tint-alpha)) * var(--lb-dark));
+    --_lb-blur: calc(var(--_lb-light-blur) + (var(--_lb-dark-blur) - var(--_lb-light-blur)) * var(--lb-dark));
+    --_lb-saturate: calc(var(--_lb-light-saturate) + (var(--_lb-dark-saturate) - var(--_lb-light-saturate)) * var(--lb-dark));
+    --_lb-rim-top: calc(var(--_lb-light-rim-top) + (var(--_lb-dark-rim-top) - var(--_lb-light-rim-top)) * var(--lb-dark));
+    --_lb-rim-bottom: calc(var(--_lb-light-rim-bottom) + (var(--_lb-dark-rim-bottom) - var(--_lb-light-rim-bottom)) * var(--lb-dark));
+    --_lb-edge: calc(var(--_lb-light-edge) + (var(--_lb-dark-edge) - var(--_lb-light-edge)) * var(--lb-dark));
+    --_lb-shadow: calc(var(--_lb-light-shadow) + (var(--_lb-dark-shadow) - var(--_lb-light-shadow)) * var(--lb-dark));
+    --_lb-shade: calc(var(--_lb-light-shade) + (var(--_lb-dark-shade) - var(--_lb-light-shade)) * var(--lb-dark));
+    --_lb-shade-size: calc(var(--_lb-light-shade-size) + (var(--_lb-dark-shade-size) - var(--_lb-light-shade-size)) * var(--lb-dark));
+    --_lb-shade-v: calc(var(--_lb-light-shade-v) + (var(--_lb-dark-shade-v) - var(--_lb-light-shade-v)) * var(--lb-dark));
+    --_lb-shade-focus: calc(var(--_lb-light-shade-focus) + (var(--_lb-dark-shade-focus) - var(--_lb-light-shade-focus)) * var(--lb-dark));
+    --_lb-glow: calc(var(--_lb-light-glow) + (var(--_lb-dark-glow) - var(--_lb-light-glow)) * var(--lb-dark));
+    --_lb-glow-size: calc(var(--_lb-light-glow-size) + (var(--_lb-dark-glow-size) - var(--_lb-light-glow-size)) * var(--lb-dark));
+    --_lb-press: calc(var(--_lb-light-press) + (var(--_lb-dark-press) - var(--_lb-light-press)) * var(--lb-dark));
+
+    /* Fill opacity: as calibrated at transparency 0.5, opaque at 0, alpha-clear at 1 */
+    /* --lb-fill, if set, wins in both themes; otherwise the fill of the theme in effect */
+    --_color: var(--lb-fill, color-mix(in srgb, var(--lb-fill-dark) calc(var(--lb-dark) * 100%), var(--lb-fill-light)));
+    --_a-default: var(--_lb-alpha);
+    --_a-clear: var(--_lb-alpha-clear);
+    --_t: max(var(--lb-transparency), var(--_lb-floor, 0));
+    --_alpha: max(
+      var(--_lb-solid, 0),
+      calc(
+        var(--_a-default)
+        + (1 - var(--_a-default)) * max(0, 1 - 2 * var(--_t))
+        - (var(--_a-default) - var(--_a-clear)) * max(0, 2 * var(--_t) - 1)
+      )
+    );
+    --_fill: color-mix(in srgb, var(--_color) calc(var(--_alpha) * 100%), transparent);
+    /* Clearer glass blurs less: down to 60% at transparency 1 */
+    --_blur: calc(var(--_lb-blur) * (1 - 0.4 * max(0, 2 * var(--_t) - 1)));
+    --_backdrop: blur(var(--_blur)) saturate(var(--_lb-saturate));
+    /* Depth scales shade, glow and rims: none at 0, as calibrated at 0.5, double at 1 */
+    --_k: calc(2 * var(--lb-depth));
+    /*
+     * Volume. The shade follows a smooth curve, alpha * (1 - t)^p over shade-size, sampled at
+     * 9 stops per side: with only a few stops the piecewise-linear segments read as visible bands.
+     * p = 2 is the softest curve; shade-focus raises p, pulling the shade toward the edge.
+     * Ends get the full shade, top and bottom a fraction of it (shade-v) over a shorter reach.
+     */
+    --_s: var(--_lb-shade-size);
+    --_sv: calc(var(--_lb-shade-size) * 0.6);
+    --_a: calc(var(--_lb-shade) * var(--_k));
+    --_v: calc(var(--_a) * var(--_lb-shade-v));
+    --_p: calc(2 + var(--_lb-shade-focus) * 4);
+    --_ends: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--lb-shade-color) calc(var(--_a) * 100%), transparent) 0,
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.875, var(--_p))) * 100%), transparent) calc(var(--_s) * 0.125),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.750, var(--_p))) * 100%), transparent) calc(var(--_s) * 0.250),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.625, var(--_p))) * 100%), transparent) calc(var(--_s) * 0.375),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.500, var(--_p))) * 100%), transparent) calc(var(--_s) * 0.500),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.375, var(--_p))) * 100%), transparent) calc(var(--_s) * 0.625),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.250, var(--_p))) * 100%), transparent) calc(var(--_s) * 0.750),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.125, var(--_p))) * 100%), transparent) calc(var(--_s) * 0.875),
+      transparent min(50%, var(--_s)),
+      transparent max(50%, calc(100% - var(--_s))),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.125, var(--_p))) * 100%), transparent) calc(100% - var(--_s) * 0.875),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.250, var(--_p))) * 100%), transparent) calc(100% - var(--_s) * 0.750),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.375, var(--_p))) * 100%), transparent) calc(100% - var(--_s) * 0.625),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.500, var(--_p))) * 100%), transparent) calc(100% - var(--_s) * 0.500),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.625, var(--_p))) * 100%), transparent) calc(100% - var(--_s) * 0.375),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.750, var(--_p))) * 100%), transparent) calc(100% - var(--_s) * 0.250),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_a) * pow(0.875, var(--_p))) * 100%), transparent) calc(100% - var(--_s) * 0.125),
+      color-mix(in srgb, var(--lb-shade-color) calc(var(--_a) * 100%), transparent) 100%
+    );
+    --_rows: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--lb-shade-color) calc(var(--_v) * 100%), transparent) 0,
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.875, var(--_p))) * 100%), transparent) calc(var(--_sv) * 0.125),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.750, var(--_p))) * 100%), transparent) calc(var(--_sv) * 0.250),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.625, var(--_p))) * 100%), transparent) calc(var(--_sv) * 0.375),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.500, var(--_p))) * 100%), transparent) calc(var(--_sv) * 0.500),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.375, var(--_p))) * 100%), transparent) calc(var(--_sv) * 0.625),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.250, var(--_p))) * 100%), transparent) calc(var(--_sv) * 0.750),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.125, var(--_p))) * 100%), transparent) calc(var(--_sv) * 0.875),
+      transparent min(50%, var(--_sv)),
+      transparent max(50%, calc(100% - var(--_sv))),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.125, var(--_p))) * 100%), transparent) calc(100% - var(--_sv) * 0.875),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.250, var(--_p))) * 100%), transparent) calc(100% - var(--_sv) * 0.750),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.375, var(--_p))) * 100%), transparent) calc(100% - var(--_sv) * 0.625),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.500, var(--_p))) * 100%), transparent) calc(100% - var(--_sv) * 0.500),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.625, var(--_p))) * 100%), transparent) calc(100% - var(--_sv) * 0.375),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.750, var(--_p))) * 100%), transparent) calc(100% - var(--_sv) * 0.250),
+      color-mix(in srgb, var(--lb-shade-color) calc((var(--_v) * pow(0.875, var(--_p))) * 100%), transparent) calc(100% - var(--_sv) * 0.125),
+      color-mix(in srgb, var(--lb-shade-color) calc(var(--_v) * 100%), transparent) 100%
+    );
+    /* A little light caught just inside the top and bottom rims */
+    --_g: calc(var(--_lb-glow) * var(--_k));
+    --_glow: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--lb-shine-color) calc(min(1, var(--_g)) * 100%), transparent) 0,
+      transparent var(--_lb-glow-size),
+      transparent calc(100% - var(--_lb-glow-size)),
+      color-mix(in srgb, var(--lb-shine-color) calc(min(1, var(--_g) * 0.6) * 100%), transparent) 100%
+    );
+
+    border-radius: 9999px;
+    color: var(--lb-text, color-mix(in srgb, var(--lb-text-dark) calc(var(--lb-dark) * 100%), var(--lb-text-light)));
+    background: var(--_glow), var(--_ends), var(--_rows), var(--_fill);
+    -webkit-backdrop-filter: var(--_backdrop);
+    backdrop-filter: var(--_backdrop);
+    /* Inset rims follow the curve, so on a capsule they fade out toward the ends by themselves */
+    box-shadow:
+      inset 0 var(--_lb-hair) 0 color-mix(in srgb, var(--lb-shine-color) calc(min(1, var(--_lb-rim-top) * var(--_k)) * 100%), transparent),
+      inset 0 calc(var(--_lb-hair) * -1) 0 color-mix(in srgb, var(--lb-shine-color) calc(min(1, var(--_lb-rim-bottom) * var(--_k)) * 100%), transparent),
+      0 0 0 var(--_lb-hair) color-mix(in srgb, var(--lb-shade-color) calc(var(--_lb-edge) * 100%), transparent),
+      0 2px 10px -3px color-mix(in srgb, var(--lb-shade-color) calc(var(--_lb-shadow) * 100%), transparent);
+  }
+
+  /* ── Modifiers ── */
+
+  /* Clear: at least transparency 1, for glass over photos and video */
+  .lb.lb-clear { --_lb-floor: 1; }
+
+  /* Tinted: the fill is the tint; volume and rims stay */
+  .lb.lb-tinted {
+    --_color: var(--lb-tint);
+    --_a-default: var(--_lb-tint-alpha);
+    --_a-clear: calc(var(--_lb-tint-alpha) * 0.6);
+    color: var(--lb-tint-text);
+  }
+
+  /* ── Press behaviors ── */
+
+  :is(.lb, .lb-group > *):is(.lb-highlight, .lb-swell, .lb-stretch, .lb-interactive) {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /*
+   * Pressed state without the script: :active, eased by CSS. One transition list for both
+   * behaviors, so combining them doesn't override either: the light fades in fast and out slowly,
+   * the swell follows the spring. With the script (data-lb-interaction on the root) both run on
+   * JS springs instead and no transition is set.
+   */
+  :root:not([data-lb-interaction]) .lb:is(.lb-highlight, .lb-swell, .lb-interactive) {
+    transition:
+      scale var(--_lb-spring-duration) var(--_lb-spring),
+      --_lb-pressed 420ms ease-out;
+  }
+  :root:not([data-lb-interaction]) .lb:is(.lb-highlight, .lb-swell, .lb-interactive):active {
+    --_lb-pressed: 1;
+    transition:
+      scale var(--_lb-spring-duration) var(--_lb-spring),
+      --_lb-pressed 120ms ease-out;
+  }
+
+  /*
+   * Highlight: one more background layer, light the way a finger lifts glass — a broad glow with
+   * no edge. A Gaussian falloff sampled at 11 stops (fewer read as concentric bands), sitting on a
+   * wash that lifts the whole surface a little, so the spot is the brightest part of a lit pane
+   * rather than a disc with a rim. At --lb-press-x / --lb-press-y, clamped to the element by the
+   * script.
+   */
+  .lb:is(.lb-highlight, .lb-interactive) {
+    --_h: calc(var(--_lb-press) * var(--_lb-pressed, 0));
+    /* Share of the light spread over the whole surface */
+    --_w: 0.25;
+    --_highlight: radial-gradient(
+      circle calc(var(--_lb-press-r, 130px) * var(--lb-highlight-size)) at var(--lb-press-x, 50%) var(--lb-press-y, 50%),
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 1.000) * 100%), transparent) 0%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.956) * 100%), transparent) 10%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.833) * 100%), transparent) 20%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.663) * 100%), transparent) 30%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.481) * 100%), transparent) 40%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.317) * 100%), transparent) 50%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.189) * 100%), transparent) 60%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.100) * 100%), transparent) 70%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.046) * 100%), transparent) 80%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.015) * 100%), transparent) 90%,
+      color-mix(in srgb, var(--lb-shine-color) calc(var(--_h) * (var(--_w) + (1 - var(--_w)) * 0.000) * 100%), transparent) 100%
+    );
+    background: var(--_highlight), var(--_glow), var(--_ends), var(--_rows), var(--_fill);
+  }
+
+  /* Swell, without the script */
+  :root:not([data-lb-interaction]) .lb:is(.lb-swell, .lb-interactive):active { scale: var(--lb-swell); }
+
+  /*
+   * Stretch: the transform is written by the script. The drag belongs to the glass, so the
+   * browser must not start a scroll or a text selection from it.
+   */
+  :is(.lb, .lb-group > *):is(.lb-stretch, .lb-interactive) {
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /*
+   * Group (driven by `liquid-blur/group`: installGlassGroups() or createGlassGroup()): children that are glass
+   * (`.lb`) and melt together where they come close. Apart, they're plain glass and the group draws
+   * nothing. Melted (`data-lb-melted` on the root), their own glass steps aside, keeping only the
+   * press light, for one surface the group draws behind them: a clipped element with backdrop,
+   * fill and a stretched canvas of volume, and a canvas with rims, edge and shadow. The root keeps
+   * the material's values for them but draws nothing itself.
+   */
+  .lb.lb-group {
+    --lb-merge: 18px;
+    position: relative;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .lb-group > .lb-group__glass {
+    position: absolute;
+    /* The volume overhangs it by a sample: clip, so the page doesn't count it (clip-path doesn't) */
+    overflow: clip;
+    pointer-events: none;
+    background: var(--_fill);
+    -webkit-backdrop-filter: var(--_backdrop);
+    backdrop-filter: var(--_backdrop);
+  }
+  .lb-group > .lb-group__paint {
+    position: absolute;
+    pointer-events: none;
+  }
+  .lb-group__glass > .lb-group__volume {
+    position: absolute;
+    pointer-events: none;
+    /* Its own layer, so stretching it is the compositor's job, not a repaint of the glass */
+    will-change: transform;
+  }
+  .lb-group:not([data-lb-melted]) > :is(.lb-group__glass, .lb-group__paint) {
+    visibility: hidden;
+  }
+  .lb-group > :not(.lb-group__glass, .lb-group__paint) {
+    position: relative;
+    z-index: 1;
+  }
+  .lb-group[data-lb-melted] > .lb {
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  .lb-group[data-lb-melted] > .lb:is(.lb-highlight, .lb-interactive) {
+    background: var(--_highlight);
+  }
+  /* A tinted child keeps its tint, laid over the shared glass */
+  .lb-group[data-lb-melted] > .lb.lb-tinted {
+    background: var(--_fill);
+  }
+  .lb-group[data-lb-melted] > .lb.lb-tinted:is(.lb-highlight, .lb-interactive) {
+    background: var(--_highlight), var(--_fill);
+  }
+
+  /* ── Accessibility ── */
+
+  [data-lb-material="solid"] :is(.lb, .lb-group__glass) {
+    --_lb-solid: 1;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    :is(.lb, .lb-group__glass) {
+      --_lb-solid: 1;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+
+  @media (prefers-contrast: more) {
+    .lb {
+      --_lb-solid: 1;
+      --_lb-edge: 0.6;
+    }
+  }
+
+  /* Windows High Contrast drops backgrounds and shadows; keep an outline */
+  @media (forced-colors: active) {
+    .lb:not(.lb-group) {
+      outline: 1px solid CanvasText;
+      outline-offset: -1px;
+    }
+    /* Melted, the group strokes one outline around them all; the shading canvas would keep its colors */
+    .lb-group[data-lb-melted] > .lb {
+      outline: none;
+    }
+    .lb-group__glass > .lb-group__volume {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root:not([data-lb-interaction]) .lb:is(.lb-swell, .lb-interactive):active { scale: 1; }
+  }
+}

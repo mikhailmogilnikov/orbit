@@ -1,0 +1,715 @@
+---
+/**
+ * Orbit's window, working: an agent turn plays when it scrolls into view, then its changes wait
+ * in the editor for Keep or Undo, by click or by the app's own keys.
+ */
+import AgentLogo from "./AgentLogo.astro";
+import Icon from "./Icon.astro";
+
+type Kind = "ctx" | "add" | "del";
+interface Line {
+  text: string;
+  kind: Kind;
+  block?: number;
+}
+
+const ctx = (text: string): Line => ({ text, kind: "ctx" });
+const add = (block: number, text: string): Line => ({ text, kind: "add", block });
+const del = (block: number, text: string): Line => ({ text, kind: "del", block });
+
+const lines: Line[] = [
+  ctx(`import { WeatherError } from "./errors";`),
+  ctx(`import { retry } from "../lib/retry";`),
+  add(0, `import { InMemoryCache } from "../lib/cache";`),
+  ctx(`import type { Coordinates, CurrentWeather } from "./types";`),
+  ctx(``),
+  ctx(`const BASE_URL = "https://api.open-meteo.com/v1/forecast";`),
+  ctx(``),
+  ctx(`export class WeatherClient {`),
+  ctx(`  private readonly units: Units;`),
+  add(1, `  private readonly cache = new InMemoryCache<CurrentWeather>(10 * 60 * 1000);`),
+  ctx(``),
+  ctx(`  constructor(options: ClientOptions = {}) {`),
+  ctx(`    this.units = options.units ?? "metric";`),
+  ctx(`  }`),
+  ctx(``),
+  ctx(`  async current(at: Coordinates): Promise<CurrentWeather> {`),
+  add(2, `    const key = \`\${at.latitude},\${at.longitude}\`;`),
+  add(2, `    const cached = this.cache.get(key);`),
+  add(2, `    if (cached) return cached;`),
+  add(2, ``),
+  ctx(`    const data = await this.request(at, {`),
+  del(3, `      current: "temperature_2m,wind_speed_10m",`),
+  add(3, `      current: "temperature_2m,wind_speed_10m,weather_code",`),
+  ctx(`    });`),
+  add(4, `    this.cache.set(key, data.current);`),
+  ctx(`    return data.current;`),
+  ctx(`  }`),
+  ctx(`}`),
+];
+const blocks = [...new Set(lines.flatMap((l) => (l.block === undefined ? [] : [l.block])))];
+
+const KEYWORDS = new Set(
+  "import from type const export class private readonly new constructor this async await return if".split(" "),
+);
+const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** Just enough highlighting for these lines: keywords, strings, types, numbers, calls */
+function highlight(text: string) {
+  return text.replace(
+    /(`[^`]*`|"[^"]*")|\b(\d[\d_]*)\b|\b([A-Za-z_]\w*)\b(\s*\()?/g,
+    (match, str: string, num: string, word: string, call: string) => {
+      if (str) return `<span class="tk-str">${escape(str)}</span>`;
+      if (num) return `<span class="tk-num">${num}</span>`;
+      if (KEYWORDS.has(word)) return `<span class="tk-kw">${word}</span>${call ?? ""}`;
+      if (/^[A-Z]/.test(word) && word !== "BASE_URL") return `<span class="tk-type">${word}</span>${call ?? ""}`;
+      if (call) return `<span class="tk-fn">${word}</span>${call}`;
+      return match;
+    },
+  );
+}
+
+const files = [
+  { name: "src", depth: 0, folder: true, dot: true },
+  { name: "api", depth: 1, folder: true, dot: true },
+  { name: "client.ts", depth: 2, git: "M", selected: true },
+  { name: "errors.ts", depth: 2 },
+  { name: "types.ts", depth: 2 },
+  { name: "lib", depth: 1, folder: true, dot: true },
+  { name: "cache.ts", depth: 2, git: "U", later: true },
+  { name: "format.ts", depth: 2 },
+  { name: "retry.ts", depth: 2 },
+  { name: "index.ts", depth: 1 },
+  { name: ".gitignore", depth: 0 },
+  { name: "package.json", depth: 0 },
+  { name: "README.md", depth: 0 },
+  { name: "tsconfig.json", depth: 0 },
+];
+---
+
+<div class="win" data-demo data-state="idle">
+  <!-- Navigator -->
+  <aside class="win__side">
+    <div class="win__lights" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="win__navtabs" aria-hidden="true">
+      <span class="is-on"><Icon name="folder" size={16} /></span>
+      <span><Icon name="search" size={16} /></span>
+      <span><Icon name="branch" size={16} /></span>
+    </div>
+    <p class="win__project">skyline</p>
+    <ul class="tree">
+      {
+        files.map((f) => (
+          <li
+            class:list={["tree__row", { "is-selected": f.selected, "is-later": f.later }]}
+            style={`--depth: ${f.depth}`}
+            data-file={f.name}
+          >
+            {f.folder ? <Icon name="chevron" size={11} class="tree__chev" /> : <span class="tree__chev" />}
+            <Icon name={f.folder ? "folder" : "doc"} size={15} class="tree__icon" />
+            <span class:list={["tree__name", { "is-changed": f.git || f.dot }]}>{f.name}</span>
+            {f.git && <span class="tree__git">{f.git}</span>}
+            {f.dot && <span class="tree__dot" />}
+          </li>
+        ))
+      }
+    </ul>
+  </aside>
+
+  <!-- Editor -->
+  <section class="win__editor">
+    <div class="win__top">
+      <span class="win__tool" aria-hidden="true"><Icon name="sidebar" size={17} /></span>
+      <span class="win__tab"><Icon name="doc" size={14} />client.ts</span>
+      <span class="win__spacer"></span>
+      <span class="win__tool" aria-hidden="true"><Icon name="command" size={16} /></span>
+      <span class="win__tool" aria-hidden="true"><Icon name="inspector" size={17} /></span>
+    </div>
+
+    <div class="banner" data-banner aria-live="polite">
+      <Icon name="sparkle" size={14} />
+      <span><b data-count>5</b> <span class="banner__label">agent</span> changes</span>
+      <span class="diffstat"><span class="plus" data-plus>+7</span> <span class="minus" data-minus>−1</span></span>
+      <button type="button" class="win__icon-btn" data-prev title="Previous Change (⌥⌘↑)"><Icon name="up" size={14} /></button>
+      <button type="button" class="win__icon-btn" data-next title="Next Change (⌥⌘↓)"><Icon name="down" size={14} /></button>
+      <span class="win__spacer"></span>
+      <button type="button" class="pill-btn" data-undo-all title="Undo All (⇧⌘⌫)">Undo All</button>
+      <button type="button" class="pill-btn pill-btn--ink" data-keep-all title="Keep All (⇧⌘↩)">Keep All</button>
+    </div>
+    <div class="banner banner--done" data-done aria-hidden="true">
+      <Icon name="check" size={14} />
+      <span data-done-text>All changes reviewed</span>
+      <span class="win__spacer"></span>
+      <button type="button" class="pill-btn" data-replay><Icon name="rewind" size={13} />Play again</button>
+    </div>
+
+    <div class="crumbs" aria-hidden="true">src <span>›</span> api <span>›</span> client.ts <span>›</span> WeatherClient</div>
+
+    <div class="code" data-code>
+      {
+        lines.map((line) => (
+          <div class:list={["ln", `is-${line.kind}`]} data-block={line.block} data-kind={line.kind}>
+            <span class="ln__bar" />
+            <code set:html={highlight(line.text) || " "} />
+          </div>
+        ))
+      }
+      {
+        blocks.map((block) => (
+          <span class="chip lb" data-chip={block}>
+            <button type="button" class="chip__note" title="Comment for the Agent (⌥⌘/)" data-note={block}>
+              <Icon name="comment" size={13} />
+            </button>
+            <button type="button" class="chip__undo" data-undo={block} title="Undo (⌥⌘⌫)">Undo</button>
+            <button type="button" class="chip__keep" data-keep={block} title="Keep (⌥⌘↩)">Keep</button>
+          </span>
+        ))
+      }
+    </div>
+
+    <div class="win__status">
+      <span class="status__review" data-status><Icon name="plusminus" size={12} /><span data-status-text>Nothing to review</span></span>
+      <span class="win__spacer"></span>
+      <span>TypeScript</span>
+      <span>Spaces: 2</span>
+    </div>
+  </section>
+
+  <!-- Agent -->
+  <aside class="win__agent">
+    <div class="win__sessions">
+      <span class="session is-on"><AgentLogo agent="Claude Code" size={12} class="claude" /><span>WeatherClient cache</span></span>
+      <span class="session"><AgentLogo agent="Codex" size={12} /><span>Flaky retry test</span></span>
+      <span class="win__spacer"></span>
+      <span class="win__tool win__new" aria-hidden="true"><Icon name="plus" size={15} /></span>
+    </div>
+
+    <div class="chat" data-chat>
+      <div class="msg msg--user">
+        Repeated requests for the same place within 10 minutes shouldn't hit the API. Put the cache in
+        src/lib/cache.ts.
+      </div>
+      <div class="msg msg--think" data-step="think">
+        <Icon name="brain" size={13} /><span class="shimmer" data-think-label>Thinking…</span><Icon name="chevronRight" size={11} class="disclosure" />
+      </div>
+      <div class="msg" data-step="intro" data-stream>
+        I'll read the client first, then add a small in-memory cache with a ten-minute lifetime.
+      </div>
+      <div class="tool" data-step="read">
+        <Icon name="doc" size={13} />Read <span>src/api/client.ts</span><Icon name="chevronRight" size={11} class="disclosure" />
+      </div>
+      <div class="tool" data-step="write">
+        <Icon name="pencil" size={13} />Write <span>src/lib/cache.ts</span><Icon name="chevronRight" size={11} class="disclosure" /><em class="plus">+36</em>
+      </div>
+      <div class="tool" data-step="edit">
+        <Icon name="pencil" size={13} />Edit <span>src/api/client.ts</span><Icon name="chevronRight" size={11} class="disclosure" /><em class="plus">+7</em><em class="minus">−1</em>
+      </div>
+      <div class="msg" data-step="outro" data-stream>
+        Done. <code>current()</code> checks the cache first, keyed by coordinates; the request asks for the
+        weather code too, so a cached answer has everything the view needs.
+      </div>
+      <div class="worked" data-step="worked">
+        <Icon name="checkCircle" size={14} class="ok" />Worked for 51s <span class="worked__dot">·</span>
+        <span class="worked__files">2 files changed</span><Icon name="chevronRight" size={11} class="disclosure" />
+        <span data-pending-stat><span class="plus" data-total-plus>+43</span> <span class="minus" data-total-minus>−1</span></span>
+        <span class="win__spacer"></span>
+        <button type="button" class="pill-btn pill-btn--small" data-review title="Open the first change of this turn">Review</button>
+        <span class="worked__done">Reviewed</span>
+      </div>
+    </div>
+
+    <div class="changed" data-step="changed">
+      <div class="changed__head">
+        <Icon name="chevron" size={11} />
+        <span class="changed__title">Changed Files</span>
+        <span class="badge" data-files-count>2</span>
+        <span class="plus" data-total-plus>+43</span><span class="minus" data-total-minus>−1</span>
+        <span class="win__spacer"></span>
+        <button type="button" class="win__icon-btn" data-prev title="Previous Change (⌥⌘↑)"><Icon name="up" size={13} /></button>
+        <button type="button" class="win__icon-btn" data-next title="Next Change (⌥⌘↓)"><Icon name="down" size={13} /></button>
+        <button type="button" class="win__icon-btn" data-undo-all title="Undo All (⇧⌘⌫)"><Icon name="undo" size={13} /></button>
+        <button type="button" class="pill-btn pill-btn--ink pill-btn--small" data-keep-all title="Keep All (⇧⌘↩)">Keep All</button>
+      </div>
+      <div class="changed__file" data-changed-file="cache.ts">
+        <Icon name="doc" size={13} />cache.ts <span>lib</span>
+        <AgentLogo agent="Claude Code" size={12} class="changed__author" /><em class="plus">+36</em>
+      </div>
+      <div class="changed__file" data-changed-file="client.ts">
+        <Icon name="doc" size={13} />client.ts <span>api</span>
+        <AgentLogo agent="Claude Code" size={12} class="changed__author" /><em class="plus" data-file-plus>+7</em><em class="minus" data-file-minus>−1</em>
+      </div>
+    </div>
+
+    <form class="composer" data-composer>
+      <input type="text" placeholder="Ask Claude Agent… (@ for files, / for commands)" aria-label="Message" data-input />
+      <div class="composer__row">
+        <span class="composer__attach" aria-hidden="true"><Icon name="plus" size={13} /></span>
+        <span class="composer__model"><AgentLogo agent="Claude Code" size={12} class="claude" />Opus 5.5 <span>Medium</span><Icon name="chevron" size={10} class="composer__more" /></span>
+        <span class="win__spacer"></span>
+        <span class="composer__usage" data-step="usage" title="Context: 18% used"></span>
+        <span class="composer__stop" aria-hidden="true"><Icon name="stop" size={12} /></span>
+        <button type="submit" class="composer__send" aria-label="Send" data-send disabled><Icon name="send" size={14} /></button>
+      </div>
+    </form>
+  </aside>
+</div>
+
+<script>
+  import { runDemo } from "../scripts/demo";
+  for (const el of document.querySelectorAll<HTMLElement>("[data-demo]")) runDemo(el);
+</script>
+
+<style is:global>
+  .win {
+    --w-side: 212px;
+    --w-agent: 360px;
+    /* The Mac's default accent, which the app's prominent glass buttons take */
+    --accent-sys: #0a84ff;
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--w-side) minmax(0, 1fr) var(--w-agent);
+    height: 640px;
+    border-radius: 16px;
+    background: var(--win);
+    box-shadow: var(--shot), 0 0 0 0.5px var(--hair);
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font);
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--ink);
+    text-align: left;
+    isolation: isolate;
+  }
+  .win button { font-size: inherit; }
+  .win__spacer { flex: 1; }
+  .win .plus { color: var(--add); font-style: normal; }
+  .win .minus { color: var(--del); font-style: normal; }
+  .win .claude { color: var(--claude); }
+
+  /* Navigator */
+  .win__side {
+    background: var(--win-side);
+    border-right: 0.5px solid var(--win-line);
+    padding: 14px 10px;
+    overflow: hidden;
+  }
+  .win__lights { display: flex; gap: 8px; padding: 2px 6px 18px; }
+  .win__lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+  .win__lights i:nth-child(2) { background: #febc2e; }
+  .win__lights i:nth-child(3) { background: #28c840; }
+  .win__navtabs { display: flex; justify-content: space-around; color: var(--ink-3); padding-bottom: 14px; }
+  .win__navtabs .is-on { color: var(--ink); }
+  .win__project { color: var(--ink-3); font-size: 12px; font-weight: 500; padding: 0 8px 6px; }
+  .tree { list-style: none; margin: 0; padding: 0; }
+  .tree__row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 8px 0 calc(6px + var(--depth) * 14px);
+    border-radius: 7px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .tree__row.is-selected { background: var(--win-select); }
+  .tree__chev { width: 11px; color: var(--ink-3); }
+  .tree__icon { color: #3b82f6; }
+  .tree__name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .tree__name.is-changed { color: #c18a00; }
+  .tree__row[data-file="cache.ts"] .tree__name { color: var(--add); }
+  .tree__git { font-size: 11px; font-weight: 600; color: #c18a00; }
+  .tree__row[data-file="cache.ts"] .tree__git { color: var(--add); }
+  .tree__dot { width: 6px; height: 6px; border-radius: 50%; background: #c18a00; opacity: 0.8; }
+  /* lib holds only the new cache.ts: no mark until it's written, then the untracked green */
+  .tree__row[data-file="lib"] .tree__name { color: var(--ink); transition: color 0.3s; }
+  .tree__row[data-file="lib"] .tree__dot { background: var(--add); opacity: 0; transition: opacity 0.3s; }
+  .win.has-cache .tree__row[data-file="lib"] .tree__name { color: var(--add); }
+  .win.has-cache .tree__row[data-file="lib"] .tree__dot { opacity: 0.8; }
+  .tree__row.is-later {
+    height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: height 0.45s var(--glide), opacity 0.3s;
+  }
+  .win.has-cache .tree__row.is-later { height: 26px; opacity: 1; }
+
+  /* Editor */
+  .win__editor {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--win);
+  }
+  .win__top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 46px;
+    padding: 0 12px;
+    color: var(--ink-2);
+  }
+  .win__tool { display: grid; place-items: center; width: 26px; height: 26px; color: var(--ink-2); }
+  .win__tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--win-select);
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 12px 0 14px;
+    border-block: 0.5px solid var(--win-line);
+    color: var(--ink);
+    white-space: nowrap;
+    transition: margin-top 0.45s var(--glide), opacity 0.3s;
+  }
+  .banner b { font-weight: 600; }
+  .diffstat { font-weight: 500; }
+  .win:not(.has-changes) [data-banner] { margin-top: -40px; opacity: 0; pointer-events: none; }
+  .banner--done { display: none; color: var(--ink-2); }
+  .banner--done svg:first-child { color: var(--add); }
+  .win[data-state="done"] [data-banner] { display: none; }
+  .win[data-state="done"] .banner--done { display: flex; animation: fade-in 0.4s var(--glide); }
+  @keyframes fade-in { from { opacity: 0; } }
+
+  .win__icon-btn {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    color: var(--ink-2);
+  }
+  .win__icon-btn:hover { background: var(--win-select); color: var(--ink); }
+  .pill-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 11px;
+    border-radius: 999px;
+    background: var(--win-select);
+    color: var(--ink);
+    font-weight: 500;
+    transition: background-color 0.15s, transform 0.2s var(--glide);
+  }
+  .pill-btn:hover { background: var(--hair); }
+  .pill-btn:active { transform: scale(0.96); }
+  .pill-btn--ink { background: var(--ink); color: var(--on-ink); }
+  .pill-btn--ink:hover { background: var(--ink-hover); }
+  .pill-btn--small { height: 22px; padding: 0 9px; font-size: 12px !important; }
+
+  .crumbs { padding: 8px 16px 6px; color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+  .crumbs span { margin: 0 3px; }
+
+  .code {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 4px 0 24px;
+    counter-reset: ln;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 21px;
+    scrollbar-width: thin;
+  }
+  /* Gutter: the number, then the change bar, then the code, each with room of its own */
+  .ln {
+    --num: 46px;
+    position: relative;
+    display: flex;
+    height: 21px;
+    white-space: pre;
+    /* Lines grow and shrink as changes arrive and go: nothing may spill onto the next one */
+    overflow: clip;
+    transition: background-color 0.5s var(--glide), height 0.45s var(--glide), opacity 0.35s;
+  }
+  .ln::before {
+    counter-increment: ln;
+    content: counter(ln);
+    flex: none;
+    width: var(--num);
+    padding-right: 14px;
+    text-align: right;
+    color: var(--ink-4);
+  }
+  .ln code { padding: 0 0 0 8px; background: none; font: inherit; color: var(--ink); border-radius: 0; }
+  .ln__bar { position: absolute; left: calc(var(--num) - 6px); top: 0; bottom: 0; width: 3px; border-radius: 2px; }
+  .ln.is-del::before { counter-increment: none; content: ""; }
+  .ln.is-add { background: var(--add-wash); }
+  .ln.is-add .ln__bar { background: var(--add-bar); }
+  .ln.is-del { background: var(--del-wash); }
+  .ln.is-del .ln__bar { background: var(--del-bar); }
+  .ln.is-del code { color: var(--ink-3); }
+  .ln.is-del code span { color: inherit; }
+  .ln.is-focus.is-add { background: color-mix(in srgb, var(--add-bar) 20%, transparent); }
+  .ln.is-focus.is-del { background: color-mix(in srgb, var(--del-bar) 17%, transparent); }
+  /* Not written yet, or reviewed away */
+  .ln.is-hidden,
+  .ln.is-gone { height: 0; opacity: 0; overflow: hidden; }
+  .ln.is-hidden::before,
+  .ln.is-gone::before { counter-increment: none; }
+  .ln.is-arriving { animation: arrive 0.7s var(--glide); }
+  @keyframes arrive { from { background: color-mix(in srgb, var(--add-bar) 45%, transparent); } }
+
+  .tk-kw { color: var(--code-kw); font-weight: 600; }
+  .tk-str { color: var(--code-str); }
+  .tk-type { color: var(--code-type); }
+  .tk-fn { color: var(--code-fn); }
+  .tk-num { color: var(--code-num); }
+
+  /* Under a change block, floating: one glass capsule (D213); keys are in the tooltips */
+  .chip {
+    position: absolute;
+    right: 14px;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    height: 26px;
+    padding: 0 3px;
+    --lb-depth: 0.6;
+    font-family: -apple-system, BlinkMacSystemFont, var(--font);
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    scale: 0.96;
+    pointer-events: none;
+    transition: opacity 0.2s, scale 0.25s var(--glide);
+  }
+  .chip.is-shown { opacity: 1; scale: 1; pointer-events: auto; }
+  html:not(.js) .chip { display: none; }
+  .chip button {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 9px;
+    border-radius: 999px;
+    color: inherit;
+    transition: background-color 0.15s;
+  }
+  .chip button:hover { background: var(--win-select); }
+  .chip .chip__note,
+  .chip .chip__undo { color: var(--ink-2); }
+  .chip .chip__note { padding: 0 7px; }
+  .chip .chip__keep { font-weight: 600; }
+
+  .win__status {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 30px;
+    padding: 0 14px;
+    border-top: 0.5px solid var(--win-line);
+    color: var(--ink-3);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .status__review { display: inline-flex; align-items: center; gap: 5px; }
+  .win.has-review .status__review { color: #c18a00; }
+
+  /* Agent */
+  .win__agent {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-left: 0.5px solid var(--win-line);
+    background: var(--win);
+  }
+  .win__sessions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 46px;
+    padding: 0 10px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .session {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 11px;
+    border-radius: 999px;
+    color: var(--ink-3);
+  }
+  .session.is-on { background: var(--win-select); color: var(--ink); font-weight: 500; }
+  /* Chats give way before the + does: they shrink and their titles trail off */
+  .session { flex: 0 1 auto; min-width: 0; }
+  .session.is-on { flex-shrink: 0; }
+  .session > span { overflow: hidden; text-overflow: ellipsis; }
+  .win__new { flex: none; }
+
+  /* Flex items don't shrink below their content by default: the chat scrolls instead of pushing
+     Changed Files and the composer out of the window */
+  .chat {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 16px 16px;
+    scrollbar-width: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chat code { font-size: 11.5px; padding: 0.05em 0.35em; }
+  .msg--user {
+    align-self: flex-end;
+    max-width: 90%;
+    padding: 9px 13px;
+    border-radius: 16px;
+    background: var(--win-select);
+  }
+  .msg--think { display: flex; align-items: center; gap: 5px; color: var(--ink-3); font-size: 12px; font-weight: 500; }
+  .disclosure { flex: none; color: var(--ink-4); }
+  .shimmer {
+    background: linear-gradient(90deg, var(--ink-3) 30%, var(--ink) 50%, var(--ink-3) 70%) 0 0 / 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer 1.6s linear infinite;
+  }
+  .msg--think.is-over .shimmer { animation: none; background: none; color: var(--ink-3); }
+  @keyframes shimmer { to { background-position: -150% 0; } }
+  .tool {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+  .tool span { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
+  .tool em { font-style: normal; }
+  .worked { display: flex; align-items: center; gap: 4px; color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+  .worked > * { flex: none; }
+  /* A narrow chat cuts the file count short, as the app's one-line label does */
+  .worked .worked__files { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .worked .win__spacer { flex: 1 1 0; min-width: 4px; }
+  .worked .ok { flex: none; color: var(--add); }
+  .worked__dot { color: var(--ink-4); }
+  .worked__done { color: var(--ink-4); }
+  .win:not(.has-changes) .worked [data-pending-stat],
+  .win:not(.has-changes) [data-review],
+  .win.has-changes .worked__done { display: none; }
+
+  /* Steps appear as the turn plays */
+  [data-step] { transition: opacity 0.4s var(--glide), transform 0.4s var(--glide); }
+  .js .win [data-step]:not(.is-shown) { display: none; }
+  .win [data-step].is-entering { opacity: 0; transform: translateY(6px); }
+  [data-stream] .word { opacity: 0; transition: opacity 0.25s; }
+  [data-stream] .word.is-on { opacity: 1; }
+
+  .changed {
+    margin: 0 10px;
+    padding: 8px 4px;
+    border-top: 0.5px solid var(--win-line);
+  }
+  /* A sidebar-style section header at the app's small size (D212): caption title, small controls */
+  .changed__head { display: flex; align-items: center; gap: 5px; padding: 0 2px 6px; font-size: 12px; white-space: nowrap; }
+  .changed__head > svg:first-child { color: var(--ink-3); }
+  .changed__head .win__icon-btn { flex: none; width: 20px; height: 20px; }
+  /* Previous, next and undo sit together, as in the app */
+  .changed__head .win__icon-btn + .win__icon-btn { margin-left: -5px; }
+  .changed__head .pill-btn { flex: none; }
+  .changed__title { color: var(--ink-2); font-weight: 600; }
+  .changed__head .badge {
+    min-width: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--win-select);
+    color: var(--ink-2);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .changed__file {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    transition: opacity 0.3s, height 0.35s var(--glide);
+  }
+  .changed__file span { color: var(--ink-3); flex: 1; }
+  .changed__author { color: var(--ink-3); }
+  .changed__file em { font-style: normal; }
+  .changed__file.is-gone { height: 0; opacity: 0; overflow: hidden; }
+
+  .composer {
+    margin: 6px 10px 10px;
+    padding: 10px 10px 8px 12px;
+    border-radius: 18px;
+    box-shadow: 0 0 0 0.5px var(--win-line), 0 4px 18px rgb(0 0 0 / 0.06);
+    background: var(--win);
+  }
+  .composer input {
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: none;
+    font-size: 13px;
+    padding: 2px 0 10px;
+  }
+  .composer input::placeholder { color: var(--ink-3); }
+  .composer__row { display: flex; align-items: center; gap: 6px; }
+  .composer__model { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }
+  .composer__model span { color: var(--ink-3); font-weight: 400; }
+  .composer__more { color: var(--ink-3); }
+  /* Round glass buttons, like Messages: + to attach, then send in the accent or stop while working */
+  .composer__attach,
+  .composer__send,
+  .composer__stop {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .composer__attach { width: 24px; height: 24px; background: var(--win-select); color: var(--ink-2); }
+  .composer__send { background: var(--accent-sys); color: #fff !important; transition: background-color 0.15s, opacity 0.15s; }
+  .composer__send:disabled { background: var(--win-select); color: var(--ink-3) !important; }
+  .composer__stop { display: none; background: var(--ink); color: var(--on-ink); }
+  .win[data-state="playing"] .composer__stop { display: grid; }
+  .win[data-state="playing"] .composer__send { display: none; }
+  /* How much of the context the chat has used, after the first turn */
+  .composer__usage {
+    display: block;
+    flex: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: conic-gradient(var(--ink-3) 0 18%, var(--win-select) 0);
+  }
+
+  @media (max-width: 1100px) {
+    .win { grid-template-columns: minmax(0, 1fr) var(--w-agent); }
+    .win__side { display: none; }
+  }
+  @media (max-width: 800px) {
+    .win { grid-template-columns: minmax(0, 1fr); height: 520px; }
+    .win__agent { display: none; }
+  }
+  @media (max-width: 520px) {
+    .banner { gap: 6px; padding: 0 8px 0 12px; }
+    .banner__label,
+    .banner .win__icon-btn { display: none; }
+    .code { font-size: 11.5px; }
+    .ln { --num: 36px; }
+    .ln::before { padding-right: 10px; }
+  }
+</style>

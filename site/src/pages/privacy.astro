@@ -1,0 +1,48 @@
+---
+import Base from "../layouts/Base.astro";
+import { REPO } from "../lib/release";
+---
+
+<Base title="Privacy — Orbit" description="Orbit has no account, no analytics and no server of its own." current="privacy">
+  <section class="page">
+    <div class="page__head">
+      <div class="lead"><h1><b>Privacy.</b></h1> Short, because there's little to say.</div>
+    </div>
+    <div class="prose">
+      <h2 id="app">The app</h2>
+      <p>
+        Orbit has no account, no analytics, no crash reporting and no server of its own. Your projects, chats and
+        settings stay on your Mac.
+      </p>
+      <p>It goes online for these, and only these:</p>
+      <ul>
+        <li>
+          <strong>Updates.</strong> Once a day it reads a small file from GitHub Releases to see if there's a newer
+          version, and downloads it from there.
+        </li>
+        <li>
+          <strong>Catalogs and what you install from them.</strong> The lists of agents, language servers and
+          extensions, and the things you install, come from where they're published: the ACP registry, Mason's
+          registry on GitHub, Zed's extension catalog. Once a day it checks them for updates to what you installed
+          (Settings → General → Keep Up to Date turns that off).
+        </li>
+        <li>
+          <strong>Grammars.</strong> The first time a file of a language opens, its tree-sitter grammar is downloaded
+          from its repository on GitHub and built on your Mac.
+        </li>
+        <li>
+          <strong>Things you ask for.</strong> Git's pull and push, pull requests, pages you open in the preview.
+        </li>
+        <li>
+          <strong>Agents.</strong> The agents you run are their makers' CLIs. They send your prompts and the code they
+          read to their providers, exactly as they would in a terminal, under your account and that provider's
+          terms.
+        </li>
+      </ul>
+      <h2 id="site">This site</h2>
+      <p>No cookies, no analytics, no tracking. The theme you pick is remembered in your browser and nowhere else.</p>
+      <h2 id="code">Check it</h2>
+      <p>The code is on <a href={REPO}>GitHub</a>.</p>
+    </div>
+  </section>
+</Base>

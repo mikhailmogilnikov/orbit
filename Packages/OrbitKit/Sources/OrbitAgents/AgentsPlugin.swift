@@ -813,7 +813,7 @@ final class AgentStore {
         }
     }
 
-    /// Settings → General → Automatic Updates (D186): a while after launch, once
+    /// Settings → General → Keep Up to Date (D186): a while after launch, once
     /// a day, every installed registry agent with a newer version. Running chats
     /// keep the old one until they restart.
     private func autoUpdate() {

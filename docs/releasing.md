@@ -20,8 +20,9 @@ copies update themselves. The reasoning behind it is in D129
   in the login keychain of the Mac that made it. Sparkle refuses an update
   whose signature doesn't match.
 - **Code signing** is ad hoc for now (no Developer ID): macOS asks once,
-  on the first launch of a downloaded copy (right-click → Open). Updates
-  installed by Sparkle don't ask again.
+  on the first launch of a downloaded copy (since macOS 15 right-click →
+  Open no longer gets past it: System Settings → Privacy & Security →
+  Open Anyway). Updates installed by Sparkle don't ask again.
 - **Debug builds never update** themselves, and neither does any build
   while `SUPublicEDKey` is empty.
 
@@ -63,7 +64,7 @@ On another Mac, import it with `generate_keys -f <file>`.
    `.build/xcode/Build/Products/Release/Orbit.app`. The keychain may ask
    for access to the signing key.
 4. **Check the build.** Unzip the archive somewhere outside the repo,
-   open the app (right-click → Open the first time), and try what changed.
+   open the app (the first time: Privacy & Security → Open Anyway), and try what changed.
    `appcast.xml` should name the right version, build number and download
    URL (`…/releases/download/v0.2.0/Orbit-0.2.0.zip`).
 5. **Push and publish:**

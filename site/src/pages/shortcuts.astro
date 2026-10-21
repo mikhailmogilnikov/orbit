@@ -1,0 +1,144 @@
+---
+import Base from "../layouts/Base.astro";
+import Icon from "../components/Icon.astro";
+import { shortcuts, type Shortcut } from "../lib/shortcuts";
+
+/** Keys that aren't commands: the app's own menu items, the chat's composer and its prompts */
+const general: Shortcut[] = [
+  ["Command Palette", "⇧⌘P"],
+  ["Settings…", "⌘,"],
+].map(([title, keys]) => ({ title, keys, category: "General", editor: false }));
+const chat: Shortcut[] = [
+  ["Send", "↩"],
+  ["Stop the agent", "⎋"],
+  ["Earlier and later messages you sent", "↑ ↓"],
+  ["Next mode", "⇧⇥"],
+  ["Mention a file", "@"],
+  ["The agent's slash commands", "/"],
+  ["Allow once", "⌘↩"],
+  ["Always allow", "⌃⌘↩"],
+  ["Deny", "⌃⌘⌫"],
+].map(([title, keys]) => ({ title, keys, category: "Agent chat", editor: false }));
+
+const order = ["General", "Review", "Agents", "Agent chat", "File", "Edit", "Code", "Navigate", "View", "Find", "Git", "Terminal", "Appearance"];
+const groups = new Map<string, Shortcut[]>();
+for (const s of [...general, ...shortcuts(), ...chat]) groups.set(s.category, [...(groups.get(s.category) ?? []), s]);
+const sorted = [...groups].sort(
+  ([a], [b]) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99) || a.localeCompare(b),
+);
+const total = [...groups.values()].reduce((n, list) => n + list.length, 0);
+---
+
+<Base
+  title="Keyboard shortcuts — Orbit"
+  description="Every default key shortcut in Orbit, read from the app's own commands."
+  current="shortcuts"
+>
+  <section class="page">
+    <div class="page__head">
+      <div class="lead">
+        <h1><b>Keyboard shortcuts.</b></h1> All {total} of Orbit's default keys, read from the commands its plugins register.
+        Any of them can be changed in Settings → Keyboard Shortcuts, and ⇧⌘P finds a command by name.
+      </div>
+      <label class="filter">
+        <Icon name="search" size={16} />
+        <input type="search" placeholder="Find a shortcut" data-filter aria-label="Find a shortcut" />
+      </label>
+    </div>
+
+    <div class="keys" data-keys>
+      {
+        sorted.map(([category, list]) => (
+          <section class="keys__group" data-group>
+            <h2>{category}</h2>
+            <ul>
+              {list.map((s) => (
+                <li data-text={`${s.title} ${s.keys} ${category}`.toLowerCase()}>
+                  <span>
+                    {s.title}
+                    {s.editor && <small> in the editor</small>}
+                  </span>
+                  <kbd>{s.keys}</kbd>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      }
+    </div>
+    <p class="none" data-none hidden>Nothing matches.</p>
+  </section>
+</Base>
+
+<style>
+  .filter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 420px;
+    height: 44px;
+    margin-top: 32px;
+    padding: 0 16px;
+    border-radius: 999px;
+    background: var(--pill);
+    color: var(--ink-3);
+  }
+  .filter input {
+    flex: 1;
+    border: 0;
+    outline: 0;
+    background: none;
+    color: var(--ink);
+  }
+  .filter input::placeholder { color: var(--ink-3); }
+  .filter:focus-within { box-shadow: 0 0 0 2px #0a84ff; }
+
+  .keys {
+    columns: 3 320px;
+    column-gap: 56px;
+  }
+  .keys__group {
+    break-inside: avoid;
+    margin-bottom: 48px;
+  }
+  .keys__group[hidden] { display: none; }
+  h2 {
+    font-weight: 500;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--hair);
+  }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--hair);
+    color: var(--ink-2);
+  }
+  li[hidden] { display: none; }
+  li small { color: var(--ink-3); font-size: 13px; }
+  li kbd { flex: none; letter-spacing: 0.06em; }
+  .none { color: var(--ink-3); }
+</style>
+
+<script>
+  const input = document.querySelector<HTMLInputElement>("[data-filter]")!;
+  const none = document.querySelector<HTMLElement>("[data-none]")!;
+  input.addEventListener("input", () => {
+    const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let any = false;
+    for (const group of document.querySelectorAll<HTMLElement>("[data-group]")) {
+      let shown = 0;
+      for (const li of group.querySelectorAll<HTMLElement>("li")) {
+        const hit = words.every((w) => li.dataset.text!.includes(w));
+        li.hidden = !hit;
+        if (hit) shown++;
+      }
+      group.hidden = shown === 0;
+      any ||= shown > 0;
+    }
+    none.hidden = any;
+  });
+</script>

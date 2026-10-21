@@ -225,6 +225,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D213. Change-block buttons float in a glass capsule
 - D214. A launch to open a folder still gets a window; the saved folders survive a launch without one
 - D215. Typing at several carets keeps them all
+- D216. A website in `site/`: Astro, one type size, a working window, measured numbers
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4442,3 +4443,36 @@ STTextView make its edits (completion and undo follow them as before)
 and then puts every caret back where `CaretEditing.combine` says it ends
 up; Backspace at several carets goes through `applyCarets`, as brackets
 and Return already did (D202). `MultiCaretTypingTests` covers both.
+
+### D216. A website in `site/`: Astro, one type size, a working window, measured numbers
+
+Orbit needed a page to download it from and to show what it is. Modelled on
+Office Commun's page for their Search browser and on the author's Liquid Web
+docs: one type size with hierarchy from ink and weight, light and dark, a
+floating glass nav, and the app shown working rather than in screenshots.
+
+- **Where:** `site/` in this repo (Astro 7, plain CSS, no UI framework), so
+  its pages read the repo itself at build time: `/extensions` renders
+  `docs/extensions.md`, `/roadmap` the roadmap's open sections (decision
+  numbers link to this log), `/shortcuts` every default key from the
+  `OrbitCommand` registrations in the Swift sources, `/changelog` and the
+  download link come from GitHub Releases. Nothing there is copied by hand,
+  so nothing drifts. Hosting: Vercel with `site/` as the root (the build
+  reads `../docs` and `../Packages`).
+- **Look:** monochrome; the only colors of its own are the diff's green and
+  red. Liquid Web's glass (`@liquid-web/blur`, not on npm yet) is vendored as
+  `site/src/styles/liquid-blur.css`. Inter is self-hosted, so the site makes
+  no third-party request (its privacy page says so).
+- **The window** on the home page is HTML: an agent turn plays when it
+  scrolls into view, then its changes wait for Keep / Undo by click or by
+  the app's keys (⌥⌘↩, ⌥⌘⌫, ⌥⌘↑↓, ⇧⌘↩, ⇧⌘⌫). It follows the app as of
+  D212–D213 (glass capsule under a block, Changed Files as a section).
+- **Numbers are measured, never estimated:** `site/bench/run.sh` launches
+  Orbit, Zed, VS Code and Cursor on a small project (fresh profiles for the
+  others), 3 runs after a warm-up, and `summarize.mjs` writes
+  `src/data/numbers.json`. Agents are left out of Orbit's count — they cost
+  the same in any editor — and `/numbers` gives Orbit's total with its
+  agent too. Orbit wasn't the quickest to its first window (Zed was), so
+  the home page shows size, memory, processes and idle CPU, and the launch
+  time stays on `/numbers` with the others' — no claim the data doesn't back.
+

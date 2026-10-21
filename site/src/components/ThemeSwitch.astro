@@ -1,0 +1,23 @@
+---
+import Icon from "./Icon.astro";
+---
+
+<div class="seg seg--glass theme-seg" role="group" aria-label="Theme" data-theme-switch>
+  <span class="seg__thumb" aria-hidden="true"></span>
+  <button type="button" data-value="auto" aria-pressed="true" aria-label="Match system" title="Match system">
+    <Icon name="auto" size={17} />
+  </button>
+  <button type="button" data-value="light" aria-pressed="false" aria-label="Light" title="Light">
+    <Icon name="sun" size={17} />
+  </button>
+  <button type="button" data-value="dark" aria-pressed="false" aria-label="Dark" title="Dark">
+    <Icon name="moon" size={17} />
+  </button>
+</div>
+
+<!-- On a phone: one button that steps through the same three -->
+<button class="icon-link theme-cycle" type="button" data-theme-cycle aria-label="Theme: match system">
+  <Icon name="auto" size={18} class="is-auto" />
+  <Icon name="sun" size={18} class="is-light" />
+  <Icon name="moon" size={18} class="is-dark" />
+</button>
