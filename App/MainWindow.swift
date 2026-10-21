@@ -17,7 +17,25 @@ struct MainWindow: View {
     private var workspace: Workspace { host.workspace }
     private var ui: UIRegistry { host.ui }
 
+    // Split in parts, and handlers in methods: as one chain, Xcode 26's type
+    // checker gave up on it.
     var body: some View {
+        layers
+            .environment(tabDrag)
+            .onAppear(perform: windowAppeared)
+            .onChange(of: sidebarPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.sidebarPanel") }
+            .onChange(of: inspectorPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.inspectorPanel") }
+            .onChange(of: showsInspector) { _, shows in UserDefaults.standard.set(shows, forKey: "orbit.showsInspector") }
+            // A theme being tried on brings its own mode (it only draws in that one).
+            .onChange(of: appearance, initial: true) { _, appearance in apply(appearance) }
+            .onChange(of: columnVisibility) { _, visibility in
+                UserDefaults.standard.set(visibility == .detailOnly, forKey: "orbit.sidebarHidden")
+            }
+            .onChange(of: ui.requestedInspectorPanel) { _, id in showInspectorPanel(id) }
+            .onChange(of: ui.requestedSidebarPanel) { _, id in showSidebarPanel(id) }
+    }
+
+    private var layers: some View {
         // Settings replace the workspace view while shown (see SettingsScreen).
         Group {
             if ui.isSettingsVisible {
@@ -49,39 +67,32 @@ struct MainWindow: View {
                     .transition(.opacity)
             }
         }
-        .environment(tabDrag)
-        .onAppear(perform: windowAppeared)
-        .onChange(of: sidebarPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.sidebarPanel") }
-        .onChange(of: inspectorPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.inspectorPanel") }
-        .onChange(of: showsInspector) { _, shows in UserDefaults.standard.set(shows, forKey: "orbit.showsInspector") }
-        // A theme being tried on brings its own mode (it only draws in that one).
-        .onChange(of: appearance, initial: true) { _, appearance in
-            NSApp.appearance = switch appearance {
-            case .system: nil
-            case .light: NSAppearance(named: .aqua)
-            case .dark: NSAppearance(named: .darkAqua)
-            }
-        }
-        .onChange(of: columnVisibility) { _, visibility in
-            UserDefaults.standard.set(visibility == .detailOnly, forKey: "orbit.sidebarHidden")
-        }
-        .onChange(of: ui.requestedInspectorPanel) { _, id in
-            guard let id else { return }
-            ui.isSettingsVisible = false
-            showsInspector = true
-            inspectorPanelID = id
-            ui.requestedInspectorPanel = nil
-        }
-        .onChange(of: ui.requestedSidebarPanel) { _, id in
-            guard let id else { return }
-            ui.isSettingsVisible = false
-            columnVisibility = .all
-            sidebarPanelID = id
-            ui.requestedSidebarPanel = nil
+    }
+
+    private func apply(_ appearance: Preferences.Appearance) {
+        NSApp.appearance = switch appearance {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
         }
     }
 
-    // Out of `body`: inline, Xcode 26 gave up type-checking the modifier chain.
+    private func showInspectorPanel(_ id: String?) {
+        guard let id else { return }
+        ui.isSettingsVisible = false
+        showsInspector = true
+        inspectorPanelID = id
+        ui.requestedInspectorPanel = nil
+    }
+
+    private func showSidebarPanel(_ id: String?) {
+        guard let id else { return }
+        ui.isSettingsVisible = false
+        columnVisibility = .all
+        sidebarPanelID = id
+        ui.requestedSidebarPanel = nil
+    }
+
     private func windowAppeared() {
         Onboarding.shared.windowAppeared(host)
         registerLayoutCommands()
