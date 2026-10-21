@@ -160,6 +160,10 @@ code actions, rename, formatting and its corner note, the agent registry
 - D220: a Vite dev server, `vitest --watch`, Jest and pytest as tasks in a real
   project: problems appear, clear on rerun, and Vue / Svelte plugin errors (not
   captured yet) land on the right line.
+- D221 (a Release build): launched from the Desktop (iCloud), from Downloads
+  after a browser download (translocated) and from a disk image; with an older
+  and a newer Orbit already in Applications; as a user who isn't an admin;
+  then Check for Updates… from the moved copy installs and relaunches.
 - Terminal find (D110): ⌘F reaching SwiftTerm's find bar, its look beside Orbit's glass.
 - Tasks (D128, D138): typing into a shell that's still starting, ⌃C then
   restart of a dev server, ⌘R from the terminal and the chat, the running-task

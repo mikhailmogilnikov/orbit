@@ -74,6 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Before any window: a move relaunches Orbit from Applications (D221).
+        MainActor.assumeIsolated { MoveToApplications.offerIfNeeded() }
         // SwiftUI makes its window right after this, when it makes one at all.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             MainActor.assumeIsolated { ProjectWindows.shared.openWindowIfNone() }

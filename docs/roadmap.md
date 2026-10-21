@@ -201,6 +201,7 @@
 - Blame after the caret's line, as GitLens (D187, ⌥⌘B; replaced D135's column): author, age, summary; hover for the commit
 - History of any branch with search and a graph, ref badges (D136)
 - Task errors in Problems and as squiggles (D137): tsc, clang / Swift / Go, Rust, ESLint; Python, pytest, Jest, Vitest, esbuild, Vite (D220)
+- Offers to move itself to Applications when launched elsewhere, where updates can't install (D221)
 - Running tasks in the status bar with Show / Restart / Stop; monorepo packages' scripts in Run Task… (D138)
 - Box selection by ⌥-drag (D139); Format Selection keeps only the selection's changes (D140)
 - Large files open light (D141): no highlighting, LSP, git markers or blame, with Turn On

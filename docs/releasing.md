@@ -25,6 +25,9 @@ copies update themselves. The reasoning behind it is in D129
   Open Anyway). Updates installed by Sparkle don't ask again.
 - **Debug builds never update** themselves, and neither does any build
   while `SUPublicEDKey` is empty.
+- **Updates install only in Applications.** Sparkle can't swap an app in an
+  iCloud-synced folder (Desktop, Documents, often Downloads), so a Release
+  build launched elsewhere offers to move itself first (D221).
 
 ## One-time setup (done)
 

@@ -230,6 +230,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D218. The editor's keys follow code editors where AppKit's text rules don't fit code
 - D219. The chat's composer and the terminal get the keys and gestures other apps have
 - D220. Python, pytest, Jest, Vitest, esbuild and Vite errors reach Problems
+- D221. Launched outside Applications, Orbit offers to move itself there
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4588,3 +4589,29 @@ on (the tests replay those captures):
 Python projects (`pyproject.toml`, `pytest.ini`, `setup.py`, `setup.cfg`)
 get a `pytest` task, through `uv run` or `poetry run` when their lockfile
 is there, else `python3 -m pytest`: problems come only from task tabs.
+
+### D221. Launched outside Applications, Orbit offers to move itself there
+
+The first update (0.1.0 → 0.1.1) downloaded, passed its signature check and
+then didn't install: the app ran from the Desktop, which iCloud syncs, and
+Sparkle's swap of the bundle (`renamex_np`) failed there with EDEADLK
+("Resource deadlock avoided"), its fallback too. Sparkle showed nothing and
+didn't relaunch. A download opened where it landed (Downloads, often synced
+too) or from a disk image has the same problem.
+
+So a Release build launched from anywhere but `/Applications` or
+`~/Applications` asks once, before its first window, to move there
+(`App/MoveToApplications.swift`, after the LetsMove pattern):
+
+- **Move to Applications** copies it to `/Applications` (to `~/Applications`
+  without the right to write there), replacing an older Orbit (to the
+  Trash), clears the quarantine flag on the copy (it is already allowed to
+  run, so Gatekeeper needn't ask again), puts the original in the Trash and
+  opens the copy once this process is gone, so the two never run together.
+- With an Orbit as new or newer already in Applications, it offers to open
+  that one instead.
+- Run from App Translocation (a quarantined download opened in place), the
+  original's folder comes from Security's `SecTranslocateCreateOriginalPathForURL`,
+  looked up at run time (it's not in the headers) and skipped if missing.
+- **Don't ask again** is remembered (`orbit.moveToApplicationsSuppressed`);
+  debug builds never ask.
