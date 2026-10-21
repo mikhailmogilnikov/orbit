@@ -435,7 +435,12 @@ public final class EditorPlugin: OrbitPlugin {
     private func registerChangeCommands(_ context: PluginContext, options: EditorOptions) {
         let services = context.services
         let workspace = context.workspace
-        func hasHunks() -> Bool { ActiveEditor.shared.coordinator?.inlineDiff.hunks.isEmpty == false }
+        // The menu re-checks `isEnabled` only on observable changes: the inline diff and
+        // ActiveEditor aren't, so ⌥⌘↩ stayed disabled after an agent's edit.
+        func hasHunks() -> Bool {
+            guard let url = workspace.activeTab?.url else { return false }
+            return services.resolve(ChangeTracking.self)?.hasChanges(url) == true
+        }
         func hasPendingChanges() -> Bool { services.resolve(ChangeTracking.self)?.changedFiles.isEmpty == false }
         func currentHunk() -> (DiffHunk, URL, ChangeTracking)? {
             guard let coordinator = ActiveEditor.shared.coordinator,
@@ -474,7 +479,7 @@ public final class EditorPlugin: OrbitPlugin {
             title: "Insert Snippet…",
             category: "Code",
             systemImage: "text.badge.plus",
-            isEnabled: { ActiveEditor.shared.coordinator != nil }
+            isEnabled: { Self.hasEditor(workspace) }
         ) {
             guard let coordinator = ActiveEditor.shared.coordinator else { return }
             let snippets = SnippetLibrary.shared.snippets(for: coordinator.document.url, root: workspace.root)
@@ -520,7 +525,7 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Agents",
             systemImage: "sparkles",
             shortcut: KeyboardShortcut("k", modifiers: .command),
-            isEnabled: { services.resolve(AgentCompletion.self) != nil && ActiveEditor.shared.coordinator != nil },
+            isEnabled: { services.resolve(AgentCompletion.self) != nil && Self.hasEditor(workspace) },
             editorMenu: EditorMenuPlacement(.agent) { services.resolve(AgentCompletion.self) != nil }
         ) {
             guard let coordinator = ActiveEditor.shared.coordinator,
@@ -536,7 +541,7 @@ public final class EditorPlugin: OrbitPlugin {
             category: "Review",
             systemImage: "text.bubble",
             shortcut: KeyboardShortcut("/", modifiers: [.command, .option]),
-            isEnabled: { services.resolve(ReviewComments.self) != nil && ActiveEditor.shared.coordinator != nil },
+            isEnabled: { services.resolve(ReviewComments.self) != nil && Self.hasEditor(workspace) },
             editorMenu: EditorMenuPlacement(.review) { services.resolve(ReviewComments.self) != nil }
         ) {
             guard let coordinator = ActiveEditor.shared.coordinator else { return }
@@ -658,6 +663,9 @@ extension EditorPlugin {
             NSAlert(error: error).runSheetModal()
         }
     }
+
+    /// An observable stand-in for `ActiveEditor.shared.coordinator != nil` in `isEnabled`.
+    static func hasEditor(_ workspace: Workspace) -> Bool { workspace.activeTab?.kind == EditorTab.fileKind }
 
     static func activeDocument(_ workspace: Workspace) -> TextDocument? {
         guard let tab = workspace.activeTab, tab.kind == EditorTab.fileKind, let url = tab.url else { return nil }

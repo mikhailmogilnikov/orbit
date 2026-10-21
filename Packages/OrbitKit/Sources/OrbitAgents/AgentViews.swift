@@ -658,7 +658,7 @@ struct TurnSummaryView: View {
         }
     }
 
-    /// "2m 5s", in English like the rest of the UI (the system formatter follows the Mac's language).
+    /// "2m 5s". By hand so tests get it too: outside the app bundle the system formatter speaks the Mac's language (D211).
     nonisolated static func format(_ duration: TimeInterval) -> String {
         let total = max(1, Int(duration.rounded()))
         let hours = total / 3600, minutes = total % 3600 / 60, seconds = total % 60
@@ -704,41 +704,68 @@ private struct TurnFileRow: View {
     }
 }
 
-/// The agent's reply, with Copy on hover (the Markdown source).
+/// The agent's reply, with Copy under it on hover (the Markdown source).
 struct AgentMessageView: View {
     let entry: TranscriptEntry
     @State private var isHovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            MarkdownText(entry.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            MessageActions(isVisible: isHovering) {
+                CopyMessageButton(text: entry.text, help: "Copy the reply")
+            }
+        }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
+        }
+    }
+}
+
+/// A message's actions in a quiet row under it, as in chat apps (D209): gray
+/// icons that show on hover; the row keeps its height so nothing jumps.
+private struct MessageActions<Content: View>: View {
+    let isVisible: Bool
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 2) { content }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .opacity(isVisible ? 1 : 0)
+            .allowsHitTesting(isVisible)
+    }
+}
+
+private struct MessageActionIcon: View {
+    let systemImage: String
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .contentTransition(.symbolEffect(.replace))
+            .orbitFont(.caption, weight: .medium)
+            .frame(width: 20, height: 20)
+            .contentShape(.rect)
+    }
+}
+
+private struct CopyMessageButton: View {
+    let text: String
+    let help: String
     @State private var copied = false
 
     var body: some View {
-        MarkdownText(entry.text)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.bottom, 4)
-            .overlay(alignment: .bottomTrailing) {
-                if isHovering || copied {
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(entry.text, forType: .string)
-                        copied = true
-                        Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
-                    } label: {
-                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                            .contentTransition(.symbolEffect(.replace))
-                            .orbitFont(.caption)
-                            .frame(width: 22, height: 22)
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .controlSize(.small)
-                    .help("Copy the reply")
-                    .offset(y: 12)
-                    .transition(.opacity)
-                }
-            }
-            .onHover { hovering in
-                withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
-            }
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            copied = true
+            Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
+        } label: {
+            MessageActionIcon(systemImage: copied ? "checkmark" : "doc.on.doc")
+        }
+        .help(help)
+        .accessibilityLabel(spokenName(help))
     }
 }
 
@@ -793,24 +820,7 @@ struct UserMessageView: View {
 
     /// A bubble on the right, like Claude Code, so each turn's start is easy to find.
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            Spacer(minLength: 40)
-            if entry.checkpoint != nil, isHovering || isConfirming {
-                Button {
-                    isConfirming = true
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                        .orbitFont(.caption, weight: .semibold)
-                        .frame(width: 22, height: 22)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .controlSize(.small)
-                .disabled(!session.canRestore)
-                .help(session.canRestore ? "Go back to before this message: chat and files" : "Wait for the agent to finish")
-                .transition(.opacity)
-            }
+        VStack(alignment: .trailing, spacing: 2) {
             VStack(alignment: .leading, spacing: 6) {
                 if !entry.attachments.isEmpty {
                     AttachmentChips(attachments: entry.attachments)
@@ -826,6 +836,22 @@ struct UserMessageView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(.tint.opacity(0.16), in: .rect(cornerRadius: Theme.largeCorner))
+            .padding(.leading, 40)
+            MessageActions(isVisible: isHovering || isConfirming) {
+                let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    CopyMessageButton(text: text, help: "Copy the message")
+                }
+                if entry.checkpoint != nil {
+                    let help = session.canRestore ? "Go back to before this message: chat and files" : "Wait for the agent to finish"
+                    Button { isConfirming = true } label: {
+                        MessageActionIcon(systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(!session.canRestore)
+                    .help(help)
+                    .accessibilityLabel("Go back to before this message")
+                }
+            }
         }
         .padding(.top, 6)
         .frame(maxWidth: .infinity, alignment: .trailing)

@@ -217,6 +217,14 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D205. A first-launch tour: a short film, four setup steps, one closing line
 - D206. GPL-3.0, and the files an open-source repo is expected to have
 - D207. Dependencies' licenses in About Orbit
+- D208. The shimmer runs in Core Animation, not a per-frame SwiftUI timeline
+- D209. Message actions sit in a row under the message
+- D210. Shortcut audit: review keys that stuck disabled, ⇧ on symbol keys
+- D211. The UI stays in English; numbers and dates follow the Mac's region
+- D212. The changed-files bar reads as a sidebar section
+- D213. Change-block buttons float in a glass capsule
+- D214. A launch to open a folder still gets a window; the saved folders survive a launch without one
+- D215. Typing at several carets keeps them all
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2279,7 +2287,8 @@ starts with).
   opens a new window; in a window without one it opens there. A folder
   already open just brings its window forward. `Workspace.requestOpenFolder`
   asks the app through `openFolderElsewhere`.
-- File → New Window (⇧⌘N, as in Cursor), also in the Dock menu.
+- File → New Window (⇧⌘N, as in Cursor), also in the Dock menu. *(Changed
+  by D210: ⌃⌘N; ⇧⌘N is New Agent Session.)*
 - A window without a folder is the welcome window, after Cursor's: Open
   Folder and Clone Repository (`git clone` into a folder picked in a
   panel, then opened), and Recent Projects (6, Show All; × removes one).
@@ -4315,3 +4324,122 @@ its text; Orbit.app shipped none of them.
 - **How it's drawn**: an attributed string in label colors, not a
   `Credits.rtf` / `Credits.html`: those come out black on the dark About panel.
 - Rerun it when a dependency changes; nothing checks that it's current.
+
+### D208. The shimmer runs in Core Animation, not a per-frame SwiftUI timeline
+
+While an agent worked, Orbit sat at 50–80% CPU and the editor lagged. A
+profile showed the main thread ~90% busy in SwiftUI's display cycle with no
+Orbit code to speak of: the shimmer on "Working…", the running tool call and
+a live thought (D115) was a `TimelineView(.animation)`, so the window's root
+`NSHostingView` re-ran its graph update, layout and display list 120 times a
+second on ProMotion, for as long as the turn lasted.
+
+- The band is a `CAGradientLayer` with a repeating `startPoint` / `endPoint`
+  animation (`ShimmerBand` in OrbitUI/Theme.swift); SwiftUI still masks it
+  with the text, so it looks the same, but the render server moves it and
+  the app does no work per frame. Its phase follows the wall clock, so rows
+  that start at different times sweep together, as before.
+- Never drive a continuous animation in the main window with
+  `TimelineView(.animation)` or a per-frame `@State`: the whole window pays
+  for it. Use Core Animation (or a system control that does, like
+  `ProgressView`). The first-launch tour's timelines are fine: its window
+  is small and short-lived.
+
+### D209. Message actions sit in a row under the message
+
+Copy (on the agent's reply) and Go Back (beside the user's bubble) were
+round glass buttons that popped up over the chat on hover; they read as
+loud and out of place. They're now a quiet row under the message, as in
+chat apps: borderless gray icons (`MessageActions` in AgentViews.swift)
+that fade in on hover. The row keeps its height while hidden, so hovering
+moves nothing. The user's message also gets Copy.
+
+### D210. Shortcut audit: review keys that stuck disabled, ⇧ on symbol keys
+
+Keep Change (⌥⌘↩) and Undo Change (⌥⌘⌫) didn't fire after an agent's
+edit: their `isEnabled` read the inline diff's hunks through
+`ActiveEditor`, neither observable, so the menu items kept the state they
+had when the menu was built (usually disabled). They now ask the change
+tracker about the active tab's file; Insert Snippet, Edit with Agent (⌘K)
+and Comment for Agent (⌥⌘/) check the active tab (`EditorPlugin.hasEditor`)
+instead of `ActiveEditor` for the same reason.
+
+A menu shortcut with ⇧ on a symbol key never matches (⇧] arrives as "}"):
+Show Next/Previous Tab (⇧⌘] / ⇧⌘[) and ⌃⇧` didn't work, nor would such a
+key picked in Settings. `ShiftedKeys` (App) matches them by the key itself
+in a local key monitor, before the menus, as `TabSwitcher` already did for ⌃⇧-.
+
+`ShortcutConflictTests` fails when two built-in plugin commands share a
+key, or an editor-only key is also a menu key. The shell's own commands
+aren't in it: ⇧⌘N was both New Window and New Agent Session (the File menu
+comes first, so the agent's never ran). ⇧⌘N is New Agent Session now, as
+`product.md` has it, used far more than a new window; New Window moved to
+⌃⌘N.
+
+### D211. The UI stays in English; numbers and dates follow the Mac's region
+
+No translations for now. Orbit is built for the author first, its peers
+(Xcode, Zed, Warp) are English-only, and a catalog would tax every new
+string while git, language servers and agents still answer in English. A
+half-translated UI looks worse than an English one. Worth revisiting if
+users ask; the plan then: a String Catalog per module, localizable titles
+in `OrbitCommand` and the other contributions (the palette and Settings
+search matching English too), Russian first, the language from macOS's
+per-app setting rather than a picker of our own.
+
+What is done now: dates, numbers, percentages and sizes go through the
+system formatters (`.formatted`, `ByteCountFormatter`). In an app without
+localizations `Locale.current` is the development language with the Mac's
+region (`en_RU` here): English words, the region's decimal comma, 24-hour
+time and "42 %". Outside the app bundle (`swift test`, scripts) it is the
+Mac's own locale (`ru_RU`), words included, so text a test checks is built
+by hand (`TurnSummaryView.format`, `UsageFormat.reset`) or pins a locale.
+Compact sidebar ages ("5m", "3d", `GitPanel.age`) stay hand-made: no
+formatter is that short.
+
+### D212. The changed-files bar reads as a sidebar section
+
+The bar over the composer had two equal glass pills (Undo All, Keep All)
+and a lone double chevron: loud, and without one clear action. It now
+reads like a section header in Xcode's or Finder's sidebar: a disclosure
+chevron, "Changed Files" in secondary semibold, the count in a `Badge`,
+the line totals. On the right, quiet icons go to the previous and next
+change (⌥⌘↑ / ⌥⌘↓, as Xcode's change stepper) and undo everything; Keep
+All is the one prominent button. The tooltips name the commands' keys.
+
+### D213. Change-block buttons float in a glass capsule
+
+The buttons under a change block (and a merge conflict's, and a note's
+chip) were a material tab with hairline dividers and the keys printed in
+the labels ("Undo ⌥⌘⌫ Keep ⌥⌘↩"): busy, and like no Mac control. They are
+now one Liquid Glass capsule (`glassEffect`), as macOS 26's floating
+controls: the note icon, Undo in secondary, Keep in semibold, each with a
+capsule hover. The keys moved to the tooltips, where Mac apps put them.
+
+### D214. A launch to open a folder still gets a window; the saved folders survive a launch without one
+
+Launched to open a folder (`open -a Orbit folder`, a folder dropped on the
+Dock icon, Finder), macOS sends "open documents" instead of "open
+application", and SwiftUI then makes no window. The folder waited in
+`earlyOpens` for a window that never came: Orbit ran with none, and
+quitting it saved an empty `orbit.openFolders`, so the next launch
+forgot every project.
+
+- The menus hand over their `openWindow` (they exist before any window);
+  half a second after launch, `ProjectWindows.openWindowIfNone` opens a
+  window if SwiftUI made none, and it takes the waiting folders and the
+  saved ones as the first window always did.
+- `saveOpenFolders` writes nothing until the launch's first window has
+  taken the saved folders (`restoredLaunchFolders`): a launch that never
+  got that far leaves the list as it was.
+
+### D215. Typing at several carets keeps them all
+
+After the first character typed at several carets (⌘D, ⌘⇧L, ⌥-click),
+only the top one was left. STTextView replaces each selection on its own,
+bottom up, and each replacement leaves a single caret where it was made,
+so the last one, the top, won. `OrbitTextView.insertText` still lets
+STTextView make its edits (completion and undo follow them as before)
+and then puts every caret back where `CaretEditing.combine` says it ends
+up; Backspace at several carets goes through `applyCarets`, as brackets
+and Return already did (D202). `MultiCaretTypingTests` covers both.

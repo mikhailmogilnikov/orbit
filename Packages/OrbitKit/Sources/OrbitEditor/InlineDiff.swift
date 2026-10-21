@@ -239,7 +239,7 @@ final class InlineDiffController {
                 revert: { [weak self] in self?.onRevert?(hunk) },
                 editComment: { [weak self] in
                     guard let self else { return }
-                    editComment(note ?? newComment(on: hunk), anchor: overlays.view(for: key)?.frame ?? .zero)
+                    editComment(note ?? newComment(on: hunk), anchor: commentAnchor(anchorLines(of: hunk), hunk: hunk))
                 }
             ))
             let size = actions.frame.size == .zero ? actions.fittingSize : actions.frame.size
@@ -257,7 +257,7 @@ final class InlineDiffController {
             let key: [AnyHashable] = ["note", comment]
             let chip = overlays.view(for: key) ?? NSHostingView(rootView: CommentChip(text: comment.text) { [weak self] in
                 guard let self else { return }
-                editComment(comment, anchor: overlays.view(for: key)?.frame ?? .zero)
+                editComment(comment, anchor: commentAnchor(lines, hunk: nil))
             })
             let size = chip.frame.size == .zero ? chip.fittingSize : chip.frame.size
             let frame = CGRect(x: textView.visibleRect.maxX - size.width - 12, y: line.midY - size.height / 2, width: size.width, height: size.height)
@@ -299,10 +299,29 @@ final class InlineDiffController {
         let hunk = hunks.first { anchorLines(of: $0).overlaps(lines) }
         let note = existing ?? hunk.map(newComment(on:))
             ?? ReviewComment(url: url ?? URL(fileURLWithPath: "/"), lines: lines, code: code(lines))
-        let anchorLine = hunk.map { anchorLines(of: $0).upperBound } ?? lines.upperBound
-        let rect = lineRect(anchorLine) ?? CGRect(x: textView.visibleRect.midX, y: textView.visibleRect.midY, width: 1, height: 1)
-        textView.scrollToVisible(rect.insetBy(dx: 0, dy: -60))
-        editComment(note, anchor: CGRect(x: rect.minX, y: rect.minY, width: max(1, min(rect.width, 240)), height: rect.height))
+        editComment(note, anchor: commentAnchor(hunk.map(anchorLines(of:)) ?? lines, hunk: hunk))
+    }
+
+    /// The note opens above the first line of its block, where the eye is, not by
+    /// the buttons at the side.
+    private func commentAnchor(_ lines: ClosedRange<Int>, hunk: DiffHunk?) -> CGRect {
+        guard let textView else { return .zero }
+        guard var line = lineRect(lines.lowerBound) else {
+            let visible = textView.visibleRect
+            return CGRect(x: visible.midX, y: visible.midY, width: 1, height: 1)
+        }
+        // The removed lines are drawn in a gap above the block.
+        if let hunk, hunk.removed > 0 { line.origin.y -= CGFloat(hunk.removed) * lineHeight }
+        // Scrolled to only when out of sight, and never past the end of the text.
+        var visible = textView.visibleRect
+        if line.minY < visible.minY || line.maxY > visible.maxY {
+            textView.scrollToVisible(CGRect(x: visible.minX, y: line.minY - 120, width: 1, height: line.height + 180)
+                .intersection(textView.bounds))
+            visible = textView.visibleRect
+        }
+        let width = max(1, min(line.width, 240))
+        let x = min(max(line.minX, visible.minX + 8), max(visible.minX + 8, visible.maxX - width - 8))
+        return CGRect(x: x, y: line.minY, width: width, height: line.height)
     }
 
     private func editComment(_ comment: ReviewComment, anchor: CGRect) {
@@ -342,7 +361,11 @@ final class InlineDiffController {
         openPopovers[key] = (popover, delegate)
         popover.delegate = delegate
         commentPopover = popover
-        popover.show(relativeTo: anchor, of: textView, preferredEdge: .maxY)
+        // Its size before it's shown: without it AppKit placed it for a default
+        // 320-pt square, which didn't fit over the block and went to the window's top.
+        if let size = popover.contentViewController?.view.fittingSize { popover.contentSize = size }
+        // The text view is flipped: .minY is the top.
+        popover.show(relativeTo: anchor, of: textView, preferredEdge: .minY)
     }
 
     func closeComment() { commentPopover?.close() }
@@ -464,6 +487,7 @@ final class RemovedLinesView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+/// A floating glass capsule under the block (D213): the keys live in the tooltips.
 struct HunkActions: View {
     /// The block's note (empty: none yet); nil hides the button.
     let comment: String?
@@ -472,7 +496,7 @@ struct HunkActions: View {
     let editComment: () -> Void
 
     var body: some View {
-        HStack(spacing: 1) {
+        HStack(spacing: 0) {
             if let comment {
                 Button(action: editComment) {
                     if comment.isEmpty {
@@ -484,35 +508,39 @@ struct HunkActions: View {
                             .frame(maxWidth: 180, alignment: .leading)
                     }
                 }
-                .help(comment.isEmpty ? "Comment for the agent (⌥⌘/)" : comment)
-                Divider().frame(height: 12)
+                .help(comment.isEmpty ? "Comment for Agent (⌥⌘/)" : comment)
             }
-            Button(action: revert) {
-                Text("\(Text("Undo ").foregroundStyle(.primary))\(Text("⌥⌘⌫").foregroundStyle(.secondary))")
-            }
-            .help("Revert this change")
-            Divider().frame(height: 12)
-            Button(action: keep) {
-                Text("\(Text("Keep ").foregroundStyle(.primary))\(Text("⌥⌘↩").foregroundStyle(.secondary))")
-            }
-            .help("Keep this change")
+            Button("Undo", action: revert)
+                .foregroundStyle(.secondary)
+                .help("Undo Change (⌥⌘⌫)")
+            Button(action: keep) { Text("Keep").fontWeight(.semibold) }
+                .help("Keep Change (⌥⌘↩)")
         }
         .buttonStyle(HunkActionStyle())
-        .orbitFont(.micro, weight: .medium)
-        .padding(.horizontal, 2)
-        .background(.regularMaterial, in: .rect(bottomLeadingRadius: 6, bottomTrailingRadius: 6))
-        .overlay(UnevenRoundedRectangle(bottomLeadingRadius: 6, bottomTrailingRadius: 6).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+        .orbitFont(.caption, weight: .medium)
+        .padding(2)
+        .glassEffect(.regular, in: .capsule)
     }
 }
 
 struct HunkActionStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .padding(.horizontal, 7)
+        HoverCapsule(isPressed: configuration.isPressed) { configuration.label }
+    }
+}
+
+private struct HoverCapsule<Label: View>: View {
+    let isPressed: Bool
+    @ViewBuilder let label: Label
+    @State private var isHovering = false
+
+    var body: some View {
+        label
+            .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(configuration.isPressed ? Theme.activeFill : .clear, in: .rect(cornerRadius: Theme.tinyCorner))
-            .contentShape(.rect)
+            .background(isPressed ? Theme.activeFill : isHovering ? Theme.hoverFill : .clear, in: .capsule)
+            .contentShape(.capsule)
+            .onHover { isHovering = $0 }
     }
 }
 
@@ -529,10 +557,9 @@ struct CommentChip: View {
                 .frame(maxWidth: 200, alignment: .leading)
         }
         .buttonStyle(HunkActionStyle())
-        .orbitFont(.micro, weight: .medium)
-        .background(.regularMaterial, in: .rect(cornerRadius: Theme.smallCorner))
-        .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+        .orbitFont(.caption, weight: .medium)
+        .padding(2)
+        .glassEffect(.regular, in: .capsule)
         .help(text)
     }
 }
@@ -602,3 +629,4 @@ struct ReviewCommentEditor: View {
         .onAppear { isFocused = true }
     }
 }
+

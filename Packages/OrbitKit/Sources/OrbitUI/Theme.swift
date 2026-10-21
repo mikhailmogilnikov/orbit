@@ -403,26 +403,75 @@ private struct Shimmer: ViewModifier {
     func body(content: Content) -> some View {
         if isActive, !reduceMotion {
             content.overlay {
-                TimelineView(.animation) { context in
-                    let period = 1.8
-                    let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
-                    // The band travels from off the leading edge to off the trailing one.
-                    let center = -0.4 + phase * 1.8
-                    LinearGradient(
-                        stops: [
-                            .init(color: .primary.opacity(0), location: 0),
-                            .init(color: .primary.opacity(0.9), location: 0.5),
-                            .init(color: .primary.opacity(0), location: 1),
-                        ],
-                        startPoint: UnitPoint(x: center - 0.35, y: 0.5),
-                        endPoint: UnitPoint(x: center + 0.35, y: 0.5))
-                }
-                .mask { content }
-                .allowsHitTesting(false)
+                ShimmerBand()
+                    .mask { content }
+                    .allowsHitTesting(false)
             }
         } else {
             content
         }
+    }
+}
+
+/// The shimmer's moving band as a Core Animation gradient: a `TimelineView`
+/// redrew the whole window 120 times a second while an agent worked and kept
+/// the main thread busy (D208); this runs in the render server.
+private struct ShimmerBand: NSViewRepresentable {
+    func makeNSView(context: Context) -> ShimmerBandView { ShimmerBandView() }
+    func updateNSView(_ view: ShimmerBandView, context: Context) {}
+}
+
+private final class ShimmerBandView: NSView {
+    private static let period: CFTimeInterval = 1.8
+    private let gradient = CAGradientLayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer = gradient
+        gradient.startPoint = CGPoint(x: -0.75, y: 0.5)
+        gradient.endPoint = CGPoint(x: -0.05, y: 0.5)
+        updateColors()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, gradient.animation(forKey: "sweep") == nil else { return }
+        // The band travels from off the leading edge to off the trailing one.
+        let start = CABasicAnimation(keyPath: "startPoint")
+        start.fromValue = CGPoint(x: -0.75, y: 0.5)
+        start.toValue = CGPoint(x: 1.05, y: 0.5)
+        let end = CABasicAnimation(keyPath: "endPoint")
+        end.fromValue = CGPoint(x: -0.05, y: 0.5)
+        end.toValue = CGPoint(x: 1.75, y: 0.5)
+        let sweep = CAAnimationGroup()
+        sweep.animations = [start, end]
+        sweep.duration = Self.period
+        sweep.repeatCount = .infinity
+        sweep.timingFunction = CAMediaTimingFunction(name: .linear)
+        sweep.isRemovedOnCompletion = false
+        // On the wall clock, so rows that start shimmering at different times sweep together.
+        let phase = Date().timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.period)
+        sweep.beginTime = gradient.convertTime(CACurrentMediaTime(), from: nil) - phase
+        gradient.add(sweep, forKey: "sweep")
+    }
+
+    private func updateColors() {
+        var color = NSColor.labelColor.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance { color = NSColor.labelColor.cgColor }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.colors = [color.copy(alpha: 0) ?? color, color.copy(alpha: 0.9) ?? color, color.copy(alpha: 0) ?? color]
+        CATransaction.commit()
     }
 }
 

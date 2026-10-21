@@ -4,6 +4,7 @@
 - App shell: navigator / tabs / inspector / status bar, command palette, menus from commands, settings
 - Open-source basics (D206): GPL-3.0, README, contributing / security / conduct, issue forms, CI on macOS and Linux;
   dependencies' licenses in About Orbit (D207)
+- The agent's working shimmer runs in Core Animation: no per-frame redraw of the window while an agent works (D208)
 - First-launch tour (D205): an intro film, setup of agents / look / review keys / `orbit` command, Help → Welcome to Orbit
 - Extension packages bring snippets, agents, language servers and tasks besides themes and icons (D195):
   snippets in completion and Insert Snippet…, Zed's snippet extensions, a page per package, New Extension…
@@ -191,7 +192,7 @@
 - Accent color from the color theme (`text.accent`, else the text color) instead of the system blue (D97)
 - Keyboard navigation: the explorer keeps the keys while previewing, ⌘1 / ⌘2 editor sides, ⇧⌘[ ⇧⌘] tabs, ⇧⌘T reopen closed tab, Escape from the explorer to the editor, ⌥⌘R / ⌥⌘C anywhere (D98)
 - Dock icon menu and File → Open Recent with the last 10 folders (D100)
-- A window per project: Open Folder in a project's window opens a new one, New Window ⇧⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
+- A window per project: Open Folder in a project's window opens a new one, New Window ⌃⌘N, the open folders come back on launch; Cursor-style welcome window with Open Folder, Clone Repository and recent projects (D101)
 - File → Close Folder back to the welcome window; folders dropped on the Dock icon or opened with Orbit from Finder (D102)
 - Go Back ⌃- / Go Forward ⌃⇧- through caret locations across files, ⌃Tab recent-tab switcher (D99)
 - Output follows only from the bottom of the chat; scrolled up, what you read stays put (D121)

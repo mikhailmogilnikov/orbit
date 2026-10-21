@@ -13,33 +13,39 @@ struct AgentChangesBar: View {
         let files = changes.changedFiles
         let stats = files.map { changes.stats(for: $0) }
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            // A sidebar-style section header (D212): one prominent action, the rest quiet icons.
+            HStack(spacing: 6) {
                 Button {
                     withAnimation(.snappy(duration: 0.2)) { store.isChangesExpanded.toggle() }
                 } label: {
                     HStack(spacing: 6) {
                         DisclosureChevron(isExpanded: store.isChangesExpanded)
-                            .foregroundStyle(.secondary)
-                        Text("\(files.count) file\(files.count == 1 ? "" : "s") changed")
-                            .contentTransition(.numericText(value: Double(files.count)))
-                            .animation(.snappy, value: files.count)
-                            .orbitFont(.caption, weight: .medium)
+                        Text("Changed Files")
+                            .orbitFont(.caption, weight: .semibold)
+                        Badge(count: files.count)
                         DiffStatBadge(added: stats.reduce(0) { $0 + $1.added }, removed: stats.reduce(0) { $0 + $1.removed })
                     }
+                    .foregroundStyle(.secondary)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .help(store.isChangesExpanded ? "Hide changed files" : "Show changed files")
                 Spacer(minLength: 4)
-                IconButton("chevron.down.2", help: "Review next change (⌥⌘↓)") {
-                    store.commands.run("editor.nextChange", teaching: true)
+                HStack(spacing: 0) {
+                    IconButton("chevron.up", help: store.commands.help("editor.previousChange")) {
+                        store.commands.run("editor.previousChange", teaching: true)
+                    }
+                    IconButton("chevron.down", help: store.commands.help("editor.nextChange")) {
+                        store.commands.run("editor.nextChange", teaching: true)
+                    }
+                    IconButton("arrow.uturn.backward", help: store.commands.help("review.rejectAll", "Undo All")) {
+                        changes.rejectAll()
+                    }
                 }
-                Button("Undo All") { changes.rejectAll() }
-                    .buttonStyle(.glass)
-                    .help("Undo every agent change (⇧⌘⌫)")
+                .foregroundStyle(.secondary)
                 Button("Keep All") { changes.acceptAll() }
                     .buttonStyle(.glassProminent)
-                    .help("Keep every agent change (⇧⌘↩)")
+                    .help(store.commands.help("review.acceptAll", "Keep All"))
             }
             .controlSize(.small)
             .padding(.horizontal, 14)

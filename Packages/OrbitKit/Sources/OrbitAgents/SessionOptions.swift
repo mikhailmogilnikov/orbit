@@ -38,7 +38,9 @@ struct SessionOptionsButton: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .popover(isPresented: $isPresented, arrowEdge: .top) {
+            // A popover inherits the composer row's secondary text color.
             SessionOptionsPopover(session: session, store: store) { isPresented = false }
+                .foregroundStyle(.primary)
         }
         .help("Model and agent settings")
     }

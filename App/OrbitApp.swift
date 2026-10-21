@@ -74,6 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // SwiftUI makes its window right after this, when it makes one at all.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            MainActor.assumeIsolated { ProjectWindows.shared.openWindowIfNone() }
+        }
         // Themes and icon sets from the catalog, once a day (D186); agents and
         // language servers update from their plugins.
         Task { @MainActor in

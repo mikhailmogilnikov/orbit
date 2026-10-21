@@ -135,6 +135,7 @@ enum TextTransformIDs {
 /// Menus are generated from the command registry and `MenuLayout`, so plugin
 /// commands get real menu items and shortcuts for free.
 struct OrbitMenus: Commands {
+    @Environment(\.openWindow) private var openWindow
     /// The main window's (D101): menus and their shortcuts act on it.
     private var host: PluginHost? { ProjectWindows.shared.activeHost }
     private var all: [OrbitCommand] { host?.commands.all ?? [] }
@@ -143,6 +144,8 @@ struct OrbitMenus: Commands {
     }
 
     var body: some Commands {
+        // Unobserved: handing it over doesn't invalidate anything mid-update.
+        let _ = ProjectWindows.shared.menusAppeared(openWindow: openWindow)
         CommandGroup(replacing: .appInfo) {
             Button("About Orbit") { Acknowledgements.showAboutPanel() }
         }

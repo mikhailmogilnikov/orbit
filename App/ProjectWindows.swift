@@ -21,6 +21,8 @@ final class ProjectWindows {
     /// The window commands and menus act on: the main window's.
     private(set) var activeID: UUID?
     @ObservationIgnored private var openWindow: OpenWindowAction?
+    /// The menus' own, there before any window: see `openWindowIfNone`.
+    @ObservationIgnored private var menusOpenWindow: OpenWindowAction?
     @ObservationIgnored private var launchFolders: [URL] = []
     /// Folders Finder or the Dock asked to open before a window could.
     @ObservationIgnored private var earlyOpens: [URL] = []
@@ -114,6 +116,19 @@ final class ProjectWindows {
         launchFolders = []
         earlyOpens = []
         for folder in folders where !focusWindow(showing: folder) { openNewWindow(folder) }
+    }
+
+    func menusAppeared(openWindow: OpenWindowAction) {
+        menusOpenWindow = openWindow
+    }
+
+    /// Launched to open a folder (Finder, the Dock, `open -a`), macOS makes no
+    /// window of its own: the folders waiting for one waited forever, in an app
+    /// without windows, and its quit then saved an empty list.
+    func openWindowIfNone() {
+        guard hosts.isEmpty, let menusOpenWindow else { return }
+        openWindow = menusOpenWindow
+        openNewWindow(nil)
     }
 
     func attach(_ window: NSWindow, to id: UUID) {
@@ -242,7 +257,8 @@ final class ProjectWindows {
     // MARK: Folders open at quit
 
     func saveOpenFolders() {
-        guard !isTerminating else { return }
+        // Before the first window the saved folders haven't been opened yet: keep them.
+        guard !isTerminating, restoredLaunchFolders else { return }
         let folders = order.compactMap { hosts[$0]?.workspace.root?.path }
         UserDefaults.standard.set(folders, forKey: Self.openFoldersKey)
     }
@@ -277,7 +293,8 @@ final class ProjectWindows {
         })
         host.commands.register(OrbitCommand(
             id: "shell.newWindow", title: "New Window", category: "File", systemImage: "macwindow.badge.plus",
-            shortcut: KeyboardShortcut("n", modifiers: [.command, .shift])
+            // ⇧⌘N is New Agent Session (D210).
+            shortcut: KeyboardShortcut("n", modifiers: [.command, .control])
         ) { [weak self] in self?.newWindow() })
         let workspace = host.workspace
         host.commands.register(OrbitCommand(

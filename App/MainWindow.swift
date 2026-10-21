@@ -151,6 +151,7 @@ struct MainWindow: View {
         ) { workspace.reopenClosedTab() })
         // Location history and recent tabs (D99): VS Code's keys on a Mac.
         TabSwitcher.shared.install()
+        ShiftedKeys.shared.install()
         host.commands.register(OrbitCommand(
             id: "shell.goBack", title: "Go Back", category: "View", systemImage: "chevron.backward",
             shortcut: KeyboardShortcut("-", modifiers: .control),

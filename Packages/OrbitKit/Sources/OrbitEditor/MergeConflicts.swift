@@ -143,22 +143,18 @@ struct ConflictActions: View {
     let resolve: (MergeConflicts.Choice) -> Void
 
     var body: some View {
-        HStack(spacing: 1) {
+        HStack(spacing: 0) {
             Button("Accept Current") { resolve(.current) }
                 .help(currentLabel.isEmpty ? "Keep your side" : "Keep \(currentLabel)")
-            Divider().frame(height: 12)
             Button("Accept Incoming") { resolve(.incoming) }
                 .help(incomingLabel.isEmpty ? "Take the incoming side" : "Take \(incomingLabel)")
-            Divider().frame(height: 12)
             Button("Accept Both") { resolve(.both) }
                 .help("Keep both: current, then incoming")
         }
         .buttonStyle(HunkActionStyle())
-        .orbitFont(.micro, weight: .medium)
-        .padding(.horizontal, 2)
-        .background(.regularMaterial, in: .rect(cornerRadius: Theme.smallCorner))
-        .overlay(RoundedRectangle(cornerRadius: Theme.smallCorner).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+        .orbitFont(.caption, weight: .medium)
+        .padding(2)
+        .glassEffect(.regular, in: .capsule)
     }
 }
 

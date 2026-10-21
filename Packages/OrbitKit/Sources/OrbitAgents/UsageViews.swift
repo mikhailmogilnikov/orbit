@@ -38,7 +38,9 @@ struct UsageButton: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .popover(isPresented: $isPresented, arrowEdge: .top) {
+            // A popover inherits the composer row's secondary text color.
             UsagePopover(session: session) { isPresented = false }
+                .foregroundStyle(.primary)
         }
         .help(help)
     }
@@ -346,7 +348,7 @@ enum UsageFormat {
         count.formatted(.number.notation(.compactName).precision(.significantDigits(1...3)))
     }
 
-    static func percent(_ fraction: Double) -> String { "\(Int((fraction * 100).rounded()))%" }
+    static func percent(_ fraction: Double) -> String { fraction.formatted(.percent.precision(.fractionLength(0))) }
 
     /// "Resets in 42m", "Resets in 2h 14m · 18:40", "Resets Fri 09:00".
     static func reset(_ date: Date, now: Date = Date()) -> String {

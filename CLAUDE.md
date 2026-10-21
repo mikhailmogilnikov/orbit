@@ -111,7 +111,9 @@ examples/extensions/      sample extensions (theme, icon theme)
   and palette entries. A built-in command's place (menu, section, submenu) is
   in `App/MenuLayout.swift` (D176): add new ones there; unlisted commands go
   to the end of the menu their category maps to, unknown categories → "Plugins". `isEnabled` is only re-checked when something
-  observable it reads changes: don't gate on unobservable state (it sticks).
+  observable it reads changes: don't gate on unobservable state (it sticks;
+  `ActiveEditor` and the inline diff aren't observable, D210). Two commands
+  on one key: only the first menu's runs (`ShortcutConflictTests`).
 - Swift 6 strict concurrency. UI/model classes are `@MainActor @Observable`;
   their `Identifiable.id` must be `nonisolated`. `OrbitACP` is nonisolated
   (state confined to a serial queue).
@@ -137,6 +139,9 @@ examples/extensions/      sample extensions (theme, icon theme)
   Settings → Extensions (D192), not a catalog page of its own.
 - A new `.orbit/settings.json` key gets a line in `SettingsSchema` (D182),
   or the JSON server flags it as not allowed.
+- The UI is English, not localized (D211). Dates, numbers and sizes go
+  through system formatters (`.formatted`): the app gets English words with
+  the Mac's region formats, but `swift test` gets the Mac's language too.
 - Keep comment density low; explain *why*, not *what*.
 
 ## Gotchas

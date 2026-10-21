@@ -1024,6 +1024,16 @@ final class OrbitTextView: STTextView {
                 return
             }
         }
+        // STTextView replaces each selection on its own, and every replacement
+        // leaves a single caret there: the top one, done last, was all that stayed.
+        // Its edits stay (completion and undo follow them); the carets are put back.
+        if replacementRange.location == NSNotFound, hasMultipleSelections, !hasMarkedText(),
+           let typed = (string as? String) ?? (string as? NSAttributedString)?.string,
+           let carets = CaretEditing.combine(selectionRanges.map { CaretEditing.plain(typed, at: $0) }, in: documentText)?.selections {
+            super.insertText(string, replacementRange: replacementRange)
+            selectionRanges = carets
+            return
+        }
         super.insertText(string, replacementRange: replacementRange)
     }
 
@@ -1067,7 +1077,7 @@ final class OrbitTextView: STTextView {
             CaretEditing.indentBackspace(text, at: selection, indentation: indentation)
                 ?? CaretEditing.deletePair(text, at: selection, brackets: brackets)
         }
-        guard changes.contains(where: { $0 != nil }) else { return super.deleteBackward(sender) }
+        guard changes.contains(where: { $0 != nil }) || selections.count > 1 else { return super.deleteBackward(sender) }
         applyCarets(zip(changes, selections).map { $0 ?? CaretEditing.plainDelete(text, at: $1) })
     }
 
