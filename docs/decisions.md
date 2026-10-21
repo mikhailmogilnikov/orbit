@@ -227,6 +227,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D215. Typing at several carets keeps them all
 - D216. A website in `site/`: Astro, one type size, a working window, measured numbers
 - D217. ⌃ letters in the terminal by the key's Latin letter; ⌃C a signal while the pty makes it one
+- D218. The editor's keys follow code editors where AppKit's text rules don't fit code
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4498,3 +4499,33 @@ terminal's ⇧↩ (D155).
 In the editor ⌘⌫ at the start of a line joins it to the line above, as in
 Xcode and VS Code: STTextView found nothing to delete there and the caret
 stayed on its line, so a run of ⌘⌫ stopped at the first line start.
+
+### D218. The editor's keys follow code editors where AppKit's text rules don't fit code
+
+STTextView gives the editor AppKit's prose rules. A pass over the standard
+keys (after ⌘⌫ at a line's start, D217) found the rest that read wrong in
+code; each now does what Xcode, VS Code and Cursor do (`CaretMotion`):
+
+- ⌘⌦ and ⌃K at a line's end take only its line break (⌘⌦ did nothing, ⌃K
+  took the whole next line).
+- ⌥←/→, ⌥⌫/⌥⌦ and ⇧⌥←/→ stop at punctuation (`user.name` is two words and a
+  dot) and at line ends: at a line's edge they only cross or delete the line
+  break, where AppKit also took the last word above. Spaces go with the word
+  after them. No camelCase stops: that is a separate key in Xcode and VS Code.
+- ⇧⌥←/→ extend from the selection's anchor: TextKit marks a selection grown
+  backward `upstream`, so its start is the caret.
+- ⌘← (and ⇧⌘←) stops at the line's code first, then at its start; on the
+  wrapped part of a long line it stays the visual line's start.
+- ⌃↩ (AppKit's invisible U+2028 line separator) and ⌥↩ (a bare line break)
+  break the line as Return does, with its indentation.
+- ⌘C / ⌘X with no selection copy / cut the carets' whole lines; pasted with no
+  selection, such a copy goes above the caret's line (marked on the
+  pasteboard, so text copied elsewhere pastes as usual). The Edit menu keeps
+  Copy and Cut off without a selection (STTextView's validation can't be
+  overridden), so the editor takes those keys itself.
+- New commands in Code → Lines, in the editor only: Delete Line ⇧⌘K (the
+  caret keeps its column on the line that moves up), Indent / Outdent Lines
+  ⌘] / ⌘[ (Tab and ⇧Tab did it only for selections across lines).
+
+Left out: ⌃T (transpose) does nothing, and ⌘↩ (insert a line below in VS
+Code) is the chat's Allow Once.

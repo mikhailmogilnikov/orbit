@@ -106,7 +106,7 @@ enum LineEditing {
 
     // MARK: Occurrences
 
-    private static func isWordCharacter(_ unit: unichar) -> Bool {
+    static func isWordCharacter(_ unit: unichar) -> Bool {
         guard let scalar = Unicode.Scalar(unit) else { return false }
         return scalar == "_" || CharacterSet.alphanumerics.contains(scalar)
     }

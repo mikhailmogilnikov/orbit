@@ -25,6 +25,18 @@ extension CodeEditor.Coordinator {
 
     func moveLines(up: Bool) { edit { LineEditing.moveLines($0, selections: $1, up: up) } }
     func copyLines(down: Bool) { edit { LineEditing.copyLines($0, selections: $1, down: down) } }
+
+    func deleteLines() {
+        guard let textView = textView as? OrbitTextView else { return NSSound.beep() }
+        closePopups()
+        textView.deleteLines()
+    }
+
+    /// ⌘] ⌘[ as in Xcode and VS Code; Tab and ⇧Tab do it only for selections across lines.
+    func shiftLines(outward: Bool) {
+        guard let indentation = (textView as? OrbitTextView)?.indentation else { return NSSound.beep() }
+        edit { CaretEditing.shiftLines($0, selections: $1, indentation: indentation, outward: outward) }
+    }
     func addNextOccurrence() { select(LineEditing.addNextOccurrence) }
     func selectAllOccurrences() { select(LineEditing.allOccurrences) }
     func addCaret(up: Bool) { select { LineEditing.addCaret($0, selections: $1, up: up) } }

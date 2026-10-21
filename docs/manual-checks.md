@@ -149,6 +149,10 @@ code actions, rename, formatting and its corner note, the agent registry
 - ⌃C (D217): stops a dev server in the Russian layout, and in Claude Code /
   Codex run in the terminal (still their own ⌃C); ⇧↩ in the agent chat's composer;
   ⌘⌫ repeated in the editor (with an inline diff on screen too).
+- Editor keys (D218): ⌘C / ⌘X on an empty selection in the menu bar too
+  (the Edit menu stays off; the key must still work), ⌘← on a soft-wrapped
+  line, ⇧⌘K / ⌘] / ⌘[ beside other windows' keys, word moves with the
+  completion list open.
 - Terminal find (D110): ⌘F reaching SwiftTerm's find bar, its look beside Orbit's glass.
 - Tasks (D128, D138): typing into a shell that's still starting, ⌃C then
   restart of a dev server, ⌘R from the terminal and the chat, the running-task

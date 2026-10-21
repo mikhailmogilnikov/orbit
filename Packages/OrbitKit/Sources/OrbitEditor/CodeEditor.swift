@@ -1002,6 +1002,12 @@ final class OrbitTextView: STTextView {
             insertText(text, replacementRange: .notFound)
             return
         }
+        let pasteboard = linesPasteboard
+        if !hasSelection, let lines = pasteboard.string(forType: Self.linesType), lines == pasteboard.string(forType: .string) {
+            let text = documentText
+            applyCarets(selectionRanges.map { CaretMotion.pasteLine(lines, in: text, at: $0) })
+            return
+        }
         super.paste(sender)
     }
 
@@ -1093,6 +1099,120 @@ final class OrbitTextView: STTextView {
         }
         guard atLineStarts else { return super.deleteToBeginningOfLine(sender) }
         applyCarets(selections.map { CaretEditing.plainDelete(text, at: $0) })
+    }
+
+    // MARK: Keys code editors share (D218)
+
+    override func deleteToEndOfLine(_ sender: Any?) {
+        if !joinNextLines() { super.deleteToEndOfLine(sender) }
+    }
+
+    override func deleteToEndOfParagraph(_ sender: Any?) {
+        if !joinNextLines() { super.deleteToEndOfParagraph(sender) }
+    }
+
+    /// ⌘⌦ and ⌃K at a line's end take only its line break: STTextView did
+    /// nothing for ⌘⌦ and took the whole next line for ⌃K.
+    private func joinNextLines() -> Bool {
+        let text = documentText
+        let selections = selectionRanges
+        guard selections.allSatisfy({ $0.length == 0 && $0.location < text.length && CaretMotion.isNewline(text.character(at: $0.location)) }) else { return false }
+        applyCarets(selections.map {
+            CaretEditing.Change(range: text.rangeOfComposedCharacterSequence(at: $0.location), text: "", selection: NSRange(location: 0, length: 0))
+        })
+        return true
+    }
+
+    override func moveWordLeft(_ sender: Any?) { moveCarets(extending: false, to: CaretMotion.wordLeft) }
+    override func moveWordRight(_ sender: Any?) { moveCarets(extending: false, to: CaretMotion.wordRight) }
+    override func moveWordLeftAndModifySelection(_ sender: Any?) { moveCarets(extending: true, to: CaretMotion.wordLeft) }
+    override func moveWordRightAndModifySelection(_ sender: Any?) { moveCarets(extending: true, to: CaretMotion.wordRight) }
+
+    private func moveCarets(extending: Bool, to destination: (NSString, Int) -> Int) {
+        let text = documentText
+        carets = carets.map { caret in
+            let head = destination(text, caret.head)
+            return (anchor: extending ? caret.anchor : head, head: head)
+        }
+        scrollToPrimarySelection()
+    }
+
+    override func deleteWordBackward(_ sender: Any?) { deleteFromCarets(to: CaretMotion.wordLeft) }
+    override func deleteWordForward(_ sender: Any?) { deleteFromCarets(to: CaretMotion.wordRight) }
+
+    /// ⌥⌫ at a line's start joins the lines, as in VS Code; STTextView took the last word above too.
+    private func deleteFromCarets(to destination: (NSString, Int) -> Int) {
+        let text = documentText
+        applyCarets(selectionRanges.map { selection in
+            guard selection.length == 0 else { return CaretEditing.Change(range: selection, text: "", selection: NSRange(location: 0, length: 0)) }
+            let other = destination(text, selection.location)
+            let range = NSRange(location: min(other, selection.location), length: abs(other - selection.location))
+            return CaretEditing.Change(range: range, text: "", selection: NSRange(location: 0, length: 0))
+        })
+    }
+
+    override func moveToLeftEndOfLine(_ sender: Any?) {
+        let before = carets
+        super.moveToLeftEndOfLine(sender)
+        moveToCode(from: before, extending: false)
+    }
+
+    override func moveToLeftEndOfLineAndModifySelection(_ sender: Any?) {
+        let before = carets
+        super.moveToLeftEndOfLineAndModifySelection(sender)
+        moveToCode(from: before, extending: true)
+    }
+
+    /// STTextView went to each visual line's start; where that is the line's
+    /// own start (not a wrapped part of it), ⌘← stops at the code first.
+    private func moveToCode(from before: [(anchor: Int, head: Int)], extending: Bool) {
+        let after = carets
+        guard after.count == before.count else { return }
+        let text = documentText
+        carets = zip(before, after).map { old, new in
+            guard new.head == text.lineRange(for: NSRange(location: min(old.head, text.length), length: 0)).location else { return new }
+            let head = CaretMotion.home(text, from: old.head)
+            return (anchor: extending ? old.anchor : head, head: head)
+        }
+    }
+
+    /// ⌃↩ (AppKit's U+2028 line separator) and ⌥↩ (a bare line break) break the line as Return does.
+    override func insertLineBreak(_ sender: Any?) { insertNewline(sender) }
+    override func insertNewlineIgnoringFieldEditor(_ sender: Any?) { insertNewline(sender) }
+
+    /// Marks a copy of whole lines, so pasting it puts the lines above the caret's.
+    private static let linesType = NSPasteboard.PasteboardType("dev.orbit.lines")
+    /// Where whole lines are copied (tests use their own).
+    var linesPasteboard = NSPasteboard.general
+    private var hasSelection: Bool { selectionRanges.contains { $0.length > 0 } }
+
+    /// ⌘C and ⌘X without a selection take the carets' lines, as in VS Code and Cursor.
+    override func copy(_ sender: Any?) {
+        if hasSelection { return super.copy(sender) }
+        copyLines()
+    }
+
+    override func cut(_ sender: Any?) {
+        if hasSelection { return super.cut(sender) }
+        if copyLines() { deleteLines() }
+    }
+
+    @discardableResult
+    private func copyLines() -> Bool {
+        let text = documentText
+        var copied = CaretMotion.lines(text, selections: selectionRanges).map(text.substring(with:)).joined()
+        guard let last = copied.utf16.last else { return false }
+        if !CaretMotion.isNewline(last) { copied += "\n" }
+        let pasteboard = linesPasteboard
+        pasteboard.clearContents()
+        pasteboard.setString(copied, forType: .string)
+        pasteboard.setString(copied, forType: Self.linesType)
+        return true
+    }
+
+    /// ⇧⌘K: the lines the carets and selections are on go.
+    func deleteLines() {
+        applyCarets(CaretMotion.deleteLines(documentText, selections: selectionRanges))
     }
 
     override func updateTrackingAreas() {
@@ -1230,6 +1350,9 @@ final class OrbitTextView: STTextView {
             ActiveEditor.shared.coordinator?.formatDocument()
             return
         }
+        // The Edit menu's Copy and Cut are off without a selection, so their keys come here.
+        if !hasSelection, EditorKeys.matches(event, KeyboardShortcut("c", modifiers: .command)) { return copy(nil) }
+        if !hasSelection, EditorKeys.matches(event, KeyboardShortcut("x", modifiers: .command)) { return cut(nil) }
         if let commands = ActiveEditor.shared.commands,
            let command = commands.all.first(where: { $0.editorShortcut.map { EditorKeys.matches(event, $0) } == true }) {
             commands.run(command.id)

@@ -382,6 +382,18 @@ public final class EditorPlugin: OrbitPlugin {
                 editorShortcut: KeyboardShortcut(.downArrow, modifiers: [.option, .shift]), run: editor { $0.copyLines(down: true) }
             ),
             OrbitCommand(
+                id: "editor.deleteLine", title: "Delete Line", category: "Code", systemImage: "delete.left",
+                editorShortcut: KeyboardShortcut("k", modifiers: [.command, .shift]), run: editor { $0.deleteLines() }
+            ),
+            OrbitCommand(
+                id: "editor.indentLines", title: "Indent Lines", category: "Code", systemImage: "increase.indent",
+                editorShortcut: KeyboardShortcut("]", modifiers: .command), run: editor { $0.shiftLines(outward: false) }
+            ),
+            OrbitCommand(
+                id: "editor.outdentLines", title: "Outdent Lines", category: "Code", systemImage: "decrease.indent",
+                editorShortcut: KeyboardShortcut("[", modifiers: .command), run: editor { $0.shiftLines(outward: true) }
+            ),
+            OrbitCommand(
                 id: "editor.addNextOccurrence", title: "Add Selection to Next Match", category: "Code", systemImage: "character.cursor.ibeam",
                 editorShortcut: KeyboardShortcut("d", modifiers: .command), run: editor { $0.addNextOccurrence() }
             ),
