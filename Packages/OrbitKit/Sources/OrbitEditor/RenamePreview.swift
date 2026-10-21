@@ -131,7 +131,7 @@ struct RenamePreview {
     private let steps: [WorkspaceEdit.Step]
 
     /// `text`: a file's current text (the editor's when open), nil when it doesn't exist.
-    init(edit: WorkspaceEdit, oldName: String, newName: String, root: URL?, text: (URL) -> String?) {
+    @MainActor init(edit: WorkspaceEdit, oldName: String, newName: String, root: URL?, text: (URL) -> String?) {
         self.oldName = oldName
         self.newName = newName
         steps = edit.steps

@@ -294,7 +294,7 @@ final class InlineDiffController {
 
     /// ⌥⌘/: the note of the block or note at these lines, else a new one on them.
     func comment(on lines: ClosedRange<Int>) {
-        guard onSaveComment != nil, let textView else { return }
+        guard onSaveComment != nil, textView != nil else { return }
         let existing = comments.first { $0.lines.overlaps(lines) }?.comment
         let hunk = hunks.first { anchorLines(of: $0).overlaps(lines) }
         let note = existing ?? hunk.map(newComment(on:))
