@@ -39,7 +39,10 @@ tools or the shell.
   integrated terminal, Source Control (stage, commit, branches, stash, history,
   blame, AI commit messages).
 - **Extensions**: Zed color themes, icon themes and snippets load unchanged;
-  one Extensions page for agents, language servers, themes and built-in features.
+  packages of agents, language servers, tasks and themes install from Orbit's
+  own registry, [orbit-extensions](https://github.com/mikhailmogilnikov/orbit-extensions)
+  (publish with a pull request); one Extensions page for all of it and the
+  built-in features.
 - **Everything is a plugin**: explorer, editor, review, agents and the rest are
   plugins on the same public API.
 
