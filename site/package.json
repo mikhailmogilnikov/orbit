@@ -2,6 +2,7 @@
   "name": "orbit-site",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@12.14.0",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
