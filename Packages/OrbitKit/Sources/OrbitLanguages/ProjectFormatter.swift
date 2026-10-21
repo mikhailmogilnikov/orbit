@@ -356,9 +356,11 @@ struct ProjectFormatter: Sendable, Equatable {
                             try? stdin.close()
                         }
                     }
+                    // Its own thread, not the global queue: a block waited on from a
+                    // global-queue thread can starve on a Mac with few cores.
                     let group = DispatchGroup()
                     group.enter()
-                    DispatchQueue.global(qos: .userInitiated).async {
+                    Thread.detachNewThread {
                         run.errors = errors.fileHandleForReading.readDataToEndOfFile()
                         group.leave()
                     }

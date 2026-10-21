@@ -114,11 +114,12 @@ struct GitRepository: Sendable {
             try? stdin.fileHandleForWriting.close()
         }
         // Drain stderr concurrently so a chatty command can't fill the pipe and deadlock.
+        // On a thread of its own: callers block a cooperative thread here, and on a
+        // 3-core Mac a global-queue block waited on this way never got a thread.
         let errorData = ErrorBuffer()
-        let reader = DispatchQueue.global()
         let group = DispatchGroup()
         group.enter()
-        reader.async {
+        Thread.detachNewThread {
             errorData.set(errors.fileHandleForReading.readDataToEndOfFile())
             group.leave()
         }
