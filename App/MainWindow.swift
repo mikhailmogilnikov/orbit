@@ -17,22 +17,32 @@ struct MainWindow: View {
     private var workspace: Workspace { host.workspace }
     private var ui: UIRegistry { host.ui }
 
-    // Split in parts, and handlers in methods: as one chain, Xcode 26's type
-    // checker gave up on it.
+    // In parts, and every handler a method: as one chain of closures, Xcode 26's
+    // type checker gave up on it.
     var body: some View {
+        persistingLayout
+            .onChange(of: appearance, initial: true) { _, new in apply(new) }
+            .onChange(of: ui.requestedInspectorPanel) { _, id in showInspectorPanel(id) }
+            .onChange(of: ui.requestedSidebarPanel) { _, id in showSidebarPanel(id) }
+    }
+
+    /// The layout is saved as it changes, for the next launch (D80).
+    private var persistingLayout: some View {
         layers
             .environment(tabDrag)
             .onAppear(perform: windowAppeared)
-            .onChange(of: sidebarPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.sidebarPanel") }
-            .onChange(of: inspectorPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.inspectorPanel") }
-            .onChange(of: showsInspector) { _, shows in UserDefaults.standard.set(shows, forKey: "orbit.showsInspector") }
-            // A theme being tried on brings its own mode (it only draws in that one).
-            .onChange(of: appearance, initial: true) { _, appearance in apply(appearance) }
-            .onChange(of: columnVisibility) { _, visibility in
-                UserDefaults.standard.set(visibility == .detailOnly, forKey: "orbit.sidebarHidden")
-            }
-            .onChange(of: ui.requestedInspectorPanel) { _, id in showInspectorPanel(id) }
-            .onChange(of: ui.requestedSidebarPanel) { _, id in showSidebarPanel(id) }
+            .onChange(of: sidebarPanelID) { _, id in save(id, "orbit.sidebarPanel") }
+            .onChange(of: inspectorPanelID) { _, id in save(id, "orbit.inspectorPanel") }
+            .onChange(of: showsInspector) { _, shows in save(shows, "orbit.showsInspector") }
+            .onChange(of: columnVisibility) { _, visibility in saveSidebarHidden(visibility) }
+    }
+
+    private func save(_ value: Any?, _ key: String) {
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
+    private func saveSidebarHidden(_ visibility: NavigationSplitViewVisibility) {
+        UserDefaults.standard.set(visibility == .detailOnly, forKey: "orbit.sidebarHidden")
     }
 
     private var layers: some View {
@@ -69,6 +79,7 @@ struct MainWindow: View {
         }
     }
 
+    /// A theme being tried on brings its own mode (it only draws in that one).
     private func apply(_ appearance: Preferences.Appearance) {
         NSApp.appearance = switch appearance {
         case .system: nil
