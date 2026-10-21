@@ -146,6 +146,12 @@ struct OrbitMenus: Commands {
     var body: some Commands {
         // Unobserved: handing it over doesn't invalidate anything mid-update.
         let _ = ProjectWindows.shared.menusAppeared(openWindow: openWindow)
+        // Two halves: Xcode 26's CommandsBuilder takes at most ten in one block.
+        systemMenuGroups
+        ownMenus
+    }
+
+    @CommandsBuilder private var systemMenuGroups: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Orbit") { Acknowledgements.showAboutPanel() }
         }
@@ -168,6 +174,9 @@ struct OrbitMenus: Commands {
             menu("View", MenuLayout.view)
         }
         CommandGroup(after: .help) { menu("Help", MenuLayout.help) }
+    }
+
+    @CommandsBuilder private var ownMenus: some Commands {
         CommandMenu("Find") { menu("Find", MenuLayout.find) }
         CommandMenu("Navigate") { menu("Navigate", MenuLayout.navigate) }
         CommandMenu("Editor") { menu("Editor", MenuLayout.editor) }

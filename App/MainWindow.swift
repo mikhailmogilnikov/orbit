@@ -50,12 +50,7 @@ struct MainWindow: View {
             }
         }
         .environment(tabDrag)
-        .onAppear {
-            Onboarding.shared.windowAppeared(host)
-            registerLayoutCommands()
-            let services = host.services
-            tabDrag.agent = { services.resolve(AgentTasks.self) }
-        }
+        .onAppear(perform: windowAppeared)
         .onChange(of: sidebarPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.sidebarPanel") }
         .onChange(of: inspectorPanelID) { _, id in UserDefaults.standard.set(id, forKey: "orbit.inspectorPanel") }
         .onChange(of: showsInspector) { _, shows in UserDefaults.standard.set(shows, forKey: "orbit.showsInspector") }
@@ -84,6 +79,14 @@ struct MainWindow: View {
             sidebarPanelID = id
             ui.requestedSidebarPanel = nil
         }
+    }
+
+    // Out of `body`: inline, Xcode 26 gave up type-checking the modifier chain.
+    private func windowAppeared() {
+        Onboarding.shared.windowAppeared(host)
+        registerLayoutCommands()
+        let services = host.services
+        tabDrag.agent = { () -> AgentTasks? in services.resolve(AgentTasks.self) }
     }
 
     /// The window's own columns: macOS's ⌃⌘S for the sidebar, and ⌥⌘I (an
