@@ -19,7 +19,7 @@ copies update themselves. The reasoning behind it is in D129
   half is `SUPublicEDKey` in `App/Info.plist`; the private half lives only
   in the login keychain of the Mac that made it. Sparkle refuses an update
   whose signature doesn't match.
-- **Code signing** is ad hoc for now (no Developer ID): macOS asks once,
+- **Code signing** is ad hoc until a Developer ID is set up (below): macOS asks once,
   on the first launch of a downloaded copy (since macOS 15 right-click →
   Open no longer gets past it: System Settings → Privacy & Security →
   Open Anyway). Updates installed by Sparkle don't ask again.
@@ -103,33 +103,38 @@ On another Mac, import it with `generate_keys -f <file>`.
 - The Release build runs `xcodegen` first, like every build: edit
   `project.yml`, never the generated project.
 
-## Later: Developer ID and notarization
+## Developer ID and notarization
 
-With an Apple Developer Program membership, releases can be signed with a
+With an Apple Developer Program membership, releases are signed with a
 Developer ID and notarized, so macOS opens downloaded copies without
-asking. The script already supports it; nothing else changes (same key,
-same appcast, same commands).
+asking. Not set up yet; once the two steps below are done, nothing else
+changes (same key, same appcast, same commands, D222).
 
-1. Create a **Developer ID Application** certificate in the Apple
-   Developer account and install it in the login keychain. Check that it's
-   there: `security find-identity -v -p codesigning`.
+1. Create a **Developer ID Application** certificate (only the account
+   holder can) in Xcode → Settings → Accounts → Manage Certificates → + →
+   Developer ID Application. It lands in the login keychain; check:
+   `security find-identity -v -p codesigning`.
 2. Store notarization credentials once (an app-specific password from
-   appleid.apple.com):
+   account.apple.com → Sign-In and Security → App-Specific Passwords; the
+   team ID is in the certificate's name):
    ```bash
    xcrun notarytool store-credentials orbit-notary --apple-id <email> --team-id <TEAMID>
    ```
-3. Release with the identity in the environment:
-   ```bash
-   DEVELOPER_ID="Developer ID Application: Name (TEAMID)" TEAM_ID=TEAMID make release VERSION=0.3.0
-   ```
-   This turns on the hardened runtime with `App/Orbit.entitlements`
-   (library validation off: grammar dylibs are compiled on the user's Mac,
-   D71), submits the zip to Apple's notary service, waits for it, staples
-   the ticket to the app and zips it again. `NOTARY_PROFILE` overrides the
-   profile name.
+
+From then on `make release VERSION=0.3.0` finds the certificate and:
+builds with the hardened runtime and `App/Orbit.entitlements` (library
+validation off: grammar dylibs are compiled on the user's Mac, D71), signs
+Sparkle's helpers, the framework and the app, submits the zip to Apple's
+notary service and waits (a few minutes), staples the ticket, checks it
+with Gatekeeper and zips it again. A rejection stops the build and prints
+Apple's log. `DEVELOPER_ID="Developer ID Application: Name (TEAMID)"`
+picks one of several certificates, `AD_HOC=1` makes an ad hoc build anyway,
+`NOTARY_PROFILE` overrides the profile name.
 
 Copies installed from ad hoc builds update to a Developer ID build through
 Sparkle as usual: it checks the EdDSA signature, not the code signature.
+Once a notarized build is out, the first-launch steps (Open Anyway) in the
+README and the site's FAQ can go.
 
 ## Troubleshooting
 

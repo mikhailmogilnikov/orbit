@@ -250,7 +250,8 @@
 1. Own extension registry (GitHub repo with `index.json`, PR to publish) for
    extensions Zed's catalog can't carry (languages, agents, code plugins)
 2. Code plugins in TypeScript via JavaScriptCore, same package format
-3. Developer ID signing and notarization (the script is ready for it, D129)
+3. Developer ID signing and notarization: the script is ready (D222); waits for
+   an Apple Developer Program membership and its certificate
 
 ## Not implemented yet
 Everything below is known to be missing; nothing here is in progress.

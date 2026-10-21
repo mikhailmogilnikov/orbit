@@ -231,6 +231,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D219. The chat's composer and the terminal get the keys and gestures other apps have
 - D220. Python, pytest, Jest, Vitest, esbuild and Vite errors reach Problems
 - D221. Launched outside Applications, Orbit offers to move itself there
+- D222. Developer ID releases: the certificate is found in the keychain; Sparkle's helpers signed one by one
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2986,6 +2987,8 @@ a Developer ID. With one, `DEVELOPER_ID` and `TEAM_ID` in the environment
 switch the same script to a hardened build with `App/Orbit.entitlements`
 (`disable-library-validation`: grammar dylibs compiled on the Mac, D71),
 notarization through the `orbit-notary` keychain profile and stapling.
+(D222: the certificate is now found in the keychain, and Sparkle's helpers
+are signed by the script.)
 
 The updater doesn't start in Debug builds or while `SUPublicEDKey` is
 empty, so a development build never replaces itself. Sparkle is pinned
@@ -4615,3 +4618,33 @@ So a Release build launched from anywhere but `/Applications` or
   looked up at run time (it's not in the headers) and skipped if missing.
 - **Don't ask again** is remembered (`orbit.moveToApplicationsSuppressed`);
   debug builds never ask.
+
+### D222. Developer ID releases: the certificate is found in the keychain; Sparkle's helpers signed one by one
+
+D129's Developer ID path had never run. Two things in it would have failed:
+
+- `xcodebuild build` re-signs `Sparkle.framework` with the Developer ID but
+  not the code inside it (`Autoupdate`, `Updater.app`, the `Installer` and
+  `Downloader` XPC services), which keeps Sparkle's ad hoc signature. Apple's
+  notary service rejects any nested code that isn't signed with a Developer
+  ID, the hardened runtime and a secure timestamp. The script now signs them
+  inside out, as Sparkle's docs list (the Downloader keeps its entitlements),
+  then the framework and the app, and runs `codesign --verify --deep --strict`.
+  Archive / export would do this, but it needs an export options plist and
+  brings nothing else here.
+- The notarization result wasn't looked at: a rejection surfaced only as a
+  stapler error, without Apple's reason. Now the JSON status must be
+  `Accepted`; otherwise Apple's log is printed and the script stops. After stapling, `spctl --assess` must pass.
+
+`make release` no longer needs `DEVELOPER_ID` and `TEAM_ID` typed in: a
+single "Developer ID Application" certificate in the keychain is used, its
+team read from the name (`DEVELOPER_ID` picks one of several, `AD_HOC=1`
+forces an ad hoc build). With a certificate, the notarization profile is
+checked before the build, not after it. Without one, the build is ad hoc
+as before, with a warning.
+
+`disable-library-validation` stays required: a hardened process refuses
+the grammar dylibs Orbit compiles on the Mac ("different Team IDs"), and
+loads them with the entitlement (tried with an ad hoc hardened binary on
+a real grammar).
+

@@ -198,6 +198,10 @@ code actions, rename, formatting and its corner note, the agent registry
   the editor against the live Zed API; the theme selector (D49) and thumbnails.
 - Automatic updates and server switches (D186): a real daily update.
 - Releases (D129): an update from one release to the next through Sparkle.
+- The first Developer ID release (D222): notarization accepted, a downloaded
+  copy opening without a prompt, an update from an ad hoc build to it,
+  grammars loading, Install Command Line Tool (its `NSAppleScript` admin
+  prompt under the hardened runtime).
 - Theme accent (D97): prominent glass buttons in the System theme; sheets and
   hover panels outside the window's `.tint`.
 - Theme tokens (D157) and type scale (D117): hovers, row heights, popover and
