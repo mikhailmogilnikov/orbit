@@ -34,7 +34,23 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('Packages/OrbitKit/Package.resolved', 'project.yml') }}
           restore-keys: spm-${{ runner.os }}-
       - name: Test
-        run: make test
+        # Tests take seconds once built; a run still going after 10 minutes is
+        # hung, so print what every thread waits on instead of timing out silently.
+        timeout-minutes: 25
+        run: |
+          make test &
+          pid=$!
+          for _ in $(seq 600); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+          if kill -0 $pid 2>/dev/null; then
+            echo "::error::Tests still running after 10 minutes"
+            ps -ax -o pid,ppid,etime,command | grep -v -e '^ *[0-9]* *1 ' | tail -40
+            for p in $(pgrep -f 'swiftpm-testing-helper|OrbitKitPackageTests'); do
+              sample $p 3 -mayDie 2>&1 | head -600
+            done
+            pkill -f 'swiftpm-testing-helper|OrbitKitPackageTests'; kill $pid
+            exit 1
+          fi
+          wait $pid
       - name: Build the app
         run: make build
 
