@@ -275,7 +275,12 @@ final class OrbitTerminalView: LocalProcessTerminalView {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown, !hasMarkedText(), let action = TerminalKeys.action(keyCode: event.keyCode, modifiers: event.modifierFlags) else { return false }
+        guard event.type == .keyDown, !hasMarkedText() else { return false }
+        if let bytes = controlKey(event) {
+            send(bytes)
+            return true
+        }
+        guard let action = TerminalKeys.action(keyCode: event.keyCode, modifiers: event.modifierFlags) else { return false }
         switch action {
         case .send(let bytes): send(bytes)
         case .clear:
@@ -285,6 +290,28 @@ final class OrbitTerminalView: LocalProcessTerminalView {
         case .scrollToBottom: scrollDown(lines: Int(Int32.max))
         }
         return true
+    }
+
+    /// ⌃ letters SwiftTerm gets wrong (D217): in a Cyrillic layout it sent
+    /// nothing for ⌃C; and with the kitty keyboard protocol on (left on by a
+    /// program that didn't turn it off) ⌃C became `CSI 99;5u` text, so a dev
+    /// server never got SIGINT. While the pty turns ⌃C into a signal, the
+    /// program can't be reading keys raw: the plain byte is what it needs.
+    private func controlKey(_ event: NSEvent) -> [UInt8]? {
+        guard event.modifierFlags.intersection([.command, .option, .control]) == .control,
+              let typed = event.charactersIgnoringModifiers?.first else { return nil }
+        if typed.isASCII {
+            guard !getTerminal().keyboardEnhancementFlags.isEmpty, signalsKeys else { return nil }
+            return TerminalKeys.control(typed)
+        }
+        return TerminalKeys.latinCharacter(keyCode: event.keyCode).flatMap(TerminalKeys.control)
+    }
+
+    /// The pty is in a mode where ⌃C, ⌃Z and ⌃\ become signals (ISIG).
+    private var signalsKeys: Bool {
+        let fd = process.childfd
+        var attributes = termios()
+        return fd >= 0 && tcgetattr(fd, &attributes) == 0 && attributes.c_lflag & tcflag_t(ISIG) != 0
     }
 
     override func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {

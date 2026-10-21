@@ -1490,7 +1490,10 @@ struct Composer: View {
                     }
                     return pickSuggestion()
                 }
-                .onKeyPress(.return) { pickSuggestion() }
+                // ⇧↩ would submit too (only ⌥↩ breaks a line in a text field).
+                .onKeyPress(.return, phases: .down) { press in
+                    press.modifiers.contains(.shift) ? insertLineBreak() : pickSuggestion()
+                }
                 .onKeyPress(.escape) {
                     if !commandMatches.isEmpty, let command = activeCommand {
                         dismissedWord = "/" + command
@@ -1700,6 +1703,19 @@ struct Composer: View {
         let count = commandMatches.isEmpty ? mentionMatches.count : commandMatches.count
         guard count > 0 else { return .ignored }
         mentionIndex = (mentionIndex + offset + count) % count
+        return .handled
+    }
+
+    private func insertLineBreak() -> KeyPress.Result {
+        var draft = session.draft
+        var range = draft.endIndex..<draft.endIndex
+        if case .selection(let selected)? = selection?.indices, selected.upperBound <= draft.endIndex {
+            range = selected
+        }
+        let offset = draft.distance(from: draft.startIndex, to: range.lowerBound)
+        draft.replaceSubrange(range, with: "\n")
+        session.draft = draft
+        selection = TextSelection(insertionPoint: draft.index(draft.startIndex, offsetBy: offset + 1))
         return .handled
     }
 

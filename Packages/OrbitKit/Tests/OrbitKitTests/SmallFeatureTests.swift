@@ -123,5 +123,10 @@ import Testing
         #expect(Keys.action(keyCode: Keys.left, modifiers: []) == nil)
         #expect(Keys.action(keyCode: 0, modifiers: .option) == nil)
         #expect(Keys.action(keyCode: Keys.left, modifiers: [.command, .shift]) == nil)
+        // ⌃ letters (D217), whatever the case; "с" is Cyrillic, looked up by its key instead.
+        #expect(Keys.control("c") == [0x03])
+        #expect(Keys.control("Z") == [0x1A])
+        #expect(Keys.control("с") == nil)
+        #expect(Keys.control("1") == nil)
     }
 }

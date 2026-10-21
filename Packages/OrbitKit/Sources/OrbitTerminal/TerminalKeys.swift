@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 
 /// The editing keys every Mac terminal has (D155), which SwiftTerm leaves out
 /// while ⌥ types characters (`optionAsMetaKey` is off for accented letters):
@@ -33,5 +34,32 @@ enum TerminalKeys {
         case (down, .command): return .scrollToBottom
         default: return nil
         }
+    }
+
+    /// ⌃ and a letter as the control byte (⌃C → 0x03), or nil for anything else.
+    static func control(_ letter: Character) -> [UInt8]? {
+        guard letter.isASCII, letter.isLetter, let value = letter.asciiValue else { return nil }
+        return [value & 0x1F]
+    }
+
+    /// The key's letter in the Mac's Latin layout (the one ⌘ shortcuts use):
+    /// in a Cyrillic layout ⌃ and the C key types "с", which SwiftTerm can't turn into ⌃C.
+    @MainActor
+    static func latinCharacter(keyCode: UInt16) -> Character? {
+        guard let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let layout = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        let data = Unmanaged<CFData>.fromOpaque(layout).takeUnretainedValue() as Data
+        var deadKeys: UInt32 = 0
+        var characters = [UniChar](repeating: 0, count: 4)
+        var length = 0
+        let status = data.withUnsafeBytes { bytes in
+            UCKeyTranslate(
+                bytes.baseAddress!.assumingMemoryBound(to: UCKeyboardLayout.self),
+                keyCode, UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
+                OptionBits(kUCKeyTranslateNoDeadKeysBit), &deadKeys, characters.count, &length, &characters
+            )
+        }
+        guard status == noErr, length == 1, let scalar = Unicode.Scalar(characters[0]) else { return nil }
+        return Character(scalar)
     }
 }

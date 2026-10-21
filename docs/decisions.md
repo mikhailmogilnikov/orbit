@@ -226,6 +226,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D214. A launch to open a folder still gets a window; the saved folders survive a launch without one
 - D215. Typing at several carets keeps them all
 - D216. A website in `site/`: Astro, one type size, a working window, measured numbers
+- D217. ⌃ letters in the terminal by the key's Latin letter; ⌃C a signal while the pty makes it one
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4476,3 +4477,24 @@ floating glass nav, and the app shown working rather than in screenshots.
   the home page shows size, memory, processes and idle CPU, and the launch
   time stays on `/numbers` with the others' — no claim the data doesn't back.
 
+### D217. ⌃ letters in the terminal by the key's Latin letter; ⌃C a signal while the pty makes it one
+
+⌃C stopped stopping a dev server. Two causes in SwiftTerm: it builds the
+control byte from the typed character, so in a Cyrillic layout ⌃C ("с")
+sent nothing; and once the kitty keyboard protocol is on (pushed by Claude
+Code, Codex or a TUI and not popped when it died) ⌃C goes out as the text
+`CSI 99;5u`, so the next program never gets SIGINT. The terminal's key
+monitor now sends the byte itself: by the key's letter in the Mac's
+ASCII-capable layout (the one ⌘ shortcuts use, so Dvorak still works) when
+the typed character isn't ASCII, and as the plain byte when the kitty
+protocol is on but the pty has ISIG set: then the program reads lines, not
+raw keys, and a signal is the only thing ⌃C can mean. A program in raw mode
+with the kitty protocol keeps getting SwiftTerm's encoding.
+
+The agent chat's composer also takes ⇧↩ as a new line (a vertical
+`TextField` only breaks lines on ⌥↩ and submitted on ⇧↩), like the
+terminal's ⇧↩ (D155).
+
+In the editor ⌘⌫ at the start of a line joins it to the line above, as in
+Xcode and VS Code: STTextView found nothing to delete there and the caret
+stayed on its line, so a run of ⌘⌫ stopped at the first line start.

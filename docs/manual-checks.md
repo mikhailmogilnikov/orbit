@@ -146,6 +146,9 @@ code actions, rename, formatting and its corner note, the agent registry
 
 - Terminal keys (D155): in zsh, Claude Code and Codex; ⇧↩ in each agent's
   prompt; ⌘K while a full-screen program runs.
+- ⌃C (D217): stops a dev server in the Russian layout, and in Claude Code /
+  Codex run in the terminal (still their own ⌃C); ⇧↩ in the agent chat's composer;
+  ⌘⌫ repeated in the editor (with an inline diff on screen too).
 - Terminal find (D110): ⌘F reaching SwiftTerm's find bar, its look beside Orbit's glass.
 - Tasks (D128, D138): typing into a shell that's still starting, ⌃C then
   restart of a dev server, ⌘R from the terminal and the chat, the running-task

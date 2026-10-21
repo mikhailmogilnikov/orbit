@@ -210,6 +210,7 @@
 - History rows on two lines with merged branch badges and a calmer graph (D156)
 - One set of corner radii, hover / selection fills, badges and chevrons in `Theme` (D157)
 - Terminal editing keys (D155): ⌥←/→, ⌘←/→, ⌥⌫, ⌘⌫, ⇧↩ new line, ⌘K clear, ⌘↑/↓ scroll
+- ⌃C in any keyboard layout and after a program left the kitty keyboard protocol on; ⇧↩ new line in the agent chat; ⌘⌫ at a line's start joins it to the line above (D217)
 - Fix with Agent from Problems (D147); ⌘-click `file:line` in the terminal (D148)
 - Color swatches in the gutter with the color panel (D149); Copy GitHub Link / Open on GitHub (D150)
 - Sort / dedupe / reverse lines and case conversions (D151); pasted images in Markdown saved to assets/ (D152)

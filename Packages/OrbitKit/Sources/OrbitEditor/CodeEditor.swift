@@ -1081,6 +1081,20 @@ final class OrbitTextView: STTextView {
         applyCarets(zip(changes, selections).map { $0 ?? CaretEditing.plainDelete(text, at: $1) })
     }
 
+    /// ⌘⌫ at a line's start joins it to the line above, as in Xcode and VS Code:
+    /// STTextView finds nothing to delete there and the caret stayed put.
+    override func deleteToBeginningOfLine(_ sender: Any?) {
+        let text = documentText
+        let selections = selectionRanges
+        let atLineStarts = selections.allSatisfy { selection in
+            guard selection.length == 0, selection.location > 0, selection.location <= text.length else { return false }
+            let previous = text.character(at: selection.location - 1)
+            return previous == 0x0A || previous == 0x0D
+        }
+        guard atLineStarts else { return super.deleteToBeginningOfLine(sender) }
+        applyCarets(selections.map { CaretEditing.plainDelete(text, at: $0) })
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverArea { removeTrackingArea(hoverArea) }
