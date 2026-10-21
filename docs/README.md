@@ -4,4 +4,5 @@
 - [architecture.md](architecture.md) — modules, plugin model, ACP, review pipeline, inline diffs
 - [decisions.md](decisions.md) — decision log with rationale
 - [roadmap.md](roadmap.md) — done, next, known gaps
+- [extensions.md](extensions.md) — writing themes, icon themes and extension packages
 - [releasing.md](releasing.md) — building, publishing and updating releases (Sparkle, GitHub Releases)

@@ -2,7 +2,7 @@
 
 Native macOS IDE for AI coding agents (Claude Code, Codex, any ACP agent) —
 "Cursor in IDE mode", but SwiftUI/AppKit: light, fast, Apple-native, and
-plugin-first. Built primarily for the author's own use.
+plugin-first.
 
 Read before significant work:
 - `docs/product.md` — principles and UX decisions (what to build and why)
@@ -12,21 +12,20 @@ Read before significant work:
   any older entry it changes)
 - `docs/roadmap.md` — done / next / known gaps; keep it current
 
-## Working with the author
+## Working here
 
-- Speaks Russian; reply in Russian. Code, comments, commits and docs are in English.
-- Doesn't know Swift well and delegates technical decisions: pick the best
-  solution yourself, explain it briefly in plain terms. Ask only about product/UX.
-- Cares a lot about looks and native feel — verify UI visually, don't guess.
-- Don't commit unless asked. Exception — cloud sessions (claude.ai/code): the
-  author can't see changes otherwise, so commit and push straight to `master`
-  (no feature branches or PRs), authored as
-  `Mikhail Mogilnikov <mikhail.mogilnikov02@gmail.com>`, without
-  `Co-Authored-By` / `Claude-Session` trailers. The cloud container is Linux:
-  the app doesn't build, so say what wasn't verified and expect screenshots back.
-  The language-server client does: `scripts/linux-swift.sh`, then
+- Code, comments, commits and docs are in English.
+- Looks and native feel matter a lot — verify UI visually, don't guess.
+- Don't commit unless asked.
+- Linux (cloud containers): the app doesn't build, so say what wasn't
+  verified. The language-server client does: `scripts/linux-swift.sh`, then
   `make test-languages` (and `make test-language-installs` for server
   install/config changes) before pushing LSP changes.
+- The maintainer's cloud sessions (claude.ai/code) commit and push straight
+  to `master` (no feature branches or PRs), authored as
+  `Mikhail Mogilnikov <mikhail.mogilnikov02@gmail.com>`, without
+  `Co-Authored-By` / `Claude-Session` trailers.
+- Personal, machine-specific notes go in `CLAUDE.local.md` (not in git).
 
 ## Commands
 
@@ -179,14 +178,12 @@ examples/extensions/      sample extensions (theme, icon theme)
 - Views over the text view go through `OverlaySet` (D164): removing and
   re-adding them on each viewport layout re-dirties the layout and the
   editor spins at 100% CPU.
-- The standalone `claude` CLI on this machine isn't logged in (author uses the
-  Claude desktop app); Claude Code sessions fail until `claude` → `/login`.
-  Codex is logged in. Don't use the host session's credentials for testing.
-- The command sandbox blocks keychain access and launching GUI apps; running
-  agents or `open Orbit.app` needs the sandbox disabled.
+- Don't use the host session's agent credentials for testing.
+- Claude Code's command sandbox blocks keychain access and launching GUI apps;
+  running agents or `open Orbit.app` needs the sandbox disabled.
 - Launching Orbit from inside a Claude Code session leaks its env vars into
   Orbit; `ShellEnvironment` strips them, but prefer testing on a scratch
-  folder (e.g. a demo project in the scratchpad), not this repo.
+  folder (e.g. a temporary demo project), not this repo.
 
 - The window has no toolbar (D42): tabs and window buttons are the content's
   top row (`WindowTopBar`). Window changes must survive restoring a full-screen
@@ -200,13 +197,13 @@ examples/extensions/      sample extensions (theme, icon theme)
   keeps it composited (D47). Don't remove it as dead weight.
 
 - SwiftTerm needs Xcode's Metal Toolchain (`xcodebuild -downloadComponent
-  MetalToolchain`, installed here) and its build-tool plugin is trusted via
+  MetalToolchain`) and its build-tool plugin is trusted via
   `-skipPackagePluginValidation` in the Makefile.
 
 ## Testing the UI
 
-- Build, launch, then inspect with computer-use (`dev.orbit.app`) in
-  background mode: `app_screenshot`, `app_click` by element index.
+- Build, launch, then inspect the running app (bundle id `dev.orbit.app`),
+  e.g. with a computer-use tool in background mode.
 - Debug builds have **Plugins → Debug: Simulate Agent Edit**: fakes an agent
   edit of the active file (modify, delete, insert, append) — use it to check
   inline diffs without spending agent requests.

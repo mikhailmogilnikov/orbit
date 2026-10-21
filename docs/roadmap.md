@@ -324,7 +324,7 @@ Everything below is known to be missing; nothing here is in progress.
 - Navigation (D62): the server side runs in `make test-languages` (Swift,
   TypeScript) and `make test-language-installs` (outline for every server,
   references and project symbols for Python, Go, Rust; Rust not yet run, no
-  cargo on the author's Mac). Go to Symbol in Project only asks servers
+  cargo on the Mac it was checked on). Go to Symbol in Project only asks servers
   already running.
 - Bottom area header and status-bar panel buttons (D63): unverified on a Mac
   (terminal tabs in the header, badge colors, spacing next to agent items).
@@ -358,12 +358,10 @@ Everything below is known to be missing; nothing here is in progress.
   fully; Xcode projects (App/) get single-file results only (no build server).
   Squiggles move with edits until the server republishes (D202). Servers that
   fail stay off until Restart Language Servers or reopening the folder.
-- Agent registry (D52): unverified on a Mac (the cloud container can't reach
-  the registry CDN): install of npx and binary agents, the first-launch
+- Agent registry (D52): unverified on a Mac: install of npx and binary agents, the first-launch
   migration of Claude Code / Codex, icons. Agents installed while Orbit runs
   find Node.js / uv only on the PATH resolved at launch.
-- Extensions catalog: written against Zed's API without a live check (the
-  cloud container can't reach api.zed.dev); verify listing, download/unpack,
+- Extensions catalog: written against Zed's API without a live check; verify listing, download/unpack,
   try-on and the bar over the editor on a Mac. Theme selector (D49) and
   thumbnails are unverified too.
 - Usage ring: Codex also reports its subagents' context through `usage_update`

@@ -2973,8 +2973,7 @@ newest release's appcast is always the one read. Automatic daily checks
 are on (`SUEnableAutomaticChecks`, no first-launch question); **Check for
 Updates…** sits in the app menu.
 
-**Signing**: the author has no Developer ID yet (only someone else's
-certificates on this Mac), so builds are signed ad hoc without the
+**Signing**: there's no Developer ID yet, so builds are signed ad hoc without the
 hardened runtime: Gatekeeper asks once on the first launch (right click →
 Open); Sparkle checks updates by their EdDSA signature, which doesn't need
 a Developer ID. With one, `DEVELOPER_ID` and `TEAM_ID` in the environment

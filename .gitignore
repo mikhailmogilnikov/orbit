@@ -4,3 +4,4 @@ xcuserdata/
 .DS_Store
 Packages/OrbitKit/.build/
 Packages/OrbitKit/.swiftpm/
+CLAUDE.local.md

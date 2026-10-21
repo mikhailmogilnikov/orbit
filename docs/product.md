@@ -8,9 +8,10 @@ SwiftUI/AppKit instead of Electron.
 
 ## Who it's for
 
-First and foremost, the author's own daily driver. Not a venture-scale product;
-the bar is "I prefer this over Cursor for agent work". If it later becomes a
-public indie app, that's a bonus, not a requirement.
+Developers on the Mac who let agents write most of the code and want a fast,
+native place to steer and review them. It started as its maintainer's daily
+driver and isn't a venture-scale product; the bar is "I prefer this over
+Cursor for agent work".
 
 ## Product principles
 
@@ -22,15 +23,13 @@ public indie app, that's a bonus, not a requirement.
    most important surface is reviewing agent changes, not typing code.
 3. **Inline review, no mode switch.** Agent changes appear *directly in the
    editor* like Cursor: green added lines, red "ghost" removed lines, per-block
-   Keep / Undo. There is deliberately **no separate review tab** — the user
-   explicitly rejected that.
+   Keep / Undo. There is deliberately **no separate review tab** (D7).
 4. **Everything is a plugin.** The core knows almost nothing; explorer, editor,
    review, agents are plugins on the same public API future third-party plugins
    will use (inspired by "harness" designs where everything is pluggable).
 5. **Agent-agnostic.** Claude Code and Codex are first-class, but any ACP agent
    can be added with a JSON file — no code.
-6. **Beautiful by default.** Polish matters; the author dismissed competitors
-   for looking bad.
+6. **Beautiful by default.** Polish matters as much as features.
 
 ## Competitive landscape (as of Oct 2026)
 
@@ -40,8 +39,6 @@ public indie app, that's a bonus, not a requirement.
 | Zed | Strongest competitor: Rust, GPU-rendered, ACP support, inline agent review. Not Apple-native in feel. |
 | Claude Code desktop, Codex app | Official apps; chat-centric rather than IDE. |
 | Conductor, Crystal, Vibe Kanban, Superset | Parallel-agent orchestrators (worktrees), not IDEs. |
-| CrispyVibe | Looked at by the author — rejected as ugly. |
-| Canoryn | Looked at — "more like Claude Code than an IDE". |
 | Nova, CodeEdit | Native Mac editors without an agent focus. |
 
 **Positioning:** the most beautiful, fastest native place on the Mac to run
