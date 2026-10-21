@@ -26,7 +26,7 @@ jobs:
           xcodebuild -downloadComponent MetalToolchain
           git config --global user.name CI
           git config --global user.email ci@localhost
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             Packages/OrbitKit/.build
