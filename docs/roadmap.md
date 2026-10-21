@@ -290,235 +290,71 @@ Everything below is known to be missing; nothing here is in progress.
 **Git and terminal**
 - A three-pane merge editor (conflicts are resolved inline, D134)
 
-## Known gaps / to verify
-- Packages (D195): unverified on a Mac (snippets in the completion list and their Tab stops, Insert Snippet…,
-  a package's page, New Extension… / New Snippet File…, the catalog's Snippets tab). No consent prompt yet
-  for downloaded packages that run programs: nothing downloadable brings one until Orbit has its own catalog.
-- Live plugin switches (D194): the test covers registries and memory; in the app unverified
-  (the sidebar / inspector / bottom panel when their panel goes, an open editor rebuilt when Source Control
-  or Languages toggles, the confirmation listing agents and tasks, Git Lens greyed under Source Control).
-- Extensions page (D192): unverified on a Mac (the segmented filter in the form,
-  rows with a page and a switch, Show All, "Get More Agents" jumping there from the Agents pane).
-- Windows (D101): unverified on a Mac (windows coming back on launch, the
-  close stand-in in front of SwiftUI's window delegate, menus following the
-  main window, full screen with two windows; D102's Close Folder and
-  folders from Finder / the Dock, at launch too). The clone has no progress beyond a spinner and no sign-in prompt (a
-  private repository needs git credentials already set up).
-- Inlay hints and embedded languages (D69, D70): unverified on a Mac (label
-  placement and caret around them, colors in Markdown, Vue and HTML files;
-  the first Markdown file installs the inline grammar).
-- Companions (D64): ESLint and Tailwind run for real in the install tests;
-  in the app (status bar names, merged completion with Tailwind's long
-  class lists, the install banner) unverified on a Mac.
-- Vue (D74): runs for real in the install tests; in the app (two install
-  offers in a row, "Vue templates" in the status bar) unverified on a Mac.
-  `.ts` files importing components don't see their props (their TypeScript
-  server has no Vue plugin; a TypeScript 7 project can't load one at all).
-  `sqlls` crashes on start (its unpinned protocol dependency); `.sql` gets
-  `sqls` first.
-- Checked by hand on a Mac on 2026-10-13 (TypeScript, Python): server install
-  and the status-bar menu, Problems and References, navigation, completion,
-  code actions, rename, formatting and its corner note, agent registry; the
-  fixes it led to are in D66–D68. Still unchecked by hand: Rust, Go and the
-  other servers, Tailwind/ESLint companions, the theme catalog's install.
-- Navigation (D62): the server side runs in `make test-languages` (Swift,
-  TypeScript) and `make test-language-installs` (outline for every server,
-  references and project symbols for Python, Go, Rust; Rust not yet run, no
-  cargo on the Mac it was checked on). Go to Symbol in Project only asks servers
-  already running.
-- Bottom area header and status-bar panel buttons (D63): unverified on a Mac
-  (terminal tabs in the header, badge colors, spacing next to agent items).
-- Code actions / rename / formatting (D59): editor side unverified on a Mac
-  (menu placement, rename field, undo).
-- Rename preview and file operations in edits (D199): tested without a server; unverified on a Mac
-  (the sheet's look, ⇧↩ reaching Preview Changes from the field, a real rust-analyzer module rename,
-  TypeScript's Move to a new file). Renaming a file in the explorer doesn't ask servers to update imports
+## Known limitations
+What works differently than you'd expect today. Things built but not yet
+tried by hand are in [manual-checks.md](manual-checks.md).
+
+**Agents and review**
+- Claude Code needs the standalone `claude` CLI logged in (`claude` → `/login`).
+- Merging an agent's edit into unsaved edits makes those edits count as agent
+  changes in the inline review (its baseline is the disk before the turn).
+- An agent's unreviewed changes in a file moved or renamed in the explorer
+  lose their inline review. A review note follows its code only while the
+  code is unchanged.
+- Isolated sessions: a project on a non-APFS volume gets a full (slow) copy;
+  Apply is all-or-nothing per file; undoing an applied change in the project
+  counts it as not applied again. Restore points aren't available there.
+- Listing an agent's conversations spawns that agent once per folder per
+  launch. Agents installed while Orbit runs find Node.js / uv only on the
+  PATH resolved at launch.
+- Usage: Codex reports its subagents' context without saying so, so the ring
+  can briefly show a subagent's; Claude's limits arrive only with its events
+  (one window each), Codex's are as fresh as its last logged turn.
+- The transcript's rows are lazy, so scrolling up a long chat can shift as
+  rows come in. Turn summaries aren't restored with a reloaded conversation.
+- No per-agent status of which MCP servers connected.
+
+**Language features**
+- sourcekit-lsp understands SwiftPM packages fully; Xcode projects get
+  single-file results only (no build server).
+- Squiggles move with edits until the server republishes. A server that
+  fails stays off until Restart Language Servers or reopening the folder.
+  Go to Symbol in Project only asks servers already running.
+- Renaming a file in the explorer doesn't ask servers to update imports
   (`workspace/willRenameFiles`).
-- Formatting (D60, D61): the Formatting section in Settings → Languages, the
-  corner note after ⌃⇧I and the failure alerts are unverified on a Mac; every
-  formatter itself runs for real in the Linux install tests.
-- Highlighting appearing only after a scroll or a keystroke on open: fixed by
-  redrawing painted lines (D14 addendum), unverified on a Mac.
+- One server per file type. RubyGems / NuGet / opam packages can't be
+  installed (Ruby is found on PATH only).
+- Vue: `.ts` files importing components don't see their props (their
+  TypeScript server has no Vue plugin; a TypeScript 7 project can't load one).
+  `sqlls` crashes on start, so `.sql` gets `sqls` first.
+- Grammars compile on first open and need Xcode's command line tools and
+  network; a failed build isn't retried until restart.
 - The Swift cross-file rename in `make test-languages` fails now and then
-  (sourcekit-lsp's index not ready yet); passes on a rerun.
-- Grammars (D58, D71): compiling needs Xcode's command line tools and network on
-  first open, now for every language (TypeScript too); a failed build isn't
-  retried until restart. Unverified on a Mac: the first open's uncolored
-  second, the background installs when a folder opens, colors of Zed's
-  queries for Swift/TS/Markdown (they replaced the bundled ones). Release builds with hardened
-  runtime will need `com.apple.security.cs.disable-library-validation`.
-- Language installs (D57): every server installs and reports a problem in
-  the Linux tests; the Settings page and status-bar button are unverified on a
-  Mac. RubyGems/NuGet/opam packages aren't installable (Ruby is found on PATH
-  only). One server per file type.
-- Completion (D56): unverified on a Mac (popup look, keys, placement near
-  screen edges, IME). Placeholder tokens (D202) not seen live.
-- LSP (D54): the client is tested against real servers on Linux (D55); the
-  editor side (squiggles, hover card, ⌘-click) only by hand. sourcekit-lsp understands SwiftPM packages
-  fully; Xcode projects (App/) get single-file results only (no build server).
-  Squiggles move with edits until the server republishes (D202). Servers that
-  fail stay off until Restart Language Servers or reopening the folder.
-- Agent registry (D52): unverified on a Mac: install of npx and binary agents, the first-launch
-  migration of Claude Code / Codex, icons. Agents installed while Orbit runs
-  find Node.js / uv only on the PATH resolved at launch.
-- Extensions catalog: written against Zed's API without a live check; verify listing, download/unpack,
-  try-on and the bar over the editor on a Mac. Theme selector (D49) and
-  thumbnails are unverified too.
-- Usage ring: Codex also reports its subagents' context through `usage_update`
-  without saying so, so the ring can briefly show a subagent's context.
-- Manual typing inside a highlighted diff block is implemented but not yet
-  verified by hand.
-- Disk conflicts: merging an agent's edit into unsaved edits makes those edits
-  count as agent changes in the inline review (its baseline is the disk before
-  the turn).
-- Terminal: the panel hides when the last shell exits. Find (D110) is
-  SwiftTerm's own find bar, unverified on a Mac (⌘F reaching it through
-  Edit → Find, its look next to Orbit's glass).
-- Agent terminals: the `terminal/*` (PTY) path is untested with a real agent
-  (Claude Code and Codex use display terminals); check how many tabs a busy
-  turn leaves.
-- Split editor (D90): unverified on a Mac (the tab row's split line meeting
-  the editors' with the sidebar shown and hidden, in full screen; dragging;
-  focus by click into the terminal-free area; two editors of one file).
-  Only two sides, side by side.
-- Explorer moves (D92): unverified on a Mac; an agent's unreviewed changes
-  in a moved or renamed file lose their inline review.
-- Explorer file operations (D93): unverified on a Mac (the name field's
-  focus and selection inside the list, Return / ⌘⌫ reaching the list, the
-  header's hover buttons, ⌘Z routing). Undoing a new file drops its unsaved
-  edits. Multiple selection (D111) unverified on a Mac (⌘- / ⇧-click in the
-  list with our own row highlight, the menu acting on all rows); dragging
-  moves one item.
-- Explorer folder clicks (D96): unverified on a Mac (the row's tap gesture
-  reaching a click on an already selected folder).
-- Theme accent (D97): unverified on a Mac (prominent glass buttons tinted
-  with the text color in the System theme; sheets and hover panels hosted
-  outside the window's `.tint`). Focused native lists outside the explorer
-  still select in the system accent.
-- Keyboard navigation (D98): unverified on a Mac (the list taking focus on
-  ⇧⌘E, Space / Escape reaching it, arrows with the key filter). No
-  keyboard focus for the other sidebar panels.
-- Location history (D99): unverified on a Mac (the caret reports after a
-  reveal, ⌃Tab's panel and ⌃ release). Moving a tab between sides records
-  passing through the tab left behind; no mouse back / forward buttons.
-- Preview tabs (D94): unverified on a Mac (a double click on a list row
-  reaching the gesture beside the list's own selection; the tab's double
-  click beside its drag). Open Quickly doesn't preview, unlike VS Code.
-- Explorer context menu (D95): unverified on a Mac (⌘X ⌘C ⌘V reaching the
-  list through the Edit menu, ⌃↩ / ⌥⌘R / ⌥⌘C keys, app icons in Open With).
-  Compare and Find in Folder (D110) unverified on a Mac.
-- Drag and drop (D91): tab drags became our own gesture (the system drag
-  hung after drops); unverified on a Mac. Dropping files on the editor rests
-  on an assumption (AppKit finds the catcher above the text view although
-  its `hitTest` is nil). Tabs can't be dragged out of the window.
-- Preview (D89): unverified on a Mac (zoom and centering, the info
-  capsule, the page's look in light and dark themes, code colors, links,
-  relative images); no side-by-side preview (no split editor); preview tabs
-  aren't restored on launch; code colors don't change with the theme until
-  the next edit.
-- Agents overview and notification actions (D130): unverified on a Mac and with real agents (the popover from the status bar, the window coming forward, Allow from a notification while Orbit is behind).
-- Git (D204): remote branches and revision blame tested against a real repository; the revision tab's
-  look (author column, run separators, horizontal scrolling of long lines) unverified on a Mac.
-- Formatting (D203): chains tested with commands, format on type against vtsls; the Settings row and
-  the toast's arrows, and format on type while typing fast, unverified on a Mac.
-- Editor (D202): rules tested without a view, linked editing and selection ranges against vtsls; in
-  the app unverified (typing with ⌘D carets: Return, brackets, completion; a JSX tag rename; the
-  placeholder boxes; squiggles while typing above them).
-- Semantic tokens and code lenses (D201): tokens checked against sourcekit-lsp; in the app unverified
-  (colors in real themes, flicker while typing, a big file's token load). Lenses not seen with a real
-  server (rust-analyzer's Run and references, TypeScript's references count needs its preference on).
-- Hierarchy panel (D200): server side tested with sourcekit-lsp; the panel unverified on a Mac (row
-  indentation, the segmented switch in the header, the chevron turning into a spinner while a level loads).
-- Users of changed files (D198): unverified with a real agent and project (how many files a big
-  turn pulls in, the extra load on tsserver; false matches of common module names like `types`).
-- Rewind (D132): unverified with a real agent (does it follow the note to disregard the rewound part?).
-- Create PR (D133): the git and `gh` path runs in the tests against a local remote and a stand-in `gh`; against GitHub, and the sheet and badge, unverified. Later turns are pushed with Push N (D144), also unverified against GitHub.
-- Releases (D129): no release made yet — the first `make release` (keychain access for the Sparkle key) and an update from one release to the next are unverified; Gatekeeper's first-launch prompt for an ad hoc build.
-- Tasks (D128): unverified on a Mac (typing into a shell that's still starting, e.g. with a slow prompt; ⌃C then restart of a dev server; ⌘R reaching the menu from the terminal and the chat). Problem matchers (D137) cover tsc, clang / Swift / Go, Rust and ESLint only (no Python tracebacks, Vite / esbuild boxes, Jest); a fixed error stays listed until the task reruns.
-- ⌘K (D127): unverified on a Mac and with a real agent (the popover's place above the selection, how Claude Code's plan mode and Codex's read-only mode answer the prompt, the time a warm agent takes).
-- Folder watching (D126): unverified on a Mac (latency in the tree, CPU while a terminal build runs in the project).
-- Review comments (D125): unverified on a Mac and with a real agent (the popover's place under a block and its keys, the note in the block's bar and the chip off blocks, the bar above the composer). Notes are saved across launches (D131); a note follows its code only when the code is unchanged.
-- Usage popover (D124): unverified on a Mac; Claude limits only as its events come (one window each), Codex limits only as fresh as its last logged turn.
-- Tool call folding (D122): unverified on a Mac and with a real agent (the line spacing, a running command folded away while its output streams).
-- Transcript (D121): rows are a `LazyVStack`, so rows not made yet have guessed heights; scrolling up a long chat can still shift as they come in. Streaming while scrolled up is unverified on a Mac.
-- Chat like Claude Code (D120): unverified on a Mac and with a real agent (⇧Tab reaching the field as backtab, Esc and ↑ beside the text field's own keys, the pinned plan's height, the copy button's place, the jump button while streaming).
-- Chat attribution and hints (D119): unverified on a Mac (the agent icon beside the stats and the hover buttons, the hints grid under the greeting).
-- Tool card links and permission keys (D118): unverified on a Mac and with a real agent (the link's hover, keys reaching the buttons from the editor and the composer, the waiting bar).
-- Chat look (D163): checked on a Mac with Codex (icons, the card, the inline diff, the pie, the "+"); a permission prompt, a running command's Stop and a failed call not seen yet.
-- Empty editor (D166): checked in the preview copy.
-- Terminal list (D167): checked in the preview copy with three shells; tasks and agent terminals in the list not looked at.
-- Tabs (D168): checked in the preview copy (glass current tab, a drag reorder that slides into place); the hover close button, unsaved dot and chat tabs not seen live.
-- Navigator bar (D169): checked in the preview copy (dark, no theme accent).
-- Status bar (D170): the panel button checked in the preview copy; the error / warning counts not seen with real problems yet.
-- Source Control look (D171): checked in the preview copy (dark); light mode and conflicts not looked at.
-- Issue-navigator look (D172): Problems checked in the preview copy with TypeScript errors (folding, badge, indent); References not seen live.
-- Glass popups (D173): builds; not seen live (hover and completion can't be driven in the background) — legibility of docs over busy code unchecked.
-- Quieter details (D174): checked in the preview copy (plain output block, empty Problems, lone chat title, VoiceOver names in the accessibility tree); a code block with a language and the hover Copy not seen.
-- Shortcuts popover (D175): checked in the preview copy (list, search); recording a key from it not tried live (same recorder as Settings).
-- Menu bar layout (D176): every menu listed in the preview copy; dividers and submenus seen through the accessibility tree, not on screen.
-- Sheets (D162): the open panel checked on a Mac as a sheet; alerts (delete, discard, unsaved changes, install failures) not raised live yet.
-- Palette like Spotlight (D161): checked on a Mac (dark); the theme selector's rows and plugins' picks with long titles not looked at.
-- Welcome screen like Xcode's (D160): checked on a Mac in both modes; Return on a selected project and the context menu not tried.
-- Empty states and animations (D159): empty panels checked on a Mac; the digit rolls and the waiting hand's wiggle not seen live yet (need changing counts and a real permission prompt).
-- Settings like System Settings (D158): checked on a Mac in a preview copy (both modes, every pane, search, pages, back); not checked: a narrow window, VoiceOver, sidebar selection while the window is key.
-- Settings search by option (D177): builds; not looked at yet (sidebar results, scroll to the row, the highlight).
-- Settings → Terminal and Files (D178): builds; not looked at; shell / cursor / Option-as-Meta / scrollback not tried in a live terminal.
-- Agent pages and the Project badge (D179): builds; not looked at; per-agent mode for new chats not tried with a live agent.
-- Font family, default indentation, auto save (D180): builds, tests pass; not looked at, auto save not tried by typing.
-- Text sizes (D181): builds; not looked at, notably the interface at 15 pt in tight rows (tabs, status bar).
-- settings.json schema (D182): checked against the real JSON server (test); completion in the editor not looked at.
-- Project options from Settings (D183): the text edit is tested; the right-click not tried, notably on the agents' disabled pickers.
-- Plugins pane, Checkpoints pane (D184, D185): build; not looked at; Restart Now and a real prune not tried.
-- Automatic updates and server switches (D186): build, tests pass; a real daily update not seen yet, switches not looked at.
-- Blame after the line (D187): builds; not looked at (position, color, the hover card).
-- Line height / ligatures / bracket switch, file & line history, compare (D188, D189): build, git parts tested; nothing looked at.
-- Theme tokens (D157): unverified on a Mac (hovers a touch stronger, palette and tab-switcher rows 9 → 10, composer 16 → 18, popovers 12 → 14, leading chevrons 9 → 8 pt, the usage popover's plan badge smaller, the explorer's drop target outlined).
-- Type scale (D117): unverified on a Mac (bars over the composer, bottom panel and terminal tabs went 11.5 → 11, the model popover's rows 12.5 → 13, the palette's query 16 → 15).
-- Folded reads (D116): unverified on a Mac and with a real agent (the card's look, expanding while calls stream in).
-- Slash commands and turn summary (D115): unverified on a Mac and with a
-  real agent (the command list's look and scrolling, Return picking vs.
-  sending, the timer, the summary row and its Review). Summaries aren't
-  restored with a reloaded conversation.
-- Message queue (D88): unverified on a Mac and with a real agent (Send Now
-  stopping a turn, the paused state); kept across launches since D131.
-- Notifications (D87): unverified on a Mac (the permission prompt for an
-  ad-hoc signed debug build, click to open the chat, the badge); Allow /
-  Deny in the notification since D130.
-- MCP servers (D86): not run with a real agent yet (that each adapter
-  accepts the list and starts the servers); the Settings section is
-  unverified on a Mac. No per-agent status of which servers connected.
-- Restore points (D85): unverified on a Mac (the hover button, the dialog,
-  the note to the agent); not available in isolated sessions. Rewinding the
-  chat with the files is D132's Rewind.
-- Isolated sessions: a project on a non-APFS volume gets a full (slow) copy; Apply is
-  all-or-nothing per file (no picking files); undoing an applied change in
-  the project counts it as not applied again; untested by hand.
-- Agent sessions: listing an agent's conversations spawns that agent once per
-  folder per launch.
-- Replace in files: Undo in the panel (D111) puts back the last replace
-  only, and skips files edited since; ⌘Z doesn't reach it. Unverified in
-  the UI.
-- Side-by-side diffs (D111): unverified on a Mac (row heights with long
-  wrapped lines on one side, the header toggle).
-- Terminal keys (D155): unverified on a Mac (in zsh, Claude Code and Codex; ⇧↩ in each agent's prompt; ⌘K while a full-screen program runs).
-- D147–D154: unverified on a Mac (the Fix button's hover, ⌘-click on paths in the terminal, the color panel editing a literal while dragging, the permalink against GitHub, pasting a screenshot, the power assertion in `pmset -g assertions`, the stash rows).
-- SVG preview and gutter thumbnails (D145, D146): unverified on a Mac (crispness of an upscaled SVG, the thumbnail column beside folds and blame, the hover popover's place).
-- `orbit` command, browser (D142, D143): unverified on a Mac (the password prompt for /usr/local/bin, a file opening a new window and then its tab; the browser tab's toolbar, retry while a dev server starts, Inspect Element, tabs restored at launch). The browser has no tabs of its own, no find in page and no device sizes.
-- Editor (D139–D141): unverified on a Mac (⌥-drag over wrapped lines and folds, autoscroll while dragging; the large-file banner; Format Selection with each formatter). The running-task status item (D138) is unverified too.
-- Git (D134–D136): unverified on a Mac (the conflict blocks and their bar,
-  the blame column's width beside wide line numbers and folds, the graph's
-  lines meeting between sidebar rows and its colors in light and dark).
-- Indent guides (D110): unverified on a Mac (crisp 1-pt lines, placement
-  with tabs, inline-diff gaps and folds; a theme's `editor.indent_guide`).
-- Project options (D108): unverified on a Mac (the "Set by" notes and
-  disabled toggles, options changing on save of the file).
-- Shortcuts (D107): unverified on a Mac (the recorder taking keys before
-  Settings' own Esc, menus updating at once, a reassigned key in a second
-  window). Function keys and keys without ⌘⌃⌥ can't be recorded; a command
+  (sourcekit-lsp's index not ready yet); it passes on a rerun.
+
+**Editor and workspace**
+- The split editor has two sides, side by side. Tabs can't be dragged out of
+  the window; dragging in the explorer moves one item.
+- Undoing a new file in the explorer drops its unsaved edits.
+- Location history: moving a tab between sides records passing through the
+  tab left behind; no mouse back / forward buttons. Open Quickly doesn't
+  open preview tabs.
+- Markdown preview: no side-by-side view; preview tabs aren't restored on
+  launch; code colors follow a theme change only after the next edit.
+- Replace in files: the panel's Undo puts back the last replace only and
+  skips files edited since; ⌘Z doesn't reach it.
+- Shortcuts: function keys and keys without ⌘⌃⌥ can't be recorded; a command
   has one user key (Move Line keeps ⌥↑ beside a reassigned menu key).
-- File formats (D106): unverified on a Mac (the status-bar menu, "Reopen
-  with Encoding" in the Can't Open state, a CRLF file's inline agent review).
-- Text editing basics (D105): unverified on a Mac (keys reaching the editor
-  before STTextView's own ⌥↑ / ⌃⇧↑ bindings, the caret drawing for several
-  carets, ⌥-click, the Go to Line popover's placement, the bracket outline).
-- Claude Code requires the standalone `claude` CLI to be logged in (`claude` → `/login`).
+- No keyboard focus for sidebar panels other than the explorer; focused
+  native lists outside it select in the system accent.
+- Cloning shows only a spinner and has no sign-in prompt (a private
+  repository needs git credentials already set up).
+- Downloaded packages that run programs get no consent prompt yet; nothing
+  downloadable brings one until Orbit has its own catalog.
+
+**Terminal, tasks and browser**
+- The terminal panel hides when the last shell exits.
+- Problem matchers cover tsc, clang / Swift / Go, Rust and ESLint only (no
+  Python tracebacks, Vite / esbuild boxes, Jest); a fixed error stays listed
+  until the task reruns.
+- The browser has no tabs of its own, no find in page and no device sizes.

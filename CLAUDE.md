@@ -10,7 +10,9 @@ Read before significant work:
 - `docs/decisions.md` — decision log: read its index, then the entries your work
   touches; **add an entry** for every new product/tech decision (and a note on
   any older entry it changes)
-- `docs/roadmap.md` — done / next / known gaps; keep it current
+- `docs/roadmap.md` — done / next / known limitations; keep it current
+- `docs/manual-checks.md` — what still needs a look by hand on a Mac: add
+  what you couldn't verify, remove what got checked
 
 ## Working here
 

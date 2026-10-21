@@ -28,6 +28,8 @@ OrbitSearch    Plugin: project file index, Open Quickly (⌘P), Find in Project 
 OrbitTerminal  Plugin: SwiftTerm terminals in the bottom panel
 OrbitGit       Plugin: Source Control panel (status, stage, commit, branches, pull/push)
 OrbitAgents    Plugin: agent providers, sessions, transcript, permissions, fs bridge
+OrbitLanguages Plugin: LSP client, server table, Mason installer
+OrbitPreview   Plugin: image / PDF viewer, Markdown preview
 OrbitKit       Umbrella: BuiltinPlugins list, re-exports OrbitAPI/OrbitUI
 App/           Shell: window, sidebar/inspector hosts, tab bar, status bar,
                command palette, menus generated from commands, settings
@@ -142,5 +144,6 @@ produces no ACP diff and no `fs/write_text_file` call.
   `minWidth/minHeight: 0`.
 - `@Observable` `@MainActor` classes conforming to `Identifiable` need a
   `nonisolated` `id`.
-- No App Sandbox, no hardened runtime (agents spawn arbitrary CLIs); direct
-  distribution later (notarization + Sparkle).
+- No App Sandbox (agents spawn arbitrary CLIs); distributed directly from
+  GitHub Releases with Sparkle updates. Builds are ad hoc signed until there's
+  a Developer ID, then hardened and notarized (`docs/releasing.md`).

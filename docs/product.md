@@ -81,8 +81,9 @@ agents and review their work.
   composer and go to the chat as one message (Send). ⌘K asks the agent to
   rewrite the selection (or write code at the caret); the result shows as
   an agent change to Keep or Undo.
-- **Changed files** sit above the agent composer: "N files changed +a −r"
-  with Undo All / Keep All and "review next"; it expands into the files
+- **Changed files** sit above the agent composer as a sidebar-style section
+  (D212): count and line totals, previous / next change, Undo All, and Keep
+  All as the one prominent button; it expands into the files
   (click opens the file at its first change, hover shows per-file Undo/Keep).
   "N to review" in the status bar opens it. ⌥⌘↑/↓ walks every change,
   moving on to the next file past the last one.
@@ -106,4 +107,5 @@ agents and review their work.
 - **Find in Project** (⇧⌘F): Search panel in the navigator, searches as you
   type; Aa / whole word / regex toggles; results grouped by file, click jumps
   to the line. Re-runs when files change on disk.
-- **Settings:** plugin toggles (restart to apply), custom agents folder.
+- **Settings:** laid out like System Settings, searchable by option; plugin
+  switches apply right away (D194).
