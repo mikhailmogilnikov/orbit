@@ -20,8 +20,8 @@ public final class ExplorerPlugin: OrbitPlugin {
 
     public func activate(_ context: PluginContext) {
         let workspace = context.workspace
-        watcher = FolderWatcher(workspace: workspace)
         let model = FileTreeModel(workspace: workspace, services: context.services)
+        watcher = FolderWatcher(workspace: workspace) { [weak model] in model?.linkedFolders ?? [] }
         context.ui.addSettingsPane(SettingsPane(
             id: "files", title: "Files", systemImage: "doc.on.doc.fill", tint: .blue, group: .code, order: 5,
             summary: "What the file tree shows, and files hidden everywhere.",
@@ -127,7 +127,9 @@ public final class ExplorerPlugin: OrbitPlugin {
 @Observable
 final class FileNode: Identifiable {
     let url: URL
+    /// A symlink to a folder is one too: it opens like one.
     let isDirectory: Bool
+    let link: Link?
     var isExpanded = false {
         didSet { if isExpanded != oldValue { onExpansionChange?(url, isExpanded) } }
     }
@@ -138,9 +140,26 @@ final class FileNode: Identifiable {
     nonisolated var id: URL { url }
     var name: String { url.lastPathComponent }
 
-    init(url: URL, isDirectory: Bool) {
+    /// A symlink: where it points, as written in it, and whether that's gone.
+    struct Link {
+        let destination: String
+        let isBroken: Bool
+
+        var help: String { "\(isBroken ? "Broken symbolic link" : "Symbolic link") to \(destination)" }
+    }
+
+    init(url: URL, isDirectory: Bool, link: Link? = nil) {
         self.url = url
         self.isDirectory = isDirectory
+        self.link = link
+    }
+
+    private static func make(_ url: URL, isSymlink: Bool, isDirectory: Bool) -> FileNode {
+        guard isSymlink, let target = url.symlinkTarget else { return FileNode(url: url, isDirectory: isDirectory) }
+        var isFolder: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: target.path, isDirectory: &isFolder)
+        let destination = (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) ?? target.path
+        return FileNode(url: url, isDirectory: exists && isFolder.boolValue, link: Link(destination: destination, isBroken: !exists))
     }
 
     // Build output and dependencies stay visible, dimmed as git-ignored.
@@ -148,15 +167,15 @@ final class FileNode: Identifiable {
 
     func loadChildren(force: Bool = false) {
         guard isDirectory, children == nil || force else { return }
-        let keys: [URLResourceKey] = [.isDirectoryKey]
-        let urls = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: [])) ?? []
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
+        let urls = FileManager.default.entries(of: url, includingPropertiesForKeys: keys)
         let previous = Dictionary(uniqueKeysWithValues: (children ?? []).map { ($0.url, $0) })
         let loaded = urls
             .filter { !Self.ignored.contains($0.lastPathComponent) }
             .map { url in
                 if let existing = previous[url] { return existing }
-                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                let node = FileNode(url: url, isDirectory: isDir)
+                let values = try? url.resourceValues(forKeys: Set(keys))
+                let node = Self.make(url, isSymlink: values?.isSymbolicLink ?? false, isDirectory: values?.isDirectory ?? false)
                 node.onExpansionChange = onExpansionChange
                 return node
             }
@@ -604,6 +623,19 @@ final class FileTreeModel {
         }
     }
 
+    /// Symlinked folders loaded in the tree.
+    var linkedFolders: [URL] {
+        var folders: [URL] = []
+        func visit(_ node: FileNode) {
+            for child in node.children ?? [] where child.isDirectory {
+                if child.link != nil { folders.append(child.url) }
+                visit(child)
+            }
+        }
+        if let root { visit(root) }
+        return folders
+    }
+
     /// A loaded node by URL, walking down only the matching branch.
     func node(for url: URL) -> FileNode? {
         let path = url.standardizedFileURL.path
@@ -752,16 +784,13 @@ struct ExplorerView: View {
                     return
                 }
                 model.selectedFolder = nil
-                guard !url.hasDirectoryPath, !isDirectory(url) else { return }
+                // A broken link's file would be created on save; its tooltip says where it pointed.
+                guard !url.hasDirectoryPath, !url.isFolderFollowingLinks, model.node(for: url)?.link?.isBroken != true else { return }
                 // A click or an arrow key previews in one reused tab, leaving the keys
                 // in the tree (D94, D98); a double click keeps it and goes to it.
                 workspace.openFile(url, preview: true, focus: false)
             }
         )
-    }
-
-    private func isDirectory(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
     }
 }
 
@@ -811,14 +840,14 @@ struct FileChildren: View {
                 )) {
                     FileChildren(node: child, model: model, workspace: workspace, decorations: decorations)
                 } label: {
-                    FileLabel(url: child.url, kind: decorations?.folderStatus(of: child.url), isFolder: true, isExpanded: child.isExpanded, isIgnored: decorations?.isIgnored(child.url) ?? false, model: model)
+                    FileLabel(url: child.url, kind: decorations?.folderStatus(of: child.url), isFolder: true, isExpanded: child.isExpanded, isIgnored: decorations?.isIgnored(child.url) ?? false, link: child.link, model: model)
                         .modifier(RowHighlight(url: child.url, model: model))
                         .contextMenu { FileContextMenu(url: child.url, isFolder: true, model: model) }
                         .draggable(child.url) { DragPreview(url: child.url, isFolder: true, colorScheme: colorScheme) }
                         .modifier(FolderDrop(folder: child.url, model: model))
                 }
             } else {
-                FileLabel(url: child.url, kind: decorations?.status(of: child.url), isFolder: false, isIgnored: decorations?.isIgnored(child.url) ?? false, model: model)
+                FileLabel(url: child.url, kind: decorations?.status(of: child.url), isFolder: false, isIgnored: decorations?.isIgnored(child.url) ?? false, link: child.link, model: model)
                     .modifier(RowHighlight(url: child.url, model: model))
                     .tag(child.url)
                     .contextMenu { FileContextMenu(url: child.url, isFolder: false, model: model) }
@@ -1051,13 +1080,15 @@ struct FolderDrop: ViewModifier {
 }
 
 /// A tree row tinted by its git status: files get a letter, folders a dot;
-/// git-ignored rows are dimmed like in VS Code.
+/// git-ignored rows are dimmed like in VS Code; symlinks get Finder's
+/// alias arrow, broken ones are dimmed too.
 struct FileLabel: View {
     let url: URL
     let kind: FileChangeKind?
     let isFolder: Bool
     var isExpanded = false
     var isIgnored = false
+    var link: FileNode.Link?
     /// Set in the explorer: the name turns into a field while it's renamed.
     var model: FileTreeModel?
 
@@ -1069,7 +1100,7 @@ struct FileLabel: View {
                         NameField(name: url.lastPathComponent, selectsExtension: isFolder) { model.finishRenaming(url, to: $0) } cancel: { model.renaming = nil }
                     } else {
                         Text(url.lastPathComponent)
-                            .foregroundStyle(kind.map { AnyShapeStyle($0.color) } ?? (isIgnored ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary)))
+                            .foregroundStyle(kind.map { AnyShapeStyle($0.color) } ?? (isDimmed ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary)))
                             .lineLimit(1)
                     }
                 }
@@ -1078,9 +1109,14 @@ struct FileLabel: View {
                 .padding(.leading, -3)
             } icon: {
                 FileIconView(url: url, isFolder: isFolder, isExpanded: isExpanded)
-                    .opacity(isIgnored ? 0.5 : 1)
+                    .opacity(isDimmed ? 0.5 : 1)
             }
             Spacer(minLength: 2)
+            if link != nil {
+                Image(systemName: "arrow.up.right")
+                    .orbitFont(.micro, weight: .semibold)
+                    .foregroundStyle(.tertiary)
+            }
             if let kind {
                 if isFolder {
                     Circle()
@@ -1096,6 +1132,17 @@ struct FileLabel: View {
         }
         // The empty part of the row counts too (drag, right-click).
         .contentShape(.rect)
+        .help(ifAny: link?.help)
+    }
+
+    private var isDimmed: Bool { isIgnored || link?.isBroken == true }
+}
+
+private extension View {
+    /// A tooltip only on the rows that have one: an empty `.help` on every
+    /// row of a big tree still sets one up for each.
+    @ViewBuilder func help(ifAny text: String?) -> some View {
+        if let text { help(text) } else { self }
     }
 }
 

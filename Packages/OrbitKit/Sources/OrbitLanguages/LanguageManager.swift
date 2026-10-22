@@ -105,7 +105,7 @@ final class LanguageManager: LanguageIntelligence {
             _ = workspace.root
             _ = workspace.fileSystemGeneration
             _ = changes()?.changedFiles
-            for document in workspace.documents.open.values { _ = document.revision }
+            for document in workspace.documents.documents { _ = document.revision }
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, !self.workspace.isClosed else { return }
@@ -149,7 +149,7 @@ final class LanguageManager: LanguageIntelligence {
         }
         guard let root else { return }
 
-        let documents = workspace.documents.open.values.filter { $0.loadError == nil && !$0.isLimited }
+        let documents = workspace.documents.documents.filter { $0.loadError == nil && !$0.isLimited }
         let files = documents.map { (url: $0.url, text: $0.text) } + checkedFiles(excluding: Set(documents.map(\.url)), in: root)
         var wanted: [ServerKey: [(url: URL, text: String)]] = [:]
         for file in files {

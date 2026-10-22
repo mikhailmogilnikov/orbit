@@ -270,8 +270,8 @@ private final class FolderMenu: NSObject, NSMenuDelegate {
     }
 
     private func fill(_ menu: NSMenu, with folder: URL) {
-        let entries = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? [])
-            .map { ($0, (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true) }
+        let entries = FileManager.default.entries(of: folder, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
+            .map { ($0, $0.isFolderFollowingLinks) }
             .sorted { lhs, rhs in
                 lhs.1 != rhs.1 ? lhs.1 : lhs.0.lastPathComponent.localizedStandardCompare(rhs.0.lastPathComponent) == .orderedAscending
             }

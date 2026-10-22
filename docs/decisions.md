@@ -242,6 +242,8 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D230. Copy sits once under the agent's whole reply
 - D231. The sidebar switcher is a segmented control with a glass thumb
 - D232. The explorer sees double clicks on files itself
+- D238. Symlinks open like what they point to
+- D239. A file and a link to it are one buffer; the index lists linked folders by git
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4899,3 +4901,52 @@ already sees every click on the outline before the list does, now also
 takes a plain double click on a row: once the list has selected it, a file
 there is opened in a kept tab and the editor gets the keys
 (`FileTreeModel.selectedFileDoubleClicked`).
+
+### D238. Symlinks open like what they point to
+
+A symlink to a folder showed in the explorer as a file that opened nothing:
+`isDirectoryKey` describes the link, and a URL listing of a link lists
+nothing (a path listing would follow it). Saving a file opened through a
+symlink replaced the link with a plain file, since an atomic write renames a
+new file over the path. Now, as in VS Code and Finder, a link opens like its
+target: a folder link expands, its entries keep paths under the link (the
+tab, git colors and the path bar show where it was opened from), and a save
+goes to the target (`TextFile.write`, used by documents and review). Links
+get Finder's alias arrow and a tooltip with where they point; a broken one is
+dimmed and doesn't open, so a save can't quietly create its target.
+`FileManager.entries(of:)` in OrbitAPI lists a folder reached through a link
+for the explorer and the path bar. A link to one of its own parents nests
+only as deep as it's expanded. Open Quickly and Find in Project list a
+linked folder's files under the link too (`FileLister`): git lists a link as
+one entry and the walk without git doesn't descend into links, so both
+follow them by hand. Each folder is listed through links once (by real
+path), and a link to a folder that holds it (`..`, the project itself) is
+skipped, so links can't loop; broken links are left out; `.gitignore`
+doesn't reach inside a linked folder, the usual skipped names do. Folder
+watching doesn't follow links: FSEvents doesn't see inside a link pointing
+outside the folder. (D239 changes the last three points.)
+
+### D239. A file and a link to it are one buffer; the index lists linked folders by git
+
+With D238 a file could be open twice, by its own path and through a link
+(`alias → src`), as two buffers: an agent's edit to one never reached the
+other, and saving the stale one wrote over it. `DocumentStore` now finds an
+open buffer by real path too (`realpath`, cached per URL until the next
+`syncWithDisk`, since buffer lookups run on every redraw): the same
+`TextDocument` sits under each path it was opened by, `documents` lists each
+once, and closing one path's tab leaves the buffer to the other.
+
+`FileLister` no longer lists links that point into the project: their files
+are listed under their own paths already, and Find in Project would have
+shown, and Replace changed, a file twice. A linked folder outside the project
+is listed by `git ls-files` when it's in a repository, so its `.gitignore`
+holds (a link to a sibling project no longer indexes its `venv` or `target`),
+and walked otherwise. The git listing checks each entry with one `lstat`
+instead of reading it as a link and then stat-ing it: about 2.3× faster on
+a large repository, where most entries aren't links.
+
+`FolderWatcher` also watches the real folders, outside the project, of the
+symlinked folders loaded in the explorer and of open files, so changes there
+reach the tree and the buffers. Links in a loop end on a link
+(`symlinkTarget`), and `TextFile.write` refuses to write over one.
+

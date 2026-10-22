@@ -131,6 +131,12 @@ code actions, rename, formatting and its corner note, the agent registry
 - Keyboard navigation (D98): the list taking focus on ⇧⌘E, Space / Escape, arrows
   with the key filter.
 - Folder watching (D126): latency in the tree, CPU while a terminal build runs.
+- Symlinks (D238): a folder link expanding, the arrow badge and its tooltip,
+  a broken link dimmed and not opening, saving a linked file keeping the link,
+  ⌘P and Find in Project finding files inside a linked folder.
+  A file opened by its path and through a link: one buffer, an edit in one
+  tab shows in the other; a change on disk in a linked folder outside the
+  project reaching its open file and the tree (D239).
 - Replace in files (D111): the panel's Undo.
 - Windows (D101, D102): windows coming back on launch, the close stand-in in
   front of SwiftUI's window delegate, menus following the main window, full

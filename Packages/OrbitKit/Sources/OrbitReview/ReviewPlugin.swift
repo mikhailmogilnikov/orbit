@@ -149,7 +149,7 @@ final class ChangeTracker: ChangeTracking {
                 try workspace.documents.write(text, to: url)
             } else if let contents {
                 try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try contents.write(to: url, options: .atomic)
+                try TextFile.write(contents, to: url)
             } else {
                 try fm.trashItem(at: url, resultingItemURL: nil)
                 workspace.close("file:\(url.path)")

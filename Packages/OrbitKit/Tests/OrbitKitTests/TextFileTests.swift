@@ -59,4 +59,49 @@ import Testing
         let format = TextFileFormat(encoding: .windowsCP1251)
         #expect(throws: (any Error).self) { try TextFile.encode("emoji 🙂", as: format) }
     }
+
+    @Test func savingThroughASymlinkKeepsTheLink() throws {
+        let manager = FileManager.default
+        let root = manager.temporaryDirectory.appendingPathComponent("symlinks-\(UUID().uuidString)").standardizedFileURL
+        defer { try? manager.removeItem(at: root) }
+        let real = root.appendingPathComponent("real")
+        try manager.createDirectory(at: real, withIntermediateDirectories: true)
+        try Data("old\n".utf8).write(to: real.appendingPathComponent("a.txt"))
+        let folderLink = root.appendingPathComponent("folder")
+        let fileLink = root.appendingPathComponent("file")
+        try manager.createSymbolicLink(atPath: folderLink.path, withDestinationPath: "real")
+        try manager.createSymbolicLink(atPath: fileLink.path, withDestinationPath: "real/a.txt")
+
+        #expect(folderLink.isFolderFollowingLinks && !fileLink.isFolderFollowingLinks)
+        #expect(manager.entries(of: folderLink, includingPropertiesForKeys: []).map(\.path) == [folderLink.appendingPathComponent("a.txt").path])
+
+        try TextFile.write(Data("new\n".utf8), to: fileLink)
+        #expect(try manager.destinationOfSymbolicLink(atPath: fileLink.path) == "real/a.txt")
+        #expect(try String(contentsOf: real.appendingPathComponent("a.txt"), encoding: .utf8) == "new\n")
+    }
+
+    @MainActor @Test func aFileAndALinkToItShareOneBuffer() throws {
+        let manager = FileManager.default
+        let root = manager.temporaryDirectory.appendingPathComponent("symlinks-\(UUID().uuidString)").standardizedFileURL
+        defer { try? manager.removeItem(at: root) }
+        try manager.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("src/a.txt")
+        try Data("a\n".utf8).write(to: file)
+        try manager.createSymbolicLink(atPath: root.appendingPathComponent("alias").path, withDestinationPath: "src")
+        try manager.createSymbolicLink(atPath: root.appendingPathComponent("loop1").path, withDestinationPath: "loop2")
+        try manager.createSymbolicLink(atPath: root.appendingPathComponent("loop2").path, withDestinationPath: "loop1")
+
+        let store = DocumentStore()
+        let document = store.document(for: file)
+        let alias = root.appendingPathComponent("alias/a.txt")
+        #expect(store.existingDocument(for: alias) === document)
+        #expect(store.document(for: alias) === document)
+        #expect(store.documents.count == 1)
+        store.close(file)
+        #expect(store.existingDocument(for: alias) === document)
+
+        // Written over, a link in a loop would turn into a plain file.
+        #expect(throws: (any Error).self) { try TextFile.write(Data("x".utf8), to: root.appendingPathComponent("loop1")) }
+        #expect(try manager.destinationOfSymbolicLink(atPath: root.appendingPathComponent("loop1").path) == "loop2")
+    }
 }

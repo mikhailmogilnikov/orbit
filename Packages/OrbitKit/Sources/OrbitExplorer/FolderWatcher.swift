@@ -8,8 +8,10 @@ import OrbitAPI
 final class FolderWatcher {
     private let workspace: Workspace
     private var stream: FSEventStreamRef?
-    private var root: String?
     private var realRoot: String?
+    /// The real root first, then folders outside it that symlinks bring in.
+    private var watched: [String] = []
+    private let linkedFolders: @MainActor () -> [URL]
     private var lastRefresh = Date.distantPast
     private var scheduled: DispatchWorkItem?
     private var activationObserver: NSObjectProtocol?
@@ -19,8 +21,10 @@ final class FolderWatcher {
     /// folder itself appearing or going is still seen.
     nonisolated static let skipped = ["/.git/", "/node_modules/", "/.build/"]
 
-    init(workspace: Workspace) {
+    /// `linkedFolders`: symlinked folders shown in the tree.
+    init(workspace: Workspace, linkedFolders: @escaping @MainActor () -> [URL] = { [] }) {
         self.workspace = workspace
+        self.linkedFolders = linkedFolders
         watch()
         observeRoot()
     }
@@ -32,6 +36,8 @@ final class FolderWatcher {
     private func observeRoot() {
         withObservationTracking {
             _ = workspace.root
+            _ = workspace.documents.open
+            _ = linkedFolders()
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -42,18 +48,15 @@ final class FolderWatcher {
     }
 
     private func watch() {
-        let path = workspace.isClosed ? nil : workspace.root?.standardizedFileURL.path
-        guard path != root else { return }
-        stop()
-        root = path
-        guard let path else { return }
+        let root = workspace.isClosed ? nil : workspace.root?.standardizedFileURL
         // FSEvents reports real paths and doesn't follow a symlinked folder.
-        // realpath, not `resolvingSymlinksInPath`: that one turns /private/var back into /var.
-        let real = realpath(path, nil).map { pointer in
-            defer { free(pointer) }
-            return String(cString: pointer)
-        } ?? path
+        let real = root.map { $0.realPath ?? $0.path }
+        let paths = real.map { [$0] + linkedPaths(outside: $0) } ?? []
+        guard paths != watched else { return }
+        stop()
         realRoot = real
+        watched = paths
+        guard !paths.isEmpty else { return }
         var context = FSEventStreamContext(
             version: 0, info: Unmanaged.passUnretained(self).toOpaque(),
             retain: nil, release: nil, copyDescription: nil
@@ -68,7 +71,7 @@ final class FolderWatcher {
         }
         let flags = kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes
         guard let stream = FSEventStreamCreate(
-            nil, callback, &context, [real] as CFArray,
+            nil, callback, &context, paths as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.3, FSEventStreamCreateFlags(flags)
         ) else { return }
         FSEventStreamSetDispatchQueue(stream, .main)
@@ -82,6 +85,7 @@ final class FolderWatcher {
     }
 
     private func stop() {
+        watched = []
         scheduled?.cancel()
         scheduled = nil
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
@@ -93,8 +97,18 @@ final class FolderWatcher {
         self.stream = nil
     }
 
+    /// Folders outside the project that symlinks bring in (open in the tree, or
+    /// holding an open file): FSEvents doesn't follow the links (D239).
+    private func linkedPaths(outside root: String) -> [String] {
+        let folders = linkedFolders() + workspace.documents.open.keys.map { $0.deletingLastPathComponent() }
+        let outside = Set(folders.compactMap(\.realPath).filter { $0 != root && !$0.hasPrefix(root + "/") })
+        return outside.filter { path in !outside.contains { path.hasPrefix($0 + "/") } }.sorted()
+    }
+
     private func handle(_ paths: [String]) {
-        guard let realRoot, paths.contains(where: { Self.matters($0, under: realRoot) }) else { return }
+        guard paths.contains(where: { path in
+            Self.matters(path, under: watched.first { path.hasPrefix($0 + "/") } ?? realRoot ?? "")
+        }) else { return }
         schedule()
     }
 

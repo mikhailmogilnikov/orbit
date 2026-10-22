@@ -67,7 +67,7 @@ public final class TextDocument: Identifiable {
     var onSave: ((URL) -> Void)?
 
     public func save() throws {
-        try TextFile.encode(text, as: format).write(to: url, options: .atomic)
+        try TextFile.write(TextFile.encode(text, as: format), to: url)
         onSave?(url)
         savedText = text
         savedFormat = format
@@ -148,43 +148,70 @@ public final class TextDocument: Identifiable {
 @MainActor
 @Observable
 public final class DocumentStore {
+    /// By the path each was opened under: a file opened through a symlink and
+    /// by its own path is one buffer under both (D239).
     public private(set) var open: [URL: TextDocument] = [:]
+    /// Each open document once.
+    public var documents: [TextDocument] {
+        var seen = Set<ObjectIdentifier>()
+        return open.values.filter { seen.insert(ObjectIdentifier($0)).inserted }
+    }
     /// A buffer was saved (settings files reload).
     var onSave: ((URL) -> Void)?
+    /// Real paths of the URLs asked about: lookups run on every redraw, and realpath
+    /// costs a few stats. Links rarely change; `syncWithDisk` starts over.
+    @ObservationIgnored private var realPaths: [URL: String] = [:]
 
     init() {}
 
     public func document(for url: URL) -> TextDocument {
         let url = url.standardizedFileURL
-        if let existing = open[url] { return existing }
+        if let existing = existingDocument(for: url) {
+            if open[url] == nil { open[url] = existing }
+            return existing
+        }
         let document = TextDocument(url: url)
         document.onSave = { [weak self] in self?.onSave?($0) }
         open[url] = document
         return document
     }
 
-    public func existingDocument(for url: URL) -> TextDocument? { open[url.standardizedFileURL] }
+    public func existingDocument(for url: URL) -> TextDocument? {
+        let url = url.standardizedFileURL
+        if let document = open[url] { return document }
+        guard !open.isEmpty else { return nil }
+        let real = realPath(of: url)
+        return open.first { realPath(of: $0.key) == real }?.value
+    }
+
+    private func realPath(of url: URL) -> String {
+        if let cached = realPaths[url] { return cached }
+        if realPaths.count > 4096 { realPaths.removeAll() }
+        let real = url.realPathOrPlanned
+        realPaths[url] = real
+        return real
+    }
 
     /// Buffer contents if open (including unsaved edits), otherwise disk.
     public func currentText(of url: URL) -> String? {
-        if let document = open[url.standardizedFileURL] { return document.text }
+        if let document = existingDocument(for: url) { return document.text }
         return try? TextFile.read(url).text
     }
 
     /// Writes through the open buffer when there is one so views stay in sync.
     public func write(_ text: String, to url: URL) throws {
         let url = url.standardizedFileURL
-        if let document = open[url] {
+        if let document = existingDocument(for: url) {
             try document.replaceAndSave(text)
         } else {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             // A file that's there keeps its encoding and line endings.
-            try TextFile.encode(text, as: TextFile.format(of: url) ?? .default).write(to: url, options: .atomic)
+            try TextFile.write(TextFile.encode(text, as: TextFile.format(of: url) ?? .default), to: url)
             onSave?(url)
         }
     }
 
-    public var dirtyDocuments: [TextDocument] { open.values.filter(\.isDirty) }
+    public var dirtyDocuments: [TextDocument] { documents.filter(\.isDirty) }
 
     /// Files moved on disk: their buffers open under the new paths, unsaved
     /// edits carried over (a document's URL is fixed, so it's a new one).
@@ -202,7 +229,8 @@ public final class DocumentStore {
     func closeAll() { open.removeAll() }
 
     public func syncWithDisk() {
-        for document in open.values { document.syncWithDisk() }
+        realPaths.removeAll()
+        for document in documents { document.syncWithDisk() }
     }
 }
 

@@ -143,6 +143,34 @@ import Testing
         #expect(sensitive.files.map(\.path) == ["a.swift"])
     }
 
+    @Test func listsSymlinkedFoldersOnceWithoutLooping() throws {
+        let manager = FileManager.default
+        let base = manager.temporaryDirectory.appendingPathComponent("orbit-links-\(UUID().uuidString)")
+        defer { try? manager.removeItem(at: base) }
+        let shared = try makeProject(["lib.swift": "x\n"])
+        defer { try? manager.removeItem(at: shared) }
+        let root = base.appendingPathComponent("project")
+        try manager.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
+        try "y\n".write(to: root.appendingPathComponent("src/main.swift"), atomically: true, encoding: .utf8)
+        try manager.createSymbolicLink(atPath: root.appendingPathComponent("shared").path, withDestinationPath: shared.path)
+        try manager.createSymbolicLink(atPath: shared.appendingPathComponent("back").path, withDestinationPath: shared.path)
+        try manager.createSymbolicLink(atPath: root.appendingPathComponent("src/self").path, withDestinationPath: "..")
+        try manager.createSymbolicLink(atPath: root.appendingPathComponent("up").path, withDestinationPath: base.path)
+        try manager.createSymbolicLink(atPath: root.appendingPathComponent("broken").path, withDestinationPath: "missing")
+        try manager.createSymbolicLink(atPath: root.appendingPathComponent("main.swift").path, withDestinationPath: "src/main.swift")
+
+        // Links into the project add nothing: their files are listed under their own paths.
+        #expect(FileLister.list(root: root) == ["shared/lib.swift", "src/main.swift"])
+        // Git lists each link as one entry; the linked folder's own .gitignore holds.
+        try "ignored.swift\n".write(to: shared.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+        try "z\n".write(to: shared.appendingPathComponent("ignored.swift"), atomically: true, encoding: .utf8)
+        for folder in [root, shared] {
+            let git = try Process.run(URL(fileURLWithPath: "/usr/bin/git"), arguments: ["-C", folder.path, "init", "-q"])
+            git.waitUntilExit()
+        }
+        #expect(FileLister.list(root: root) == ["shared/.gitignore", "shared/lib.swift", "src/main.swift"])
+    }
+
     @Test func wholeWordRegexAndOverrides() async throws {
         let root = try makeProject(["a.txt": "food foo\nx12 y3\n"])
         defer { try? FileManager.default.removeItem(at: root) }

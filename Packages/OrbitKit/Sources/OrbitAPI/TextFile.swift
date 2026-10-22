@@ -74,9 +74,20 @@ public enum TextFile {
     ]
 
     public static func read(_ url: URL) throws -> (text: String, format: TextFileFormat) {
-        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        // A symlink's own size is its target's path.
+        let size = (try? (url.symlinkTarget ?? url).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         if size > maxEditableSize { throw ReadError.tooLarge(size) }
         return try decode(Data(contentsOf: url))
+    }
+
+    /// Writes through a symlink: an atomic write would replace the link with a plain file.
+    public static func write(_ data: Data, to url: URL) throws {
+        let target = url.symlinkTarget ?? url
+        // Links pointing at each other end on a link: written over, it'd turn into a file.
+        if (try? FileManager.default.destinationOfSymbolicLink(atPath: target.path)) != nil {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path, NSUnderlyingErrorKey: POSIXError(.ELOOP)])
+        }
+        try data.write(to: target, options: .atomic)
     }
 
     /// The file's format, or nil when it doesn't exist or isn't text.

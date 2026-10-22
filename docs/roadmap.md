@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- Symlinks: folder links expand in the explorer and the path bar and are in Open Quickly and Find in Project (no loops), saves go through to the target, links get an arrow and a tooltip (D238); a file and a link to it share one buffer, linked folders are indexed by git (D239)
 - App shell: navigator / tabs / inspector / status bar, command palette, menus from commands, settings
 - Open-source basics (D206): GPL-3.0, README, contributing / security / conduct, issue forms, CI on macOS and Linux;
   dependencies' licenses in About Orbit (D207)
@@ -349,6 +350,9 @@ tried by hand are in [manual-checks.md](manual-checks.md).
 - The split editor has two sides, side by side. Tabs can't be dragged out of
   the window; dragging in the explorer moves one item.
 - Undoing a new file in the explorer drops its unsaved edits.
+- Changes inside a symlinked folder pointing outside the project are seen
+  only while it's loaded in the explorer or holds an open file (D239). A file
+  opened by two paths is one buffer, under the path it was first opened by.
 - Location history: moving a tab between sides records passing through the
   tab left behind; no mouse back / forward buttons. Open Quickly doesn't
   open preview tabs.
