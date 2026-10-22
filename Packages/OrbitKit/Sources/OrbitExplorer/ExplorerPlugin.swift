@@ -282,6 +282,15 @@ final class FileTreeModel {
         guard let selectedFolder, extraSelection.isEmpty, let folder = node(for: selectedFolder), folder.isDirectory else { return }
         toggle(folder)
     }
+
+    /// A double click on the selected file's row keeps its preview tab and goes to it (D94).
+    func selectedFileDoubleClicked() {
+        guard selectedFolder == nil, extraSelection.isEmpty, let url = selectedItem,
+              node(for: url)?.isDirectory == false else { return }
+        workspace.openFile(url)
+        workspace.pin(EditorTab.file(url).id)
+        workspace.focusEditor()
+    }
     /// The window's: ⌘Z in the explorer (or with nothing focused) undoes file
     /// operations, while the editor and fields keep their own.
     @ObservationIgnored weak var undoManager: UndoManager?
@@ -812,11 +821,6 @@ struct FileChildren: View {
                 FileLabel(url: child.url, kind: decorations?.status(of: child.url), isFolder: false, isIgnored: decorations?.isIgnored(child.url) ?? false, model: model)
                     .modifier(RowHighlight(url: child.url, model: model))
                     .tag(child.url)
-                    .simultaneousGesture(TapGesture(count: 2).onEnded {
-                        workspace.openFile(child.url)
-                        workspace.pin(EditorTab.file(child.url).id)
-                        workspace.focusEditor()
-                    })
                     .contextMenu { FileContextMenu(url: child.url, isFolder: false, model: model) }
                     .draggable(child.url) { DragPreview(url: child.url, isFolder: false, colorScheme: colorScheme) }
                     // A file row passes drops to its folder, as in Cursor.
@@ -903,6 +907,8 @@ struct NativeSelectionHider: NSViewRepresentable {
 /// Sees clicks on the row that's already selected, which the list keeps to
 /// itself (its selection doesn't change). A row's tap gesture only covers the
 /// label, so a click on the highlight's edge used to do nothing (D197).
+/// Double clicks on files too: a double-tap gesture on the row made macOS 26's
+/// list miss single clicks (D232).
 @MainActor
 final class ReclickMonitor {
     private weak var model: FileTreeModel?
@@ -941,7 +947,18 @@ final class ReclickMonitor {
         // Only clicks on the tree itself: the outline of a panel switched away
         // from can linger, and a click on the panel's button would land on its rows.
         let inTree = hit?.isDescendant(of: outline) == true && !outline.isHiddenOrHasHiddenAncestor
-        guard plain, !onControl, inTree, row >= 0, outline.selectedRowIndexes == IndexSet(integer: row) else {
+        guard plain, !onControl, inTree, row >= 0 else {
+            pressed = nil
+            return
+        }
+        if event.clickCount == 2 {
+            // Once the list has handled the click, the row is the selection.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, outline.selectedRowIndexes == IndexSet(integer: row) else { return }
+                model?.selectedFileDoubleClicked()
+            }
+        }
+        guard outline.selectedRowIndexes == IndexSet(integer: row) else {
             pressed = nil
             return
         }

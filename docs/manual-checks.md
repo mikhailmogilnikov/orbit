@@ -121,6 +121,8 @@ code actions, rename, formatting and its corner note, the agent registry
   selection (D111): ⌘- / ⇧-click with our own row highlight, the menu acting
   on all rows.
 - Explorer moves (D92), folder clicks (D96): a click on an already selected folder.
+- Explorer clicks on macOS 26 (D232): a single click on a file's name opens its
+  preview every time; a double click keeps the tab and moves the keys to the editor.
 - Stale explorer rows (D226): no copy of the selected file's row left over the tree
   after opening and closing folders a while; no blank rows after scrolling a long tree.
 - Explorer context menu (D95): ⌘X ⌘C ⌘V through the Edit menu, ⌃↩ / ⌥⌘R / ⌥⌘C,

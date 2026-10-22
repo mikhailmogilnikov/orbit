@@ -241,6 +241,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D229. Buttons, tabs, one-line rows and search fields are pills
 - D230. Copy sits once under the agent's whole reply
 - D231. The sidebar switcher is a segmented control with a glass thumb
+- D232. The explorer sees double clicks on files itself
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2154,6 +2155,8 @@ Quickly, go to definition, search, agent links, New File) opens kept tabs,
 and clicking a file that's already open just shows it. Dragging a tab to
 the other side keeps it. Not saved across launches: restored tabs are kept.
 `EditorGroup.previewTabID`, `Workspace.open(_:preview:)` and `pin(_:)`.
+
+Note: since D232 the explorer's double click comes from `ReclickMonitor`, not a tap gesture.
 
 ### D95. The explorer's context menu: Cursor's useful items
 
@@ -4100,6 +4103,8 @@ monitor, `ReclickMonitor`): a plain click that starts and ends on the row
 already selected alone toggles that folder, wherever in the row it lands.
 The disclosure triangle and the rename field are left alone; a drag isn't a click.
 
+Note: since D232 it also takes double clicks on files.
+
 ### D198. Problems also check the files that use what the agent changed
 
 D75 checked the files an agent changed; an importer it broke without
@@ -4869,3 +4874,16 @@ Only the switcher animates (`.animation(value:)` on it, not `withAnimation`
 around the selection): otherwise the panel swap rode the same transaction,
 and a large explorer or Source Control list cross-faded and relaid out on
 every frame of the slide, which stuttered.
+
+### D232. The explorer sees double clicks on files itself
+
+On macOS 26 a single click on a file in the explorer often didn't select
+it, so it didn't open (D94); only a double click did. The file rows had a
+SwiftUI double-tap gesture (`simultaneousGesture(TapGesture(count: 2))`)
+for keeping the preview tab, and the list there lets that gesture take
+clicks on the label from its own selection. Folders, which had no such
+gesture, were fine. The gesture is gone; `ReclickMonitor` (D197), which
+already sees every click on the outline before the list does, now also
+takes a plain double click on a row: once the list has selected it, a file
+there is opened in a kept tab and the editor gets the keys
+(`FileTreeModel.selectedFileDoubleClicked`).
