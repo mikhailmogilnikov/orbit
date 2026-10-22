@@ -402,9 +402,10 @@ private struct TranscriptRows: View {
     let session: AgentSession
 
     var body: some View {
+        let replies = TranscriptRow.replies(session.entries, isWorking: session.status == .working)
         ForEach(TranscriptRow.rows(session.entries)) { row in
             switch row {
-            case .entry(let entry): EntryView(entry: entry, session: session)
+            case .entry(let entry): EntryView(entry: entry, session: session, reply: replies[entry.id])
             case .group(let entries): ToolGroupView(entries: entries, reveal: session.reveal)
             }
         }
@@ -572,13 +573,14 @@ struct StatusFooter: View {
 struct EntryView: View {
     let entry: TranscriptEntry
     let session: AgentSession
+    var reply: [TranscriptEntry]?
 
     var body: some View {
         switch entry.kind {
         case .user:
             UserMessageView(entry: entry, session: session)
         case .agent:
-            AgentMessageView(entry: entry)
+            AgentMessageView(entry: entry, reply: reply)
         case .thought:
             ThoughtView(entry: entry)
         case .tool:
@@ -704,17 +706,23 @@ private struct TurnFileRow: View {
     }
 }
 
-/// The agent's reply, with Copy under it on hover (the Markdown source).
+/// An agent message. The last one of a finished turn has Copy under it on
+/// hover, for the whole reply's Markdown source (D230).
 struct AgentMessageView: View {
     let entry: TranscriptEntry
+    var reply: [TranscriptEntry]?
     @State private var isHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             MarkdownText(entry.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            MessageActions(isVisible: isHovering) {
-                CopyMessageButton(text: entry.text, help: "Copy the reply")
+            if let reply {
+                MessageActions(isVisible: isHovering) {
+                    CopyMessageButton(help: "Copy the reply") {
+                        reply.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n\n")
+                    }
+                }
             }
         }
         .onHover { hovering in
@@ -751,14 +759,14 @@ private struct MessageActionIcon: View {
 }
 
 private struct CopyMessageButton: View {
-    let text: String
     let help: String
+    let text: () -> String
     @State private var copied = false
 
     var body: some View {
         Button {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
+            NSPasteboard.general.setString(text(), forType: .string)
             copied = true
             Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
         } label: {
@@ -840,7 +848,7 @@ struct UserMessageView: View {
             MessageActions(isVisible: isHovering || isConfirming) {
                 let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
-                    CopyMessageButton(text: text, help: "Copy the message")
+                    CopyMessageButton(help: "Copy the message") { text }
                 }
                 if entry.checkpoint != nil {
                     let help = session.canRestore ? "Go back to before this message: chat and files" : "Wait for the agent to finish"

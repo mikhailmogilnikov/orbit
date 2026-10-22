@@ -85,6 +85,16 @@ import Testing
         guard case .entry = rows[3] else { Issue.record("a lone call is grouped"); return }
     }
 
+    @Test func copyGoesUnderEachFinishedReplyOnce() {
+        let ask = TranscriptEntry(kind: .user, text: "go")
+        let a1 = TranscriptEntry(kind: .agent, text: "looking"), a2 = TranscriptEntry(kind: .agent, text: "done")
+        let again = TranscriptEntry(kind: .user, text: "more"), b1 = TranscriptEntry(kind: .agent, text: "on it")
+        let entries = [ask, a1, tool("read"), a2, again, b1]
+        #expect(TranscriptRow.replies(entries, isWorking: true).mapValues { $0.map(\.id) } == [a2.id: [a1.id, a2.id]])
+        #expect(TranscriptRow.replies(entries, isWorking: false).keys.sorted { $0.uuidString < $1.uuidString }
+            == [a2.id, b1.id].sorted { $0.uuidString < $1.uuidString })
+    }
+
     @Test func callsAskingForPermissionStayOut() async throws {
         let asking = tool("edit", "pending")
         _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<JSONValue, Error>) in

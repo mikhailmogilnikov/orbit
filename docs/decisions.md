@@ -239,6 +239,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
 - D228. Publishing a release rebuilds the site on master, not on the release's tag
 - D229. Buttons, tabs, one-line rows and search fields are pills
+- D230. Copy sits once under the agent's whole reply
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4376,6 +4377,8 @@ chat apps: borderless gray icons (`MessageActions` in AgentViews.swift)
 that fade in on hover. The row keeps its height while hidden, so hovering
 moves nothing. The user's message also gets Copy.
 
+Note: since D230 the agent's Copy row is under the last message of a reply only.
+
 ### D210. Shortcut audit: review keys that stuck disabled, ⇧ on symbol keys
 
 Keep Change (⌥⌘↩) and Undo Change (⌥⌘⌫) didn't fire after an agent's
@@ -4838,3 +4841,13 @@ it, clear of the curve. Two things AppKit draws had to follow:
   the chevron took the capsule's own gray and vanished. The outline view gets
   the plain (non-vibrant) appearance of the color scheme; its chevrons blend
   over whatever is under them.
+
+### D230. Copy sits once under the agent's whole reply
+
+An agent's turn arrives as several messages between tool calls, and each
+had its own (hidden) Copy row from D209: a 20-pt gap under every short
+line, so the chat looked loosely spaced. Now only a finished turn's last
+message has the row, and its Copy takes the whole reply: every agent
+message since the user's, joined by blank lines (`TranscriptRow.replies`).
+The turn still running has none, so the row doesn't hop down as messages
+arrive.

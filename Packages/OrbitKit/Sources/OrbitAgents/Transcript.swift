@@ -332,6 +332,23 @@ enum TranscriptRow: Identifiable {
         return rows
     }
 
+    /// Each finished turn's agent messages, keyed by the last one: Copy sits
+    /// under it alone and takes the whole reply (D230). Only ids and kinds are
+    /// read, so streamed text doesn't rebuild the list.
+    static func replies(_ entries: [TranscriptEntry], isWorking: Bool) -> [UUID: [TranscriptEntry]] {
+        var replies: [UUID: [TranscriptEntry]] = [:]
+        var turn: [TranscriptEntry] = []
+        func flush() {
+            if let last = turn.last { replies[last.id] = turn }
+            turn = []
+        }
+        for entry in entries {
+            if entry.kind == .user { flush() } else if entry.kind == .agent { turn.append(entry) }
+        }
+        if !isWorking { flush() }
+        return replies
+    }
+
     /// "Read 3 files, ran 2 commands", kinds in the order they came.
     static func summary(_ entries: [TranscriptEntry]) -> String {
         var order: [String] = []

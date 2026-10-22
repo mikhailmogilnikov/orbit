@@ -225,6 +225,8 @@ code actions, rename, formatting and its corner note, the agent registry
   problems, terminal tabs in the header, badge colors.
 - Issue navigator (D172): References.
 - Quieter details (D174): a code block with a language, the hover Copy.
+- Agent replies (D230): spacing between a turn's messages, one Copy under the
+  finished reply copying all of it.
 - Menu bar layout (D176): dividers and submenus on screen.
 - Sheets (D162): delete, discard, unsaved changes and install-failure alerts.
 - Palette (D161): the theme selector's rows, plugins' picks with long titles.
