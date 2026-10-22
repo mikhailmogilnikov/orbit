@@ -1185,8 +1185,8 @@ private struct BottomPanelTab: View {
             .foregroundStyle(isSelected ? .primary : .secondary)
             .padding(.horizontal, 8)
             .frame(height: 22)
-            .background(isSelected ? Theme.activeFill : isHovered ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
-            .contentShape(.rect)
+            .background(isSelected ? Theme.activeFill : isHovered ? Theme.hoverFill : .clear, in: .capsule)
+            .contentShape(.capsule)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }

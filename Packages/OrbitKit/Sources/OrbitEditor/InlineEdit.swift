@@ -242,7 +242,7 @@ extension CodeEditor.Coordinator {
         popover.contentViewController = NSHostingController(rootView: InlineEditPrompt(model: model) { [weak popover] in
             model.cancel()
             popover?.close()
-        }.tint(Theme.controlTint))
+        }.tint(Theme.controlTint).pillControls())
         model.onDone = { [weak self, weak popover] in
             popover?.close()
             self?.reveal(line: target.lines.lowerBound)

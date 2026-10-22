@@ -429,6 +429,7 @@ struct RenameField: View {
             }
         }
         .padding(10)
+        .pillControls()
         .onAppear { focused = true }
     }
 }

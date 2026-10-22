@@ -1,4 +1,5 @@
 import AppKit
+import OrbitUI
 import SwiftUI
 
 /// The hover card as VS Code shows it: no arrow, above the line, its left
@@ -28,7 +29,7 @@ final class HoverPanel: FloatingPanel {
         // Measured at the max width: text wraps there, short content stays narrow.
         let fitting = NSHostingController(rootView: card).sizeThatFits(in: NSSize(width: Self.maxWidth, height: 10_000))
         let size = NSSize(width: min(ceil(fitting.width), Self.maxWidth), height: min(ceil(fitting.height), Self.maxHeight))
-        host.rootView = fitting.height > Self.maxHeight ? AnyView(ScrollView { card }) : AnyView(card)
+        host.rootView = fitting.height > Self.maxHeight ? AnyView(ScrollView { card }.pillControls()) : AnyView(card.pillControls())
         host.frame = NSRect(origin: .zero, size: size)
         let gap: CGFloat = 4
         var origin = NSPoint(x: word.minX - 8, y: word.maxY + gap)

@@ -488,7 +488,7 @@ private struct TerminalTab: View {
         .padding(.leading, 8)
         .padding(.trailing, 4)
         .frame(height: 22)
-        .background(isSelected ? Theme.activeFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+        .background(isSelected ? Theme.activeFill : .clear, in: .capsule)
         .foregroundStyle(isSelected ? .primary : .secondary)
         .contentShape(.rect)
         .onTapGesture(perform: select)

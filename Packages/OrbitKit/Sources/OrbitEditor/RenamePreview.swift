@@ -49,6 +49,7 @@ struct RenamePreviewSheet: View {
         }
         .padding(20)
         .frame(width: 640)
+        .pillControls()
         .environment(\.syntaxHighlighter, highlighter)
         .onAppear {
             // One file: its changes are what there is to look at.

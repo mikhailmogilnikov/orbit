@@ -339,7 +339,7 @@ final class InlineDiffController {
                 draft.outcome = outcome
                 popover?.close()
             }
-        ).tint(Theme.controlTint))
+        ).tint(Theme.controlTint).pillControls())
         // Clicking away keeps what was written, like Xcode's notes; Cancel and Esc don't.
         let key = ObjectIdentifier(popover)
         let delegate = CommentPopoverDelegate { [weak self] in

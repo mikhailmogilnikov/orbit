@@ -56,6 +56,7 @@ struct ProjectWindowView: View {
             .orbitTextSize(Preferences.shared.interfaceTextSize)
             .frame(minWidth: 960, minHeight: 600)
             .tint(Theme.controlTint)
+            .pillControls()
             .background(ProjectWindowReader(id: id))
             .onAppear { ProjectWindows.shared.windowAppeared(openWindow: openWindow) }
             .onChange(of: host.workspace.root, initial: true) { _, root in

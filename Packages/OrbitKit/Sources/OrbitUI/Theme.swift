@@ -74,7 +74,7 @@ private struct OrbitFontModifier: ViewModifier {
 public enum Theme {
     // Corner radii, smallest to largest (D157). A shape inside another
     // takes a smaller step, so the curves stay roughly concentric.
-    /// Key caps, inline buttons, thumbnails, the rename field.
+    /// Key caps, thumbnails, the rename field. Buttons are pills (D229).
     public static let tinyCorner: CGFloat = 4
     /// Rows, tabs, toggles, fields, code blocks, the editor's bars.
     public static let smallCorner: CGFloat = 6
@@ -217,6 +217,13 @@ extension View {
 
     public func nativeSurface(_ style: some ShapeStyle) -> some View {
         modifier(NativeSurface(style: AnyShapeStyle(style)))
+    }
+
+    /// Buttons, menu buttons and toggle buttons are pills (D229). macOS 26
+    /// makes only large ones capsules; the rest stayed rounded rectangles.
+    /// Set on every SwiftUI root: the window, and AppKit-hosted views.
+    public func pillControls() -> some View {
+        buttonBorderShape(.capsule)
     }
 }
 

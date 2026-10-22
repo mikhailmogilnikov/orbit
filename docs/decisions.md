@@ -238,6 +238,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D226. Stale explorer rows are hidden after a folder opens or closes
 - D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
 - D228. Publishing a release rebuilds the site on master, not on the release's tag
+- D229. Buttons and button-like controls are pills
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3389,6 +3390,9 @@ badges; `DisclosureChevron` is the one rotating "›" (8 pt bold) and other
 small symbols use `TypeScale.glyph`. Chat bubbles and editor banners keep their own
 tints: they aren't states.
 
+(Buttons, toggle buttons and the bottom panel's tabs became capsules in D229;
+the radii above are for rows, fields, cards and panels.)
+
 ### D158. Settings laid out like System Settings: groups, tiles, header cards, pages
 
 Settings had eight panes in one flat list with grey icons; Agents and
@@ -4792,3 +4796,18 @@ nor 0.2.0 reached `/changelog` until the next push. The trigger is gone;
 `gh workflow run site.yml --ref master` after the notes are edited on
 GitHub. Allowing tags in the environment's rules would have worked too,
 but it's a repository setting nothing in the repo shows.
+
+### D229. Buttons and button-like controls are pills
+
+macOS 26 draws only large buttons as capsules; small and regular ones stayed
+rounded rectangles, next to our capsule badges, hunk actions and glass
+panels. Now every button is a pill: `.pillControls()` (OrbitUI, it sets
+`.buttonBorderShape(.capsule)`) on the window's root reaches every glass,
+bordered and menu button in it, sheets and SwiftUI popovers included. Views
+AppKit hosts on their own (`NSHostingView` / `NSHostingController`: the
+editor's popovers, the rename sheet, hover cards) don't inherit the window's
+environment and set it themselves. Hand-drawn ones follow: the option
+toggles of Find in File and Find in Project, the bottom panel's and the
+terminal's tabs. Rows, fields, key caps, cards and panels keep their
+rounded rectangles (D157): they aren't buttons, and a capsule row in a list
+reads as a chip. Circle buttons (`.buttonBorderShape(.circle)`) stay circles.

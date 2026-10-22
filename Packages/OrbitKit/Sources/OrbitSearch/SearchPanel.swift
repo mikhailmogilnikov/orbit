@@ -458,8 +458,8 @@ private struct OptionToggle: View {
             }
             .foregroundStyle(isOn || isActive ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             .frame(width: 22, height: 20)
-            .background(isOn ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
-            .contentShape(.rect)
+            .background(isOn ? Theme.selectedFill : .clear, in: .capsule)
+            .contentShape(.capsule)
         }
         .buttonStyle(.plain)
         .help(help)
