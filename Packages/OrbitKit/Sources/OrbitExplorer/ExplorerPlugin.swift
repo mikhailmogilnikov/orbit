@@ -992,10 +992,21 @@ final class ReclickMonitor {
             return
         }
         pressed = (row, event.locationInWindow)
-        // The list may track the mouse in a loop of its own and keep the
-        // mouse-up from monitors; by the time this runs that loop is over.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, NSEvent.pressedMouseButtons & 1 == 0, let window = outline.window else { return }
+        finishOnRelease()
+    }
+
+    /// The list may track the mouse in a loop of its own and keep the mouse-up
+    /// from monitors. On macOS 27 that loop is over by the next pass of the run
+    /// loop; on macOS 26 it may not have started yet, the button is still down,
+    /// and checking once lost the click: only the disclosure triangle toggled.
+    private func finishOnRelease(after delay: TimeInterval = 0, triesLeft: Int = 60) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            // Gone once a mouse-up reached the monitor and finished it.
+            guard let self, pressed != nil, let window = outline?.window else { return }
+            guard NSEvent.pressedMouseButtons & 1 == 0 else {
+                if triesLeft > 0 { finishOnRelease(after: 0.03, triesLeft: triesLeft - 1) } else { pressed = nil }
+                return
+            }
             finish(at: window.convertPoint(fromScreen: NSEvent.mouseLocation))
         }
     }

@@ -855,11 +855,16 @@ struct LanguageInstallBanner: View {
             if offer.isInstalling {
                 Text("Installing \(offer.name) support…")
                     .orbitFont(.body, weight: .medium)
+                    // One line in a narrow editor (it broke words over five); the details give way first.
+                    .lineLimit(1)
+                    .layoutPriority(1)
                 ProgressView().controlSize(.small)
                 Spacer()
             } else if let failure = offer.failure {
                 Text("Couldn't install \(offer.name) support")
                     .orbitFont(.body, weight: .medium)
+                    .lineLimit(1)
+                    .layoutPriority(1)
                 Text(failure)
                     .orbitFont(.body)
                     .foregroundStyle(.secondary)
@@ -869,11 +874,15 @@ struct LanguageInstallBanner: View {
                 Spacer()
                 Button("Not Now", action: decline)
                     .buttonStyle(.glass)
+                    .fixedSize()
                 Button("Try Again", action: install)
                     .buttonStyle(.glassProminent)
+                    .fixedSize()
             } else {
                 Text("\(offer.name) support isn't installed")
                     .orbitFont(.body, weight: .medium)
+                    .lineLimit(1)
+                    .layoutPriority(1)
                 Text(details)
                     .orbitFont(.body)
                     .foregroundStyle(.secondary)
@@ -881,9 +890,11 @@ struct LanguageInstallBanner: View {
                 Spacer()
                 Button("Not Now", action: decline)
                     .buttonStyle(.glass)
+                    .fixedSize()
                     .help("Don't offer this again; Settings → Languages still installs it")
                 Button("Install", action: install)
                     .buttonStyle(.glassProminent)
+                    .fixedSize()
             }
         }
         .controlSize(.small)

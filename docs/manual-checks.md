@@ -201,6 +201,20 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Shell, settings and looks
 
+- Full-height sidebars on macOS 26 (D233, D240), checked in a VM: windowed,
+  full screen, Settings and back, hiding the sidebar, .txt/.json/.py files,
+  the traffic lights inside the glass, the inspector's edges in full screen.
+  Still to check: a window restored in full screen at launch, a second
+  window, dragging the sidebar's width, the revealed traffic lights in full
+  screen, and on macOS 27 that the traffic lights and panels look as before.
+- Full-screen title strip (D241): filled on an external display with macOS
+  27, clear and not over the tab row on a MacBook's notched display (checked
+  on macOS 26 without a notch); the composer on macOS 26 in light mode.
+- macOS 26 fixes from the VM (D235) on macOS 27: the editor's scrollers with a
+  mouse and with a trackpad, a long line still scrolls sideways, Settings'
+  "Back to Project" bar, full-screen Settings, narrow-window banner and tabs;
+  without a color theme the editor column, bottom panel and status bar look as
+  before (one text-background color, light and dark).
 - Settings (D158): a narrow window, VoiceOver, sidebar selection while the window is key.
 - Settings search (D177): sidebar results, scroll to the row, the highlight.
 - Settings → Terminal and Files (D178): shell, cursor, Option as Meta, scrollback

@@ -36,7 +36,7 @@ struct GitDiffView: View {
                 }
             }
         }
-        .nativeSurface(.background)
+        .nativeSurface(Theme.editorSurface)
         .task(id: file) { await load(file) }
         // Syntax colors are baked into the highlighting: redo it for another theme.
         .onChange(of: Extensions.shared.themeKey) { Task { await load(file) } }

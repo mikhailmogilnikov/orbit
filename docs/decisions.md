@@ -242,11 +242,15 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D230. Copy sits once under the agent's whole reply
 - D231. The sidebar switcher is a segmented control with a glass thumb
 - D232. The explorer sees double clicks on files itself
+- D233. The sidebars run full height on macOS 26
 - D234. A long composer draft scrolls with the wheel and trackpad
+- D235. Checking the UI on macOS 26 in a VM, and what it turned up
 - D236. The caret's line stays green on an agent's added lines
 - D237. The editor scrolls past the last line
 - D238. Symlinks open like what they point to
 - D239. A file and a link to it are one buffer; the index lists linked folders by git
+- D240. Traffic lights and panels sit evenly in macOS 26's floating glass
+- D241. The full-screen title strip is filled; macOS 26's composer gets a fill
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4113,6 +4117,11 @@ already selected alone toggles that folder, wherever in the row it lands.
 The disclosure triangle and the rename field are left alone; a drag isn't a click.
 
 Note: since D232 it also takes double clicks on files.
+Note: on macOS 26 the list kept the mouse-up from the monitor and hadn't
+finished tracking by the next run loop pass, so the single check for a
+released button found it still down and the click was lost: only the
+disclosure triangle toggled a selected folder. The monitor now checks again
+every 30 ms (up to ~2 s) until the button is up.
 
 ### D198. Problems also check the files that use what the agent changed
 
@@ -4905,6 +4914,30 @@ takes a plain double click on a row: once the list has selected it, a file
 there is opened in a kept tab and the editor gets the keys
 (`FileTreeModel.selectedFileDoubleClicked`).
 
+### D233. The sidebars run full height on macOS 26
+
+On macOS 26 the floating glass sidebar (and in full screen the inspector)
+started below the title bar, an empty strip over them: when the window has
+no toolbar (D42) AppKit pins the glass's top to the split view item's wrapper
+32 pt down (`wrapper.top == glass.top - 32`), windowed and in full screen.
+macOS 27 runs them full height. `allowsFullHeightLayout` (already true) and a
+negative top safe area changed nothing (seen in a macOS 26 VM, D235).
+
+A toolbar makes macOS 26 run the sidebar full height, and an empty one was
+tried first (an `NSToolbar` on the window, then a SwiftUI `.toolbar` item):
+with either, opening a file without a working grammar or language server
+(.txt, .json, .py, no extension) sent the window into an update-constraints
+loop, a pass every frame, and AppKit crashed after ~240.
+
+`SidebarGlassRaiser` (macOS 26 only) sets that top constraint to the glass's
+bottom inset instead, as macOS 27 lays it out: after split view resizes, full
+screen changes and window resizes, deferred, and only on a real change. The
+insets are read off AppKit's constraints, not the frame (mid-layout the frame
+can still fill the column). See D240 for the inspector in full screen. The
+glass's content keeps its safe area, so the panel switcher stays under the
+traffic lights. It leans on AppKit's private layout (a wrapper view and its
+constraint), which is why it's limited to macOS 26, an OS that no longer changes.
+
 ### D234. A long composer draft scrolls with the wheel and trackpad
 
 The composer's `TextField` stops growing at ten lines; past that its field
@@ -4917,6 +4950,40 @@ pointer is over it and the draft overflows. Chosen over swapping the field
 for an `NSTextView`, which would lose the field's selection binding, key
 handlers and undo (D219). An unfocused composer still doesn't scroll: it
 has no field editor until clicked.
+
+### D235. Checking the UI on macOS 26 in a VM, and what it turned up
+
+The app is built and looked at on macOS 27; macOS 26 is the minimum (D1).
+A macOS 26 VM (Tart, `macos-tahoe-vanilla`) gets Debug builds over SSH, and
+`DebugRemote` (Debug builds only, off unless `orbit.debugRemote` is set)
+drives them from a file in /tmp: commands, clicks, keys, the window's size,
+the display mode, and screenshots of the app's own windows (no screen
+recording permission needed, glass included). Fixed from it:
+- the empty strip over the sidebars, windowed and in full screen (D233);
+  a toolbar fixed it first but crashed AppKit;
+- Settings' "Back to Project" is a `safeAreaBar` over a hard scroll edge:
+  macOS 26's clearer glass showed the next row's tile through it as a smear;
+- in full screen Settings respect the top safe area: the toolbar's own
+  window covered their back/forward buttons and title;
+- with a mouse (always-shown scrollers) a file that fits no longer has an
+  empty horizontal track: `EditorScrollView.tile` decides it after taking
+  the ruler's width off, and the editor's scrollers autohide;
+- a narrow editor: the language-install banner keeps its title on one line
+  (it broke words over five), bottom panel tabs drop to icons, and the
+  active editor or chat tab stays in view when the row narrows;
+- the agents overview popover is leading-aligned (it centered its text);
+- the welcome window's focus ring follows its rounded rows (keyboard
+  navigation on);
+- without a color theme the editor column was two greys: macOS 26 tints the
+  `.background` and `.bar` styles with the wallpaper, while the text, gutter,
+  path bar and terminal draw the untinted text background. The column's
+  `nativeSurface` fills (editor area, bottom panel, status bar, diff and
+  browser tabs) are now `Theme.editorSurface`, that same text background;
+  on macOS 27 the two were already the same color.
+Seen but not about macOS 26: on a Mac without the Command Line Tools there
+is no git (Source Control says the folder isn't under version control) and
+no grammar compiles, so no highlighting, and macOS asks to install the tools
+again and again.
 
 ### D236. The caret's line stays green on an agent's added lines
 
@@ -4942,6 +5009,11 @@ grow it; the room changes with the window. A click or drag under the text is
 moved up onto the last line before STTextView sees it. A bottom content inset
 on the clip view would also give the room, but AppKit's tiling resets the
 clip view's insets and a scroll view inset shortens the scroller.
+
+Note: macOS 26 only, it isn't there: opening any file crashed AppKit in an
+update-constraints loop with the extra room (seen in the macOS 26 VM, D235,
+with every other change taken out). The frame override steps aside there
+until the loop is understood.
 
 ### D238. Symlinks open like what they point to
 
@@ -4990,4 +5062,44 @@ a large repository, where most entries aren't links.
 symlinked folders loaded in the explorer and of open files, so changes there
 reach the tree and the buffers. Links in a loop end on a link
 (`symlinkTarget`), and `TextFile.write` refuses to write over one.
+
+### D240. Traffic lights and panels sit evenly in macOS 26's floating glass
+
+With the sidebar's glass running to the top (D233), macOS 26 showed what
+macOS 27 doesn't have: its sidebar floats 8 pt in from the window's edges,
+while 27's sits against them. Checked in the VM against a reference copy on
+macOS 27:
+- the traffic lights stayed where AppKit puts them for an edge-to-edge
+  sidebar, 1 pt from the glass's left side and 6 pt below its top. On macOS
+  26 `TrafficLightsKeeper` moves them 9 pt right as well as the usual 5 pt
+  down: their left edge in line with the panel switcher's below, still
+  centered on the tab row; the row's room for them grows by as much when the
+  sidebar is hidden;
+- in full screen the panel switcher sat 3–4 pt below the glass's top and
+  10 pt in from its sides: 8 pt more room above it there;
+- in full screen the inspector's glass, flush with the screen, showed a
+  rounded corner and a bright rim at the screen's top (its
+  `cornerRadius` is managed by its container and ignores a write). It runs
+  30 pt past the screen's top and bottom instead, and `InspectorHost` pads
+  its content by as much, so the corners are off screen and the header and
+  composer stay put.
+
+### D241. The full-screen title strip is filled; macOS 26's composer gets a fill
+
+In full screen the traffic lights come down with the menu bar in a strip of
+their own (AppKit's toolbar window). D42 left it clear, and the sidebar's
+panel switcher showed through under the buttons. `TrafficLightsKeeper` now
+fills it with the window's background — except on a screen with a camera
+notch: there the strip doesn't slide off screen but stays under the notch,
+over the tab row, and filled it would be D42's plate again (seen on a
+MacBook with macOS 27: the strip at the window's top 32 pt at rest). Without
+a notch (a VM, an external display) it rests above the screen and only
+shows sliding down. The fill alone wasn't enough: each column's title bar
+background (a blur) and, on macOS 26, a piece of the sidebar's glass blend
+with the window under the strip, so the sidebar still showed through; there
+they're hidden too.
+
+The chat composer is glass (`.glassEffect`) over the inspector's own glass.
+macOS 26's glass is clearer and the composer all but vanished into the panel;
+there it gets `Theme.activeFill` under the glass. macOS 27 is unchanged.
 

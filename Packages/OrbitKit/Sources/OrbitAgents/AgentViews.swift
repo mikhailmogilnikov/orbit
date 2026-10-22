@@ -71,7 +71,7 @@ struct SessionTabs: View {
                         }
                     }
                     .modifier(TabRowFade())
-                    .scrollsToActiveTab(store.selectedID, in: proxy)
+                    .scrollsToActiveTab(store.selectedID, in: proxy, width: width)
                 }
             }
             Menu {
@@ -1435,6 +1435,11 @@ struct PermissionBar: View {
 struct Composer: View {
     @Bindable var session: AgentSession
     let store: AgentStore
+    /// macOS 26's glass is clearer: over the inspector's own glass the
+    /// composer all but vanished into the panel (D241).
+    private static var glassFill: Color {
+        if #unavailable(macOS 27) { Theme.activeFill } else { .clear }
+    }
     private var focusRequest: Int { store.focusRequest }
     private var fileIndex: ProjectFileIndex? { store.fileIndex }
     @FocusState private var isFocused: Bool
@@ -1585,6 +1590,7 @@ struct Composer: View {
         .padding(.horizontal, 12)
         .padding(.top, 12)
         .padding(.bottom, 7)
+        .background(Self.glassFill, in: .rect(cornerRadius: Theme.panelCorner))
         .glassEffect(.regular, in: .rect(cornerRadius: Theme.panelCorner))
         .overlay {
             if isDropTargeted {

@@ -9,6 +9,7 @@ struct SettingsScreen: View {
     let host: PluginHost
     @State private var query = ""
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var isFullScreen = false
     @State private var navigator = SettingsNavigator()
     /// The search result picked in the sidebar ("pane/item"), while it's the pane showing.
     @State private var pickedResult: String?
@@ -147,9 +148,12 @@ struct SettingsScreen: View {
                 )
             }
             .environment(navigator)
-            .ignoresSafeArea(.container, edges: .top)
+            // In full screen the toolbar is a window of its own over the top
+            // 32 pt: under it went the back and forward buttons and the title.
+            .ignoresSafeArea(.container, edges: isFullScreen ? [] : .top)
             .background(.background)
         }
+        .background(FullScreenObserver(isFullScreen: $isFullScreen))
         .searchable(text: $query, placement: .sidebar, prompt: "Search")
         // Return opens the best match, as in System Settings.
         .onSubmit(of: .search) {
@@ -216,6 +220,7 @@ struct SettingsScreen: View {
         }
         // Room above the first row: flush with the search field, its selection lost its top corners.
         .contentMargins(.top, 6, for: .scrollContent)
+        .scrollEdgeEffectStyle(.hard, for: .bottom)
         .overlay {
             if isSearching && results.isEmpty {
                 ContentUnavailableView.search(text: query)
@@ -224,7 +229,9 @@ struct SettingsScreen: View {
         .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
         // At the bottom of the sidebar, not in the top row: the hidden
         // title bar's area over the detail column hid the Done button there.
-        .safeAreaInset(edge: .bottom) {
+        // A bar, not an inset: the list fades out under it. Over plain content
+        // macOS 26's clearer glass showed the next row's tile as a colored smear.
+        .safeAreaBar(edge: .bottom) {
             Button {
                 ui.isSettingsVisible = false
             } label: {

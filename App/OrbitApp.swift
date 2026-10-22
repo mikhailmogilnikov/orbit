@@ -10,6 +10,9 @@ struct OrbitApp: App {
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
         Self.forgetMinimumWindowFrames()
         _ = Updater.shared
+        #if DEBUG
+        DebugRemote.shared.start()
+        #endif
     }
 
     /// Windows of D101's first builds saved their minimum size (no default

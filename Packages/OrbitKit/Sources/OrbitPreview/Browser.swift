@@ -234,7 +234,7 @@ struct BrowserView: View {
                         Button("Try Again") { page.reload() }
                             .buttonStyle(.glass)
                     }
-                    .nativeSurface(.background)
+                    .nativeSurface(Theme.editorSurface)
                 }
             }
         }

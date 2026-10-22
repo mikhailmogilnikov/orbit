@@ -216,5 +216,6 @@ examples/extensions/      sample extensions (theme, icon theme)
   inline diffs without spending agent requests.
 - Background clicks into the STTextView itself don't work (AX); typing into
   the editor can't be automated in background mode.
+- macOS 26 (the minimum) is checked in a VM driven through `DebugRemote` (D235).
 - Crash reports: `~/Library/Logs/DiagnosticReports/Orbit-*.ips`
   (look at `lastExceptionBacktrace` for ObjC exceptions).

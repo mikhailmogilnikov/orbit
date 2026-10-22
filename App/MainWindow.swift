@@ -222,6 +222,7 @@ struct MainWindow: View {
         // empty, the toolbar kept an opaque grey title plate in full screen.
 //EXP         .toolbarVisibility(.hidden, for: .windowToolbar)
         .background(TrafficLightsKeeper())
+        .background(SidebarGlassRaiser())
         .background(FullScreenCompositingGuard())
     }
 }
@@ -233,6 +234,13 @@ struct SidebarHost: View {
     let panels: [PanelContribution]
     @Binding var selection: String?
     @Namespace private var thumb
+    @State private var isFullScreen = false
+
+    /// In full screen macOS 26 gives the switcher no room above it in the
+    /// sidebar's glass (D240): as much as at its sides.
+    private var switcherTop: CGFloat {
+        if #unavailable(macOS 27), isFullScreen { 8 } else { 0 }
+    }
 
     var body: some View {
         let current = panels.first { $0.id == selection } ?? panels.first
@@ -254,6 +262,7 @@ struct SidebarHost: View {
                 .padding(2)
                 .background(Theme.subtleFill, in: .capsule)
                 .padding(.horizontal, 10)
+                .padding(.top, switcherTop)
                 .padding(.bottom, 8)
             }
             if let current {
@@ -265,6 +274,7 @@ struct SidebarHost: View {
         }
         // See InspectorHost: split-view columns must not report fluctuating min sizes.
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        .background(FullScreenObserver(isFullScreen: $isFullScreen))
     }
 }
 
@@ -315,6 +325,13 @@ struct InspectorHost: View {
     let panels: [PanelContribution]
     @Binding var selection: String?
     @Environment(TabDrag.self) private var drag
+    @State private var isFullScreen = false
+
+    /// What of the glass runs past the screen's edges in full screen on macOS 26
+    /// (`SidebarGlassRaiser`): the content stays clear of it.
+    private var overhang: CGFloat {
+        if #unavailable(macOS 27), isFullScreen { SidebarGlassRaiser.RaiserView.fullScreenOverhang } else { 0 }
+    }
 
     var body: some View {
         let current = panels.first { $0.id == selection } ?? panels.first
@@ -340,12 +357,14 @@ struct InspectorHost: View {
                 EmptyStateView("No Panels", systemImage: "puzzlepiece.extension")
             }
         }
+        .padding(.vertical, overhang)
         // Up into the hidden title bar like the editor area: a panel's own tab
         // row lines up with the editor tabs.
         .ignoresSafeArea(.container, edges: .top)
         // Plugin content must never push size constraints back into the split
         // view: fluctuating min sizes there send AppKit into a layout loop.
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        .background(FullScreenObserver(isFullScreen: $isFullScreen))
     }
 }
 
@@ -410,7 +429,7 @@ struct EditorArea: View {
         // counted on top of the padding and everything jumped twice as far,
         // then back. Ignored here, the padding alone clears the sidebar.
         .ignoresSafeArea(.container, edges: .leading)
-        .nativeSurface(.background)
+        .nativeSurface(Theme.editorSurface)
         .background(SidebarInsetCanceller(inset: sidebarInset))
     }
 }
@@ -527,7 +546,7 @@ struct BottomPanelHost: View {
             }
         }
         .frame(height: height)
-        .nativeSurface(.background)
+        .nativeSurface(Theme.editorSurface)
         // Same rule as the split-view columns: no min sizes leaking upwards.
         .frame(minWidth: 0, minHeight: 0)
     }
@@ -559,9 +578,10 @@ struct WindowTopBar: View {
     @State private var tabsMinX: CGFloat = 0
     @State private var isFullScreen = false
 
-    /// The traffic lights take the window's first 76 pt (not in full screen):
-    /// the row clears what of them the sidebar doesn't cover.
-    private static let windowedInset: CGFloat = 76
+    /// The traffic lights take the window's first 76 pt, more where the keeper
+    /// moves them right (not in full screen): the row clears what of them the
+    /// sidebar doesn't cover.
+    private static var windowedInset: CGFloat { 76 + TrafficLightsKeeper.KeeperView.trafficLightsOffset.width }
     private static let fullScreenInset: CGFloat = 6
 
     var body: some View {
@@ -710,6 +730,104 @@ private struct SidebarInsetCanceller: NSViewRepresentable {
     }
 }
 
+/// macOS 26 starts the floating sidebars' glass below the title bar when the
+/// window has no toolbar (D42), windowed and in full screen: an empty strip over
+/// them; macOS 27 runs them full height. A toolbar fixes it but crashed AppKit
+/// in an update-constraints loop (D233), so the glass's own top constraint is set
+/// to its bottom inset instead, as macOS 27 has it. The content keeps its safe
+/// area: the panel switcher stays under the traffic lights.
+private struct SidebarGlassRaiser: NSViewRepresentable {
+    func makeNSView(context: Context) -> RaiserView { RaiserView() }
+    func updateNSView(_ view: RaiserView, context: Context) {}
+
+    final class RaiserView: NSView {
+        private var observers: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard #unavailable(macOS 27), let window else { return }
+            // AppKit sets the constraint up again when the title bar changes.
+            let windowNotes: [Notification.Name] = [
+                NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification, NSWindow.didResizeNotification,
+            ]
+            observers = windowNotes.map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.raiseLater() }
+                }
+            }
+            // Any window's split views: cheap, and only this window's glass is touched.
+            observers.append(NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.raiseLater() }
+            })
+            raiseLater()
+        }
+
+        // Not in the middle of a layout pass (D41).
+        private func raiseLater() {
+            DispatchQueue.main.async { [weak self] in self?.raise() }
+        }
+
+        private func raise() {
+            guard let root = window?.contentView else { return }
+            var stack = [root]
+            while let view = stack.popLast() {
+                if view is NSGlassEffectView, let wrapper = view.superview, String(describing: type(of: wrapper)).contains("SplitViewItem") {
+                    raise(view, in: wrapper)
+                    continue
+                }
+                stack.append(contentsOf: view.subviews)
+            }
+        }
+
+        /// How far the inspector's glass runs past the screen's top and bottom
+        /// in full screen: further than its corners' radius (`InspectorHost`
+        /// pads its content by as much).
+        static let fullScreenOverhang: CGFloat = 30
+
+        private func raise(_ glass: NSView, in wrapper: NSView) {
+            // The column's own glass, not a small piece of it (a title bar strip).
+            guard glass.frame.height > wrapper.bounds.height / 2 else { return }
+            // Read off AppKit's constraints, not the frame: mid-layout the frame
+            // can still fill the column.
+            func pinned(_ attribute: NSLayoutConstraint.Attribute) -> NSLayoutConstraint? {
+                wrapper.constraints.first {
+                    $0.firstAttribute == attribute && $0.secondAttribute == attribute
+                        && ($0.firstItem === wrapper && $0.secondItem === glass || $0.firstItem === glass && $0.secondItem === wrapper)
+                }
+            }
+            guard let top = pinned(.top), let bottom = pinned(.bottom) else { return }
+            // An inset as the constraint holds it, and the constant for one.
+            func inset(of constraint: NSLayoutConstraint, sign: CGFloat) -> CGFloat {
+                constraint.firstItem === wrapper ? sign * constraint.constant : -sign * constraint.constant
+            }
+            func set(_ constraint: NSLayoutConstraint, sign: CGFloat, to value: CGFloat) {
+                let wanted = constraint.firstItem === wrapper ? sign * value : -sign * value
+                // Only on a real change: each write lays the column out again.
+                if constraint.constant != wanted { constraint.constant = wanted }
+            }
+            let isFlush = pinned(.leading).map { $0.constant == 0 } ?? false
+            if isFlush {
+                // The inspector's glass is flush with the window. In full screen
+                // its top met the screen's edge with a rounded corner and a bright
+                // rim: it runs past both edges instead.
+                let overhang = window?.styleMask.contains(.fullScreen) == true ? -Self.fullScreenOverhang : 0
+                set(top, sign: -1, to: overhang)
+                set(bottom, sign: 1, to: overhang)
+            } else {
+                // The sidebar's floats in: as far from the top as from the bottom,
+                // as macOS 27 lays it out.
+                set(top, sign: -1, to: inset(of: bottom, sign: 1))
+            }
+        }
+
+        isolated deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
+        }
+    }
+}
+
 /// Hiding the window toolbar also hides the title bar container, and the
 /// traffic lights with it. The container is transparent anyway (hidden title
 /// bar), so it is shown again, and again whenever AppKit hides it.
@@ -721,9 +839,13 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
     func updateNSView(_ view: KeeperView, context: Context) {}
 
     final class KeeperView: NSView {
-        /// How far the traffic lights sit below where AppKit puts them, to
-        /// line up with the tab row.
-        static let trafficLightsDrop: CGFloat = 5
+        /// How far the traffic lights sit right of and below where AppKit puts
+        /// them: down to line up with the tab row; on macOS 26, where they sit in
+        /// the sidebar's floating glass (8 pt in from the window's edges), right
+        /// to line up with the panel switcher, not against the glass's side (D240).
+        static var trafficLightsOffset: CGSize {
+            if #unavailable(macOS 27) { CGSize(width: 9, height: 5) } else { CGSize(width: 0, height: 5) }
+        }
 
         private var observations: [NSKeyValueObservation] = []
         private var observers: [NSObjectProtocol] = []
@@ -845,23 +967,25 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
         /// A fixed distance below AppKit's spot for the button. Absolute, so
         /// applying it again (our own move posts a frame change too) is a no-op,
         /// and a button can't end up moved twice or not at all.
-        private func target(for button: NSButton) -> CGFloat {
-            let baseline: CGFloat
-            if let stored = objc_getAssociatedObject(button, &Self.baselineKey) as? CGFloat {
-                baseline = stored
+        private func target(for button: NSButton) -> NSPoint {
+            let baseline: NSPoint
+            if let stored = objc_getAssociatedObject(button, &Self.baselineKey) as? NSValue {
+                baseline = stored.pointValue
             } else {
-                baseline = button.frame.origin.y
-                objc_setAssociatedObject(button, &Self.baselineKey, baseline, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+                baseline = button.frame.origin
+                objc_setAssociatedObject(button, &Self.baselineKey, NSValue(point: baseline), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             }
-            return (button.superview?.isFlipped ?? false) ? baseline + Self.trafficLightsDrop : baseline - Self.trafficLightsDrop
+            let offset = Self.trafficLightsOffset
+            let y = (button.superview?.isFlipped ?? false) ? baseline.y + offset.height : baseline.y - offset.height
+            return NSPoint(x: baseline.x + offset.width, y: y)
         }
 
         private func shiftButtons() {
             guard !isFullScreen else { return }
             for button in buttons {
                 let target = target(for: button)
-                if button.frame.origin.y != target {
-                    button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: target))
+                if button.frame.origin != target {
+                    button.setFrameOrigin(target)
                 }
             }
         }
@@ -870,12 +994,14 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
         /// still at AppKit's spot); the frame follows in `shiftButtons`.
         private func alignLayer(of button: NSButton) {
             guard !isAligningLayer, !isFullScreen, let layer = button.layer else { return }
-            let delta = target(for: button) - button.frame.origin.y
-            guard delta != 0 else { return }
+            let target = target(for: button)
+            let delta = CGSize(width: target.x - button.frame.origin.x, height: target.y - button.frame.origin.y)
+            guard delta != .zero else { return }
             isAligningLayer = true
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            layer.position.y += delta
+            layer.position.x += delta.width
+            layer.position.y += delta.height
             CATransaction.commit()
             isAligningLayer = false
         }
@@ -886,14 +1012,34 @@ private struct TrafficLightsKeeper: NSViewRepresentable {
             guard let container, let titlebar else { return }
             if isFullScreen {
                 if container.isHidden { container.isHidden = false }
-                if let toolbarWindow = container.window, toolbarWindow !== window, toolbarWindow.isOpaque {
-                    toolbarWindow.isOpaque = false
-                    toolbarWindow.backgroundColor = .clear
+                // The strip that slides down with the menu bar, traffic lights in
+                // it, is filled like the window: clear, the sidebar's switcher
+                // showed through under the buttons. Not under a camera notch:
+                // there the strip stays on screen over the tab row (D42, D241).
+                if let toolbarWindow = container.window, toolbarWindow !== window, let window {
+                    let hasNotch = (window.screen?.safeAreaInsets.top ?? 0) > 0
+                    let fill = hasNotch ? NSColor.clear : window.backgroundColor ?? .clear
+                    if toolbarWindow.isOpaque { toolbarWindow.isOpaque = false }
+                    if toolbarWindow.backgroundColor != fill { toolbarWindow.backgroundColor = fill }
+                    // Each column's title bar background (a blur) and, on macOS 26, a
+                    // piece of the sidebar's glass blend with the window below the
+                    // strip, not with its fill: the sidebar showed through them.
+                    hideBackgrounds(in: container, hidden: !hasNotch)
                 }
             } else {
                 if container.isHidden { container.isHidden = false }
                 if titlebar.alphaValue < 1 { titlebar.alphaValue = 1 }
                 shiftButtons()
+            }
+        }
+
+        private func hideBackgrounds(in view: NSView, hidden: Bool) {
+            for subview in view.subviews {
+                if subview is NSGlassEffectView || String(describing: type(of: subview)) == "NSTitlebarBackgroundView" {
+                    if subview.isHidden != hidden { subview.isHidden = hidden }
+                } else {
+                    hideBackgrounds(in: subview, hidden: hidden)
+                }
             }
         }
 
@@ -974,7 +1120,7 @@ private struct FullScreenCompositingGuard: NSViewRepresentable {
 }
 
 /// Whether the hosting window is full screen (no traffic lights then).
-private struct FullScreenObserver: NSViewRepresentable {
+struct FullScreenObserver: NSViewRepresentable {
     @Binding var isFullScreen: Bool
 
     func makeNSView(context: Context) -> ObserverView {
@@ -1041,7 +1187,7 @@ struct TabBar: View {
                     drag.tabFrames[group.id] = nil
                 }
                 .modifier(TabRowFade())
-                .scrollsToActiveTab(group.activeTabID, in: proxy)
+                .scrollsToActiveTab(group.activeTabID, in: proxy, width: geometry.size.width)
                 // A drop that ends elsewhere (or a move that re-lays the row) never calls dropExited here.
                 .onChange(of: group.tabs) { insertion = nil }
                 .onChange(of: workspace.allTabs.count) { insertion = nil }
@@ -1164,10 +1310,12 @@ struct BottomPanelHeader: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(ui.bottomPanels) { panel in
-                BottomPanelTab(panel: panel, isSelected: panel.id == current.id) {
-                    ui.revealBottomPanel(panel.id)
-                }
+            // Icons alone when the titles don't fit: a narrow editor cut them to "P…".
+            // Both rows are built to measure: the badges are asked for once.
+            let badges = Dictionary(ui.bottomPanels.map { ($0.id, $0.badge?()) }) { first, _ in first }
+            ViewThatFits(in: .horizontal) {
+                tabs(showsTitles: true, badges: badges)
+                tabs(showsTitles: false, badges: badges)
             }
             Spacer(minLength: 0)
             if let accessory = current.makeAccessory {
@@ -1182,11 +1330,24 @@ struct BottomPanelHeader: View {
         .padding(.horizontal, 8)
         .frame(height: 30)
     }
+
+    private func tabs(showsTitles: Bool, badges: [PanelContribution.ID: PanelBadge?]) -> some View {
+        HStack(spacing: 2) {
+            ForEach(ui.bottomPanels) { panel in
+                BottomPanelTab(panel: panel, badge: badges[panel.id] ?? nil, isSelected: panel.id == current.id, showsTitle: showsTitles) {
+                    ui.revealBottomPanel(panel.id)
+                }
+            }
+        }
+        .fixedSize()
+    }
 }
 
 private struct BottomPanelTab: View {
     let panel: PanelContribution
+    let badge: PanelBadge?
     let isSelected: Bool
+    var showsTitle = true
     let select: () -> Void
     @State private var isHovered = false
 
@@ -1195,9 +1356,11 @@ private struct BottomPanelTab: View {
             HStack(spacing: 5) {
                 Image(systemName: panel.systemImage)
                     .orbitFont(.micro)
-                Text(panel.title)
-                    .orbitFont(.caption, weight: isSelected ? .medium : .regular)
-                if let badge = panel.badge?() {
+                if showsTitle {
+                    Text(panel.title)
+                        .orbitFont(.caption, weight: isSelected ? .medium : .regular)
+                }
+                if let badge {
                     PanelBadgeView(badge: badge)
                 }
             }
@@ -1291,7 +1454,7 @@ struct StatusBar: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 24)
-        .nativeSurface(.bar)
+        .nativeSurface(Theme.editorSurface)
         .overlay(alignment: .top) { Divider() }
     }
 }

@@ -54,7 +54,7 @@ struct PathBar<Trailing: View>: View {
         // The hairline takes the bottom point; centered in what's left, the text looked low.
         .padding(.bottom, 3)
         .frame(maxWidth: .infinity, minHeight: 26, maxHeight: 26)
-        .nativeSurface(Color(nsColor: .textBackgroundColor))
+        .nativeSurface(Theme.editorSurface)
         .overlay(alignment: .bottom) { Divider() }
         .background(OutlineLoader(document: document, languages: languages, symbols: $symbols, blocks: $blocks))
     }

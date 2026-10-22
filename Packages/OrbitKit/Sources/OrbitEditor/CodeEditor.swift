@@ -77,6 +77,8 @@ struct CodeEditor: NSViewRepresentable {
         scrollView.wantsLayer = true
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
+        // With a mouse the scrollers are always shown: a short file had empty tracks.
+        scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         let textView: STTextView = OrbitTextView()
         scrollView.documentView = textView
@@ -993,12 +995,31 @@ final class EditorScrollView: NSScrollView {
             let frame = NSRect(x: bounds.maxX - OverviewRuler.width - 4 - width, y: top, width: max(width, 0), height: height)
             if panel.frame != frame { panel.frame = frame }
         }
-        guard rulersVisible, let ruler = verticalRulerView, contentView.contentInsets.left > 0 else { return }
-        contentView.contentInsets.left = 0
-        var frame = contentView.frame
-        frame.origin.x += ruler.ruleThickness
-        frame.size.width -= ruler.ruleThickness
-        contentView.frame = frame
+        if rulersVisible, let ruler = verticalRulerView, contentView.contentInsets.left > 0 {
+            contentView.contentInsets.left = 0
+            var frame = contentView.frame
+            frame.origin.x += ruler.ruleThickness
+            frame.size.width -= ruler.ruleThickness
+            contentView.frame = frame
+        }
+        updateHorizontalScroller()
+    }
+
+    // The clip view calls this when the text's frame changes too: a long line
+    // typed into a file that fit brings the scroller back without a re-tile.
+    override func reflectScrolledClipView(_ clipView: NSClipView) {
+        super.reflectScrolledClipView(clipView)
+        updateHorizontalScroller()
+    }
+
+    /// AppKit hid or showed the horizontal scroller for the width before the
+    /// ruler was taken off: with always-shown scrollers (a mouse) a file that
+    /// fits kept an empty track. Widths only, so a re-tile can't flip it back.
+    /// Off, autohiding never shows it again: this turns it back on.
+    private func updateHorizontalScroller() {
+        guard let document = documentView else { return }
+        let overflows = document.frame.width > contentView.frame.width + 0.5
+        if hasHorizontalScroller != overflows { hasHorizontalScroller = overflows }
     }
 
     /// The menus' Find items (and ⌘G while typing in the panel) reach here.
@@ -1302,7 +1323,11 @@ final class OrbitTextView: STTextView {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
-        guard isVerticallyResizable, let clip = enclosingScrollView?.contentView else { return super.setFrameSize(newSize) }
+        // Not on macOS 26: there the extra room sent opening a file into an
+        // update-constraints loop and AppKit crashed (D237).
+        guard #available(macOS 27, *), isVerticallyResizable, let clip = enclosingScrollView?.contentView else {
+            return super.setFrameSize(newSize)
+        }
         if !resizingWithClipView { textHeight = newSize.height }
         let multiple = defaultParagraphStyle.lineHeightMultiple
         let lineHeight = (font.ascender - font.descender + font.leading) * (multiple > 0 ? multiple : 1)

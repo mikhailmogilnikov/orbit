@@ -136,9 +136,16 @@ public struct TopBarButton: View {
 
 extension View {
     /// Keeps the active tab of a scrolling tab row in view: on appear (a restored
-    /// tab may be far right) and whenever another one becomes active.
-    public func scrollsToActiveTab<ID: Hashable>(_ id: ID?, in proxy: ScrollViewProxy) -> some View {
-        onChange(of: id, initial: true) { old, new in
+    /// tab may be far right), whenever another one becomes active, and when the
+    /// row's `width` changes (narrowing the window left it cut off at the edge).
+    public func scrollsToActiveTab<ID: Hashable>(_ id: ID?, in proxy: ScrollViewProxy, width: CGFloat = 0) -> some View {
+        // Once the width settles, not on every frame of a live resize or a
+        // sidebar animation; no anchor, so a tab in view doesn't move.
+        task(id: width) {
+            guard (try? await Task.sleep(for: .milliseconds(150))) != nil, let id else { return }
+            proxy.scrollTo(id)
+        }
+        .onChange(of: id, initial: true) { old, new in
             guard let new else { return }
             // A just-opened tab isn't laid out yet; scroll on the next runloop pass.
             DispatchQueue.main.async {

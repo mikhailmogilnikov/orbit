@@ -143,7 +143,7 @@ struct AgentsOverview: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(width: 380)
+        .frame(width: 380, alignment: .leading)
     }
 }
 

@@ -137,6 +137,11 @@ public enum Theme {
         light: NSColor(srgbRed: 0.75, green: 0.2, blue: 0.3, alpha: 1),
         dark: NSColor(srgbRed: 0.95, green: 0.47, blue: 0.52, alpha: 1)))
 
+    /// The editor column's fill without a color theme (`nativeSurface`): the
+    /// text background the editor, gutter and terminal draw. Not `.background`:
+    /// macOS 26 tints that with the wallpaper, and the two greys sat side by side.
+    public static let editorSurface = Color(nsColor: .textBackgroundColor)
+
     /// Behind the terminal, so the padding around it matches: the editor's
     /// background, not the theme's `terminal.background` (D191).
     @MainActor public static var terminalBackground: Color {

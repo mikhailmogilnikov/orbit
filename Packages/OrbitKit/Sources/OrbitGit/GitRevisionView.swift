@@ -35,7 +35,7 @@ struct GitRevisionView: View {
                 }
             }
         }
-        .nativeSurface(.background)
+        .nativeSurface(Theme.editorSurface)
         .task(id: Extensions.shared.themeKey) { await load() }
     }
 

@@ -348,6 +348,9 @@ tried by hand are in [manual-checks.md](manual-checks.md).
   (sourcekit-lsp's index not ready yet); it passes on a rerun.
 
 **Editor and workspace**
+- A Mac without the Command Line Tools has no git and no compiler: Source
+  Control says the folder isn't under version control, no grammar compiles
+  (no highlighting), and macOS keeps asking to install the tools (D235).
 - The split editor has two sides, side by side. Tabs can't be dragged out of
   the window; dragging in the explorer moves one item.
 - Undoing a new file in the explorer drops its unsaved edits.

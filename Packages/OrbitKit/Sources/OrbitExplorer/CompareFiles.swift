@@ -54,7 +54,7 @@ struct CompareView: View {
                 }
             }
         }
-        .nativeSurface(.background)
+        .nativeSurface(Theme.editorSurface)
         .task(id: key) { await load() }
     }
 
