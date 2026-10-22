@@ -62,9 +62,10 @@ code actions, rename, formatting and its corner note, the agent registry
   popover's place, the bracket outline.
 - Multiple carets and editing rules (D202): typing with ⌘D carets (Return,
   brackets, completion), a JSX tag rename, the placeholder boxes, squiggles
-  while typing above them.
+  while typing above them. ⌘Z after typing at several carets (D215): one
+  step back with the carets in place, completion still opening at them.
 - Editor (D139–D141): ⌥-drag over wrapped lines and folds, autoscroll while
-  dragging, the large-file banner, Format Selection with each formatter.
+  dragging, ⌥-clicks with a shaky hand keeping the earlier carets, the large-file banner, Format Selection with each formatter.
 - Highlighting appearing only after a scroll or a keystroke on open (fixed in
   D14's addendum).
 - Grammars (D58, D71): the first open's uncolored second, background installs

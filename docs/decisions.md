@@ -3169,6 +3169,10 @@ down, else a piece of each line, clamped to short lines' ends. It's the
 multiple selections STTextView already edits; the line starts are taken
 once at the press.
 
+Addendum: until the drag covers more than one caret (another line, or a
+character's width), the carets stay as the ⌥-click left them. A pixel of
+jitter while ⌥-clicking used to replace all the earlier carets with one.
+
 ### D140. Format Selection: the whole file formatted, only the selection's changes kept
 
 Prettier, Ruff, gofmt and the servers format whole files the same way;
@@ -4476,6 +4480,14 @@ STTextView make its edits (completion and undo follow them as before)
 and then puts every caret back where `CaretEditing.combine` says it ends
 up; Backspace at several carets goes through `applyCarets`, as brackets
 and Return already did (D202). `MultiCaretTypingTests` covers both.
+
+Addendum: STTextView's per-caret edits were each their own undo step, so
+⌘Z took typing back a character (and a caret) at a time. Typing at several
+carets now goes in as one `CaretEditing.combine` edit, which STTextView
+coalesces with the next keystroke's as it does at one caret; completion
+still follows the top caret's part of it (`caretTyping`). Undo would leave
+the text between the carets selected, so an undo action registered with
+the edit puts the carets back (and redo the ones after it).
 
 ### D216. A website in `site/`: Astro, one type size, a working window, measured numbers
 

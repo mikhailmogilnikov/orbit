@@ -603,11 +603,11 @@ struct CodeEditor: NSViewRepresentable {
             syncedRevision = document.revision
             guard let edit else { return }
             formatAfterTyping(edit.replacement)
-            if textView.hasMultipleSelections {
-                // Each caret's edit comes on its own, the bottom one first: the list
-                // follows the top one, whose place no later edit moves (D202).
+            let caretTyping = (textView as? OrbitTextView)?.caretTyping
+            if caretTyping != nil || textView.hasMultipleSelections {
+                // The list follows the top caret, whose place no later edit moves (D202).
                 let isScheduled = completionEdit != nil
-                completionEdit = edit
+                completionEdit = caretTyping ?? edit
                 guard !isScheduled else { return }
                 DispatchQueue.main.async { [weak self] in
                     guard let self, let edit = completionEdit else { return }
@@ -1026,6 +1026,9 @@ final class OrbitTextView: STTextView {
     /// Ranges typing goes to together (a tag's name and its closing tag's, D202).
     var linkedRanges: [NSRange] = []
     var isLinkedEditing = false
+    /// While typing at several carets goes in as one edit: the top caret's
+    /// part of it, which completion follows (D202).
+    private(set) var caretTyping: (location: Int, length: Int, replacement: String)?
     /// An image pasted into Markdown (D152): saved beside the file, the text to insert instead.
     var onPasteImage: ((NSPasteboard) -> String?)?
     private var hoverArea: NSTrackingArea?
@@ -1063,18 +1066,44 @@ final class OrbitTextView: STTextView {
                 return
             }
         }
-        // STTextView replaces each selection on its own, and every replacement
-        // leaves a single caret there: the top one, done last, was all that stayed.
-        // Its edits stay (completion and undo follow them); the carets are put back.
+        // One edit over every caret: STTextView's own, one per caret, left only
+        // the top caret, and each was its own undo step, so ⌘Z took back a
+        // character at a time. A single edit coalesces with the next keystroke's.
         if replacementRange.location == NSNotFound, hasMultipleSelections, !hasMarkedText(),
            let typed = (string as? String) ?? (string as? NSAttributedString)?.string,
-           let carets = CaretEditing.combine(selectionRanges.map { CaretEditing.plain(typed, at: $0) }, in: documentText)?.selections {
-            super.insertText(string, replacementRange: replacementRange)
-            selectionRanges = carets
+           let top = selectionRanges.min(by: { $0.location < $1.location }),
+           let edit = CaretEditing.combine(selectionRanges.map { CaretEditing.plain(typed, at: $0) }, in: documentText) {
+            let carets = selectionRanges
+            caretTyping = (top.location, top.length, typed)
+            super.insertText(edit.replacement, replacementRange: edit.range)
+            caretTyping = nil
+            selectionRanges = edit.selections
+            registerCaretsUndo(carets, redo: edit.selections)
             return
         }
         super.insertText(string, replacementRange: replacementRange)
     }
+
+    /// STTextView's undo of an edit selects the text it put back: for typing at
+    /// several carets, everything between them, which the next keystroke would
+    /// replace. The carets come back instead, once the whole undo step has run.
+    private func registerCaretsUndo(_ carets: [NSRange], redo: [NSRange]) {
+        guard let undoManager, undoManager.groupingLevel > 0 else { return }
+        undoManager.registerUndo(withTarget: self) { textView in
+            textView.registerCaretsUndo(redo, redo: carets)
+            let isScheduled = textView.restoredCarets != nil
+            textView.restoredCarets = carets
+            guard !isScheduled else { return }
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView, let carets = textView.restoredCarets else { return }
+                textView.restoredCarets = nil
+                let length = textView.documentText.length
+                if carets.allSatisfy({ NSMaxRange($0) <= length }) { textView.selectionRanges = carets }
+            }
+        }
+    }
+
+    private var restoredCarets: [NSRange]?
 
     /// Every caret's change as one edit (one undo step); a change that only moves carets moves them.
     private func applyCarets(_ changes: [CaretEditing.Change]) {
@@ -1273,18 +1302,22 @@ final class OrbitTextView: STTextView {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
         if event.clickCount == 1, modifiers == .option {
             // ⌥-drag from here selects a box (D139).
-            box = (contentPoint(event), InlineDiffController.lineStarts(of: (text ?? "") as NSString), (text ?? "" as String).utf16.count)
+            box = (contentPoint(event), InlineDiffController.lineStarts(of: (text ?? "") as NSString), (text ?? "" as String).utf16.count, selectionRanges)
         }
-        if event.clickCount == 1, modifiers == .option || modifiers == [.control, .shift], toggleCaret(at: event) { return }
+        if event.clickCount == 1, modifiers == .option || modifiers == [.control, .shift], toggleCaret(at: event) {
+            box?.clicked = selectionRanges
+            return
+        }
         super.mouseDown(with: event)
     }
 
-    /// Where a ⌥-drag started (content coordinates) and the text's line starts then.
-    private var box: (anchor: CGPoint, lineStarts: [Int], length: Int)?
+    /// Where a ⌥-drag started (content coordinates), the text's line starts
+    /// then, and the carets the ⌥-click left.
+    private var box: (anchor: CGPoint, lineStarts: [Int], length: Int, clicked: [NSRange])?
 
     override func mouseDragged(with event: NSEvent) {
         guard let box, event.modifierFlags.contains(.option) else { return super.mouseDragged(with: event) }
-        selectBox(from: box.anchor, to: contentPoint(event), lineStarts: box.lineStarts, length: box.length)
+        selectBox(from: box.anchor, to: contentPoint(event), lineStarts: box.lineStarts, length: box.length, clicked: box.clicked)
         autoscroll(with: event)
     }
 
@@ -1300,7 +1333,7 @@ final class OrbitTextView: STTextView {
 
     /// The same columns on every line between the two points: carets when
     /// they're straight above each other, else a piece of each line.
-    private func selectBox(from anchor: CGPoint, to point: CGPoint, lineStarts: [Int], length: Int) {
+    private func selectBox(from anchor: CGPoint, to point: CGPoint, lineStarts: [Int], length: Int, clicked: [NSRange]) {
         let manager = textLayoutManager
         let content = textContentManager
         let start = manager.documentRange.location
@@ -1327,7 +1360,10 @@ final class OrbitTextView: STTextView {
             ranges.append(NSRange(location: lower, length: upper - lower))
         }
         guard !ranges.isEmpty else { return }
-        selectionRanges = ranges
+        // A hand's jitter during a ⌥-click is a box of one caret: it mustn't
+        // throw away the carets placed before.
+        let selected = ranges.count == 1 && ranges[0].length == 0 ? clicked : ranges
+        if selected != selectionRanges { selectionRanges = selected }
     }
 
     private func toggleCaret(at event: NSEvent) -> Bool {
