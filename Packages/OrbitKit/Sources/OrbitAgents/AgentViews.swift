@@ -1444,6 +1444,7 @@ struct Composer: View {
     @State private var isDropTargeted = false
     @State private var selection: TextSelection?
     @State private var paste = PasteInterceptor()
+    @State private var scroller = ComposerScroller()
     /// Where ↑ / ↓ are in the sent messages; nil while typing your own.
     @State private var historyIndex: Int?
 
@@ -1466,12 +1467,20 @@ struct Composer: View {
         .onAppear {
             isFocused = true
             paste.install(for: session)
+            scroller.install()
         }
-        .onDisappear { paste.remove() }
+        .onDisappear {
+            paste.remove()
+            scroller.remove()
+        }
         .onChange(of: isFocused, initial: true) {
             paste.isActive = isFocused
+            scroller.isActive = isFocused
             // Another window's composer keeps its focus too (D101): only this window's paste counts.
-            if isFocused { paste.window = NSApp.keyWindow }
+            if isFocused {
+                paste.window = NSApp.keyWindow
+                scroller.window = NSApp.keyWindow
+            }
         }
         .onChange(of: focusRequest) { isFocused = true }
         .onChange(of: session.awaitsCorrection) { if session.awaitsCorrection { isFocused = true } }
@@ -1842,6 +1851,47 @@ final class PasteInterceptor {
               let image = pasteboard.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
               let attachment = PromptAttachment.imageAttachment(from: image) else { return nil }
         return [attachment]
+    }
+}
+
+/// The wheel and trackpad scroll a composer draft taller than its ten lines.
+/// The field editor follows the caret but ignores scroll events (it has a clip
+/// view, not a scroll view), so a local monitor scrolls it by hand.
+@MainActor
+final class ComposerScroller {
+    var isActive = false
+    weak var window: NSWindow?
+    private var monitor: Any?
+
+    func install() {
+        remove()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self else { return event }
+            let handled = MainActor.assumeIsolated { self.scroll(by: event) }
+            return handled ? nil : event
+        }
+    }
+
+    func remove() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    private func scroll(by event: NSEvent) -> Bool {
+        guard isActive, let window, event.window === window,
+              let textView = window.firstResponder as? NSTextView, textView.isFieldEditor else { return false }
+        let visible = textView.visibleRect
+        let overflow = textView.bounds.height - visible.height
+        guard overflow > 1, visible.contains(textView.convert(event.locationInWindow, from: nil)) else { return false }
+        var delta = event.scrollingDeltaY
+        if !event.hasPreciseScrollingDeltas, let font = textView.font {
+            delta *= font.ascender - font.descender + font.leading
+        }
+        // The field editor is flipped: a positive delta shows the lines above.
+        var target = visible
+        target.origin.y = min(max(visible.minY - delta, 0), overflow)
+        textView.scrollToVisible(target)
+        return true
     }
 }
 

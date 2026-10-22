@@ -275,3 +275,6 @@ code actions, rename, formatting and its corner note, the agent registry
   and a colored theme, and the track's edges line up with the list below.
   The slide stays smooth into Explorer and Source Control on a big repo,
   and the panel below swaps at once, with no cross-fade.
+- Composer scrolling (D234): a draft of more than ten lines scrolls with the
+  trackpad (with momentum) and a mouse wheel, stops at both ends, and typing
+  afterwards jumps back to the caret; the chat behind doesn't scroll along.

@@ -242,6 +242,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D230. Copy sits once under the agent's whole reply
 - D231. The sidebar switcher is a segmented control with a glass thumb
 - D232. The explorer sees double clicks on files itself
+- D234. A long composer draft scrolls with the wheel and trackpad
 - D238. Symlinks open like what they point to
 - D239. A file and a link to it are one buffer; the index lists linked folders by git
 
@@ -4901,6 +4902,19 @@ already sees every click on the outline before the list does, now also
 takes a plain double click on a row: once the list has selected it, a file
 there is opened in a kept tab and the editor gets the keys
 (`FileTreeModel.selectedFileDoubleClicked`).
+
+### D234. A long composer draft scrolls with the wheel and trackpad
+
+The composer's `TextField` stops growing at ten lines; past that its field
+editor follows the caret but ignored scroll events (it sits in a clip view,
+not a scroll view), so the top of a long draft could be reached only with
+the arrow keys. `ComposerScroller`, a local scroll-wheel monitor like
+`PasteInterceptor` (D34), scrolls the focused field editor by the event's
+delta (lines for a mouse wheel) via `scrollToVisible`, and only while the
+pointer is over it and the draft overflows. Chosen over swapping the field
+for an `NSTextView`, which would lose the field's selection binding, key
+handlers and undo (D219). An unfocused composer still doesn't scroll: it
+has no field editor until clicked.
 
 ### D238. Symlinks open like what they point to
 
