@@ -141,7 +141,10 @@ struct SettingsScreen: View {
             }
             // The page scrolls under the bar and fades out there, as under System Settings' toolbar.
             .safeAreaBar(edge: .top, spacing: 0) {
-                SettingsTopBar(navigator: navigator, title: page?.title ?? current?.title ?? "Settings")
+                SettingsTopBar(
+                    navigator: navigator, title: page?.title ?? current?.title ?? "Settings",
+                    sidebarHidden: columnVisibility == .detailOnly
+                )
             }
             .environment(navigator)
             .ignoresSafeArea(.container, edges: .top)
@@ -425,6 +428,11 @@ private struct ProjectSidebarRow: View {
 private struct SettingsTopBar: View {
     let navigator: SettingsNavigator
     let title: String
+    let sidebarHidden: Bool
+
+    /// With the sidebar hidden the bar runs under the traffic lights and the
+    /// window's sidebar button, which end about 125 pt in.
+    private static let windowButtonsInset: CGFloat = 136
 
     var body: some View {
         HStack(spacing: 12) {
@@ -457,7 +465,9 @@ private struct SettingsTopBar: View {
                 .lineLimit(1)
             Spacer()
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, sidebarHidden ? Self.windowButtonsInset : 16)
+        .padding(.trailing, 16)
+        .animation(.default, value: sidebarHidden)
         .frame(height: 52)
         .background {
             Color.clear
