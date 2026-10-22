@@ -80,6 +80,12 @@ On another Mac, import it with `generate_keys -f <file>`.
    since the previous release, grouped by label (`.github/release.yml`),
    and a link to the full diff. Commits pushed straight to `master` aren't
    listed, so write a human summary on GitHub afterwards. Needs `gh` logged in.
+   It also starts the site's build on `master` (the changelog and download
+   link come from the releases, D228); after editing the notes, rebuild it
+   once more:
+   ```bash
+   gh workflow run site.yml --ref master
+   ```
 6. **Check the update.** On a Mac with the previous version installed,
    **Check for Updates…** should offer the new one, then install and
    relaunch.

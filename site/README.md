@@ -40,5 +40,6 @@ page's hero at card size. Edit the HTML, then rerun the script.
 ## Deploying
 
 GitHub Pages, by `.github/workflows/site.yml`: on a push to `master` that touches the site, the docs
-or the Swift sources, and on every release. The build reads `../docs` and `../Packages`, so the
+or the Swift sources, and when `make release-publish` starts it (`gh workflow run site.yml --ref master`
+by hand after editing a release's notes). The build reads `../docs` and `../Packages`, so the
 whole repository has to be checked out.

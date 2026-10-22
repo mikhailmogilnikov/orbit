@@ -2,7 +2,9 @@ name: Site
 
 # The website (site/, D216) on GitHub Pages. It reads docs/ and the Swift
 # sources (shortcuts) and, from GitHub Releases, the download link, version
-# and changelog: so it rebuilds when those change and on every release.
+# and changelog: so it rebuilds when those change, and `make release-publish`
+# starts it on master (a release-triggered run is on the tag, which Pages
+# refuses to deploy, D228).
 on:
   push:
     branches: [master]
@@ -12,8 +14,6 @@ on:
       - App/**
       - Packages/OrbitKit/Sources/**
       - .github/workflows/site.yml
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:

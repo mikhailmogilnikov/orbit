@@ -237,6 +237,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D225. The blame card's hash opens the commit in Source Control
 - D226. Stale explorer rows are hidden after a folder opens or closes
 - D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
+- D228. Publishing a release rebuilds the site on master, not on the release's tag
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -4476,7 +4477,7 @@ floating glass nav, and the app shown working rather than in screenshots.
   so nothing drifts. Hosting: GitHub Pages, built by
   `.github/workflows/site.yml` from the whole checkout (the build reads
   `../docs` and `../Packages`) on a push that touches them and on every
-  release.
+  release. *A release now starts it on `master` itself (D228).*
 - **Look:** monochrome; the only colors of its own are the diff's green and
   red. Liquid Web's glass (`@liquid-web/blur`, not on npm yet) is vendored as
   `site/src/styles/liquid-blur.css`. Inter is self-hosted, so the site makes
@@ -4779,3 +4780,15 @@ selected.
   matches ("10000+"); edits re-search after 120 ms. Find in Project keeps
   its own copy of the few lines of matching (plugins don't share code).
 - The terminal keeps SwiftTerm's find bar (D110).
+
+### D228. Publishing a release rebuilds the site on master, not on the release's tag
+
+The site workflow ran on `release: published`, but such a run's ref is the
+release's tag, and the `github-pages` environment deploys only from
+`master`: the build passed and the deploy was rejected, so neither 0.1.2
+nor 0.2.0 reached `/changelog` until the next push. The trigger is gone;
+`scripts/release.sh publish` starts the workflow on `master`
+(`gh workflow run`) right after creating the release, and once more is
+`gh workflow run site.yml --ref master` after the notes are edited on
+GitHub. Allowing tags in the environment's rules would have worked too,
+but it's a repository setting nothing in the repo shows.

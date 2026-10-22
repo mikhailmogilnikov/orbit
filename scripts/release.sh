@@ -129,6 +129,9 @@ publish)
     [ -f "$out/appcast.xml" ] || { echo "Build it first: make release VERSION=$version" >&2; exit 1; }
     gh release create "v$version" "$out/Orbit-$version.zip" "$out/appcast.xml" \
         --repo "$REPO" --target "$(git rev-parse HEAD)" --title "Orbit $version" --generate-notes
+    # On master: a run for the release's tag can't deploy to Pages (D228).
+    gh workflow run site.yml --repo "$REPO" --ref master
+    echo "Rebuilding the site; after editing the notes: gh workflow run site.yml --ref master"
     ;;
 *)
     sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
