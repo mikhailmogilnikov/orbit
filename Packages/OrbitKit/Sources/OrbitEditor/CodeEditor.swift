@@ -100,6 +100,9 @@ struct CodeEditor: NSViewRepresentable {
         )
         GrammarRegistry.shared.ensureInstalled(for: document.url, firstLine: StaticHighlighter.firstLine(of: document.text))
         coordinator.inlineDiff.textView = textView
+        (textView as? OrbitTextView)?.caretLineHighlight = { [weak inlineDiff = coordinator.inlineDiff] in
+            inlineDiff?.caretLineHighlight(at: $0)
+        }
         textView.addPlugin(InlineDiffPlugin(controller: coordinator.inlineDiff))
         coordinator.inlineDiff.onResolveConflict = { [weak coordinator] conflict, choice in coordinator?.resolveConflict(conflict, choice) }
         coordinator.diagnosticsController.textView = textView
@@ -1032,6 +1035,14 @@ final class OrbitTextView: STTextView {
     /// An image pasted into Markdown (D152): saved beside the file, the text to insert instead.
     var onPasteImage: ((NSPasteboard) -> String?)?
     private var hoverArea: NSTrackingArea?
+    /// A color for the caret's line in place of the theme's (agent changes, D236).
+    var caretLineHighlight: ((Int) -> NSColor?)?
+
+    // STTextView reads this each time it rebuilds the highlight (caret moves, layout).
+    override var selectedLineHighlightColor: NSColor {
+        get { caretLineHighlight?(textSelection.location) ?? super.selectedLineHighlightColor }
+        set { super.selectedLineHighlightColor = newValue }
+    }
 
     override func paste(_ sender: Any?) {
         if let text = onPasteImage?(.general) {

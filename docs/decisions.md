@@ -243,6 +243,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D231. The sidebar switcher is a segmented control with a glass thumb
 - D232. The explorer sees double clicks on files itself
 - D234. A long composer draft scrolls with the wheel and trackpad
+- D236. The caret's line stays green on an agent's added lines
 - D238. Symlinks open like what they point to
 - D239. A file and a link to it are one buffer; the index lists linked folders by git
 
@@ -4915,6 +4916,17 @@ pointer is over it and the draft overflows. Chosen over swapping the field
 for an `NSTextView`, which would lose the field's selection binding, key
 handlers and undo (D219). An unfocused composer still doesn't scroll: it
 has no field editor until clicked.
+
+### D236. The caret's line stays green on an agent's added lines
+
+The current-line highlight sits over the inline diff's green background, and
+a theme's active-line color (often nearly opaque) covered it: clicking into
+an added line turned it grey, as if it weren't a change. On an added line
+the highlight is now the added color at the background's strength, so the
+line reads a deeper green: still a change, still the caret's line.
+`OrbitTextView` overrides `selectedLineHighlightColor`'s getter, which
+STTextView reads each time it rebuilds the highlight (caret moves, layout);
+keeping or undoing a change re-lays out the text, so the color follows.
 
 ### D238. Symlinks open like what they point to
 

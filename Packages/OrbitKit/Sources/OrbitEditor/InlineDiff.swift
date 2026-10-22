@@ -84,6 +84,19 @@ final class InlineDiffController {
         commentsSignature = nil
     }
 
+    /// The caret line's highlight on an added line: a deeper green, so the
+    /// line still reads as added (the theme's active line covered it, D236).
+    func caretLineHighlight(at location: Int) -> NSColor? {
+        guard hunks.contains(where: { $0.added > 0 }) else { return nil }
+        var low = 0, high = lineStarts.count - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if lineStarts[mid] <= location { low = mid } else { high = mid - 1 }
+        }
+        guard hunks.contains(where: { $0.newRange.contains(low) }) else { return nil }
+        return colors.added.withAlphaComponent(0.13)
+    }
+
     /// Index of the change block at or after `line`.
     func hunk(near line: Int) -> DiffHunk? {
         hunks.first { line <= max($0.newRange.upperBound - 1, $0.newRange.lowerBound) } ?? hunks.last

@@ -57,6 +57,8 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Editor
 
+- The caret on an agent's added line (D236): a deeper green, not the theme's
+  grey; back to normal after Keep or Undo, in light and dark themes.
 - Text editing basics (D105): keys reaching the editor before STTextView's own
   ⌥↑ / ⌃⇧↑ bindings, the caret for several carets, ⌥-click, the Go to Line
   popover's place, the bracket outline.
