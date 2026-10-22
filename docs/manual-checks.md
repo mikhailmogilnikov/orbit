@@ -88,6 +88,7 @@ code actions, rename, formatting and its corner note, the agent registry
 - Location history (D99): caret reports after a reveal, ⌃Tab's panel and ⌃ release.
 - SVG preview and gutter thumbnails (D145, D146): an upscaled SVG's
   crispness, the thumbnail column beside folds and blame, the popover's place.
+  In a dark theme, Show Source and the size capsule are legible over each backdrop.
 - Preview (D89): zoom and centering, the info capsule, the page in light and
   dark, code colors, links, relative images.
 - Glass popups (D173): legibility of hover docs and completion over busy code.

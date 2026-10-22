@@ -68,18 +68,10 @@ public final class PreviewPlugin: OrbitPlugin {
                 return !svgSource.showsSource.contains(url.standardizedFileURL)
             }
         ) { tab in
-            SVGPreview(url: tab.url!, workspace: workspace)
-                .overlay(alignment: .topTrailing) {
-                    Button {
-                        commands.run("preview.markdown", teaching: true)
-                    } label: {
-                        Label("Show Source", systemImage: "chevron.left.forwardslash.chevron.right")
-                    }
-                    .buttonStyle(.glass)
-                    .help(commands.help("preview.markdown", "Show Source"))
-                    .padding(10)
-                }
-                .id(tab.id)
+            SVGPreview(url: tab.url!, workspace: workspace, showSourceHelp: commands.help("preview.markdown", "Show Source")) {
+                commands.run("preview.markdown", teaching: true)
+            }
+            .id(tab.id)
         })
 
         // Markdown's preview to the side, and an SVG's picture / source in its tab (D145);

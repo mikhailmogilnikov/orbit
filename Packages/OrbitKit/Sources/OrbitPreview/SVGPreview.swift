@@ -8,11 +8,18 @@ import SwiftUI
 struct SVGPreview: View {
     let url: URL
     let workspace: Workspace
+    let showSourceHelp: String
+    let showSource: () -> Void
     @State private var lastGood: NSImage?
     @State private var background = Backdrop.checkerboard
+    @Environment(\.colorScheme) private var appScheme
 
     enum Backdrop: String, CaseIterable {
         case checkerboard = "Checkerboard", light = "Light", dark = "Dark"
+
+        /// The controls over the picture follow the backdrop, not the app: dark
+        /// glass and white text are unreadable over a light checkerboard.
+        var colorScheme: ColorScheme { self == .dark ? .dark : .light }
     }
 
     var body: some View {
@@ -20,6 +27,7 @@ struct SVGPreview: View {
             ?? { _ = workspace.fileSystemGeneration; return try? String(contentsOf: url, encoding: .utf8) }()
             ?? ""
         let image = Self.image(text)
+        let controlsScheme = image ?? lastGood == nil ? appScheme : background.colorScheme
         Group {
             if let shown = image ?? lastGood {
                 ImageViewer(image: shown, upscales: true)
@@ -29,6 +37,15 @@ struct SVGPreview: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topTrailing) {
+            Button(action: showSource) {
+                Label("Show Source", systemImage: "chevron.left.forwardslash.chevron.right")
+            }
+            .buttonStyle(.glass)
+            .help(showSourceHelp)
+            .padding(10)
+            .environment(\.colorScheme, controlsScheme)
+        }
         .overlay(alignment: .bottomTrailing) {
             HStack(spacing: 8) {
                 if image == nil, lastGood != nil {
@@ -51,6 +68,7 @@ struct SVGPreview: View {
             .padding(.vertical, 5)
             .glassEffect(.regular, in: .capsule)
             .padding(10)
+            .environment(\.colorScheme, controlsScheme)
         }
         .onChange(of: image) { _, new in
             if let new { lastGood = new }
