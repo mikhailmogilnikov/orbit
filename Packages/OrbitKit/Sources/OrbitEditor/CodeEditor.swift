@@ -1288,6 +1288,43 @@ final class OrbitTextView: STTextView {
         applyCarets(CaretMotion.deleteLines(documentText, selections: selectionRanges))
     }
 
+    /// The text's height, as STTextView last sized the view; the frame adds
+    /// room under it to scroll the last line up to the top (D237).
+    private var textHeight: CGFloat = 0
+    private var resizingWithClipView = false
+
+    override func resize(withOldSuperviewSize oldSize: NSSize) {
+        // Autoresizing passes the frame's height (room included) plus the clip
+        // view's change: the room is worked out again from the text's height.
+        resizingWithClipView = true
+        super.resize(withOldSuperviewSize: oldSize)
+        resizingWithClipView = false
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        guard isVerticallyResizable, let clip = enclosingScrollView?.contentView else { return super.setFrameSize(newSize) }
+        if !resizingWithClipView { textHeight = newSize.height }
+        let multiple = defaultParagraphStyle.lineHeightMultiple
+        let lineHeight = (font.ascender - font.descender + font.leading) * (multiple > 0 ? multiple : 1)
+        let size = NSSize(width: newSize.width, height: textHeight + max(clip.bounds.height - lineHeight, 0))
+        // `sizeToFit` asks for the text's height on every layout pass and never
+        // sees it match the frame: the same size again is skipped.
+        guard size != frame.size else { return }
+        super.setFrameSize(size)
+    }
+
+    /// A click in the room under the text goes to the last line, as in other editors.
+    private func onLastLine(_ event: NSEvent) -> NSEvent {
+        let point = convert(event.locationInWindow, from: nil)
+        let bottom = textHeight - 1
+        guard textHeight > 0, point.y > bottom else { return event }
+        return NSEvent.mouseEvent(
+            with: event.type, location: convert(NSPoint(x: point.x, y: bottom), to: nil),
+            modifierFlags: event.modifierFlags, timestamp: event.timestamp, windowNumber: event.windowNumber,
+            context: nil, eventNumber: event.eventNumber, clickCount: event.clickCount, pressure: event.pressure
+        ) ?? event
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverArea { removeTrackingArea(hoverArea) }
@@ -1319,7 +1356,7 @@ final class OrbitTextView: STTextView {
             box?.clicked = selectionRanges
             return
         }
-        super.mouseDown(with: event)
+        super.mouseDown(with: onLastLine(event))
     }
 
     /// Where a ⌥-drag started (content coordinates), the text's line starts
@@ -1327,7 +1364,7 @@ final class OrbitTextView: STTextView {
     private var box: (anchor: CGPoint, lineStarts: [Int], length: Int, clicked: [NSRange])?
 
     override func mouseDragged(with event: NSEvent) {
-        guard let box, event.modifierFlags.contains(.option) else { return super.mouseDragged(with: event) }
+        guard let box, event.modifierFlags.contains(.option) else { return super.mouseDragged(with: onLastLine(event)) }
         selectBox(from: box.anchor, to: contentPoint(event), lineStarts: box.lineStarts, length: box.length, clicked: box.clicked)
         autoscroll(with: event)
     }

@@ -244,6 +244,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D232. The explorer sees double clicks on files itself
 - D234. A long composer draft scrolls with the wheel and trackpad
 - D236. The caret's line stays green on an agent's added lines
+- D237. The editor scrolls past the last line
 - D238. Symlinks open like what they point to
 - D239. A file and a link to it are one buffer; the index lists linked folders by git
 
@@ -4927,6 +4928,20 @@ line reads a deeper green: still a change, still the caret's line.
 `OrbitTextView` overrides `selectedLineHighlightColor`'s getter, which
 STTextView reads each time it rebuilds the highlight (caret moves, layout);
 keeping or undoing a change re-lays out the text, so the color follows.
+
+### D237. The editor scrolls past the last line
+
+As in VS Code, Cursor and Zed, the editor scrolls on until the last line is
+at the top, and a click in the empty space under the text puts the caret on
+the last line (at the clicked column; dragging there selects to it). Before,
+the view ended at the last line and a click below a short file did nothing,
+not even focus the editor. `OrbitTextView.setFrameSize` adds the visible
+height less one line to the height STTextView asks for, and keeps that height
+apart, so autoresizing (which passes the frame's height, room included) can't
+grow it; the room changes with the window. A click or drag under the text is
+moved up onto the last line before STTextView sees it. A bottom content inset
+on the clip view would also give the room, but AppKit's tiling resets the
+clip view's insets and a scroll view inset shortens the scroller.
 
 ### D238. Symlinks open like what they point to
 

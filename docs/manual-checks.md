@@ -57,6 +57,12 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Editor
 
+- Scrolling past the end (D237): the last line reaches the top in long and
+  short files, after resizing the window and the bottom panel, and with
+  wrapping on; a click and a drag under the text land on the last line; ⌘↓
+  and Find still scroll the match into view; the scrollers and the overview
+  strip look right. With a mouse: typing a long line into a file that fit
+  brings the horizontal scroller back.
 - The caret on an agent's added line (D236): a deeper green, not the theme's
   grey; back to normal after Keep or Undo, in light and dark themes.
 - Text editing basics (D105): keys reaching the editor before STTextView's own

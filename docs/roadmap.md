@@ -2,6 +2,7 @@
 
 ## Done
 - Symlinks: folder links expand in the explorer and the path bar and are in Open Quickly and Find in Project (no loops), saves go through to the target, links get an arrow and a tooltip (D238); a file and a link to it share one buffer, linked folders are indexed by git (D239)
+- The editor scrolls past the last line; a click under the text goes to the last line (D237)
 - App shell: navigator / tabs / inspector / status bar, command palette, menus from commands, settings
 - Open-source basics (D206): GPL-3.0, README, contributing / security / conduct, issue forms, CI on macOS and Linux;
   dependencies' licenses in About Orbit (D207)
