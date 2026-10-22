@@ -235,6 +235,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D223. The site counts visits and Download clicks with GoatCounter, without cookies
 - D224. Orbit's own extension registry: one index.json on GitHub, checked archives, a question before programs
 - D225. The blame card's hash opens the commit in Source Control
+- D226. Stale explorer rows are hidden after a folder opens or closes
 - D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
@@ -2834,6 +2835,7 @@ Expanding and collapsing are now instant (`FileTreeModel.setExpanded`,
 animations disabled), on a row click and on the chevron alike — as in
 VS Code and Cursor. Unverified that this was the only trigger: it showed
 up only now and then.
+  → D226: it wasn't; stale rows are now also hidden after the fact.
 
 ### D124. The usage popover: context first, plan limits for Claude and Codex, remembered
 
@@ -4729,6 +4731,18 @@ panel comes forward, History is searched for the full hash (on the current
 branch's scope), the commit is expanded and scrolled to. Its expanded
 commits and the History section's state moved into `GitModel` for that.
 Copying the hash stays in the hash's context menu.
+
+### D226. Stale explorer rows are hidden after a folder opens or closes
+
+D123's instant expansion didn't end it: a copy of the previously selected
+file's row, highlight and all, still stayed drawn over another row after
+opening and closing folders, until that folder was closed and opened again.
+The race is inside the list's outline view, out of SwiftUI's reach.
+
+So the explorer cleans up after it (`StaleRowSweeper`): half a second after
+any folder opens or closes, a row view still on screen that the outline
+places at no row is hidden. The outline keeps its reusable row views as
+hidden subviews and unhides them itself when it uses them again.
 
 ### D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
 

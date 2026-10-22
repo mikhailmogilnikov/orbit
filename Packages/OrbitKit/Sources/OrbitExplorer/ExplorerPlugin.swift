@@ -854,17 +854,28 @@ struct NativeSelectionHider: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView { NSView() }
 
-    func makeCoordinator() -> ReclickMonitor { ReclickMonitor(model: model) }
+    @MainActor
+    final class Coordinator {
+        let reclicks: ReclickMonitor
+        let staleRows = StaleRowSweeper()
+        init(model: FileTreeModel) { reclicks = ReclickMonitor(model: model) }
+    }
 
-    static func dismantleNSView(_ view: NSView, coordinator: ReclickMonitor) { coordinator.stop() }
+    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.reclicks.stop()
+        coordinator.staleRows.stop()
+    }
 
     func updateNSView(_ view: NSView, context: Context) {
-        let monitor = context.coordinator
+        let coordinator = context.coordinator
         Task { @MainActor in
             var ancestor = view.superview
             while let current = ancestor {
                 if let outline = Self.outline(in: current) {
-                    monitor.watch(outline)
+                    coordinator.reclicks.watch(outline)
+                    coordinator.staleRows.watch(outline)
                     if outline.selectionHighlightStyle != .none { outline.selectionHighlightStyle = .none }
                     if !model.hidesNativeSelection { model.hidesNativeSelection = true }
                     return
@@ -943,6 +954,52 @@ final class ReclickMonitor {
         guard outline.row(at: outline.convert(location, from: nil)) == pressed.row,
               hypot(location.x - pressed.location.x, location.y - pressed.location.y) < 4 else { return }
         model?.selectedFolderClicked()
+    }
+}
+
+/// Hides row views the outline no longer places at any row once a folder has
+/// opened or closed. Instant expansion (D123) didn't stop every stale copy of
+/// the previously selected row from staying drawn over the tree.
+@MainActor
+final class StaleRowSweeper {
+    private weak var outline: NSOutlineView?
+    private var observers: [NSObjectProtocol] = []
+    private var pending: DispatchWorkItem?
+
+    func watch(_ outline: NSOutlineView) {
+        guard self.outline !== outline else { return }
+        stop()
+        self.outline = outline
+        for name in [NSOutlineView.itemDidExpandNotification, NSOutlineView.itemDidCollapseNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: outline, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.schedule() }
+            })
+        }
+    }
+
+    func stop() {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers = []
+        pending?.cancel()
+        pending = nil
+    }
+
+    /// After the outline's own row animations, should it have run any.
+    private func schedule() {
+        pending?.cancel()
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.sweep() } }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    // The outline keeps reusable row views as hidden subviews and unhides them itself.
+    private func sweep() {
+        guard let outline else { return }
+        let visible = outline.visibleRect
+        for case let row as NSTableRowView in outline.subviews
+        where !row.isHidden && row.frame.intersects(visible) && outline.row(for: row) < 0 {
+            row.isHidden = true
+        }
     }
 }
 
