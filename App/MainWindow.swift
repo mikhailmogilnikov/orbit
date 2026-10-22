@@ -232,20 +232,29 @@ struct MainWindow: View {
 struct SidebarHost: View {
     let panels: [PanelContribution]
     @Binding var selection: String?
+    @Namespace private var thumb
 
     var body: some View {
         let current = panels.first { $0.id == selection } ?? panels.first
         VStack(spacing: 0) {
             if panels.count > 1 {
-                HStack(spacing: 2) {
+                // A segmented control as in iOS 26: the current panel is a
+                // piece of glass sliding along a capsule track (D231).
+                HStack(spacing: 0) {
                     ForEach(panels) { panel in
-                        PanelTabButton(panel: panel, isSelected: panel.id == current?.id) {
+                        PanelTabButton(panel: panel, isSelected: panel.id == current?.id, thumb: thumb) {
                             selection = panel.id
                         }
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
+                // Only the thumb animates: under withAnimation the panel swap
+                // below was animated too, and a large explorer or git list
+                // cross-faded and laid out every frame — the slide stuttered.
+                .animation(.snappy(duration: 0.25), value: current?.id)
+                .padding(2)
+                .background(Theme.subtleFill, in: .capsule)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
             }
             if let current {
                 current.makeView()
@@ -259,11 +268,12 @@ struct SidebarHost: View {
     }
 }
 
-/// A navigator button, like Xcode 26's: a bare symbol, the selected one filled
-/// in the accent color, the others brightening under the pointer (D169).
+/// One segment of the sidebar switcher: the selected one filled, on the
+/// sliding glass thumb; the others brighten under the pointer (D231).
 struct PanelTabButton: View {
     let panel: PanelContribution
     let isSelected: Bool
+    let thumb: Namespace.ID
     let action: () -> Void
     @State private var isHovering = false
 
@@ -274,7 +284,16 @@ struct PanelTabButton: View {
                 .orbitFont(.control, weight: .medium)
                 .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : isHovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 .frame(maxWidth: .infinity, minHeight: 26)
-                .contentShape(.rect)
+                .background {
+                    if isSelected {
+                        Color.clear
+                            .glassEffect(.regular, in: .capsule)
+                            .matchedGeometryEffect(id: "thumb", in: thumb)
+                    } else if isHovering {
+                        Capsule().fill(Theme.hoverFill)
+                    }
+                }
+                .contentShape(.capsule)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }

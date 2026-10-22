@@ -240,6 +240,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D228. Publishing a release rebuilds the site on master, not on the release's tag
 - D229. Buttons, tabs, one-line rows and search fields are pills
 - D230. Copy sits once under the agent's whole reply
+- D231. The sidebar switcher is a segmented control with a glass thumb
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3592,6 +3593,8 @@ under the pointer. They're read out by the panel's name (VoiceOver used to
 guess from the symbol: "Move", "Divide"). The tree itself was already the
 system's sidebar list and stays as it is.
 
+(The bare symbols looked empty; D231 puts them in a segmented control.)
+
 ### D170. A quieter status bar
 
 The status bar's leading end had a button per bottom panel (Problems,
@@ -4851,3 +4854,18 @@ message has the row, and its Copy takes the whole reply: every agent
 message since the user's, joined by blank lines (`TranscriptRow.replies`).
 The turn still running has none, so the row doesn't hop down as messages
 arrive.
+
+### D231. The sidebar switcher is a segmented control with a glass thumb
+
+D169's bare symbols over the sidebar read as an empty strip. The switcher is
+now a segmented control as in iOS 26: a capsule track (`subtleFill`) with a
+segment per panel, the current one a capsule of Liquid Glass that slides to
+the clicked segment (`matchedGeometryEffect`, a snappy 0.25 s), the way the
+current editor tab is a glass capsule (D229). The selected symbol stays
+filled in the tint, the others secondary, with a hover capsule. The
+inspector keeps the system's segmented picker: it has titles, and macOS 26
+already draws it as a capsule track.
+Only the switcher animates (`.animation(value:)` on it, not `withAnimation`
+around the selection): otherwise the panel swap rode the same transaction,
+and a large explorer or Source Control list cross-faded and relaid out on
+every frame of the slide, which stuttered.

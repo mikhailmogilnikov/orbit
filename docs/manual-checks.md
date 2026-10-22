@@ -260,3 +260,9 @@ code actions, rename, formatting and its corner note, the agent registry
   selected rows, a row that isn't selected), the selected row's chevron is as
   visible as the others, light and dark, and the tree's text and colors
   look as before with the plain (non-vibrant) appearance.
+- Sidebar switcher (D231): the glass thumb slides between Explorer, Search
+  and Source Control, lands right when a menu command shows a panel, reads
+  well in light, dark
+  and a colored theme, and the track's edges line up with the list below.
+  The slide stays smooth into Explorer and Source Control on a big repo,
+  and the panel below swaps at once, with no cross-fade.
