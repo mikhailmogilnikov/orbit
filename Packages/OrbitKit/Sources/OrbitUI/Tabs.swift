@@ -81,9 +81,9 @@ public struct TabChip<Icon: View>: View {
         .background {
             if isActive {
                 // The current tab is a raised piece of glass, like Safari 26's.
-                Color.clear.glassEffect(.regular, in: .rect(cornerRadius: Theme.corner, style: .continuous))
+                Color.clear.glassEffect(.regular, in: .capsule)
             } else if isHovering {
-                RoundedRectangle(cornerRadius: Theme.corner, style: .continuous).fill(Theme.hoverFill)
+                Capsule().fill(Theme.hoverFill)
             }
         }
         .contentShape(.rect)

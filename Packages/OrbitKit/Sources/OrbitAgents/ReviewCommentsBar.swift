@@ -89,7 +89,7 @@ private struct ReviewCommentRow: View {
         }
         .frame(height: 24)
         .padding(.horizontal, 8)
-        .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+        .background(isHovering ? Theme.hoverFill : .clear, in: .capsule)
         .contentShape(.rect)
         .onTapGesture { store.workspace.openFile(comment.url, line: comment.lines.lowerBound) }
         .onHover { isHovering = $0 }

@@ -535,12 +535,12 @@ private struct FindField<Accessories: View>: View {
             HStack(spacing: 1) { accessories }
         }
         .orbitFont(.body)
-        .padding(.leading, 8)
+        .padding(.leading, 10)
         .padding(.trailing, 3)
         .frame(height: 26)
-        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.smallCorner))
+        .background(Theme.subtleFill, in: .capsule)
         .overlay(
-            RoundedRectangle(cornerRadius: Theme.smallCorner)
+            Capsule()
                 .strokeBorder(isInvalid ? AnyShapeStyle(.red.opacity(0.6)) : AnyShapeStyle(Theme.hairline))
         )
     }

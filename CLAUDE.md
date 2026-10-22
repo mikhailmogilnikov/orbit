@@ -124,8 +124,9 @@ examples/extensions/      sample extensions (theme, icon theme)
 - Use `Theme` tokens from OrbitUI for colors, corners and hover/selected
   fills, `Badge` / `DisclosureChevron` (D157), and `.orbitFont(.body)`
   (`TypeScale`, D117) for UI text — no literal point sizes, radii or opacities; Liquid Glass button
-  styles (`.glass`, `.glassProminent`) for actions. Buttons are pills (D229):
-  a new AppKit-hosted SwiftUI root gets `.pillControls()`.
+  styles (`.glass`, `.glassProminent`) for actions. Buttons, tabs, one-line
+  rows and search fields are capsules (D229); a new AppKit-hosted SwiftUI
+  root gets `.pillControls()`.
 - Colors that should follow the color theme come from `Theme` (SwiftUI) or
   `Extensions.shared.colorTheme(dark:)` + `Extensions.themeDidChange` (AppKit);
   chrome is never painted: the theme background lies under the window and the

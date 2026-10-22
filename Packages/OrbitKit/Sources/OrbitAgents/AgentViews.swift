@@ -286,7 +286,7 @@ struct RecentSessionRow: View {
             .orbitFont(.body)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+            .background(isHovering ? Theme.hoverFill : .clear, in: .capsule)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -694,7 +694,7 @@ private struct TurnFileRow: View {
             .orbitFont(.body)
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            .background(isHovering && isPending ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+            .background(isHovering && isPending ? Theme.hoverFill : .clear, in: .capsule)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -1867,7 +1867,7 @@ struct MentionList: View {
                     .orbitFont(.body)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
-                    .background(index == selected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+                    .background(index == selected ? Theme.selectedFill : .clear, in: .capsule)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
@@ -1911,7 +1911,7 @@ struct CommandList: View {
                             .orbitFont(.body)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
-                            .background(index == selected ? Theme.selectedFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+                            .background(index == selected ? Theme.selectedFill : .clear, in: .capsule)
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)

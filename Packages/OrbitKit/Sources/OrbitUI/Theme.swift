@@ -73,12 +73,14 @@ private struct OrbitFontModifier: ViewModifier {
 /// Design tokens shared by all plugins so the app reads as one system.
 public enum Theme {
     // Corner radii, smallest to largest (D157). A shape inside another
-    // takes a smaller step, so the curves stay roughly concentric.
-    /// Key caps, thumbnails, the rename field. Buttons are pills (D229).
+    // takes a smaller step, so the curves stay roughly concentric. Anything
+    // one line tall people click is a capsule instead (D229): buttons, tabs,
+    // one-line rows, search fields.
+    /// Key caps, thumbnails.
     public static let tinyCorner: CGFloat = 4
-    /// Rows, tabs, toggles, fields, code blocks, the editor's bars.
+    /// Code blocks, icon tiles, the editor's bars, rows of two lines.
     public static let smallCorner: CGFloat = 6
-    /// Cards, tool calls, rows in floating panels.
+    /// Cards, tool calls, tall rows in floating panels.
     public static let corner: CGFloat = 10
     /// Big cards, popovers, chat bubbles.
     public static let largeCorner: CGFloat = 14

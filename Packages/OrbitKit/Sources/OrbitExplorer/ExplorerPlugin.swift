@@ -836,10 +836,11 @@ struct RowHighlight: ViewModifier {
     func body(content: Content) -> some View {
         content.listRowBackground(
             model.hidesNativeSelection && model.isSelected(url)
-                ? RoundedRectangle(cornerRadius: Theme.smallCorner)
+                ? Capsule()
                     .fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 1)
+                    // Wide, so the chevron sits clear of the capsule's curve (D229).
+                    .padding(.horizontal, CapsuleRowHighlight.inset.width)
+                    .padding(.vertical, CapsuleRowHighlight.inset.height)
                 : nil
         )
     }
@@ -870,12 +871,17 @@ struct NativeSelectionHider: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         let coordinator = context.coordinator
+        // Vibrant, the disclosure chevrons take their color from the sidebar
+        // behind the capsule and vanish into it; plain, they blend over it.
+        let appearance = NSAppearance(named: context.environment.colorScheme == .dark ? .darkAqua : .aqua)
         Task { @MainActor in
             var ancestor = view.superview
             while let current = ancestor {
                 if let outline = Self.outline(in: current) {
                     coordinator.reclicks.watch(outline)
                     coordinator.staleRows.watch(outline)
+                    CapsuleRowHighlight.apply(to: outline)
+                    if outline.appearance?.name != appearance?.name { outline.appearance = appearance }
                     if outline.selectionHighlightStyle != .none { outline.selectionHighlightStyle = .none }
                     if !model.hidesNativeSelection { model.hidesNativeSelection = true }
                     return
@@ -1017,7 +1023,7 @@ struct FolderDrop: ViewModifier {
             } isTargeted: { model.setDropTarget(folder, $0) }
             .background {
                 if highlights, model.dropTarget == folder {
-                    RoundedRectangle(cornerRadius: Theme.smallCorner)
+                    Capsule()
                         .fill(Theme.dropFill)
                         .strokeBorder(Theme.dropBorder, lineWidth: 1)
                         .padding(.horizontal, -6)
@@ -1198,9 +1204,9 @@ struct NameField: View {
         TextField("", text: $name, selection: $selection)
             .textFieldStyle(.plain)
             .focused($isFocused)
-            .padding(.horizontal, 3)
-            .background(Color(nsColor: .textBackgroundColor), in: .rect(cornerRadius: Theme.tinyCorner))
-            .overlay(RoundedRectangle(cornerRadius: Theme.tinyCorner).strokeBorder(Theme.accent, lineWidth: 1))
+            .padding(.horizontal, 6)
+            .background(Color(nsColor: .textBackgroundColor), in: .capsule)
+            .overlay(Capsule().strokeBorder(Theme.accent, lineWidth: 1))
             .onSubmit { finish(cancelled: false) }
             .onExitCommand { finish(cancelled: true) }
             .onChange(of: isFocused) { _, focused in if !focused { finish(cancelled: false) } }

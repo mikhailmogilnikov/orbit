@@ -246,8 +246,15 @@ code actions, rename, formatting and its corner note, the agent registry
   (`apple-touch-icon.png`); `sitemap-index.xml` submitted in Search Console.
 - First launch of a downloaded release on macOS 26: the steps in the FAQ and
   README (Open Anyway in Privacy & Security) are the ones macOS asks for.
-- Pill buttons (D229): glass buttons in the chat, Settings, banners and sheets
+- Pills (D229): glass buttons in the chat, Settings, banners and sheets
   are capsules at every control size, and so are the editor's popovers (inline
   edit, review comment, rename and its preview sheet), the find option
   toggles and the bottom panel's and terminal's tabs; `Menu` buttons and
-  segmented pickers look right next to them.
+  segmented pickers look right next to them. The editor's tabs (glass capsule,
+  its close button inside the curve), the explorer's selection, drop target
+  and rename field, the tab switcher, the chat's one-line rows and @ / popovers,
+  the completion list and both find fields look right as capsules. In the
+  explorer: the right-click ring is the selection's capsule (one row, several
+  selected rows, a row that isn't selected), the selected row's chevron is as
+  visible as the others, light and dark, and the tree's text and colors
+  look as before with the plain (non-vibrant) appearance.

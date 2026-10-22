@@ -112,7 +112,7 @@ private struct ChangedFileRow: View {
         }
         .frame(height: 24)
         .padding(.horizontal, 8)
-        .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+        .background(isHovering ? Theme.hoverFill : .clear, in: .capsule)
         .contentShape(.rect)
         .onTapGesture { changes.openReview(for: url) }
         .onHover { isHovering = $0 }

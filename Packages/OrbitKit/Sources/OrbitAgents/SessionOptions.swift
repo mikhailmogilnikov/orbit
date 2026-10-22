@@ -414,7 +414,7 @@ struct OptionsRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(isHovering ? Theme.hoverFill : .clear, in: .rect(cornerRadius: Theme.smallCorner))
+            .background(isHovering ? Theme.hoverFill : .clear, in: .capsule)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

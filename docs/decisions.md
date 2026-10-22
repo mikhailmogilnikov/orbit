@@ -238,7 +238,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D226. Stale explorer rows are hidden after a folder opens or closes
 - D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
 - D228. Publishing a release rebuilds the site on master, not on the release's tag
-- D229. Buttons and button-like controls are pills
+- D229. Buttons, tabs, one-line rows and search fields are pills
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3390,8 +3390,9 @@ badges; `DisclosureChevron` is the one rotating "›" (8 pt bold) and other
 small symbols use `TypeScale.glyph`. Chat bubbles and editor banners keep their own
 tints: they aren't states.
 
-(Buttons, toggle buttons and the bottom panel's tabs became capsules in D229;
-the radii above are for rows, fields, cards and panels.)
+(Since D229 anything one line tall people click is a capsule: buttons, tabs,
+one-line rows, search fields; the radii above are for cards, panels, tall
+rows, code blocks, icon tiles and key caps.)
 
 ### D158. Settings laid out like System Settings: groups, tiles, header cards, pages
 
@@ -4797,7 +4798,7 @@ nor 0.2.0 reached `/changelog` until the next push. The trigger is gone;
 GitHub. Allowing tags in the environment's rules would have worked too,
 but it's a repository setting nothing in the repo shows.
 
-### D229. Buttons and button-like controls are pills
+### D229. Buttons, tabs, one-line rows and search fields are pills
 
 macOS 26 draws only large buttons as capsules; small and regular ones stayed
 rounded rectangles, next to our capsule badges, hunk actions and glass
@@ -4808,6 +4809,32 @@ AppKit hosts on their own (`NSHostingView` / `NSHostingController`: the
 editor's popovers, the rename sheet, hover cards) don't inherit the window's
 environment and set it themselves. Hand-drawn ones follow: the option
 toggles of Find in File and Find in Project, the bottom panel's and the
-terminal's tabs. Rows, fields, key caps, cards and panels keep their
-rounded rectangles (D157): they aren't buttons, and a capsule row in a list
-reads as a chip. Circle buttons (`.buttonBorderShape(.circle)`) stay circles.
+terminal's tabs. Circle buttons (`.buttonBorderShape(.circle)`) stay circles.
+
+The rest followed iOS 26 / macOS 26's shapes: whatever is one line tall and
+clicked is a capsule. The editor's tabs (the current one a glass capsule,
+like Safari 26's), the tab switcher's rows, the explorer's selection, drop
+target and rename field, one-line rows in the chat (history, changed files,
+review comments, the session options menu, @ and / popovers), the
+completion list's selection, Find in File's and Find in Project's fields,
+the shortcut recorder. Shapes that hold more keep their concentric radii
+(D157): cards, panels, popovers, code blocks, icon tiles, key caps, rows of
+two lines (the palette's 44-pt rows, commits, the project picker, agent
+sessions); a 44-pt capsule would curve harder than the 18-pt panel around
+it. Native controls (`.roundedBorder` fields, segmented pickers, lists
+with the system's selection) keep the system's own shapes.
+
+The explorer's selection capsule is inset 4 pt, so the chevron sits inside
+it, clear of the curve. Two things AppKit draws had to follow:
+
+- The ring around the row a context menu (or a drop) is for is the outline
+  view's, a rounded rectangle inset 11 pt from a private method
+  (`_roundedHighlightPathForRow:fillingRowBackground:`).
+  `CapsuleRowHighlight` replaces it once, for tables it marked (the
+  explorer's), with the capsule's path; other tables get AppKit's. If a
+  macOS update drops the method, the ring goes back to the rectangle.
+- The disclosure chevrons are vibrant: their color comes from the sidebar's
+  glass behind, not from the capsule drawn between, so on the selected row
+  the chevron took the capsule's own gray and vanished. The outline view gets
+  the plain (non-vibrant) appearance of the color scheme; its chevrons blend
+  over whatever is under them.

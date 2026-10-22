@@ -276,7 +276,7 @@ final class CompletionRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
         Theme.accentNSColor.withAlphaComponent(0.28).setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 0), xRadius: 5, yRadius: 5).fill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 0), xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
     }
 }
 
