@@ -148,12 +148,7 @@ public struct DiffHunkView<Actions: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             if isSplit, showsLineNumbers {
                 ForEach(Array(DiffLayout.rows(hunk.lines).enumerated()), id: \.offset) { _, row in
-                    HStack(alignment: .top, spacing: 0) {
-                        SplitDiffSide(line: row.old, number: row.old?.oldNumber, highlighted: row.old.flatMap { highlighting?.oldText(for: $0) })
-                        Rectangle().fill(Theme.hairline).frame(width: 1)
-                        SplitDiffSide(line: row.new, number: row.new?.newNumber, highlighted: row.new.flatMap { highlighting?.newText(for: $0) })
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
+                    SplitDiffRow(old: row.old, new: row.new, highlighting: highlighting)
                 }
             } else {
                 ForEach(hunk.lines) { line in
@@ -225,6 +220,21 @@ struct DiffLineRow: View {
         case .removed: Theme.removedBackground
         case .context: .clear
         }
+    }
+}
+
+struct SplitDiffRow: View {
+    let old: DiffLine?
+    let new: DiffLine?
+    let highlighting: DiffHighlighting?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            SplitDiffSide(line: old, number: old?.oldNumber, highlighted: old.flatMap { highlighting?.oldText(for: $0) })
+            Rectangle().fill(Theme.hairline).frame(width: 1)
+            SplitDiffSide(line: new, number: new?.newNumber, highlighted: new.flatMap { highlighting?.newText(for: $0) })
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -358,6 +368,67 @@ private enum CompactDiffCache {
         if cache.count >= 512 { cache.removeAll() }
         cache[key] = hunks
         return hunks
+    }
+}
+
+/// A diff tab's lines, with the gaps between hunks, for a scroll view. Each line
+/// is its own row of the lazy stack: with a row per hunk, a long one (a new file
+/// is a single hunk) was laid out whole and scrolling it dropped frames.
+public struct DiffRows: View {
+    let hunks: [DiffHunk]
+    /// Lines in the new file, for the gap after the last hunk.
+    let lineCount: Int
+    let highlighting: DiffHighlighting?
+    @AppStorage(DiffLayout.storageKey) private var isSplit = false
+
+    public init(hunks: [DiffHunk], lineCount: Int, highlighting: DiffHighlighting?) {
+        self.hunks = hunks
+        self.lineCount = lineCount
+        self.highlighting = highlighting
+    }
+
+    private enum Row: Identifiable {
+        case gap(index: Int, hidden: Int)
+        case line(DiffLine)
+        case split(old: DiffLine?, new: DiffLine?)
+
+        // Line ids run across hunks; a split row holds each of its lines alone.
+        var id: Int {
+            switch self {
+            case .gap(let index, _): -1 - index
+            case .line(let line): line.id
+            case .split(let old, let new): (old ?? new)?.id ?? 0
+            }
+        }
+    }
+
+    public var body: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(rows) { row in
+                switch row {
+                case .gap(_, let hidden): DiffGapRow(hidden: hidden)
+                case .line(let line): DiffLineRow(line: line, showsLineNumbers: true, highlighted: highlighting?.text(for: line))
+                case .split(let old, let new): SplitDiffRow(old: old, new: new, highlighting: highlighting)
+                }
+            }
+        }
+    }
+
+    private var rows: [Row] {
+        var rows: [Row] = []
+        var shown = 0
+        for (index, hunk) in hunks.enumerated() {
+            let start = hunk.newRange.lowerBound - hunk.lines.prefix { $0.kind == .context }.count
+            if start > shown { rows.append(.gap(index: index, hidden: start - shown)) }
+            if isSplit {
+                rows += DiffLayout.rows(hunk.lines).map { .split(old: $0.old, new: $0.new) }
+            } else {
+                rows += hunk.lines.map(Row.line)
+            }
+            shown = hunk.newRange.upperBound + hunk.lines.reversed().prefix { $0.kind == .context }.count
+        }
+        if lineCount > shown { rows.append(.gap(index: hunks.count, hidden: lineCount - shown)) }
+        return rows
     }
 }
 

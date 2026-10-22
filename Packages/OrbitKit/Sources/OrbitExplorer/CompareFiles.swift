@@ -50,13 +50,7 @@ struct CompareView: View {
                 EmptyStateView("Identical Files", systemImage: "equal.circle", message: "The two files have the same text.")
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(hunks.enumerated()), id: \.element.id) { index, hunk in
-                            DiffGapRow(hidden: hidden(before: index))
-                            DiffHunkView(hunk: hunk, highlighting: highlighting)
-                        }
-                        DiffGapRow(hidden: hiddenAfterLast)
-                    }
+                    DiffRows(hunks: hunks, lineCount: lineCount, highlighting: highlighting)
                     .textSelection(.enabled)
                 }
             }
@@ -115,20 +109,5 @@ struct CompareView: View {
         lineCount = count
         isLoaded = true
         highlighting = await DiffHighlighting.make(old: old, new: new, url: right, hunks: result, with: highlighter)
-    }
-
-    private func context(_ hunk: DiffHunk, after: Bool) -> Int {
-        (after ? Array(hunk.lines.reversed()) : hunk.lines).prefix { $0.kind == .context }.count
-    }
-
-    private func hidden(before index: Int) -> Int {
-        let start = hunks[index].newRange.lowerBound - context(hunks[index], after: false)
-        guard index > 0 else { return start }
-        return start - (hunks[index - 1].newRange.upperBound + context(hunks[index - 1], after: true))
-    }
-
-    private var hiddenAfterLast: Int {
-        guard let last = hunks.last else { return 0 }
-        return lineCount - (last.newRange.upperBound + context(last, after: true))
     }
 }

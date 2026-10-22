@@ -32,13 +32,7 @@ struct GitDiffView: View {
                 EmptyStateView("No Text Changes", systemImage: "doc.text", message: "Only file mode or line endings changed.")
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(hunks.enumerated()), id: \.element.id) { index, hunk in
-                            DiffGapRow(hidden: hiddenLines(before: index))
-                            DiffHunkView(hunk: hunk, highlighting: highlighting)
-                        }
-                        DiffGapRow(hidden: hiddenLinesAfterLast)
-                    }
+                    DiffRows(hunks: hunks, lineCount: lineCount, highlighting: highlighting)
                     .textSelection(.enabled)
                 }
             }
@@ -134,25 +128,4 @@ struct GitDiffView: View {
             highlighting = await DiffHighlighting.make(old: old, new: new, url: url, hunks: result.0, with: model.highlighter)
         }
     }
-
-    private func hiddenLines(before index: Int) -> Int {
-        let start = hunks[index].newRange.lowerBound - contextBefore(hunks[index])
-        guard index > 0 else { return start }
-        let previous = hunks[index - 1]
-        return start - (previous.newRange.upperBound + contextAfter(previous))
-    }
-
-    private var hiddenLinesAfterLast: Int {
-        guard let last = hunks.last else { return 0 }
-        return lineCount - (last.newRange.upperBound + contextAfter(last))
-    }
-
-    private func contextBefore(_ hunk: DiffHunk) -> Int {
-        hunk.lines.prefix { $0.kind == .context }.count
-    }
-
-    private func contextAfter(_ hunk: DiffHunk) -> Int {
-        hunk.lines.reversed().prefix { $0.kind == .context }.count
-    }
 }
-
