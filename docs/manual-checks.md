@@ -135,7 +135,9 @@ code actions, rename, formatting and its corner note, the agent registry
 
 - Git (D134–D136): conflict blocks and their bar, the graph's lines between
   sidebar rows and its colors in light and dark.
-- Blame after the line (D187): position, color, the hover card.
+- Blame after the line (D187): position, color, the hover card; its hash
+  opens Source Control on the commit, expanded and scrolled to (D225), and
+  its context menu's Copy Hash works from the hover panel.
 - File and line history, compare (D188, D189).
 - Revision tab (D204): the author column, run separators, horizontal scrolling.
 - D147–D154: the Fix button's hover, ⌘-click on paths in the terminal, the color

@@ -239,7 +239,6 @@ private struct ErrorBanner: View {
 private struct ChangesList: View {
     @Bindable var model: GitModel
     @State private var showsStashes = true
-    @State private var showsHistory = true
     @State private var stashMessage = ""
 
     var body: some View {
@@ -250,64 +249,72 @@ private struct ChangesList: View {
                     .frame(maxHeight: 200)
                 Spacer()
             } else {
-                List {
-                    if status.files.isEmpty {
-                        Label("No changes, the working tree is clean", systemImage: "checkmark.circle")
-                            .foregroundStyle(.secondary)
-                    }
-                    if !status.conflicted.isEmpty {
-                        Section {
-                            ForEach(status.conflicted, id: \.path) { file in
-                                ChangeRow(file: file, kind: .conflicted, model: model, section: .unstaged)
-                            }
-                        } header: {
-                            SectionHeader(title: "Merge Conflicts", count: status.conflicted.count)
+                ScrollViewReader { proxy in
+                    List {
+                        if status.files.isEmpty {
+                            Label("No changes, the working tree is clean", systemImage: "checkmark.circle")
+                                .foregroundStyle(.secondary)
                         }
-                    }
-                    if !status.staged.isEmpty {
-                        Section {
-                            ForEach(status.staged, id: \.path) { file in
-                                ChangeRow(file: file, kind: file.staged ?? .modified, model: model, section: .staged)
-                            }
-                        } header: {
-                            SectionHeader(title: "Staged Changes", count: status.staged.count) {
-                                IconButton("minus", help: "Unstage All") { model.unstage(status.staged) }
+                        if !status.conflicted.isEmpty {
+                            Section {
+                                ForEach(status.conflicted, id: \.path) { file in
+                                    ChangeRow(file: file, kind: .conflicted, model: model, section: .unstaged)
+                                }
+                            } header: {
+                                SectionHeader(title: "Merge Conflicts", count: status.conflicted.count)
                             }
                         }
-                    }
-                    if !status.unstaged.isEmpty {
-                        Section {
-                            ForEach(status.unstaged, id: \.path) { file in
-                                ChangeRow(file: file, kind: file.unstaged ?? .modified, model: model, section: .unstaged)
+                        if !status.staged.isEmpty {
+                            Section {
+                                ForEach(status.staged, id: \.path) { file in
+                                    ChangeRow(file: file, kind: file.staged ?? .modified, model: model, section: .staged)
+                                }
+                            } header: {
+                                SectionHeader(title: "Staged Changes", count: status.staged.count) {
+                                    IconButton("minus", help: "Unstage All") { model.unstage(status.staged) }
+                                }
                             }
-                        } header: {
-                            SectionHeader(title: "Changes", count: status.unstaged.count) {
-                                IconButton("tray.and.arrow.down", help: "Stash All Changes") { model.isNamingStash = true }
-                                IconButton("arrow.uturn.backward", help: "Discard All Changes") { model.discard(status.unstaged) }
-                                IconButton("plus", help: "Stage All") { model.stage(status.unstaged) }
+                        }
+                        if !status.unstaged.isEmpty {
+                            Section {
+                                ForEach(status.unstaged, id: \.path) { file in
+                                    ChangeRow(file: file, kind: file.unstaged ?? .modified, model: model, section: .unstaged)
+                                }
+                            } header: {
+                                SectionHeader(title: "Changes", count: status.unstaged.count) {
+                                    IconButton("tray.and.arrow.down", help: "Stash All Changes") { model.isNamingStash = true }
+                                    IconButton("arrow.uturn.backward", help: "Discard All Changes") { model.discard(status.unstaged) }
+                                    IconButton("plus", help: "Stage All") { model.stage(status.unstaged) }
+                                }
+                            }
+                        }
+                        if !model.stashes.isEmpty {
+                            Section(isExpanded: $showsStashes) {
+                                ForEach(model.stashes) { stash in
+                                    StashRow(stash: stash, model: model)
+                                }
+                            } header: {
+                                SectionHeader(title: "Stashes", count: model.stashes.count, isExpanded: $showsStashes)
+                            }
+                        }
+                        if status.hasCommits {
+                            Section(isExpanded: $model.showsHistory) {
+                                HistoryRows(model: model)
+                            } header: {
+                                SectionHeader(title: "History", count: model.history.count, isExpanded: $model.showsHistory)
                             }
                         }
                     }
-                    if !model.stashes.isEmpty {
-                        Section(isExpanded: $showsStashes) {
-                            ForEach(model.stashes) { stash in
-                                StashRow(stash: stash, model: model)
-                            }
-                        } header: {
-                            SectionHeader(title: "Stashes", count: model.stashes.count, isExpanded: $showsStashes)
-                        }
-                    }
-                    if status.hasCommits {
-                        Section(isExpanded: $showsHistory) {
-                            HistoryRows(model: model)
-                        } header: {
-                            SectionHeader(title: "History", count: model.history.count, isExpanded: $showsHistory)
-                        }
+                    .listStyle(.sidebar)
+                    // History rows are as tall as their graph cell, so its lines meet (D136).
+                    .environment(\.defaultMinListRowHeight, 20)
+                    // A commit revealed from the editor's blame, once the search has found it.
+                    .onChange(of: model.revealedCommit.flatMap { hash in model.history.contains { $0.hash == hash } ? hash : nil }, initial: true) { _, hash in
+                        guard let hash else { return }
+                        proxy.scrollTo(hash, anchor: .top)
+                        model.revealedCommit = nil
                     }
                 }
-                .listStyle(.sidebar)
-                // History rows are as tall as their graph cell, so its lines meet (D136).
-                .environment(\.defaultMinListRowHeight, 20)
             }
         }
         .alert("Stash Changes", isPresented: $model.isNamingStash) {
@@ -384,7 +391,6 @@ private struct StashRow: View {
 /// Branch picker and search, then the commits with their graph (D136).
 private struct HistoryRows: View {
     @Bindable var model: GitModel
-    @State private var expanded: Set<String> = []
 
     private static let laneSpacing: CGFloat = 12
     private static let maxLanes = 8
@@ -440,15 +446,15 @@ private struct HistoryRows: View {
         ForEach(Array(model.history.enumerated()), id: \.element.id) { index, commit in
             let row = index < graph.count ? graph[index] : nil
             CommitRow(commit: commit, model: model, graph: row, graphWidth: width, spacing: Self.laneSpacing,
-                      isExpanded: expanded.contains(commit.hash)) {
+                      isExpanded: model.expandedCommits.contains(commit.hash)) {
                 // One file's history: a commit opens what it changed in that file.
                 if let path = model.historyScope.path {
                     model.openDiff(GitCommitFile(status: .modified, path: path, oldPath: nil), in: commit)
-                } else if expanded.remove(commit.hash) == nil {
-                    expanded.insert(commit.hash)
+                } else if model.expandedCommits.remove(commit.hash) == nil {
+                    model.expandedCommits.insert(commit.hash)
                 }
             }
-            if expanded.contains(commit.hash) {
+            if model.expandedCommits.contains(commit.hash) {
                 CommitFiles(commit: commit, model: model, passing: row?.continuing ?? [], graphWidth: width, spacing: Self.laneSpacing)
             }
         }

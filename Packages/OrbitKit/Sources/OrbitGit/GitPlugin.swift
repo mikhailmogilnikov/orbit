@@ -20,6 +20,7 @@ public final class GitPlugin: OrbitPlugin {
         let workspace = context.workspace
         let ui = context.ui
         let model = GitModel(workspace: workspace, services: context.services, settings: context.settings)
+        model.revealPanel = { [weak ui] in ui?.revealSidebarPanel("git") }
 
         ui.addSettingsPane(SettingsPane(
             id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", tint: .orange, group: .code, order: 30,

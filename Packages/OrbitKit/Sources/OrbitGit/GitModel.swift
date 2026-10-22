@@ -86,6 +86,13 @@ final class GitModel {
     var commitMessage = ""
     /// Asks for a stash message (from the panel or its menu).
     var isNamingStash = false
+    var showsHistory = true
+    /// History's commits showing their files.
+    var expandedCommits: Set<String> = []
+    /// A commit the panel scrolls to once it's in the history.
+    var revealedCommit: String?
+    /// Brings Source Control forward; set by the plugin.
+    @ObservationIgnored var revealPanel: () -> Void = {}
 
     private var environment: [String: String]
     private var root: URL?
@@ -699,5 +706,16 @@ extension GitModel: LineBlaming {
         let commit = history.first { $0.hash == hash }
             ?? GitCommit(hash: hash, shortHash: String(hash.prefix(7)), author: "", date: .distantPast, subject: "")
         openDiff(GitCommitFile(status: .modified, path: relative, oldPath: nil), in: commit)
+    }
+
+    /// Source Control's history searched for the commit, expanded to its files.
+    func revealCommit(_ hash: String) {
+        historyQuery = hash
+        searchTask?.cancel()
+        if historyScope == .current { refresh() } else { historyScope = .current }
+        showsHistory = true
+        expandedCommits.insert(hash)
+        revealedCommit = hash
+        revealPanel()
     }
 }

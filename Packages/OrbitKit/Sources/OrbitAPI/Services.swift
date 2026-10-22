@@ -98,6 +98,8 @@ public protocol LineBlaming: AnyObject {
     func blame(_ url: URL, contents: String) async -> [LineBlame]?
     /// Opens what the commit changed in the file.
     func showCommit(_ hash: String, file url: URL)
+    /// Shows the whole commit: its message and every file it changed.
+    func revealCommit(_ hash: String)
 }
 
 /// Marks a file's merge conflict resolved (`git add`), implemented by the Git

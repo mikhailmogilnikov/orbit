@@ -370,6 +370,7 @@ struct CodeEditor: NSViewRepresentable {
             blameKey = key
             let url = document.url
             inlineBlame.showCommit = { [weak provider] hash in provider?.showCommit(hash, file: url) }
+            inlineBlame.revealCommit = { [weak provider] hash in provider?.revealCommit(hash) }
             blameTask?.cancel()
             blameTask = Task { [weak self] in
                 if self?.inlineBlame.lines != nil { try? await Task.sleep(for: .milliseconds(400)) }
@@ -827,10 +828,13 @@ struct CodeEditor: NSViewRepresentable {
 
         private func showHover(at point: NSPoint) async {
             if let rect = inlineBlame.frame, rect.insetBy(dx: -2, dy: 0).contains(point), let line = inlineBlame.shown {
-                return presentHover(BlameCard(line: line) { [weak self] in
+                return presentHover(BlameCard(line: line, onShowChanges: { [weak self] in
                     self?.closeHover()
                     self?.inlineBlame.showCommit(line.hash)
-                }, over: rect)
+                }, onShowCommit: { [weak self] in
+                    self?.closeHover()
+                    self?.inlineBlame.revealCommit(line.hash)
+                }), over: rect)
             }
             guard textView != nil, let offset = characterOffset(at: point) else { return }
             let controller = diagnosticsController

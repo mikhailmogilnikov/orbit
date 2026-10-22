@@ -24,6 +24,8 @@ final class InlineBlameController {
     var lensWidth: (Int) -> CGFloat? = { _ in nil }
     /// Opens what a commit changed in the file.
     var showCommit: (String) -> Void = { _ in }
+    /// Shows the whole commit.
+    var revealCommit: (String) -> Void = { _ in }
     /// Where the label is, in text-view coordinates, for the hover card.
     private(set) var frame: CGRect?
     private(set) var shown: LineBlame?
@@ -136,6 +138,7 @@ struct InlineBlamePlugin: STPlugin {
 struct BlameCard: View {
     let line: LineBlame
     let onShowChanges: () -> Void
+    let onShowCommit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -157,14 +160,17 @@ struct BlameCard: View {
                 }
                 HStack(spacing: 12) {
                     Button("Show Changes", action: onShowChanges)
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(line.hash, forType: .string)
-                    } label: {
+                    Button(action: onShowCommit) {
                         Text(String(line.hash.prefix(8)))
                             .orbitFont(.body, design: .monospaced)
                     }
-                    .help("Copy the commit's hash")
+                    .help("Show the commit in Source Control")
+                    .contextMenu {
+                        Button("Copy Hash") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(line.hash, forType: .string)
+                        }
+                    }
                 }
                 .buttonStyle(.link)
             }

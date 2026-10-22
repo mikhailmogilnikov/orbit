@@ -234,6 +234,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D222. Developer ID releases: the certificate is found in the keychain; Sparkle's helpers signed one by one
 - D223. The site counts visits and Download clicks with GoatCounter, without cookies
 - D224. Orbit's own extension registry: one index.json on GitHub, checked archives, a question before programs
+- D225. The blame card's hash opens the commit in Source Control
 - D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
@@ -3881,7 +3882,7 @@ until the text is blamed again (after a pause, as before), and isn't drawn
 with a selection or several carets, or when the line leaves too little room.
 Hovering it opens the editor's hover card (`BlameCard`, the same panel as a
 symbol's): author, relative and exact date, the summary, Show Changes and
-the short hash to copy.
+the short hash to copy. *The hash now opens the commit (D225).*
 
 Editor → Blame (now under Reading Code) and ⌥⌘B turn it on and off; it's on
 by default (a new defaults key, so the column's "off" doesn't carry over).
@@ -4717,6 +4718,17 @@ in the defaults points it at a fork or a local file).
 
 The registry starts with Orbit's three example packages (archives of this
 repository at a commit, `path` into `examples/extensions/`).
+
+### D225. The blame card's hash opens the commit in Source Control
+
+In the blame card (D187) Show Changes opens what the commit changed in this
+file; the hash only copied itself, and the author expected it to open the
+whole commit. Orbit has no commit view of its own, but Source Control's
+history expands a commit into its files, so the hash reveals that: the
+panel comes forward, History is searched for the full hash (on the current
+branch's scope), the commit is expanded and scrolled to. Its expanded
+commits and the History section's state moved into `GitModel` for that.
+Copying the hash stays in the hash's context menu.
 
 ### D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
 
