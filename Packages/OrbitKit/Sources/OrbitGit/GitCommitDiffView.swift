@@ -34,7 +34,6 @@ struct GitCommitDiffView: View {
             } else {
                 ScrollView {
                     DiffRows(hunks: hunks, lineCount: lineCount, highlighting: highlighting)
-                    .textSelection(.enabled)
                 }
             }
         }
@@ -52,33 +51,43 @@ struct GitCommitDiffView: View {
                 .foregroundStyle(.secondary)
             Text(url.lastPathComponent)
                 .orbitFont(.body, weight: .medium)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(url.lastPathComponent)
             if let old = file?.oldPath {
                 Text("from \(old)")
                     .orbitFont(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
+                    .layoutPriority(-1)
             }
             if let revision {
                 Text("compared with")
                     .orbitFont(.body)
                     .foregroundStyle(.secondary)
+                    .fixedSize()
                 Badge { Text(Self.short(revision)).monospaced() }
+                    .fixedSize()
             }
             if let commit {
                 Badge { Text(commit.shortHash).monospaced() }
+                    .fixedSize()
                 Text(commit.subject)
                     .orbitFont(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .layoutPriority(-1)
                     .help("\(commit.subject)\n\(commit.author), \(commit.date.formatted(date: .abbreviated, time: .shortened))")
             }
-            if isLoaded, !isBinary { DiffStatBadge(added: added, removed: removed) }
+            if isLoaded, !isBinary { DiffStatBadge(added: added, removed: removed).fixedSize() }
             Spacer()
             DiffLayoutToggle()
+                .fixedSize()
             if let url = tab.url, FileManager.default.fileExists(atPath: url.path) {
                 Button("Open File") { model.openFile(url) }
                     .buttonStyle(.glassProminent)
+                    .fixedSize()
                     .controlSize(.small)
             }
         }

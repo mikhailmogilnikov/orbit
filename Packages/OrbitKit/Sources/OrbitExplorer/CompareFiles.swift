@@ -51,7 +51,6 @@ struct CompareView: View {
             } else {
                 ScrollView {
                     DiffRows(hunks: hunks, lineCount: lineCount, highlighting: highlighting)
-                    .textSelection(.enabled)
                 }
             }
         }

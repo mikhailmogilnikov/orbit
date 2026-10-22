@@ -46,16 +46,22 @@ struct GitRevisionView: View {
                 .foregroundStyle(.secondary)
             Text(url.lastPathComponent)
                 .orbitFont(.body, weight: .medium)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(url.lastPathComponent)
             if let loaded {
                 Text("at")
                     .orbitFont(.body)
                     .foregroundStyle(.secondary)
+                    .fixedSize()
                 Badge { Text(GitModel.shortRevision(loaded.hash)).monospaced() }
+                    .fixedSize()
                 if let commit = loaded.commit {
                     Text(commit.subject)
                         .orbitFont(.body)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .layoutPriority(-1)
                         .help("\(commit.subject)\n\(commit.author), \(commit.date.formatted(date: .abbreviated, time: .shortened))")
                 }
             }
@@ -63,6 +69,7 @@ struct GitRevisionView: View {
             if let url = tab.url, FileManager.default.fileExists(atPath: url.path) {
                 Button("Open File") { model.openFile(url) }
                     .buttonStyle(.glassProminent)
+                    .fixedSize()
                     .controlSize(.small)
             }
         }

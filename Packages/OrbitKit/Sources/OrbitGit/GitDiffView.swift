@@ -33,7 +33,6 @@ struct GitDiffView: View {
             } else {
                 ScrollView {
                     DiffRows(hunks: hunks, lineCount: lineCount, highlighting: highlighting)
-                    .textSelection(.enabled)
                 }
             }
         }
@@ -61,31 +60,41 @@ struct GitDiffView: View {
                 .foregroundStyle(.secondary)
             Text(url.lastPathComponent)
                 .orbitFont(.body, weight: .medium)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(url.lastPathComponent)
             if !folder.isEmpty {
                 Text(folder)
                     .orbitFont(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
+                    .layoutPriority(-1)
             }
             Badge(staged ? "Staged" : "Working Tree")
-            if file != nil { DiffStatBadge(added: added, removed: removed) }
+                .fixedSize()
+            if file != nil { DiffStatBadge(added: added, removed: removed).fixedSize() }
             Spacer()
             DiffLayoutToggle()
+                .fixedSize()
             if let file {
                 if staged {
                     Button("Unstage") { model.unstage([file]) }
                         .buttonStyle(.glass)
+                        .fixedSize()
                 } else {
                     Button("Discard") { model.discard([file]) }
                         .buttonStyle(.glass)
+                        .fixedSize()
                     Button("Stage") { model.stage([file]) }
                         .buttonStyle(.glass)
+                        .fixedSize()
                 }
             }
             if FileManager.default.fileExists(atPath: url.path) {
                 Button("Open File") { model.openFile(url) }
                     .buttonStyle(.glassProminent)
+                    .fixedSize()
             }
         }
         .controlSize(.small)
