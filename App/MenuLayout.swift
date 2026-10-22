@@ -1,3 +1,4 @@
+import AppKit
 import OrbitKit
 import SwiftUI
 
@@ -14,6 +15,8 @@ enum MenuLayout {
         case commands(prefix: String)
         case openRecent
         case commandPalette
+        /// Find, Find Next…: the focused view's own find bar (editor, terminal).
+        case textFinder
     }
 
     typealias Section = [Item]
@@ -41,6 +44,7 @@ enum MenuLayout {
     ]
 
     static let find: [Section] = [
+        [.textFinder],
         [.command("search.findInProject")],
         [.command("languages.findReferences"), .command("languages.peekReferences"),
          .command("languages.callHierarchy"), .command("languages.typeHierarchy")],
@@ -111,7 +115,7 @@ enum MenuLayout {
                     switch item {
                     case .command(let id): ids.insert(id)
                     case .submenu(_, let members): ids.formUnion(members)
-                    case .commands, .openRecent, .commandPalette: break
+                    case .commands, .openRecent, .commandPalette, .textFinder: break
                     }
                 }
             }
@@ -218,7 +222,7 @@ struct OrbitMenus: Commands {
         case .command(let id): commands.contains { $0.id == id }
         case .submenu(_, let ids): commands.contains { ids.contains($0.id) }
         case .commands(let prefix): commands.contains { $0.id.hasPrefix(prefix) }
-        case .openRecent, .commandPalette: true
+        case .openRecent, .commandPalette, .textFinder: true
         }
     }
 
@@ -247,6 +251,30 @@ struct OrbitMenus: Commands {
         case .commandPalette:
             Button("Command Palette…") { if let host { CommandPalette.toggle(in: host) } }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+        case .textFinder:
+            TextFinderButtons()
         }
+    }
+}
+
+/// SwiftUI only puts Edit → Find in the menu with `TextEditingCommands`, which
+/// brings Spelling and Substitutions too; without these items ⌘F reached nothing.
+private struct TextFinderButtons: View {
+    var body: some View {
+        button("Find…", .showFindInterface, KeyboardShortcut("f", modifiers: .command))
+        button("Find and Replace…", .showReplaceInterface, KeyboardShortcut("f", modifiers: [.command, .option]))
+        button("Find Next", .nextMatch, KeyboardShortcut("g", modifiers: .command))
+        button("Find Previous", .previousMatch, KeyboardShortcut("g", modifiers: [.command, .shift]))
+        button("Use Selection for Find", .setSearchString, KeyboardShortcut("e", modifiers: .command))
+    }
+
+    private func button(_ title: String, _ action: NSTextFinder.Action, _ shortcut: KeyboardShortcut) -> some View {
+        Button(title) {
+            // The responder reads the action from the sender's tag, as from Edit → Find's items.
+            let sender = NSMenuItem()
+            sender.tag = action.rawValue
+            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
+        }
+        .keyboardShortcut(shortcut)
     }
 }

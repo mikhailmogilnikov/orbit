@@ -165,6 +165,8 @@ code actions, rename, formatting and its corner note, the agent registry
   and a newer Orbit already in Applications; as a user who isn't an admin;
   then Check for Updates… from the moved copy installs and relaunches.
 - Terminal find (D110): ⌘F reaching SwiftTerm's find bar, its look beside Orbit's glass.
+- Find → Find… (⌘F) in the editor: the find bar opens; ⌥⌘F replace, ⌘G / ⇧⌘G
+  next / previous, ⌘E uses the selection (the items were missing from the menus).
 - Tasks (D128, D138): typing into a shell that's still starting, ⌃C then
   restart of a dev server, ⌘R from the terminal and the chat, the running-task
   status item.

@@ -71,7 +71,7 @@ public final class TerminalPlugin: OrbitPlugin {
         ) {
             store.newSession()
         })
-        // SwiftTerm's find bar; ⌘F (Edit → Find) opens it too while the terminal has focus.
+        // SwiftTerm's find bar; ⌘F (Find → Find…) opens it too while the terminal has focus.
         context.commands.register(OrbitCommand(
             id: "terminal.find",
             title: "Find in Terminal…",
