@@ -37,6 +37,8 @@
   replace in files with a live preview (per file or all, `$1` groups in regex
   mode), files to include / exclude globs; ⌘P lists recent files (per project)
   and nudges them up in results
+- Find in File ⌘F as a Liquid Glass panel over the editor: counter, case / word / regex,
+  replace and Replace All in one undo, matches on the overview ruler, ⌘G / ⇧⌘G / ⌘E (D227)
 - Integrated terminal (SwiftTerm) in a resizable bottom panel: multiple tabs,
   login shell in the project folder, follows light/dark
 - Source Control panel: staged / changes / conflicts, stage / unstage / discard

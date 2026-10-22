@@ -87,7 +87,6 @@ struct CodeEditor: NSViewRepresentable {
         textView.showsLineNumbers = false
         textView.highlightSelectedLine = highlightsCurrentLine
         textView.isHorizontallyResizable = !wrapsLines
-        textView.isIncrementalSearchingEnabled = true
         textView.text = document.text
         textView.textDelegate = context.coordinator
         context.coordinator.applyIndentation(
@@ -118,6 +117,10 @@ struct CodeEditor: NSViewRepresentable {
         coordinator.indentGuides.isEnabled = showsIndentGuides
         textView.addPlugin(IndentGuidesPlugin(controller: coordinator.indentGuides))
         textView.addPlugin(BracketMatchPlugin(controller: coordinator.bracketMatch))
+        coordinator.find.textView = textView
+        coordinator.find.scrollView = scrollView
+        scrollView.find = coordinator.find
+        textView.addPlugin(FindPlugin(controller: coordinator.find))
         coordinator.inlineBlame.textView = textView
         textView.addPlugin(InlineBlamePlugin(controller: coordinator.inlineBlame))
         coordinator.inlayHints.textView = textView
@@ -166,6 +169,7 @@ struct CodeEditor: NSViewRepresentable {
         scrollView.overview = overview
         coordinator.overview = overview
         coordinator.symbolHighlights.onChange = { [weak overview] in overview?.highlights = $0 }
+        coordinator.find.onMatchesChange = { [weak overview] in overview?.matches = $0 }
         coordinator.folding.ruler = ruler
         ruler.onSwatchClick = { [weak coordinator] line in coordinator?.editColor(onLine: line) }
         ruler.onImageClick = { [weak coordinator] url in
@@ -219,6 +223,7 @@ struct CodeEditor: NSViewRepresentable {
                 coordinator.inlineDiff.invalidate()
                 coordinator.diagnosticsController.textDidChange()
                 coordinator.symbolHighlights.textDidChange()
+                coordinator.find.textDidChange()
                 coordinator.inlayHints.textWasReplaced()
                 coordinator.semanticTokens.textDidChange()
                 coordinator.codeLenses.textWasReplaced()
@@ -377,6 +382,7 @@ struct CodeEditor: NSViewRepresentable {
         let diagnosticsController = DiagnosticsController()
         lazy var symbolHighlights = SymbolHighlightController(geometry: diagnosticsController)
         lazy var bracketMatch = BracketMatchController(geometry: diagnosticsController)
+        lazy var find = FindController(geometry: diagnosticsController)
         lazy var inlineBlame = InlineBlameController(geometry: diagnosticsController)
         let indentGuides = IndentGuidesController()
         lazy var definitionLink = DefinitionLinkController(geometry: diagnosticsController)
@@ -476,6 +482,10 @@ struct CodeEditor: NSViewRepresentable {
                 write: theme.symbolHighlightWrite?.nsColor ?? ink.withAlphaComponent(isDark ? 0.17 : 0.12)
             )
             bracketMatch.color = foreground.withAlphaComponent(isDark ? 0.5 : 0.4)
+            find.colors = FindController.Colors(
+                match: theme.searchMatch?.nsColor ?? NSColor.systemYellow.withAlphaComponent(isDark ? 0.22 : 0.3),
+                current: isDark ? .systemYellow : .systemOrange
+            )
             inlineBlame.color = theme.hint?.nsColor ?? foreground.withAlphaComponent(isDark ? 0.38 : 0.42)
             indentGuides.color = theme.indentGuide?.nsColor ?? ink.withAlphaComponent(isDark ? 0.12 : 0.1)
             snippetPlaceholders.color = ink.withAlphaComponent(isDark ? 0.22 : 0.16)
@@ -521,6 +531,7 @@ struct CodeEditor: NSViewRepresentable {
                 warning: diagnostics.warning,
                 info: diagnostics.info,
                 highlight: ink.withAlphaComponent(isDark ? 0.45 : 0.35),
+                match: (isDark ? NSColor.systemYellow : .systemOrange).withAlphaComponent(0.8),
                 caret: ink.withAlphaComponent(isDark ? 0.5 : 0.4)
             )
         }
@@ -570,6 +581,7 @@ struct CodeEditor: NSViewRepresentable {
             linkedEditing.textDidChange()
             updateOverview()
             symbolHighlights.textDidChange()
+            find.textDidChange()
             inlineBlame.textDidChange()
             definitionLink.clear()
             closeHover()
@@ -695,6 +707,7 @@ struct CodeEditor: NSViewRepresentable {
             closeHover()
             if let textView { symbolHighlights.caretMoved(to: textView.textSelection) }
             bracketMatch.caretMoved()
+            find.selectionDidChange()
             inlineBlame.caretMoved()
             linkedEditing.caretMoved()
             folding.revealCaret()
@@ -957,6 +970,7 @@ struct CodeEditor: NSViewRepresentable {
 /// a ruler wider than what's visible and always scrolled sideways.
 final class EditorScrollView: NSScrollView {
     weak var overview: OverviewRuler?
+    weak var find: FindController?
 
     override func tile() {
         super.tile()
@@ -964,12 +978,27 @@ final class EditorScrollView: NSScrollView {
             let content = contentView.frame
             overview.frame = NSRect(x: bounds.maxX - OverviewRuler.width, y: content.minY, width: OverviewRuler.width, height: content.height)
         }
+        if let panel = find?.panel {
+            // Top right, clear of the scroller and the overview strip.
+            let width = min(FindPanel.maxWidth, bounds.width - OverviewRuler.width - 8)
+            let height = panel.intrinsicContentSize.height
+            let top = isFlipped ? bounds.minY + 4 : bounds.maxY - 4 - height
+            let frame = NSRect(x: bounds.maxX - OverviewRuler.width - 4 - width, y: top, width: max(width, 0), height: height)
+            if panel.frame != frame { panel.frame = frame }
+        }
         guard rulersVisible, let ruler = verticalRulerView, contentView.contentInsets.left > 0 else { return }
         contentView.contentInsets.left = 0
         var frame = contentView.frame
         frame.origin.x += ruler.ruleThickness
         frame.size.width -= ruler.ruleThickness
         contentView.frame = frame
+    }
+
+    /// The menus' Find items (and ⌘G while typing in the panel) reach here.
+    override func performTextFinderAction(_ sender: Any?) {
+        guard let find, let tag = (sender as? NSValidatedUserInterfaceItem)?.tag,
+              let action = NSTextFinder.Action(rawValue: tag) else { return }
+        find.perform(action)
     }
 }
 
@@ -1333,6 +1362,7 @@ final class OrbitTextView: STTextView {
     /// Esc only closes things (handled before this); STTextView would open
     /// completion here, as Xcode does, which surprised (D66 addendum).
     override func cancelOperation(_ sender: Any?) {
+        if let find = (enclosingScrollView as? EditorScrollView)?.find, find.isVisible { return find.hide() }
         if hasMultipleSelections, let primary = selectionRanges.last { selectionRanges = [primary] }
     }
 
@@ -1340,6 +1370,15 @@ final class OrbitTextView: STTextView {
     /// input sources when there are several; Esc works then.
     /// ⌃⇧I by key position: menus match ⌃ shortcuts (without ⌘) by the
     /// character, so in a Russian layout the menu item never sees "i".
+    /// Our find panel instead of NSTextFinder's bar (D227).
+    override func performTextFinderAction(_ sender: Any?) {
+        enclosingScrollView?.performTextFinderAction(sender)
+    }
+
+    override func performFindPanelAction(_ sender: Any?) {
+        enclosingScrollView?.performTextFinderAction(sender)
+    }
+
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
         if modifiers == .control, event.keyCode == 49 {

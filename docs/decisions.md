@@ -234,6 +234,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D222. Developer ID releases: the certificate is found in the keychain; Sparkle's helpers signed one by one
 - D223. The site counts visits and Download clicks with GoatCounter, without cookies
 - D224. Orbit's own extension registry: one index.json on GitHub, checked archives, a question before programs
+- D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -1896,7 +1897,8 @@ height proportionally (exact without wrapping, close with it). It is one
 view drawing rects, takes no clicks (the scroller over it does), and
 redraws only when one of those inputs changes.
 
-Not marked yet: ⌘F matches (STTextView's text finder doesn't expose them)
+Not marked yet: ⌘F matches (STTextView's text finder doesn't expose them;
+D227 marks them now, in the middle lane while the find panel is open)
 and occurrences of a selected word (the editor doesn't highlight those).
 
 ### D85. Restore files to before a message
@@ -4716,3 +4718,38 @@ in the defaults points it at a fork or a local file).
 The registry starts with Orbit's three example packages (archives of this
 repository at a commit, `path` into `examples/extensions/`).
 
+### D227. Find in File is a Liquid Glass panel of our own, not NSTextFinder's bar
+
+⌘F had reached nothing: SwiftUI only adds Edit → Find with
+`TextEditingCommands` (which brings Spelling and Substitutions along), so
+the Find menu now has Find…, Find and Replace… (⌥⌘F), Find Next / Previous
+(⌘G / ⇧⌘G) and Use Selection for Find (⌘E), sending
+`performTextFinderAction` with the action as the tag. Typing in a find
+field, the field editor would take it and do nothing; the items send it to
+the nearest view around the field that handles find instead.
+
+STTextView's NSTextFinder bar ignored the theme, sat as a gray strip under
+the window's glass, and couldn't tell us its matches. The editor's find is
+now its own (`FindInFile.swift`), as in Xcode 26 and Safari: a Liquid Glass
+panel floating over the editor's top right corner (a subview of the scroll
+view, laid out in `tile()`), tinted so the code under it doesn't read
+through the field. The row: the query with a counter ("3 of 12", "No
+results", "Invalid") and Match Case / Whole Word / Regex inside it, previous,
+next, close; a chevron opens the replace row (Replace, All). ↩ / ⇧↩ go
+next / previous, Esc closes (in the editor too) and leaves the match
+selected.
+
+- Typing searches from where the caret was when the panel opened (Xcode);
+  the current match is selected, ringed above the text (the selection
+  covers fills behind it), the others filled behind it in the theme's
+  `search.match_background` or a soft yellow. The overview ruler (D84)
+  marks them in its middle lane, instead of the symbol's uses, while the
+  panel is open.
+- A new one-line selection seeds the query on ⌘F. A match under the panel
+  is scrolled to a third of the way down.
+- Replace All is one edit from the first match to the last: one undo, one
+  pass for the highlighter and the change markers. `$1` works in regex mode.
+- Matching is `NSRegularExpression` on the main thread, capped at 10,000
+  matches ("10000+"); edits re-search after 120 ms. Find in Project keeps
+  its own copy of the few lines of matching (plugins don't share code).
+- The terminal keeps SwiftTerm's find bar (D110).

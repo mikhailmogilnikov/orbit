@@ -69,6 +69,8 @@ public struct ColorTheme: Sendable, Identifiable, Hashable {
     /// Other uses of the symbol under the caret: reads, and writes (assignments).
     public var symbolHighlight: ThemeColor?
     public var symbolHighlightWrite: ThemeColor?
+    /// Find in file's matches (the current one is drawn stronger).
+    public var searchMatch: ThemeColor?
 
     public var added: ThemeColor?
     public var modified: ThemeColor?
@@ -228,6 +230,7 @@ enum ThemeFile {
             theme.accent = color("text.accent", "icon.accent", "border.focused")
             theme.symbolHighlight = color("editor.document_highlight.read_background")
             theme.symbolHighlightWrite = color("editor.document_highlight.write_background")
+            theme.searchMatch = color("search.match_background")
 
             theme.added = color("version_control.added", "created")
             theme.modified = color("version_control.modified", "modified")

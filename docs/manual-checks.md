@@ -166,8 +166,10 @@ code actions, rename, formatting and its corner note, the agent registry
   and a newer Orbit already in Applications; as a user who isn't an admin;
   then Check for Updates… from the moved copy installs and relaunches.
 - Terminal find (D110): ⌘F reaching SwiftTerm's find bar, its look beside Orbit's glass.
-- Find → Find… (⌘F) in the editor: the find bar opens; ⌥⌘F replace, ⌘G / ⇧⌘G
-  next / previous, ⌘E uses the selection (the items were missing from the menus).
+- Find panel (D227) in a light theme and a light Zed theme: glass tint, match
+  fills and the current match's ring; ⌘G / ⇧⌘G typed for real while the field
+  has focus; the panel beside the floating editor actions with the path bar off
+  (they may overlap); a 4 MB file while typing a query.
 - Tasks (D128, D138): typing into a shell that's still starting, ⌃C then
   restart of a dev server, ⌘R from the terminal and the chat, the running-task
   status item.

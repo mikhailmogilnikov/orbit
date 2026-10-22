@@ -273,8 +273,24 @@ private struct TextFinderButtons: View {
             // The responder reads the action from the sender's tag, as from Edit → Find's items.
             let sender = NSMenuItem()
             sender.tag = action.rawValue
-            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
+            NSApp.sendAction(Self.action, to: Self.target(), from: sender)
         }
         .keyboardShortcut(shortcut)
+    }
+
+    private static let action = #selector(NSResponder.performTextFinderAction(_:))
+
+    /// Typing in a find field, the field editor would take the action and do
+    /// nothing: it goes to the view around the field that handles find (the editor's).
+    private static func target() -> Any? {
+        guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isFieldEditor,
+              let field = editor.delegate as? NSView else { return nil }
+        let inherited = NSResponder.instanceMethod(for: action)
+        var view = field.superview
+        while let current = view {
+            if type(of: current).instanceMethod(for: action) != inherited { return current }
+            view = current.superview
+        }
+        return nil
     }
 }

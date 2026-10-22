@@ -17,6 +17,7 @@ final class OverviewRuler: NSView {
         var warning: NSColor = .systemYellow
         var info: NSColor = .systemBlue
         var highlight: NSColor = .secondaryLabelColor
+        var match: NSColor = .systemYellow
         var caret: NSColor = .secondaryLabelColor
     }
 
@@ -25,6 +26,8 @@ final class OverviewRuler: NSView {
     var changes = LineMarkers() { didSet { if changes != oldValue { needsDisplay = true } } }
     var diagnostics: [Diagnostic] = [] { didSet { if diagnostics != oldValue { needsDisplay = true } } }
     var highlights: [SymbolHighlight] = [] { didSet { if highlights != oldValue { needsDisplay = true } } }
+    /// Lines with a Find match; they take the middle lane while the find panel is open.
+    var matches = IndexSet() { didSet { if matches != oldValue { needsDisplay = true } } }
     var caretLine: Int? { didSet { if caretLine != oldValue { needsDisplay = true } } }
 
     override var isFlipped: Bool { true }
@@ -50,9 +53,12 @@ final class OverviewRuler: NSView {
             colors.deleted.setFill()
             NSRect(x: 1, y: min(max(y(line) - 1, 0), bounds.height - 2), width: lane, height: 2).fill()
         }
-        for highlight in highlights {
-            mark(highlight.range.start.line, highlight.range.end.line, x: 1 + lane, width: lane, color: colors.highlight)
+        if matches.isEmpty {
+            for highlight in highlights {
+                mark(highlight.range.start.line, highlight.range.end.line, x: 1 + lane, width: lane, color: colors.highlight)
+            }
         }
+        for range in matches.rangeView { mark(range.first!, range.last!, x: 1 + lane, width: lane, color: colors.match) }
         // Less severe first, so errors end up on top.
         for diagnostic in diagnostics.sorted(by: { $0.severity < $1.severity }) {
             let color: NSColor = switch diagnostic.severity {
