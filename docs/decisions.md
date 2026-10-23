@@ -5015,6 +5015,15 @@ update-constraints loop with the extra room (seen in the macOS 26 VM, D235,
 with every other change taken out). The frame override steps aside there
 until the loop is understood.
 
+Note: 0.4.0 crashed the same way on macOS 27, at launch with a short file
+open. The layout engine sets the text view's frame back to one it saved,
+room included (`-[NSView setFrame:]`, also from autoresizing); that height
+was taken for the text's, so the room went on twice, STTextView's next
+measure took it off, and the passes never settled. Only `setFrameSize`
+calls that don't come through `frame`'s setter (STTextView's own sizing)
+now set the text's height. The macOS 26 loop is likely the same one; the
+gate stays until it's tried in the VM.
+
 ### D238. Symlinks open like what they point to
 
 A symlink to a folder showed in the explorer as a file that opened nothing:

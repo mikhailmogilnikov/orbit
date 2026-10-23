@@ -1312,14 +1312,27 @@ final class OrbitTextView: STTextView {
     /// The text's height, as STTextView last sized the view; the frame adds
     /// room under it to scroll the last line up to the top (D237).
     private var textHeight: CGFloat = 0
-    private var resizingWithClipView = false
+    private var resizingFromOutside = false
 
     override func resize(withOldSuperviewSize oldSize: NSSize) {
         // Autoresizing passes the frame's height (room included) plus the clip
         // view's change: the room is worked out again from the text's height.
-        resizingWithClipView = true
+        resizingFromOutside = true
         super.resize(withOldSuperviewSize: oldSize)
-        resizingWithClipView = false
+        resizingFromOutside = false
+    }
+
+    override var frame: NSRect {
+        get { super.frame }
+        set {
+            // The layout engine sets back a frame it saved earlier, room included:
+            // taken for the text's height, the room was added twice, the next pass
+            // took it off again, and the window looped until AppKit crashed. Only
+            // STTextView's own sizing (`setFrameSize`) measures the text.
+            resizingFromOutside = true
+            super.frame = newValue
+            resizingFromOutside = false
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -1328,7 +1341,7 @@ final class OrbitTextView: STTextView {
         guard #available(macOS 27, *), isVerticallyResizable, let clip = enclosingScrollView?.contentView else {
             return super.setFrameSize(newSize)
         }
-        if !resizingWithClipView { textHeight = newSize.height }
+        if !resizingFromOutside { textHeight = newSize.height }
         let multiple = defaultParagraphStyle.lineHeightMultiple
         let lineHeight = (font.ascender - font.descender + font.leading) * (multiple > 0 ? multiple : 1)
         let size = NSSize(width: newSize.width, height: textHeight + max(clip.bounds.height - lineHeight, 0))
