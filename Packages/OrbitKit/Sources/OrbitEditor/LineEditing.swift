@@ -155,6 +155,25 @@ enum LineEditing {
         return found.count > 1 || last.length == 0 ? found : nil
     }
 
+    /// Overlapping selections become one and the same caret twice one caret, as
+    /// in VS Code; the primary stays last. Expand Selection grew thousands of
+    /// carets to the same range, and STTextView drew every copy: the editor froze (D243).
+    nonisolated static func merged(_ selections: [NSRange]) -> [NSRange] {
+        guard selections.count > 1, let primary = selections.last else { return selections }
+        var merged: [NSRange] = []
+        for range in selections.sorted(by: { ($0.location, $0.length) < ($1.location, $1.length) }) {
+            if let last = merged.last, range == last || range.location < NSMaxRange(last) {
+                merged[merged.count - 1].length = max(NSMaxRange(last), NSMaxRange(range)) - last.location
+            } else {
+                merged.append(range)
+            }
+        }
+        if let index = merged.firstIndex(where: { $0.location <= primary.location && NSMaxRange(primary) <= NSMaxRange($0) }) {
+            merged.append(merged.remove(at: index))
+        }
+        return merged
+    }
+
     /// ⌃⇧↑ / ⌃⇧↓: a caret at the same column one line above the first caret or below the last.
     static func addCaret(_ text: NSString, selections: [NSRange], up: Bool) -> [NSRange]? {
         let sorted = selections.sorted { $0.location < $1.location }
@@ -201,7 +220,7 @@ extension STTextView {
             let content = textContentManager
             let start = content.documentRange.location
             let length = documentText.length
-            let selections = newValue.compactMap { range -> NSTextSelection? in
+            let selections = LineEditing.merged(newValue).compactMap { range -> NSTextSelection? in
                 let location = min(max(0, range.location), length)
                 guard let from = content.location(start, offsetBy: location),
                       let to = content.location(from, offsetBy: min(range.length, length - location)),

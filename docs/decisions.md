@@ -252,6 +252,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D240. Traffic lights and panels sit evenly in macOS 26's floating glass
 - D241. The full-screen title strip is filled; macOS 26's composer gets a fill
 - D242. A launch that crashes is followed by a safe start; releases get a launch check
+- D243. `make stress` tries to break a debug build
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -5136,7 +5137,58 @@ In the release script, `build` runs the new build before zipping it
 (`scripts/release.sh smoke <app>` alone): a scratch project with a short
 and a long file in tabs, for 30 s. It fails on an exit, a new crash report,
 LaunchGuard's key still set (the launch didn't settle) or the CPU busy while
-idle (a layout loop spins before AppKit gives up). Orbit's settings are
-swapped for the test's and put back, so Orbit has to be quit first;
+idle (a layout loop spins before AppKit gives up). It runs a copy of the
+build with its own bundle id and settings (D243), beside the Orbit in use;
 `SKIP_SMOKE=1` skips it. It only covers the Mac it runs on: the macOS 26 VM
 (D235) is still a check by hand.
+
+### D243. `make stress` tries to break a debug build
+
+The crashes that reached users (D237's layout loop) came from a mix no unit
+test sets up: a real window, a file of a certain length, the scrollers' style,
+a macOS version. `make stress` (`scripts/stress.sh`) runs the debug build on a
+project of awkward files: empty, one line without a newline, 48 lines, 6000
+lines, one 200 KB line, emoji/RTL/combining marks, CRLF, 2000 empty lines,
+8 MB of log, binary, an image, a deep path with spaces, symlinks and a broken
+one, uncommitted git changes. A fixed pass opens each and jumps to its end,
+then goes through window sizes (the minimum to past the screen), the
+sidebar, inspector and terminal, splits, zoom, appearance and
+wrapping (through `.orbit/settings.json`), typing and line edits, agent edits
+(Simulate Agent Edit) with keep/undo/accept/reject, and tab switching; then
+random steps from the same set (`STEPS`, `SEED`; the seed is printed so a
+failure replays).
+
+After every step Orbit has to be alive, answer `ping` over `DebugRemote`
+(the main thread isn't stuck) and get under 40% of a core over 0.3 s within
+20 s (a layout loop spins until AppKit gives up), with no new crash report.
+The first step that fails stops the run with the step log, a picture of the
+window, a `sample` of the process and the crash report in `.build/stress`.
+A step takes under a second (`DebugRemote` reads every 50 ms, CPU comes
+from `ps` time, not `top`): the fixed pass and 150 random steps take about
+four minutes.
+
+It drives a copy of the build with its own bundle id
+(`dev.orbit.app.stress`): its own settings (started from Orbit's), its own
+`DebugRemote` file, so it runs beside the Orbit in use. And out of its way:
+the copy is an agent app (`LSUIElement`, launched with `open -g`), and with
+`orbit.debugRemoteBackground` `DebugRemote` never activates it, sends its
+windows behind the others, opens files without `ProjectWindows` activating
+the app, and sends keys and text straight to the editor (editing selectors,
+menu shortcuts, `insertText`) since posted keys need a key window. Full
+screen takes a Space of its own and switches to it, so it's only in
+`FOREGROUND=1` runs, which also post real key events. Debug builds only:
+`DebugRemote` isn't in Release. Like the release check (D242) it covers the
+Mac it runs on; in the macOS 26 VM (D235) it runs the same way over SSH.
+Events are posted to the app, not typed through the window server, so input
+methods and real drags aren't covered.
+
+Its first run found a freeze: Select All Occurrences in a 6000-line file,
+then Expand Selection, grew the carets to the same ranges, and STTextView
+drew each copy as views of its own; the main thread was busy for over 20 s.
+Selections are now merged when they're set (`LineEditing.merged`):
+overlapping ones become one and the same caret twice one, as in VS Code,
+the primary staying last.
+The next found a crash: Join Editors right after Split Editor.
+`EditorGroups` read the second group in its own body, and in the update
+that joined them that body ran before the editor area swapped it for one
+editor; it now draws the split only while there are two groups.

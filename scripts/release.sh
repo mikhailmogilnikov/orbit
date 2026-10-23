@@ -11,6 +11,7 @@
 # and stapled; DEVELOPER_ID picks one of several, AD_HOC=1 skips it. Otherwise ad hoc.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/orbit-env.sh
 
 REPO=mikhailmogilnikov/orbit
 DERIVED=.build/xcode
@@ -79,37 +80,23 @@ notarize() {
 
 # The build opens a scratch project with files in tabs and has to last (D242):
 # 0.4.0 crashed seconds after launch on macOS 27 and couldn't update itself.
-# Orbit's settings are swapped for the test's and put back. SKIP_SMOKE=1 skips it.
+# SKIP_SMOKE=1 skips it. `make stress` goes much further, on a debug build (D243).
 smoke_test() {
     local app=$1
     [ -z "${SKIP_SMOKE:-}" ] || { echo "warning: launch check skipped" >&2; return; }
-    if pgrep -xq Orbit; then echo "Quit Orbit first: the launch check runs the build with its own settings." >&2; exit 1; fi
-    local dir demo crashes
-    # Not under /var: Orbit shortens /private/var paths and the saved tabs wouldn't match.
-    dir=$(mktemp -d "$HOME/Library/Caches/orbit-launch-check.XXXXXX")
-    demo=$dir/demo
+    orbit_scratch
+    # A copy with its own bundle id and settings, so it runs beside Orbit itself.
+    local demo=$ORBIT_SCRATCH/demo crashes copy=$ORBIT_SCRATCH/OrbitCheck.app
+    export ORBIT_DOMAIN=dev.orbit.app.check
+    orbit_side_copy "$app" "$copy" "$ORBIT_DOMAIN"
     mkdir -p "$demo/src"
     # Shorter than the window, like the file 0.4.0 crashed on.
     for i in $(seq 1 48); do echo "export const item$i = { id: $i, title: 'Item $i' }"; done > "$demo/src/short.ts"
     for i in $(seq 1 400); do echo "let value$i = $i // a line long enough to need a horizontal scroll bar in a narrow window"; done > "$demo/src/long.swift"
-    defaults export dev.orbit.app "$dir/saved.plist" 2>/dev/null || echo '{}' | plutil -convert xml1 -o "$dir/saved.plist" -
-    # `import` merges: the domain goes first, or what the run wrote (recent folders, tabs) stays.
-    trap "defaults delete dev.orbit.app 2>/dev/null; defaults import dev.orbit.app '$dir/saved.plist' && rm -rf '$dir'" EXIT
-    python3 -I - "$dir/saved.plist" "$dir/test.plist" "$demo" <<'EOF'
-import plistlib, sys
-saved, test, demo = sys.argv[1:]
-prefs = plistlib.load(open(saved, "rb"))
-prefs["orbit.openFolders"] = [demo]
-prefs["orbit.openFileTabs"] = {demo: {"active": "src/short.ts", "files": ["src/long.swift", "src/short.ts"]}}
-prefs["orbit.moveToApplicationsSuppressed"] = True
-prefs.pop("orbit.unfinishedLaunches", None)
-plistlib.dump(prefs, open(test, "wb"))
-EOF
-    defaults delete dev.orbit.app 2>/dev/null || true
-    defaults import dev.orbit.app "$dir/test.plist"
-    crashes=$(ls ~/Library/Logs/DiagnosticReports | grep -c '^Orbit-' || true)
+    orbit_use_prefs "$demo" src/short.ts src/long.swift src/short.ts
+    crashes=$(orbit_crash_reports)
     echo "Launch check: opening a project in the build for 30 s…"
-    "$app/Contents/MacOS/Orbit" >/dev/null 2>&1 &
+    "$copy/Contents/MacOS/Orbit" >/dev/null 2>&1 &
     local pid=$! cpu=0
     sleep 30
     if kill -0 "$pid" 2>/dev/null; then
@@ -117,14 +104,14 @@ EOF
         kill "$pid"
         wait "$pid" 2>/dev/null || true
     else
-        echo "error: the build quit within 30 s of opening a project (see ~/Library/Logs/DiagnosticReports/Orbit-*.ips)" >&2
+        echo "error: the build quit within 30 s of opening a project ($(orbit_newest_crash_report))" >&2
         exit 1
     fi
     # LaunchGuard clears its key once the launch has lasted.
-    if defaults read dev.orbit.app orbit.unfinishedLaunches >/dev/null 2>&1; then
+    if defaults read "$ORBIT_DOMAIN" orbit.unfinishedLaunches >/dev/null 2>&1; then
         echo "error: the build didn't settle after launch (LaunchGuard's key is still set)" >&2; exit 1
     fi
-    if [ "$(ls ~/Library/Logs/DiagnosticReports | grep -c '^Orbit-' || true)" != "$crashes" ]; then
+    if [ "$(orbit_crash_reports)" != "$crashes" ]; then
         echo "error: a new Orbit crash report appeared during the launch check" >&2; exit 1
     fi
     # A layout loop spins at 100% until AppKit gives up.

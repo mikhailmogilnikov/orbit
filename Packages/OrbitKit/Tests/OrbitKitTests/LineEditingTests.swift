@@ -10,6 +10,19 @@ import Testing
         return (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
     }
 
+    @Test func overlappingSelectionsMergeWithThePrimaryLast() {
+        let whole = NSRange(location: 0, length: 100)
+        #expect(LineEditing.merged(Array(repeating: whole, count: 5000)) == [whole])
+        // A caret inside a selection joins it; the same caret twice is one; touching ones stay apart.
+        let merged = LineEditing.merged([
+            NSRange(location: 30, length: 0), NSRange(location: 10, length: 5), NSRange(location: 12, length: 0),
+            NSRange(location: 15, length: 3), NSRange(location: 30, length: 0), NSRange(location: 2, length: 4),
+        ])
+        #expect(merged == [NSRange(location: 10, length: 5), NSRange(location: 15, length: 3), NSRange(location: 30, length: 0), NSRange(location: 2, length: 4)])
+        let carets = [NSRange(location: 4, length: 0), NSRange(location: 9, length: 0), NSRange(location: 1, length: 0)]
+        #expect(LineEditing.merged(carets) == [NSRange(location: 4, length: 0), NSRange(location: 9, length: 0), NSRange(location: 1, length: 0)])
+    }
+
     @Test func moveLineUpAndDownKeepsTheCaretOnIt() throws {
         let text = "a\nbb\nccc"
         let caret = NSRange(location: 3, length: 0) // "b|b"

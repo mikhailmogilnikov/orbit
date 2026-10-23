@@ -11,16 +11,25 @@ import OrbitKit
 ///     run <command id>        click <x> <y>   (points, key window, top-left)
 ///     key [cmd+][shift+]<key> type <text>     appearance system|light|dark
 ///     list                    windows         focus <title>   close   size <w> <h>
+///     ping                    open <file>     (scripts/stress.sh, D243)
+///
+/// With `orbit.debugRemoteBackground` set too it stays out of the way of
+/// whoever uses the Mac (D243): never activated, its windows behind the
+/// others, keys and text sent to the editor without a key window. (The
+/// stress script's copy is an LSUIElement too: no Dock icon, not in front at launch.)
 @MainActor
 final class DebugRemote {
     static let shared = DebugRemote()
     private static let inbox = "/tmp/orbit-remote-" + (Bundle.main.bundleIdentifier ?? "orbit")
     private static let outbox = inbox + "-out.txt"
     private var timer: Timer?
+    private let inBackground = UserDefaults.standard.bool(forKey: "orbit.debugRemoteBackground")
+    private var sentBack: Set<Int> = []
 
     func start() {
         guard timer == nil, UserDefaults.standard.bool(forKey: "orbit.debugRemote") else { return }
-        let timer = Timer(timeInterval: 0.3, repeats: true) { _ in
+        // Often: a script waits on each answer (`make stress` sends hundreds).
+        let timer = Timer(timeInterval: 0.05, repeats: true) { _ in
             MainActor.assumeIsolated { DebugRemote.shared.poll() }
         }
         // Common modes: it also runs while an alert or a menu is up.
@@ -29,6 +38,7 @@ final class DebugRemote {
     }
 
     private func poll() {
+        if inBackground { sendWindowsBack() }
         // /tmp is everyone's: only a file this user wrote is taken.
         guard let owner = (try? FileManager.default.attributesOfItem(atPath: Self.inbox))?[.ownerAccountID] as? NSNumber,
               owner.uint32Value == getuid(),
@@ -46,9 +56,16 @@ final class DebugRemote {
     private func perform(_ line: String) {
         let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
         guard let verb = parts.first else { return }
-        if !NSApp.isActive { NSApp.activate() }
+        if !inBackground, !NSApp.isActive { NSApp.activate() }
         let argument = parts.count > 1 ? parts[1] : ""
         switch verb {
+        case "ping":
+            // Answered from the main run loop: a hung or looping main thread doesn't.
+            write("pong")
+        case "open":
+            let file = URL(fileURLWithPath: argument)
+            // ProjectWindows activates the app to show it.
+            if inBackground, let host = ProjectWindows.shared.activeHost { host.workspace.openFile(file) } else { ProjectWindows.shared.openFile(file) }
         case "run":
             ProjectWindows.shared.activeHost?.commands.run(argument)
         case "list":
@@ -165,13 +182,75 @@ final class DebugRemote {
             guard numbers.count == 2 else { return }
             click(at: NSPoint(x: numbers[0], y: numbers[1]), right: verb == "rclick", count: verb == "dclick" ? 2 : 1)
         case "key":
-            key(argument)
+            if inBackground { sendKey(argument) } else { key(argument) }
         case "type":
-            for character in argument {
-                post(keyCode: 0, characters: String(character), modifiers: [])
+            if inBackground {
+                (window?.firstResponder as? NSTextInputClient)?.insertText(argument, replacementRange: NSRange(location: NSNotFound, length: 0))
+            } else {
+                for character in argument {
+                    post(keyCode: 0, characters: String(character), modifiers: [])
+                }
             }
         default:
             write("unknown: \(line)")
+        }
+    }
+
+    /// Each new window once: behind every other app's, so it covers no one's work.
+    private func sendWindowsBack() {
+        for window in NSApp.windows where window.isVisible && !sentBack.contains(window.windowNumber) {
+            sentBack.insert(window.windowNumber)
+            window.orderBack(nil)
+        }
+    }
+
+    /// Without a key window posted keys go nowhere: what they'd do, sent to the
+    /// window's first responder (an editing command) or as a menu shortcut.
+    private static let editingKeys: [String: Selector] = [
+        "return": #selector(NSResponder.insertNewline(_:)), "tab": #selector(NSResponder.insertTab(_:)),
+        "shift+tab": #selector(NSResponder.insertBacktab(_:)), "delete": #selector(NSResponder.deleteBackward(_:)),
+        "esc": #selector(NSResponder.cancelOperation(_:)),
+        "up": #selector(NSResponder.moveUp(_:)), "down": #selector(NSResponder.moveDown(_:)),
+        "left": #selector(NSResponder.moveLeft(_:)), "right": #selector(NSResponder.moveRight(_:)),
+        "shift+up": #selector(NSResponder.moveUpAndModifySelection(_:)), "shift+down": #selector(NSResponder.moveDownAndModifySelection(_:)),
+        "cmd+up": #selector(NSResponder.moveToBeginningOfDocument(_:)), "cmd+down": #selector(NSResponder.moveToEndOfDocument(_:)),
+        "cmd+a": #selector(NSResponder.selectAll(_:)),
+    ]
+
+    private func sendKey(_ spec: String) {
+        guard let window else { return }
+        let responder = window.firstResponder ?? window
+        if let selector = Self.editingKeys[spec] {
+            if !responder.tryToPerform(selector, with: nil) { write("not handled: \(spec)") }
+            return
+        }
+        var modifiers: NSEvent.ModifierFlags = []
+        var name = spec
+        for (prefix, flag) in [("cmd+", NSEvent.ModifierFlags.command), ("shift+", .shift), ("opt+", .option), ("ctrl+", .control)] {
+            while name.hasPrefix(prefix) {
+                modifiers.insert(flag)
+                name.removeFirst(prefix.count)
+            }
+        }
+        func find(in menu: NSMenu) -> NSMenuItem? {
+            for item in menu.items {
+                if let found = item.submenu.flatMap(find) { return found }
+                guard item.keyEquivalent.lowercased() == name.lowercased() else { continue }
+                let mask = item.keyEquivalentModifierMask.intersection([.command, .shift, .option, .control])
+                // "Z" with ⌘ is ⇧⌘Z.
+                if mask == modifiers || (item.keyEquivalent != item.keyEquivalent.lowercased() && mask.union(.shift) == modifiers) {
+                    return item
+                }
+            }
+            return nil
+        }
+        guard let item = NSApp.mainMenu.flatMap(find), let action = item.action else { return write("no shortcut: \(spec)") }
+        item.menu?.update()
+        guard item.isEnabled else { return }
+        if let target = item.target {
+            NSApp.sendAction(action, to: target, from: item)
+        } else if !responder.tryToPerform(action, with: item) {
+            write("not handled: \(spec)")
         }
     }
 

@@ -65,10 +65,10 @@ On another Mac, import it with `generate_keys -f <file>`.
    Output: `.build/release/0.2.0/Orbit-0.2.0.zip` and
    `.build/release/0.2.0/appcast.xml`. The app itself is at
    `.build/xcode/Build/Products/Release/Orbit.app`. The keychain may ask
-   for access to the signing key. **Quit Orbit first:** before zipping, the
-   build opens a scratch project for 30 s with its own settings (yours are
-   put back) and stops the release if it quits, crashes, doesn't settle or
-   spins the CPU (D242). `scripts/release.sh smoke <Orbit.app>` runs the
+   for access to the signing key. Before zipping, a copy of the build (its
+   own bundle id and settings, beside the Orbit you use) opens a scratch
+   project for 30 s, and the release stops if it quits, crashes, doesn't
+   settle or spins the CPU (D242). `scripts/release.sh smoke <Orbit.app>` runs the
    same check on any build; `SKIP_SMOKE=1` skips it.
 4. **Check the build.** Unzip the archive somewhere outside the repo,
    open the app (the first time: Privacy & Security → Open Anyway), and try what changed.

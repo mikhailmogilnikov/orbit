@@ -465,23 +465,14 @@ struct EditorGroups: View {
 
     var body: some View {
         let workspace = host.workspace
+        let groups = workspace.groups
         let left = (width * workspace.splitFraction).rounded()
         HStack(spacing: 0) {
-            GroupEditor(host: host, group: workspace.groups[0])
-                .frame(width: max(0, left))
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: 1)
-                .overlay {
-                    Color.clear
-                        .frame(width: 7)
-                        .contentShape(.rect)
-                        .pointerStyle(.columnResize)
-                        .gesture(resize)
-                }
-                .zIndex(1)
-            GroupEditor(host: host, group: workspace.groups[1])
-                .frame(maxWidth: .infinity)
+            // This body reads the groups itself: in the update that joins them it
+            // ran before the area swapped it for one editor, with one group (D243).
+            if groups.count > 1 {
+                split(groups, left: left)
+            }
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
         .onAppear(perform: watchClicks)
@@ -489,6 +480,25 @@ struct EditorGroups: View {
             monitor.map(NSEvent.removeMonitor)
             monitor = nil
         }
+    }
+
+    @ViewBuilder
+    private func split(_ groups: [EditorGroup], left: CGFloat) -> some View {
+        GroupEditor(host: host, group: groups[0])
+            .frame(width: max(0, left))
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .overlay {
+                Color.clear
+                    .frame(width: 7)
+                    .contentShape(.rect)
+                    .pointerStyle(.columnResize)
+                    .gesture(resize)
+            }
+            .zIndex(1)
+        GroupEditor(host: host, group: groups[1])
+            .frame(maxWidth: .infinity)
     }
 
     private var resize: some Gesture {
