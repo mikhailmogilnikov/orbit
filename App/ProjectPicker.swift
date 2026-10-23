@@ -31,6 +31,11 @@ struct ProjectPicker: View {
                     .foregroundStyle(.secondary)
                     .padding(.top, 2)
                     .padding(.bottom, 40)
+                if LaunchGuard.shared.isSafeStart {
+                    SafeStartNotice()
+                        .frame(maxWidth: 340)
+                        .padding(.bottom, 24)
+                }
                 VStack(spacing: 4) {
                     WelcomeAction(title: "Open Folder…", subtitle: "A project on this Mac", systemImage: "folder", shortcut: "⌘O") {
                         host.workspace.presentOpenFolderPanel()
@@ -57,6 +62,39 @@ struct ProjectPicker: View {
         .sheet(isPresented: $isCloning) {
             CloneRepositorySheet { host.workspace.requestOpenFolder($0) }
         }
+    }
+}
+
+/// Orbit died right after its last launch, so this one opened no projects (D242).
+private struct SafeStartNotice: View {
+    var body: some View {
+        let guardian = LaunchGuard.shared
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Orbit quit unexpectedly", systemImage: "exclamationmark.triangle.fill")
+                .orbitFont(.control, weight: .semibold)
+                .symbolRenderingMode(.multicolor)
+            Text("It closed while starting last time, so your projects weren't reopened. A newer version may fix it.")
+                .orbitFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                if Updater.isEnabled {
+                    Button("Check for Updates") { Updater.shared.checkForUpdates() }
+                        .buttonStyle(.glassProminent)
+                }
+                if !guardian.skippedFolders.isEmpty {
+                    Button("Reopen Projects") { guardian.reopenSkipped() }
+                        .buttonStyle(.glass)
+                }
+                Spacer(minLength: 0)
+                Button("Dismiss") { guardian.dismiss() }
+                    .buttonStyle(.glass)
+            }
+            .controlSize(.small)
+            .padding(.top, 2)
+        }
+        .padding(12)
+        .background(Theme.subtleFill, in: .rect(cornerRadius: Theme.largeCorner, style: .continuous))
     }
 }
 

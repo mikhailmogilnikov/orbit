@@ -3,6 +3,7 @@
 #   scripts/release.sh setup            once: the update signing key (private half in the keychain)
 #   scripts/release.sh build 0.2.0      Release build → .build/release/0.2.0/{Orbit-0.2.0.zip, appcast.xml}
 #   scripts/release.sh publish 0.2.0    a GitHub release v0.2.0 with both files
+#   scripts/release.sh smoke <Orbit.app> the launch check `build` runs, on any build
 #
 # With a "Developer ID Application" certificate in the keychain the build is signed
 # with it, hardened, notarized with the keychain profile NOTARY_PROFILE (default
@@ -76,6 +77,61 @@ notarize() {
     fi
 }
 
+# The build opens a scratch project with files in tabs and has to last (D242):
+# 0.4.0 crashed seconds after launch on macOS 27 and couldn't update itself.
+# Orbit's settings are swapped for the test's and put back. SKIP_SMOKE=1 skips it.
+smoke_test() {
+    local app=$1
+    [ -z "${SKIP_SMOKE:-}" ] || { echo "warning: launch check skipped" >&2; return; }
+    if pgrep -xq Orbit; then echo "Quit Orbit first: the launch check runs the build with its own settings." >&2; exit 1; fi
+    local dir demo crashes
+    # Not under /var: Orbit shortens /private/var paths and the saved tabs wouldn't match.
+    dir=$(mktemp -d "$HOME/Library/Caches/orbit-launch-check.XXXXXX")
+    demo=$dir/demo
+    mkdir -p "$demo/src"
+    # Shorter than the window, like the file 0.4.0 crashed on.
+    for i in $(seq 1 48); do echo "export const item$i = { id: $i, title: 'Item $i' }"; done > "$demo/src/short.ts"
+    for i in $(seq 1 400); do echo "let value$i = $i // a line long enough to need a horizontal scroll bar in a narrow window"; done > "$demo/src/long.swift"
+    defaults export dev.orbit.app "$dir/saved.plist" 2>/dev/null || echo '{}' | plutil -convert xml1 -o "$dir/saved.plist" -
+    # `import` merges: the domain goes first, or what the run wrote (recent folders, tabs) stays.
+    trap "defaults delete dev.orbit.app 2>/dev/null; defaults import dev.orbit.app '$dir/saved.plist' && rm -rf '$dir'" EXIT
+    python3 -I - "$dir/saved.plist" "$dir/test.plist" "$demo" <<'EOF'
+import plistlib, sys
+saved, test, demo = sys.argv[1:]
+prefs = plistlib.load(open(saved, "rb"))
+prefs["orbit.openFolders"] = [demo]
+prefs["orbit.openFileTabs"] = {demo: {"active": "src/short.ts", "files": ["src/long.swift", "src/short.ts"]}}
+prefs["orbit.moveToApplicationsSuppressed"] = True
+prefs.pop("orbit.unfinishedLaunches", None)
+plistlib.dump(prefs, open(test, "wb"))
+EOF
+    defaults delete dev.orbit.app 2>/dev/null || true
+    defaults import dev.orbit.app "$dir/test.plist"
+    crashes=$(ls ~/Library/Logs/DiagnosticReports | grep -c '^Orbit-' || true)
+    echo "Launch check: opening a project in the build for 30 s…"
+    "$app/Contents/MacOS/Orbit" >/dev/null 2>&1 &
+    local pid=$! cpu=0
+    sleep 30
+    if kill -0 "$pid" 2>/dev/null; then
+        cpu=$(ps -o %cpu= -p "$pid" | tr -d ' ')
+        kill "$pid"
+        wait "$pid" 2>/dev/null || true
+    else
+        echo "error: the build quit within 30 s of opening a project (see ~/Library/Logs/DiagnosticReports/Orbit-*.ips)" >&2
+        exit 1
+    fi
+    # LaunchGuard clears its key once the launch has lasted.
+    if defaults read dev.orbit.app orbit.unfinishedLaunches >/dev/null 2>&1; then
+        echo "error: the build didn't settle after launch (LaunchGuard's key is still set)" >&2; exit 1
+    fi
+    if [ "$(ls ~/Library/Logs/DiagnosticReports | grep -c '^Orbit-' || true)" != "$crashes" ]; then
+        echo "error: a new Orbit crash report appeared during the launch check" >&2; exit 1
+    fi
+    # A layout loop spins at 100% until AppKit gives up.
+    if [ "${cpu%.*}" -ge 50 ]; then echo "error: the build used ${cpu}% CPU sitting idle" >&2; exit 1; fi
+    echo "Launch check passed (idle at ${cpu}% CPU)"
+}
+
 case "$command" in
 setup)
     resolve_sparkle
@@ -108,6 +164,7 @@ build)
     rm -rf "$out" && mkdir -p "$out"
     zip=$out/Orbit-$version.zip
     [ -z "${DEVELOPER_ID:-}" ] || sign_app "$app" "$DEVELOPER_ID"
+    smoke_test "$app"
     ditto -c -k --keepParent "$app" "$zip"
     if [ -n "${DEVELOPER_ID:-}" ]; then
         notarize "$zip"
@@ -123,6 +180,10 @@ build)
     echo "Built $zip (build $build_number) and $out/appcast.xml"
     echo "Publish with: make release-publish VERSION=$version"
     ;;
+smoke)
+    [ -d "${2:-}" ] || { echo "usage: $0 smoke <Orbit.app>" >&2; exit 1; }
+    smoke_test "$2"
+    ;;
 publish)
     [ -n "$version" ] || { echo "usage: $0 publish <version>" >&2; exit 1; }
     out=.build/release/$version
@@ -134,7 +195,7 @@ publish)
     echo "Rebuilding the site; after editing the notes: gh workflow run site.yml --ref master"
     ;;
 *)
-    sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

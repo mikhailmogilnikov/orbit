@@ -251,6 +251,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D239. A file and a link to it are one buffer; the index lists linked folders by git
 - D240. Traffic lights and panels sit evenly in macOS 26's floating glass
 - D241. The full-screen title strip is filled; macOS 26's composer gets a fill
+- D242. A launch that crashes is followed by a safe start; releases get a launch check
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -5112,3 +5113,30 @@ The chat composer is glass (`.glassEffect`) over the inspector's own glass.
 macOS 26's glass is clearer and the composer all but vanished into the panel;
 there it gets `Theme.activeFill` under the glass. macOS 27 is unchanged.
 
+### D242. A launch that crashes is followed by a safe start; releases get a launch check
+
+0.4.0 crashed seconds after launch on macOS 27 (D237's room under the last
+line looped the layout), every time, since it reopened the same project and
+file: it never lived long enough for Sparkle to download the fix, and an
+update installs on quit, which a crash isn't. Users had to download 0.4.1 by
+hand.
+
+In the app, `LaunchGuard` counts a launch as unfinished until it has lasted
+20 s (or quits normally). If the last one didn't finish, the next is a safe
+start: the welcome window instead of the projects open at the last quit,
+with a notice offering Check for Updates and Reopen Projects, and Sparkle
+checks for an update right away. 20 s covers a crash while restoring; a crash
+later (opening some file) doesn't count, and a force quit right after launch
+costs one safe start. Only the projects are skipped, not their tabs once
+reopened: the notice is the way back. Release builds only, since `make run`
+and Xcode kill debug builds all the time (`orbit.debugLaunchGuard` turns it
+on in a debug build to try it).
+
+In the release script, `build` runs the new build before zipping it
+(`scripts/release.sh smoke <app>` alone): a scratch project with a short
+and a long file in tabs, for 30 s. It fails on an exit, a new crash report,
+LaunchGuard's key still set (the launch didn't settle) or the CPU busy while
+idle (a layout loop spins before AppKit gives up). Orbit's settings are
+swapped for the test's and put back, so Orbit has to be quit first;
+`SKIP_SMOKE=1` skips it. It only covers the Mac it runs on: the macOS 26 VM
+(D235) is still a check by hand.

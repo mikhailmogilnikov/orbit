@@ -10,6 +10,7 @@ struct OrbitApp: App {
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
         Self.forgetMinimumWindowFrames()
         _ = Updater.shared
+        LaunchGuard.shared.begin()
         #if DEBUG
         DebugRemote.shared.start()
         #endif
@@ -117,7 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { ProjectWindows.shared.shutdown() }
+        MainActor.assumeIsolated {
+            LaunchGuard.shared.finish()
+            ProjectWindows.shared.shutdown()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

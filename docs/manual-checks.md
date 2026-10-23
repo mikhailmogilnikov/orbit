@@ -55,6 +55,13 @@ code actions, rename, formatting and its corner note, the agent registry
 - Isolated sessions: the whole flow by hand.
 - Create PR (D133) and Push N (D144) against GitHub; the sheet and badge.
 
+## Launch and updates
+
+- Safe start (D242): the notice in the welcome window after a crash at launch
+  (Debug: `defaults write dev.orbit.app orbit.debugLaunchGuard -bool true` and
+  `orbit.unfinishedLaunches -int 1`), its look, Reopen Projects and Dismiss,
+  and in a Release build Check for Updates.
+
 ## Editor
 
 - Scrolling past the end (D237): the last line reaches the top in long and

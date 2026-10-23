@@ -77,7 +77,7 @@ final class ProjectWindows {
             restoredLaunchFolders = true
             // A folder Orbit was launched to open comes first, in the window macOS opens.
             var seen = Set<URL>()
-            launchFolders = (earlyOpens + Self.savedFolders()).filter { seen.insert($0).inserted }
+            launchFolders = (earlyOpens + LaunchGuard.shared.foldersToReopen(Self.savedFolders())).filter { seen.insert($0).inserted }
             earlyOpens = []
             if root == nil, !launchFolders.isEmpty { root = launchFolders.removeFirst() }
         }
