@@ -13,6 +13,7 @@ struct OrbitApp: App {
         LaunchGuard.shared.begin()
         #if DEBUG
         DebugRemote.shared.start()
+        StressRunner.shared.start()
         #endif
     }
 

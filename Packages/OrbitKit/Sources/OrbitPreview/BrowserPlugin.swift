@@ -25,6 +25,9 @@ public final class BrowserPlugin: OrbitPlugin {
         browser = store
         let services = context.services
         context.services.register(WebPreviewing.self, store)
+        #if DEBUG
+        PreviewStress.registerBrowser(context, store: store)
+        #endif
         context.ui.addEditorProvider(EditorProvider(id: "preview.browser", accepts: { $0.kind == BrowserStore.kind }) { tab in
             if let page = store.page(for: tab) {
                 BrowserView(page: page, store: store).id(tab.id)

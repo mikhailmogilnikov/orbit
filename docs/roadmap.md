@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- Every feature is in the stress run (D244): plugins bring steps, checks and project files, Orbit runs every command, panel, Settings pane, plugin switch and step, then random ones; uncovered features fail it and `StressCoverageTests`
 - `make stress` drives a debug build through awkward files, window sizes, full screen, edits and agent edits, in order and at random, and stops on a crash, a hang or a busy CPU, in the background beside the Orbit in use (D243); overlapping selections merge, Join Editors right after Split no longer crashes
 - A crash at launch is followed by a safe start (welcome window, Check for Updates, Reopen Projects); a release build must survive opening a project before it's zipped (D242)
 - Symlinks: folder links expand in the explorer and the path bar and are in Open Quickly and Find in Project (no loops), saves go through to the target, links get an arrow and a tooltip (D238); a file and a link to it share one buffer, linked folders are indexed by git (D239)
@@ -255,6 +256,13 @@
 - Text editing basics (D105): move / copy lines ⌥↑↓ ⇧⌥↑↓, multiple carets (⌘D, ⇧⌘L, ⌥-click, ⌃⇧↑↓), Go to Line ⌃G, matching bracket outline, font zoom ⌘= ⌘- ⌘0
 
 ## Next (rough priority)
+0. Stress run, phase 2 (D244): a fake ACP agent and a fake language server
+   (sessions, tool calls, permissions, crashes), parallel copies, more
+   modes (scroller style, themes, font sizes, a large project, git
+   conflicts and rebases, read-only folders), external chaos (folders
+   deleted, branches switched, servers killed); phase 3: the macOS 26 VM,
+   shrinking a failed run to its shortest steps, memory checks, `make
+   stress-full` before a release
 1. Code plugins in TypeScript via JavaScriptCore, same package format
 2. Developer ID signing and notarization: the script is ready (D222); waits for
    an Apple Developer Program membership and its certificate
@@ -310,6 +318,12 @@ Everything below is known to be missing; nothing here is in progress.
 ## Known limitations
 What works differently than you'd expect today. Things built but not yet
 tried by hand are in [manual-checks.md](manual-checks.md).
+
+- A stress run once crashed in SwiftUI's List (`ViewListTree.visitItem` while
+  `OutlineListCoordinator` tore its table down) as the bottom panel switched
+  from Problems to the terminal (D244). It didn't reproduce from its seed or
+  its log; Problems, References and Hierarchy share that List setup
+  (`Section(isExpanded:)`, `.listRowSeparator(.hidden)`).
 
 **Agents and review**
 - Claude Code needs the standalone `claude` CLI logged in (`claude` → `/login`).

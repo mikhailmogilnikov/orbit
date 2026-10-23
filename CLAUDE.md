@@ -35,7 +35,7 @@ Read before significant work:
 make build   # xcodegen + xcodebuild (Debug, optimized: D165) → .build/xcode/Build/Products/Debug/Orbit.app
 make run     # build, kill running Orbit, open the app
 make test    # swift test in Packages/OrbitKit
-make stress  # tries to break the debug build in the background: awkward files, sizes, edits, agent edits (D243)
+make stress  # every feature of the debug build, in order and at random, in the background (D243, D244)
 make test-languages   # LSP client against real servers (D55); runs on Linux too
 make test-language-installs   # every server installed from Mason and run (D57); slow once
 make import-lspconfig   # regenerate the imported server table from nvim-lspconfig (D65)
@@ -133,6 +133,14 @@ examples/extensions/      sample extensions (theme, icon theme)
   chrome is never painted: the theme background lies under the window and the
   glass panels pick it up (D41); use `.nativeSurface(_:)`, not a plain
   `.background`, for fills in the middle of the window. File icons: `FileIconView`, not `FileIcon.systemImage`.
+- **Every feature is in the stress run (D244).** A plugin's new command,
+  panel, editor or Settings pane is run by `make stress` on its own; what it
+  does beyond that (and the state its commands need) gets steps and checks
+  in the plugin's `…Stress.swift` through `context.stress`, files for the
+  run's project, or an exemption with its reason. A crash or freeze the run
+  finds becomes a `regression:` step. `StressCoverageTests` and the run's
+  coverage report fail on what's left out; run `make stress` after UI or
+  editor changes.
 - Agent changes are reviewed **inline in the editor** — do not reintroduce a
   separate review mode/tab (explicit product decision D7).
 - Icon-only buttons get a `.help` tooltip; when a command does the same,

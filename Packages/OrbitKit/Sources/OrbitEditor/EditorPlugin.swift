@@ -331,6 +331,9 @@ public final class EditorPlugin: OrbitPlugin {
         context.services.register(SourceEditing.self, OpenEditors.shared)
         context.services.register(EditorSelectionProviding.self, EditorSelectionService.shared)
         context.services.register(SyntaxHighlighting.self, StaticHighlighter())
+        #if DEBUG
+        EditorStress.register(context, options: options)
+        #endif
     }
 
     /// Text editing as in VS Code and Cursor; keys that mean something else in

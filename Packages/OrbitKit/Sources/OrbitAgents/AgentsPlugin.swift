@@ -167,6 +167,9 @@ public final class AgentsPlugin: OrbitPlugin {
         ) {
             store.selected?.stop()
         })
+        #if DEBUG
+        AgentsStress.register(context)
+        #endif
     }
 
     public func deactivate() {

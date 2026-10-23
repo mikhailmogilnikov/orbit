@@ -10,6 +10,7 @@ extension NSAlert {
     @MainActor
     @discardableResult
     public func runSheetModal() -> NSApplication.ModalResponse {
+        if let answer = StressAnswers.alert { return answer(self) }
         guard let window = SheetHost.window else { return runModal() }
         beginSheetModal(for: window) { NSApp.stopModal(withCode: $0) }
         return NSApp.runModal(for: self.window)
@@ -20,10 +21,20 @@ extension NSSavePanel {
     /// An open or save panel as a sheet on the key window.
     @MainActor
     public func runSheetModal() -> NSApplication.ModalResponse {
+        if StressAnswers.alert != nil { return .cancel }
         guard let window = SheetHost.window else { return runModal() }
         beginSheetModal(for: window) { NSApp.stopModal(withCode: $0) }
         return NSApp.runModal(for: self)
     }
+}
+
+/// A stress run answers alerts itself, a button picked at random, and
+/// cancels open and save panels (D244): their modal session would hold the
+/// run's step until someone clicked, and in the background (no key window)
+/// they'd be dialogs that bring Orbit to the front.
+@MainActor
+public enum StressAnswers {
+    public static var alert: ((NSAlert) -> NSApplication.ModalResponse)?
 }
 
 @MainActor

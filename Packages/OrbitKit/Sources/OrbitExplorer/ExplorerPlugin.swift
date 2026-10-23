@@ -120,6 +120,9 @@ public final class ExplorerPlugin: OrbitPlugin {
         ) {
             workspace.fileSystemDidChange()
         })
+        #if DEBUG
+        ExplorerStress.register(context)
+        #endif
     }
 }
 

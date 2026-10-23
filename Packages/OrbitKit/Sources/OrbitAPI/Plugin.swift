@@ -70,6 +70,8 @@ public final class PluginContext {
     public let ui: UIRegistry
     public let commands: CommandRegistry
     public let services: ServiceRegistry
+    /// What `make stress` does with the plugin's features (D244).
+    public let stress: StressRegistry
     public let settings: PluginSettings
     public let lifetime: PluginLifetime
 
@@ -84,6 +86,7 @@ public final class PluginContext {
         ui = UIRegistry(sharing: host.ui, owner: manifest.id, lifetime: lifetime)
         commands = CommandRegistry(sharing: host.commands, owner: manifest.id, lifetime: lifetime)
         services = ServiceRegistry(sharing: host.services, owner: manifest.id, lifetime: lifetime)
+        stress = StressRegistry(sharing: host.stress, owner: manifest.id, lifetime: lifetime)
         settings = PluginSettings(pluginID: manifest.id)
     }
 }
@@ -116,6 +119,7 @@ public final class PluginHost {
     public let ui = UIRegistry()
     public let commands = CommandRegistry()
     public let services = ServiceRegistry()
+    public let stress = StressRegistry()
     public private(set) var entries: [Entry] = []
 
     @ObservationIgnored private var types: [String: any OrbitPlugin.Type] = [:]
@@ -217,6 +221,7 @@ public final class PluginHost {
         ui.state.remove(owner: id)
         commands.remove(owner: id)
         services.remove(owner: id)
+        stress.remove(owner: id)
         // Its tabs (a diff, a preview, a page) have nothing to show them now.
         for tab in workspace.allTabs where tab.kind != EditorTab.fileKind && ui.provider(for: tab) == nil {
             workspace.close(tab.id)
@@ -236,6 +241,7 @@ public final class PluginHost {
         ui.removeAll()
         commands.removeAll()
         services.removeAll()
+        stress.removeAll()
         workspace.close()
     }
 }

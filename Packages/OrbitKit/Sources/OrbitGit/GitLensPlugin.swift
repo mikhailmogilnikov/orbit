@@ -89,6 +89,9 @@ public final class GitLensPlugin: OrbitPlugin {
                 BlameStatus(model: model, editor: editor, workspace: workspace)
             }
         })
+        #if DEBUG
+        GitStress.registerLens(context)
+        #endif
     }
 
     /// Branches and commits matching the query, best first.

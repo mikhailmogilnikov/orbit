@@ -118,6 +118,9 @@ public final class GitPlugin: OrbitPlugin {
             MainActor.assumeIsolated { model.refresh() }
         }
         model.refresh()
+        #if DEBUG
+        GitStress.register(context, model: model)
+        #endif
     }
 
     public func deactivate() {

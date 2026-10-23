@@ -253,6 +253,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D241. The full-screen title strip is filled; macOS 26's composer gets a fill
 - D242. A launch that crashes is followed by a safe start; releases get a launch check
 - D243. `make stress` tries to break a debug build
+- D244. Every feature is in the stress run: plugins bring steps and checks, Orbit runs them itself
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -5165,7 +5166,7 @@ The first step that fails stops the run with the step log, a picture of the
 window, a `sample` of the process and the crash report in `.build/stress`.
 A step takes under a second (`DebugRemote` reads every 50 ms, CPU comes
 from `ps` time, not `top`): the fixed pass and 150 random steps take about
-four minutes.
+four minutes. (D244 moves the steps into the app and the plugins.)
 
 It drives a copy of the build with its own bundle id
 (`dev.orbit.app.stress`): its own settings (started from Orbit's), its own
@@ -5192,3 +5193,63 @@ The next found a crash: Join Editors right after Split Editor.
 `EditorGroups` read the second group in its own body, and in the update
 that joined them that body ran before the editor area swapped it for one
 editor; it now draws the split only while there are two groups.
+
+### D244. Every feature is in the stress run: plugins bring steps and checks, Orbit runs them itself
+
+D243's script drove the app from outside, a step at a time through a file,
+with its own list of actions: it couldn't reach most features, and nothing
+made a new one join it. Now the run lives in the app and in the plugins.
+
+`context.stress` (OrbitAPI, `StressRegistry`) is each plugin's part, stamped
+with its id like the other registries (D194): steps (what to do with its
+features, with a weight for the random part, what they reach in `covers`,
+`regression` for a sequence that once broke Orbit), checks (what has to hold
+after any step: the editor shows its document, the groups hold their tabs,
+agent changes are inside the project), files and preparations for the run's
+project (the editor's awkward files, the previews' image, PDF, SVG and
+Markdown, a git repository with history, a branch and changes, a Makefile's
+tasks), and exemptions with their reason. Debug builds only (`#if DEBUG` in
+each plugin's `…Stress.swift`); the shell's part is `App/ShellStress.swift`.
+
+`App/StressRunner.swift` runs a plan from `orbit.stress`: it writes the
+project, opens it, and in a fixed part runs every command, reveals every
+panel, shows every Settings pane, turns every optional plugin off and on and
+runs every step; commands that were off get a second try after the steps
+that make their state (an agent change, a stash, a split). Then random steps
+(a seeded generator, so `SEED` replays a run). After each step a sheet left
+up is closed as Esc would, alerts are answered with a button picked at
+random and open/save panels cancelled (`StressAnswers`, so a modal session
+never holds a step), the main thread has to go idle (two 100 ms windows
+waking on time under half a core, within 20 s), every check has to hold,
+and what's on screen counts as reached (the tabs' editors, visible status
+items). A watchdog thread writes a hang when the main thread stops ticking
+for 10 s, and the script samples the process. Whatever the registries hold
+that no step reached and nothing exempts fails the run, as does an
+exemption that matches nothing. `StressCoverageTests` (in `make test`) fails
+earlier: a plugin without a part, an editor no step opens, an extension
+source neither reached nor exempt, an exemption without a reason.
+
+Steps act on models and text views directly (insert text, editing
+selectors, the workspace's split and history), so a run needs no focus: the
+copy runs as an agent app behind the user's windows (D243) and
+`ProjectWindows.activatesApp` is off. Exempt now, with why: starting agents
+(a real CLI with the user's account), installing extensions (the network),
+the clipboard, Finder and the browser; a fake ACP agent and language
+server, parallel copies, external chaos and macOS 26 are the next phases
+(roadmap).
+
+A menu a step pops up (Code Actions) is closed as it opens: it tracks in a
+loop of its own until clicked, and in the background it stayed over the
+user's work and held the run. Random picks come from every step and
+command, available or not (skipped then), and each step's own random
+numbers from the seed and its number: what's available depends on timing
+(a language server's answer), and the same seed has to give the same
+steps. `REPLAY=<log.txt> make stress` plays a failed run's steps again in
+their order.
+
+The first runs found a crash besides D243's: Go Back to a place past the
+end of a file that got shorter crashed `reveal(line:)` (clamped now). One
+run crashed in SwiftUI's own List (`ViewListTree.visitItem`, from
+`OutlineListCoordinator` tearing a table down) when the bottom panel went
+from Problems to the terminal; neither its seed nor its log reproduced it,
+so it's a known limitation for now (roadmap), not a guess at a fix.

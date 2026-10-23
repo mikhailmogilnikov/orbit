@@ -103,6 +103,9 @@ public final class PreviewPlugin: OrbitPlugin {
         context.ui.addEditorAction(EditorAction(commandID: "preview.markdown", systemImage: "eye") { url in
             Self.previewExtensions.contains(url.pathExtension.lowercased())
         })
+        #if DEBUG
+        PreviewStress.register(context)
+        #endif
     }
 
     static var previewExtensions: Set<String> { markdownExtensions.union(["svg"]) }

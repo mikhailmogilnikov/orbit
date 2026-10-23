@@ -62,6 +62,8 @@ A plugin is a class conforming to `OrbitPlugin` with a static `manifest`. In
   (placed by `App/MenuLayout.swift`, else by category, D176) and the command palette automatically; `editorMenu:` also
   puts one in the editor's right-click menu (D67)
 - `services.register` — typed services for other plugins
+- `stress` — the plugin's part of `make stress` (D244): steps, checks, files
+  for the run's project, exemptions (debug builds)
 - `settings` — per-plugin namespaced UserDefaults
 
 Each window has its own `PluginHost` (D101), which activates enabled plugins

@@ -77,6 +77,9 @@ public final class ReviewPlugin: OrbitPlugin {
             shortcut: KeyboardShortcut(.delete, modifiers: [.command, .shift]),
             isEnabled: { !tracker.changedFiles.isEmpty }
         ) { tracker.rejectAll() })
+        #if DEBUG
+        ReviewStress.register(context, tracker: tracker)
+        #endif
     }
 }
 

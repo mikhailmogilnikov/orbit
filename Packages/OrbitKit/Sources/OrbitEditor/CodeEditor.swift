@@ -761,8 +761,10 @@ struct CodeEditor: NSViewRepresentable {
             guard let textView else { return }
             let text = (textView.text ?? "") as NSString
             let starts = InlineDiffController.lineStarts(of: text)
+            // A place saved before the file got shorter (Go Back after an edit) is past its end (D244).
+            let line = min(max(0, line), starts.count - 1)
             let offset = column.map { SourcePosition(line: line, character: $0).offset(in: starts, length: text.length) }
-                ?? starts[min(max(0, line), starts.count - 1)]
+                ?? starts[line]
             textView.textSelection = NSRange(location: offset, length: 0)
             // Scroll a few lines past the target so the removed-lines gap above it is visible too.
             let context = starts[min(starts.count - 1, max(0, line + 6))]
@@ -1613,6 +1615,9 @@ final class ActiveEditor {
     func remove(_ coordinator: CodeEditor.Coordinator) {
         recent.removeAll { $0.coordinator == nil || $0.coordinator === coordinator }
     }
+
+    /// Every live editor, in any window (the stress run's checks, D244).
+    var all: [CodeEditor.Coordinator] { recent.compactMap(\.coordinator) }
 
     /// For the right-click menu, which lists commands placed there (`EditorMenuPlacement`).
     var commands: CommandRegistry? { coordinator?.commands }

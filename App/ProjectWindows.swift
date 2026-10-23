@@ -35,6 +35,8 @@ final class ProjectWindows {
     @ObservationIgnored private var restoredLaunchFolders = false
     @ObservationIgnored private var isTerminating = false
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// Off in a stress run in the background (D244): it keeps behind the user's windows.
+    @ObservationIgnored var activatesApp = true
 
     private static let openFoldersKey = "orbit.openFolders"
 
@@ -89,10 +91,14 @@ final class ProjectWindows {
     private func makeHost(id: UUID, root: URL?) -> PluginHost {
         let host = PluginHost(plugins: BuiltinPlugins.all, root: root)
         registerShellCommands(in: host, id: id)
+        #if DEBUG
+        ShellStress.register(in: host)
+        #endif
         host.workspace.openFolderElsewhere = { [weak self] url in self?.openElsewhere(url, from: id) ?? false }
         host.workspace.bringWindowToFront = { [weak self] in
+            guard let self, activatesApp else { return }
             NSApp.activate()
-            self?.windows[id]?.window?.makeKeyAndOrderFront(nil)
+            windows[id]?.window?.makeKeyAndOrderFront(nil)
         }
         hosts[id] = host
         return host
@@ -142,7 +148,7 @@ final class ProjectWindows {
     /// A folder for the user, from anywhere (Open Recent, the Dock, Finder):
     /// its window if one shows it, else the active window if it has none, else a new window.
     func open(_ url: URL) {
-        NSApp.activate()
+        if activatesApp { NSApp.activate() }
         guard openWindow != nil else {
             earlyOpens.append(url.standardizedFileURL)
             return
@@ -163,7 +169,7 @@ final class ProjectWindows {
         let file = url.standardizedFileURL
         if let id = order.first(where: { hosts[$0]?.workspace.root.map { file.path.hasPrefix($0.path + "/") } == true }),
            let host = hosts[id] {
-            NSApp.activate()
+            if activatesApp { NSApp.activate() }
             windows[id]?.window?.makeKeyAndOrderFront(nil)
             host.workspace.openFile(file)
             return

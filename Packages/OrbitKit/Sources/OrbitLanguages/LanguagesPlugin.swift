@@ -107,6 +107,9 @@ public final class LanguagesPlugin: OrbitPlugin {
         ) {
             manager.restart()
         })
+        #if DEBUG
+        LanguagesStress.register(context)
+        #endif
     }
 
     public func deactivate() {

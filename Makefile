@@ -23,9 +23,9 @@ run: build
 test:
 	cd Packages/OrbitKit && swift test
 
-# Tries to break the debug build, in the background: awkward files, sizes, edits,
-# agent edits, in order and at random (D243). STEPS=, SEED= to vary; FOREGROUND=1
-# adds full screen and takes over the Mac.
+# Every feature of the debug build, from the plugins' steps and checks, in
+# order and at random, in the background (D243, D244). STEPS=, SEED= to vary;
+# STEPS=0 the fixed part and coverage only; FOREGROUND=1 adds full screen.
 stress: build
 	scripts/stress.sh
 

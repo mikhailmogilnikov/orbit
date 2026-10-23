@@ -49,6 +49,9 @@ public final class SearchPlugin: OrbitPlugin {
             ui.revealSidebarPanel("search")
             search.focusRequest += 1
         })
+        #if DEBUG
+        SearchStress.register(context, model: search)
+        #endif
     }
 }
 

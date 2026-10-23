@@ -121,6 +121,9 @@ public final class TerminalPlugin: OrbitPlugin {
         ) {
             if let session = store.selected { store.close(session) }
         })
+        #if DEBUG
+        TerminalStress.register(context, store: store)
+        #endif
     }
 
     public func deactivate() {
