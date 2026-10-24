@@ -169,6 +169,8 @@ import Testing
         #expect(LargeFile.check(String(repeating: "x", count: 30_000)) == .longLine(30_000))
         #expect(LargeFile.check(String(repeating: "\n", count: 60_000)) == .lines(60_001))
         #expect(LargeFile.check(String(repeating: "abcdefgh\n", count: 300_000)) == .size(2_700_000))
-        #expect(LargeFile.longLine(30_000).wantsWrapping)
+        // Wrapped, a minified line froze typing (D245).
+        #expect(!LargeFile.longLine(30_000).allowsWrapping)
+        #expect(LargeFile.lines(60_001).allowsWrapping)
     }
 }

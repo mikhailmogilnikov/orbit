@@ -585,7 +585,6 @@ struct WindowTopBar: View {
     let areaWidth: CGFloat
     /// How much of the window the sidebar covers right now (it slides).
     let sidebarInset: CGFloat
-    @State private var tabsMinX: CGFloat = 0
     @State private var isFullScreen = false
 
     /// The traffic lights take the window's first 76 pt, more where the keeper
@@ -594,9 +593,15 @@ struct WindowTopBar: View {
     private static var windowedInset: CGFloat { 76 + TrafficLightsKeeper.KeeperView.trafficLightsOffset.width }
     private static let fullScreenInset: CGFloat = 6
 
+    private static let spacing: CGFloat = 4
+
+    private var leadingInset: CGFloat {
+        isFullScreen ? Self.fullScreenInset : max(Self.fullScreenInset, Self.windowedInset - sidebarInset)
+    }
+
     var body: some View {
         let sidebarHidden = columnVisibility == .detailOnly
-        HStack(spacing: 4) {
+        HStack(spacing: Self.spacing) {
             TopBarButton("sidebar.left", help: host.commands.help("shell.toggleSidebar", sidebarHidden ? "Show Sidebar" : "Hide Sidebar")) {
                 withAnimation { columnVisibility = sidebarHidden ? .all : .detailOnly }
             }
@@ -604,8 +609,14 @@ struct WindowTopBar: View {
             if workspace.allTabs.isEmpty {
                 Spacer(minLength: 0)
             } else if workspace.isSplit {
-                // The left group's tabs end where its editor does.
-                let leftWidth = max(60, (areaWidth * workspace.splitFraction).rounded() - tabsMinX)
+                // The left group's tabs end where its editor does. Where they start
+                // is worked out, not measured, and they never take the room the
+                // right side needs: measured, or overflowing a narrow window,
+                // their width fed back into itself and the window never finished
+                // laying out (D245).
+                let tabsMinX = leadingInset + TopBarButton.width + Self.spacing
+                let rightNeeds = 1 + 60 + 2 * (Self.spacing + TopBarButton.width) + 8
+                let leftWidth = max(60, min((areaWidth * workspace.splitFraction).rounded() - tabsMinX, areaWidth - tabsMinX - rightNeeds))
                 HStack(spacing: 0) {
                     TabBar(workspace: workspace, group: workspace.groups[0])
                         .frame(width: leftWidth)
@@ -614,7 +625,6 @@ struct WindowTopBar: View {
                         .frame(width: 1, height: 16)
                     TabBar(workspace: workspace, group: workspace.groups[1])
                 }
-                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(EditorGroups.space)).minX } action: { tabsMinX = $0 }
             } else {
                 TabBar(workspace: workspace, group: workspace.groups[0])
             }
@@ -628,7 +638,7 @@ struct WindowTopBar: View {
         // Follows the sliding sidebar frame by frame (D104). Switched on the
         // visibility flag, it jumped at the start of the slide and animated
         // on its own clock, so the tabs went one way and then the other.
-        .padding(.leading, isFullScreen ? Self.fullScreenInset : max(Self.fullScreenInset, Self.windowedInset - sidebarInset))
+        .padding(.leading, leadingInset)
         .padding(.trailing, 8)
         .frame(height: Theme.topBarHeight)
         .background {

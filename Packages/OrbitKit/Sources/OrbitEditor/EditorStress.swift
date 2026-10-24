@@ -78,6 +78,25 @@ enum EditorStress {
             while undo.canUndo, textView.documentText as String != before { undo.undo() }
             if textView.documentText as String != before { run.note("undo didn't give the text back") }
         })
+        // Typed in the editor, not saved, while an agent writes the same file on disk.
+        stress.add(StressStep("editor.typeWhileAgentWrites", weight: 2) { run in
+            let path = run.pick(["tabs.go", "src/short.tsx", "one-line.txt"]) ?? "tabs.go"
+            await run.open(path)
+            guard let textView = editor()?.textView, let tracker = context.services.resolve(ChangeTracking.self) else { return }
+            textView.selectionRanges = [NSRange(location: run.int(0...textView.documentText.length), length: 0)]
+            textView.insertText(run.pick(snippets) ?? "x", replacementRange: NSRange(location: NSNotFound, length: 0))
+            if run.chance(0.5) { await run.settle() }
+            _ = await tracker.beginAgentTurn()
+            let url = run.file(path)
+            if var lines = (try? String(contentsOf: url, encoding: .utf8))?.components(separatedBy: "\n") {
+                lines.insert("// written by a pretend agent \(run.int(0...999))", at: min(lines.count, run.int(0...20)))
+                try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            }
+            if run.chance(0.5) { textView.insertText("typed during the turn", replacementRange: NSRange(location: NSNotFound, length: 0)) }
+            await tracker.refreshAgentChanges()
+            await tracker.endAgentTurn()
+            context.workspace.fileSystemDidChange()
+        })
         // D243: Select All Occurrences in a long file, then Expand Selection, froze the editor.
         stress.add(StressStep("editor.selectAllThenExpand", weight: 1, regression: true) { run in
             await run.open("src/long.swift")

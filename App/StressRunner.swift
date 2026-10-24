@@ -25,6 +25,12 @@ final class StressRunner {
         var checksCoverage: Bool?
         /// A failed run's log.txt: its steps again, in its order, and nothing else.
         var replay: String?
+        /// Parallel copies split the fixed part: this one takes every `shards`th
+        /// thing from `shard` on, and the script adds up their coverage.
+        var shard: Int?
+        var shards: Int?
+        /// Thousands of files in the project, for the index, search and the tree.
+        var bigProject: Bool?
     }
 
     private var plan: Plan?
@@ -49,12 +55,15 @@ final class StressRunner {
         guard let json = UserDefaults.standard.string(forKey: "orbit.stress"),
               let plan = try? JSONDecoder().decode(Plan.self, from: Data(json.utf8)) else { return }
         self.plan = plan
+        StressRegistry.isRunning = true
         random = StressRandom(seed: plan.seed)
         try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: output.appendingPathComponent("log.txt").path, contents: nil)
         log = try? FileHandle(forWritingTo: output.appendingPathComponent("log.txt"))
         ProjectWindows.shared.activatesApp = !plan.background
         StressAnswers.alert = { [weak self] alert in self?.answer(alert) ?? .cancel }
+        NSScrollView.watchForTileLoops()
+        TileLoops.report = { [weak self] in self?.note($0) }
         startHeartbeat()
         Task { await run() }
     }
@@ -69,6 +78,7 @@ final class StressRunner {
         } catch {
             return finish("couldn't write the project: \(error.localizedDescription)")
         }
+        if plan!.bigProject == true { writeBigProject() }
         guard await openProject() else { return finish("the project didn't open") }
         noteCoverage()
         note("project \(project.path), seed \(plan!.seed)")
@@ -77,8 +87,9 @@ final class StressRunner {
             return await replaySteps(from: replay)
         }
 
-        // The fixed part: everything once, in a fixed order.
-        for id in currentHost.commands.all.map(\.id).sorted() where !isExempt(StressCoverage.command(id)) {
+        // The fixed part: everything once, in a fixed order, this copy's share of it.
+        let commands = currentHost.commands.all.map(\.id).sorted().filter { !isExempt(StressCoverage.command($0)) }
+        for id in commands where isMine(StressCoverage.command(id)) {
             await step("command \(id)") { context in
                 if !context.run(id) {
                     // Most need a file open; still off, it's the coverage report's.
@@ -87,17 +98,18 @@ final class StressRunner {
                 }
             }
         }
-        for panel in panels() {
+        for panel in panels() where isMine(StressCoverage.panel(panel.id)) {
             await step("panel \(panel.id)") { [weak self] _ in self?.reveal(panel.id) }
         }
-        for pane in currentHost.ui.settingsPanes.map(\.id) {
+        for pane in currentHost.ui.settingsPanes.map(\.id) where isMine(StressCoverage.settings(pane)) {
             await step("settings \(pane)") { [weak self] context in
                 context.ui.showSettings(pane)
                 self?.reached.insert(StressCoverage.settings(pane))
             }
         }
         await step("settings closed") { context in context.ui.isSettingsVisible = false }
-        for entry in currentHost.entries where !entry.manifest.isRequired && !isExempt(StressCoverage.plugin(entry.id)) {
+        for entry in currentHost.entries where !entry.manifest.isRequired && !isExempt(StressCoverage.plugin(entry.id))
+            && isMine(StressCoverage.plugin(entry.id)) {
             await step("plugin \(entry.id) off and on") { [weak self] _ in
                 guard let self else { return }
                 currentHost.setEnabled(false, pluginID: entry.id)
@@ -107,14 +119,13 @@ final class StressRunner {
                 reached.insert(StressCoverage.plugin(entry.id))
             }
         }
-        for stressStep in currentHost.stress.steps.sorted(by: { $0.id < $1.id }) {
+        for stressStep in currentHost.stress.steps.sorted(by: { $0.id < $1.id }) where isMine(StressCoverage.step(stressStep.id)) {
             await run(stressStep, preparing: true)
         }
         // Commands that were off the first time (nothing to go back to, no
         // split, no stash, no agent change): again, now that steps made that
         // state, each after the steps that make the most of it.
-        for id in currentHost.commands.all.map(\.id).sorted()
-        where !reached.contains(StressCoverage.command(id)) && !isExempt(StressCoverage.command(id)) {
+        for id in commands where isMine(StressCoverage.command(id)) && !reached.contains(StressCoverage.command(id)) {
             await step("command \(id), again") { [weak self] context in
                 guard let self, !context.run(id) else { return }
                 for setup in ["shell.richState", "review.agentTurn", "git.stash", "git.stage", "preview.markdown"] {
@@ -127,7 +138,8 @@ final class StressRunner {
             }
         }
         note("fixed part: \(stepCount) steps")
-        if plan!.checksCoverage ?? true, let uncovered = uncoveredReport() {
+        // With shards each copy reached only its share: the script decides.
+        if (plan!.shards ?? 1) == 1, plan!.checksCoverage ?? true, let uncovered = uncoveredReport() {
             return finish(uncovered)
         }
 
@@ -139,6 +151,39 @@ final class StressRunner {
     }
 
     private static let textFile = "src/short.tsx"
+
+    /// Whether a thing of the fixed part is this copy's: by its key, so every
+    /// copy splits the same way without knowing the others' lists.
+    private func isMine(_ key: String) -> Bool {
+        let shards = UInt64(max(1, plan?.shards ?? 1))
+        guard shards > 1 else { return true }
+        // FNV-1a: the same on every run (Swift's hashValue isn't).
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in key.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01B3 }
+        return hash % shards == UInt64(plan?.shard ?? 0)
+    }
+
+    private func writeBigProject() {
+        // 20 000 files in 400 folders: what a real monorepo's tree, index and search go through.
+        let big = project.appendingPathComponent("big")
+        for folder in 0..<400 {
+            let directory = big.appendingPathComponent("package\(folder)/src/module\(folder % 7)")
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            for file in 0..<50 {
+                try? "export const value\(file) = \(folder * 50 + file)\n".write(
+                    to: directory.appendingPathComponent("file\(file).ts"), atomically: false, encoding: .utf8)
+            }
+        }
+        // Committed, as a monorepo's are: untracked, every `git status` listed them all.
+        for arguments in [["add", "big"], ["-c", "user.name=Orbit Stress", "-c", "user.email=stress@orbit.invalid", "commit", "-qm", "A big tree"]] {
+            let git = Process()
+            git.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            git.arguments = arguments
+            git.currentDirectoryURL = project
+            try? git.run()
+            git.waitUntilExit()
+        }
+    }
 
     /// A log's steps again (`REPLAY=…/log.txt make stress`), to reproduce a failure.
     private func replaySteps(from path: String) async {
@@ -154,8 +199,14 @@ final class StressRunner {
             let argument = words[1]
             switch words[0] {
             case "command":
+                // As the fixed part runs one: again with a file open when it was off.
                 let id = argument.replacingOccurrences(of: ", again", with: "")
-                await step("command \(id)") { context in context.run(id) }
+                await step("command \(id)") { context in
+                    if !context.run(id) {
+                        await context.open(Self.textFile)
+                        context.run(id)
+                    }
+                }
             case "open": await step("open \(argument)") { context in await context.open(argument) }
             case "panel": await step("panel \(argument)") { [weak self] _ in self?.reveal(argument) }
             case "settings": await step("settings \(argument)") { context in context.ui.showSettings(argument) }
@@ -168,7 +219,7 @@ final class StressRunner {
                     currentHost.setEnabled(true, pluginID: id)
                 }
             case "step", "regression":
-                if let found = currentHost.stress.steps.first(where: { $0.id == argument }) { await run(found, preparing: false) }
+                if let found = currentHost.stress.steps.first(where: { $0.id == argument }) { await run(found, preparing: true) }
             default: continue
             }
         }
@@ -229,11 +280,14 @@ final class StressRunner {
         if currentHost.workspace.root?.standardizedFileURL != project.standardizedFileURL {
             guard await openProject() else { return finish("the project didn't open again after \(label)") }
         }
+        let started = Date()
         await body(context())
         dismissModals()
         await settle()
         do { try check() } catch { finish("\(line): \(error)") }
         noteCoverage()
+        let took = Date().timeIntervalSince(started)
+        if took > 2 { note("slow: \(took.formatted(.number.precision(.fractionLength(1)))) s") }
     }
 
     // MARK: Waiting and checking
@@ -253,7 +307,11 @@ final class StressRunner {
             last = (elapsed - 0.1, (Self.cpuTime() - cpu) / elapsed)
             quiet = last.lateness < 0.03 && last.cpu < 0.5 ? quiet + 1 : 0
             if Date().timeIntervalSince(started) > 20 {
-                return finish("busy for 20 s after \(heartbeat.withLock { $0.step }): the main thread woke \(Int(last.lateness * 1000)) ms late, \(Int(last.cpu * 100))% CPU")
+                let problem = "busy for 20 s after \(heartbeat.withLock { $0.step }): the main thread woke \(Int(last.lateness * 1000)) ms late, \(Int(last.cpu * 100))% CPU"
+                // Still busy for the script to sample what spins, then the end.
+                try? "busy: \(problem)".write(to: output.appendingPathComponent("result.txt"), atomically: true, encoding: .utf8)
+                try? await Task.sleep(for: .seconds(8))
+                return finish(problem)
             }
         }
     }
@@ -309,6 +367,10 @@ final class StressRunner {
         lines += stale.map { "STALE EXEMPTION \($0) (nothing has that key)" }
         lines += unavailable.sorted().map { "unavailable step \($0)" }
         try? lines.joined(separator: "\n").write(to: output.appendingPathComponent("coverage.txt"), atomically: true, encoding: .utf8)
+        let json: [String: Any] = ["known": known.sorted(), "reached": reached.sorted(), "exemptions": exemptions]
+        if let data = try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]) {
+            try? data.write(to: output.appendingPathComponent("coverage.json"))
+        }
         guard !uncovered.isEmpty || !stale.isEmpty else { return nil }
         return "coverage: \(uncovered.count) uncovered, \(stale.count) stale exemptions (coverage.txt)"
     }
@@ -457,6 +519,46 @@ final class StressRunner {
             sentBack.insert(window.windowNumber)
             window.orderBack(nil)
         }
+    }
+}
+#endif
+
+#if DEBUG
+/// Which scroll view a layout loop spins in (D245): `tile` counted per scroll
+/// view; one tiled hundreds of times in two seconds is written to the log
+/// with what it shows, before the watchdog gives up on the main thread.
+extension NSScrollView {
+    @MainActor static func watchForTileLoops() {
+        guard let original = class_getInstanceMethod(NSScrollView.self, #selector(NSScrollView.tile)),
+              let counting = class_getInstanceMethod(NSScrollView.self, #selector(NSScrollView.stressCountedTile)) else { return }
+        method_exchangeImplementations(original, counting)
+    }
+
+    @objc dynamic func stressCountedTile() {
+        stressCountedTile()
+        MainActor.assumeIsolated { TileLoops.count(self) }
+    }
+}
+
+@MainActor
+enum TileLoops {
+    private static var counts: [ObjectIdentifier: (count: Int, since: Date)] = [:]
+    static var report: ((String) -> Void)?
+
+    static func count(_ view: NSScrollView) {
+        let key = ObjectIdentifier(view)
+        var entry = counts[key] ?? (0, Date())
+        if Date().timeIntervalSince(entry.since) > 2 { entry = (0, Date()) }
+        entry.count += 1
+        counts[key] = entry
+        guard entry.count == 300 else { return }
+        var chain: [String] = []
+        var parent = view.superview
+        while let current = parent, chain.count < 12 {
+            chain.append(String(describing: type(of: current)).prefix(80).description)
+            parent = current.superview
+        }
+        report?("tile loop: \(type(of: view)) frame \(NSStringFromRect(view.frame)) doc \(view.documentView.map { "\(type(of: $0)) \(NSStringFromRect($0.frame))" } ?? "none") style \(view.scrollerStyle.rawValue) autohides \(view.autohidesScrollers) vertical \(view.verticalScroller?.isHidden == false) horizontal \(view.horizontalScroller?.isHidden == false)\n      in \(chain.joined(separator: " < "))")
     }
 }
 #endif

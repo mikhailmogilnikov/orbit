@@ -57,6 +57,12 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Launch and updates
 
+- The stress run's fixes (D245), with a mouse or "Show scroll bars: Always":
+  the agents' chat and its empty state (the content keeps a scroller's width
+  free on the right), the tabs of a split editor still ending where the left
+  editor does, the Problems panel (a lazy stack now, no List) with its file
+  groups folding, and a minified file not wrapping with wrapping on.
+
 - Safe start (D242): the notice in the welcome window after a crash at launch
   (Debug: `defaults write dev.orbit.app orbit.debugLaunchGuard -bool true` and
   `orbit.unfinishedLaunches -int 1`), its look, Reopen Projects and Dismiss,

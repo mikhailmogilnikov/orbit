@@ -16,6 +16,7 @@ enum ShellStress {
             let sizes = [NSSize(width: 960, height: 600), NSSize(width: 973, height: 611), NSSize(width: 1280, height: 800),
                          screen.visibleFrame.size, NSSize(width: 4000, height: 3000)]
             guard let size = context.pick(sizes) else { return }
+            context.note("\(Int(size.width))×\(Int(size.height)), \(workspace.isSplit ? "split" : "one group"), \(workspace.allTabs.count) tabs")
             let frame = NSRect(origin: window.frame.origin, size: size)
             window.setFrame(window.constrainFrameRect(frame, to: screen), display: true)
         })
@@ -65,6 +66,12 @@ enum ShellStress {
             await context.settle()
             context.run("shell.goForward")
         })
+        // A process Orbit started dies: a language server, a terminal's shell, git.
+        stress.add(StressStep("shell.childDies", weight: 1) { context in
+            guard let child = context.pick(childProcesses()) else { return }
+            context.note("killed \(child.name) (\(child.pid))")
+            kill(child.pid, context.chance(0.5) ? SIGKILL : SIGTERM)
+        })
         stress.add(StressStep("shell.bottomPanel", weight: 2) { context in
             let ui = context.ui
             if let panel = context.pick(ui.bottomPanels) { ui.toggleBottomPanel(panel.id) }
@@ -84,6 +91,22 @@ enum ShellStress {
             if groups.count == 2, groups.contains(where: \.tabs.isEmpty) { return "a split with an empty side" }
             return nil
         })
+    }
+
+    private static func childProcesses() -> [(pid: pid_t, name: String)] {
+        let list = Process()
+        let pipe = Pipe()
+        list.executableURL = URL(fileURLWithPath: "/bin/ps")
+        list.arguments = ["-o", "pid=,comm=", "-g", String(getpgrp())]
+        list.standardOutput = pipe
+        guard (try? list.run()) != nil else { return [] }
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        list.waitUntilExit()
+        return output.split(separator: "\n").compactMap { line in
+            let parts = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
+            guard parts.count == 2, let pid = pid_t(parts[0]), pid != getpid(), pid != list.processIdentifier else { return nil }
+            return (pid, String(parts[1]).components(separatedBy: "/").last ?? "")
+        }
     }
 
     private static func window(of host: PluginHost) -> NSWindow? {

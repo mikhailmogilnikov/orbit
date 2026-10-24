@@ -204,53 +204,58 @@ struct NewChatView: View {
     var body: some View {
         let all = store.recent
         let recent = showsAll ? all[...] : all.prefix(15)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if session.hasFailed {
-                    StatusFooter(session: session)
-                }
-                if recent.isEmpty {
-                    VStack(spacing: 8) {
-                        OrbitMark()
-                            .frame(width: 36, height: 36)
-                            .foregroundStyle(.primary.opacity(0.85))
-                            .padding(.bottom, 4)
-                        Text("What should we build?")
-                            .orbitFont(.title, weight: .semibold)
-                        Text("Edits show up inline in the editor for review.")
-                            .orbitFont(.body)
-                            .foregroundStyle(.secondary)
-                        ComposerHints()
-                            .padding(.top, 14)
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if session.hasFailed {
+                        StatusFooter(session: session)
                     }
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 60)
-                } else {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Recent")
-                            .orbitFont(.micro, weight: .semibold)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.bottom, 4)
-                        ForEach(recent) { saved in
-                            RecentSessionRow(saved: saved, provider: store.provider(for: saved)) {
-                                store.resume(saved)
-                            }
-                        }
-                        if all.count > recent.count {
-                            Button("Show \(all.count - recent.count) More") { showsAll = true }
-                                .buttonStyle(.plain)
+                    if recent.isEmpty {
+                        VStack(spacing: 8) {
+                            OrbitMark()
+                                .frame(width: 36, height: 36)
+                                .foregroundStyle(.primary.opacity(0.85))
+                                .padding(.bottom, 4)
+                            Text("What should we build?")
+                                .orbitFont(.title, weight: .semibold)
+                            Text("Edits show up inline in the editor for review.")
                                 .orbitFont(.body)
                                 .foregroundStyle(.secondary)
+                            ComposerHints()
+                                .padding(.top, 14)
+                        }
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Recent")
+                                .orbitFont(.micro, weight: .semibold)
+                                .foregroundStyle(.secondary)
                                 .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
+                                .padding(.bottom, 4)
+                            ForEach(recent) { saved in
+                                RecentSessionRow(saved: saved, provider: store.provider(for: saved)) {
+                                    store.resume(saved)
+                                }
+                            }
+                            if all.count > recent.count {
+                                Button("Show \(all.count - recent.count) More") { showsAll = true }
+                                    .buttonStyle(.plain)
+                                    .orbitFont(.body)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 12)
+                // A width the scroller coming and going doesn't change (D245).
+                .frame(width: SteadyScroll.contentWidth(in: width), alignment: .leading)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 12)
         }
     }
 }
@@ -366,33 +371,37 @@ struct TranscriptView: View {
     private static let bottomID = "transcript-bottom"
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    TranscriptRows(session: session)
-                    StatusFooter(session: session)
-                    Color.clear.frame(height: 1).id(Self.bottomID)
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        TranscriptRows(session: session)
+                        StatusFooter(session: session)
+                        Color.clear.frame(height: 1).id(Self.bottomID)
+                    }
+                    // Replies' prose had the system's 13 pt; now it follows the chat's size.
+                    .orbitFont(.control)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    // A width the scroller coming and going doesn't change (D245).
+                    .frame(width: SteadyScroll.contentWidth(in: geometry.size.width), alignment: .leading)
                 }
-                // Replies' prose had the system's 13 pt; now it follows the chat's size.
-                .orbitFont(.control)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-            }
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
-            // Follow new output only from the bottom; scrolled up, what you read stays put.
-            .defaultScrollAnchor(isAtBottom ? .bottom : .top, for: .sizeChanges)
-            // Runs per frame but only yields a Bool: the action fires when it flips.
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 60
-            } action: { _, atBottom in
-                isAtBottom = atBottom
-            }
-            .overlay(alignment: .bottom) {
-                JumpToLatestButton(isVisible: !isAtBottom) {
-                    withAnimation(.snappy(duration: 0.25)) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                // Follow new output only from the bottom; scrolled up, what you read stays put.
+                .defaultScrollAnchor(isAtBottom ? .bottom : .top, for: .sizeChanges)
+                // Runs per frame but only yields a Bool: the action fires when it flips.
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 60
+                } action: { _, atBottom in
+                    isAtBottom = atBottom
                 }
+                .overlay(alignment: .bottom) {
+                    JumpToLatestButton(isVisible: !isAtBottom) {
+                        withAnimation(.snappy(duration: 0.25)) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                    }
+                }
+                .environment(\.keyedPermission, session.firstPendingPermission.map(ObjectIdentifier.init))
             }
-            .environment(\.keyedPermission, session.firstPendingPermission.map(ObjectIdentifier.init))
         }
     }
 }

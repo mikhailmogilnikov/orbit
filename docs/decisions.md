@@ -254,6 +254,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D242. A launch that crashes is followed by a safe start; releases get a launch check
 - D243. `make stress` tries to break a debug build
 - D244. Every feature is in the stress run: plugins bring steps and checks, Orbit runs them itself
+- D245. The stress run in parallel copies and modes, with chaos, a pretend agent and a pretend language server
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -3206,6 +3207,10 @@ part. A banner says why, with Turn On for everything (the document's
 `usesAllFeatures`, for as long as it's open). Agent changes still show inline:
 reviewing them is the point (D7). The 50 MB limit (D106) stays for opening at all.
 
+Note: a minified file no longer wraps (D245). TextKit 2 lays out whole
+paragraphs, so its one wrapped line was thousands of lines typeset again on
+every keystroke: typing froze the editor.
+
 ### D142. `orbit` in the terminal opens folders and files
 
 Orbit → Install 'orbit' Command… writes a small shell script to
@@ -5253,3 +5258,54 @@ run crashed in SwiftUI's own List (`ViewListTree.visitItem`, from
 `OutlineListCoordinator` tearing a table down) when the bottom panel went
 from Problems to the terminal; neither its seed nor its log reproduced it,
 so it's a known limitation for now (roadmap), not a guess at a fix.
+(D245 reproduced and fixed it.)
+
+### D245. The stress run in parallel copies and modes, with chaos, a pretend agent and a pretend language server
+
+`make stress` runs four copies at once (`JOBS`), each with its own bundle id,
+settings, project and seed. They split D244's fixed part by the key of each
+thing (the plan's `shard`, by an FNV hash: the same on every run) and the random
+steps between them, and the script adds up their coverage (each writes
+`coverage.json`). Each copy runs in a mode: Orbit's own settings; scrollers
+that take room ("Show scroll bars: Always", set in the copy's domain), dark,
+large text; light, small text, wrapping; no color theme and a big project
+(20 000 committed files). `MODE=` picks one for a replay. The default run
+takes about a minute and a half.
+
+External chaos steps: a folder with open files deleted (back half the time),
+a file made read-only and saved, an open file renamed outside, the project's
+own folder renamed and back, a child process killed (a language server,
+git). A run lists only a pretend ACP agent (`StressRegistry.isRunning`; the
+user's agent tabs and history aren't copied into a copy's settings): a
+script in the run's project whose prompts pick a scenario (a reply, edits
+through `fs/write_text_file` and through its own writes, `fs/read_text_file`,
+a permission, a slow stream to stop or queue behind, a crash, an error, a
+huge reply). `*.fake` files get a pretend language server through the
+project's `.orbit/settings.json`: diagnostics past the end and by the
+hundred, huge hovers, definitions in missing files, a call hierarchy, slow
+answers, an occasional exit. A step that ends busy (not hung) leaves the
+process to be sampled too; steps over 2 s are noted in the log; a debug-only
+detector writes which scroll view a layout loop tiles in (`TileLoops`).
+`REPLAY` runs a log's steps as the fixed part does (with its seed, the same
+picks).
+
+What it found and what changed:
+- Scrollers that take room: the agents' chat (its transcript, and the
+  empty chat's recent list) toggled its scroller as the lazily measured
+  content crossed the view's height, the width changed, and the window
+  never finished laying out (a hang). Their content keeps one width,
+  measured outside the scroll view less a scroller's (`SteadyScroll`).
+  SwiftUI's `.scrollIndicators(.visible)` still autohides there.
+- A split editor in a narrow window: the left tabs' start was measured
+  (`tabsMinX`) and their width overflowed the row, each feeding the other: a
+  hang. The start is worked out (`TopBarButton.width`, the row's inset) and
+  the left tabs leave the right side its room.
+- Typing in a minified file froze: wrapped, its one line was relaid out
+  whole on every keystroke (D141 wrapped it); such files don't wrap now.
+- The SwiftUI List crash of D244: a List torn down while the columns around
+  the editor slid (the inspector or sidebar toggled, then the bottom panel
+  switched away) rebuilt rows from what was gone. Problems is a lazy stack
+  now; a regression step hammers it, and References and Hierarchy, which
+  didn't crash under it, stay Lists.
+- An agent turn in the big project took 11 s, the checkpoint snapshotting
+  20 000 files (the UI stays responsive): on the roadmap.

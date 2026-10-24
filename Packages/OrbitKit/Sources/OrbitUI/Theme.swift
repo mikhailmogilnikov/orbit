@@ -234,6 +234,20 @@ extension View {
     }
 }
 
+/// The width a vertical scroll view's content keeps whether its scroller
+/// shows or not (D245). Scrollers that take room (a mouse, or "Show scroll
+/// bars: Always") narrowed it when the content grew past the view; the
+/// content rewrapped, lazily measured rows estimated another height, the
+/// scroller went, and the window never finished laying out. Measured from a
+/// GeometryReader outside the scroll view (D103), less a scroller's width.
+@MainActor
+public enum SteadyScroll {
+    public static func contentWidth(in available: CGFloat) -> CGFloat {
+        let reserve = NSScroller.preferredScrollerStyle == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return max(0, available - reserve)
+    }
+}
+
 extension ThemeColor {
     public var nsColor: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha) }
     public var color: Color { Color(nsColor: nsColor) }

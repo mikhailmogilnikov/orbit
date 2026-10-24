@@ -35,7 +35,7 @@ Read before significant work:
 make build   # xcodegen + xcodebuild (Debug, optimized: D165) → .build/xcode/Build/Products/Debug/Orbit.app
 make run     # build, kill running Orbit, open the app
 make test    # swift test in Packages/OrbitKit
-make stress  # every feature of the debug build, in order and at random, in the background (D243, D244)
+make stress  # every feature of the debug build, 4 copies in 4 modes, in the background (D243–D245)
 make test-languages   # LSP client against real servers (D55); runs on Linux too
 make test-language-installs   # every server installed from Mason and run (D57); slow once
 make import-lspconfig   # regenerate the imported server table from nvim-lspconfig (D65)

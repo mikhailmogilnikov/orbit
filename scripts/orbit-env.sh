@@ -2,6 +2,11 @@
 # a copy of the build under its own bundle id (ORBIT_DOMAIN), with settings of
 # its own started from Orbit's, so it runs beside the Orbit in use.
 
+# Several copies can run at once: each adds its cleanup, and the exit runs them all.
+ORBIT_CLEANUP=()
+orbit_cleanup() { local command; for command in "${ORBIT_CLEANUP[@]+"${ORBIT_CLEANUP[@]}"}"; do eval "$command"; done; }
+trap orbit_cleanup EXIT
+
 # A scratch folder, deleted on exit. Not under /var: Orbit shortens /private/var
 # paths and the saved tabs wouldn't match.
 orbit_scratch() {
@@ -26,7 +31,7 @@ orbit_use_prefs() {
     [ -n "$extra" ] || extra='{}'
     [ "$domain" != dev.orbit.app ] || { echo "ORBIT_DOMAIN has to be a bundle id of its own" >&2; exit 1; }
     defaults export dev.orbit.app "$ORBIT_SCRATCH/saved.plist" 2>/dev/null || echo '{}' | plutil -convert xml1 -o "$ORBIT_SCRATCH/saved.plist" -
-    trap "defaults delete '$domain' 2>/dev/null; rm -rf '$ORBIT_SCRATCH'" EXIT
+    ORBIT_CLEANUP+=("defaults delete '$domain' 2>/dev/null; rm -rf '$ORBIT_SCRATCH'")
     python3 -I - "$ORBIT_SCRATCH/saved.plist" "$ORBIT_SCRATCH/run.plist" "$project" "$active" "$extra" "$@" <<'EOF'
 import json, plistlib, sys
 saved, run, project, active, extra, *tabs = sys.argv[1:]
@@ -35,7 +40,13 @@ prefs["orbit.openFolders"] = [project]
 prefs["orbit.openFileTabs"] = {project: {"active": active, "files": tabs}}
 prefs["orbit.moveToApplicationsSuppressed"] = True
 prefs.pop("orbit.unfinishedLaunches", None)
-prefs.update(json.loads(extra))
+# The user's agent tabs and history: a restored tab would start a real agent with their account.
+for key in [key for key in prefs if key.startswith(("plugin.orbit.agents.", "orbit.agentLimits."))]:
+    prefs.pop(key)
+# null takes a key out (no color theme).
+for key, value in json.loads(extra).items():
+    if value is None: prefs.pop(key, None)
+    else: prefs[key] = value
 plistlib.dump(prefs, open(run, "wb"))
 EOF
     # `import` merges: a last run's leftovers go first.

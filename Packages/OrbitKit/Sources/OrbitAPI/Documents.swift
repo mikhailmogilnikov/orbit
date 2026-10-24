@@ -263,10 +263,12 @@ public enum LargeFile: Equatable, Sendable {
         return longest > maxLineLength ? .longLine(longest) : nil
     }
 
-    /// Wrapping keeps a minified line's layout to the visible part.
-    public var wantsWrapping: Bool {
-        if case .longLine = self { return true }
-        return false
+    /// A minified line doesn't wrap, whatever the setting: TextKit 2 lays out
+    /// a whole paragraph, so wrapped it was thousands of lines typeset again on
+    /// every keystroke, and typing froze the editor (D245; D141 wrapped it).
+    public var allowsWrapping: Bool {
+        if case .longLine = self { return false }
+        return true
     }
 
     public var summary: String {

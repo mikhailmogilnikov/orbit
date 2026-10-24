@@ -24,8 +24,9 @@ test:
 	cd Packages/OrbitKit && swift test
 
 # Every feature of the debug build, from the plugins' steps and checks, in
-# order and at random, in the background (D243, D244). STEPS=, SEED= to vary;
-# STEPS=0 the fixed part and coverage only; FOREGROUND=1 adds full screen.
+# order and at random, in 4 copies and modes in the background (D243-D245).
+# STEPS=, SEED=, JOBS= to vary; STEPS=0 the fixed part and coverage only;
+# REPLAY=<log> MODE=<n> a failed copy again; FOREGROUND=1 adds full screen.
 stress: build
 	scripts/stress.sh
 

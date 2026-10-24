@@ -56,6 +56,42 @@ enum ExplorerStress {
                 for index in 0..<500 { try? "\(index)\n".write(to: folder.appendingPathComponent("file\(index).txt"), atomically: false, encoding: .utf8) }
             }
         })
+        // A folder with open files deleted (a branch switch, a clean), back half the time.
+        stress.add(StressStep("explorer.folderGone", weight: 1) { run in
+            let folder = run.file("src/deep")
+            let saved = run.file("../deep-saved")
+            await run.open("src/deep/a/b/c/name with spaces & ünïcode.txt")
+            try? FileManager.default.removeItem(at: saved)
+            try? FileManager.default.moveItem(at: folder, to: saved)
+            await run.settle()
+            if run.chance(0.5) { try? FileManager.default.moveItem(at: saved, to: folder) }
+        })
+        // Read-only on disk: typing works, saving fails and says so.
+        stress.add(StressStep("explorer.readOnly", weight: 1) { run in
+            let path = run.pick(["one-line.txt", "crlf.txt"]) ?? "one-line.txt"
+            let url = run.file(path)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+            await run.open(path)
+            run.run("editor.save")
+            await run.settle()
+            if run.chance(0.6) { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path) }
+        })
+        // Renamed outside while open: in Finder, by git mv, by a refactoring tool.
+        stress.add(StressStep("explorer.outsideRename", weight: 1) { run in
+            let from = run.file("tabs.go"), to = run.file("tabs-moved.go")
+            await run.open("tabs.go")
+            try? FileManager.default.moveItem(at: from, to: to)
+            await run.settle()
+            try? FileManager.default.moveItem(at: to, to: from)
+        })
+        // The project's own folder renamed in Finder, then back.
+        stress.add(StressStep("explorer.projectRenamed", weight: 1) { run in
+            let moved = run.project.deletingLastPathComponent().appendingPathComponent(run.project.lastPathComponent + "-renamed")
+            guard (try? FileManager.default.moveItem(at: run.project, to: moved)) != nil else { return }
+            try? await Task.sleep(for: .milliseconds(run.int(50...1500)))
+            await run.settle()
+            try? FileManager.default.moveItem(at: moved, to: run.project)
+        })
         stress.exempt(StressCoverage.command("file.revealInFinder"), because: "brings Finder to the front")
         stress.exempt(StressCoverage.command("file.copyPath"), because: "writes the user's clipboard")
         stress.exempt(StressCoverage.command("file.copyRelativePath"), because: "writes the user's clipboard")

@@ -206,6 +206,10 @@ public final class StressRegistry {
 
     private var accepts: Bool { lifetime?.isActive ?? true }
 
+    /// Set by the runner before any window: a plugin keeps a run off the user's
+    /// own things (Agents lists only a pretend agent).
+    public static var isRunning = false
+
     public var steps: [StressStep] { state.steps }
     public var checks: [StressCheck] { state.checks }
     /// Coverage keys left out of runs, with why ("command:git.push": "pushes to a remote").

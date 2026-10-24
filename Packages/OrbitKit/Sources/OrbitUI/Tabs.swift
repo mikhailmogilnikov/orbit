@@ -111,6 +111,8 @@ public struct TabRowFade: ViewModifier {
 
 /// An icon button of the top row (command palette, new chat…).
 public struct TopBarButton: View {
+    /// Its width: the top row works out where its tabs start from it.
+    public static let width: CGFloat = 28
     let systemImage: String
     let help: String
     let action: () -> Void
@@ -125,7 +127,7 @@ public struct TopBarButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .orbitFont(.control, weight: .medium)
-                .frame(width: 28, height: 28)
+                .frame(width: Self.width, height: Self.width)
                 .contentShape(.rect)
         }
         .buttonStyle(.borderless)

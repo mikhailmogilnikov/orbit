@@ -168,7 +168,7 @@ public final class AgentsPlugin: OrbitPlugin {
             store.selected?.stop()
         })
         #if DEBUG
-        AgentsStress.register(context)
+        AgentsStress.register(context, store: store)
         #endif
     }
 
@@ -267,7 +267,7 @@ final class AgentStore {
         ui = context.ui
         services = context.services
         settings = context.settings
-        providers = AgentProvider.loadAll(extensions: Extensions.shared.agentFiles)
+        providers = Self.installedProviders()
         history = SessionHistory(settings: context.settings)
         // Agents Orbit used to ship moved to the registry's ids (D52).
         preferredProviderID = context.settings.string("lastProvider").map(AgentProvider.migratedID)
@@ -733,10 +733,18 @@ final class AgentStore {
         }
     }
 
+    /// A stress run lists only its pretend agent: a real one is a CLI with the user's account (D245).
+    private static func installedProviders() -> [AgentProvider] {
+        #if DEBUG
+        if StressRegistry.isRunning { return [AgentsStress.provider] }
+        #endif
+        return AgentProvider.loadAll(extensions: Extensions.shared.agentFiles)
+    }
+
     /// Picks up agents installed, updated or removed since launch.
     func reloadProviders() {
         let previous = providers
-        providers = AgentProvider.loadAll(extensions: Extensions.shared.agentFiles)
+        providers = Self.installedProviders()
         guard providers != previous else { return }
         refreshMissing()
         registerProviderCommands()

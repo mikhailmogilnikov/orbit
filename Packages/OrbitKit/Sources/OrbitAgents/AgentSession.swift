@@ -69,7 +69,7 @@ final class AgentSession: Identifiable {
     private let restoredID: String?
     /// Until the first message (or the agent) names the conversation, the tab says "New Chat".
     private var isTitled: Bool
-    private var updatedAt = Date()
+    private(set) var updatedAt = Date()
     /// While the agent replays a loaded conversation: nothing in it is new.
     private var isReplaying = false
     /// A reopened conversation until the agent has replayed it: the transcript

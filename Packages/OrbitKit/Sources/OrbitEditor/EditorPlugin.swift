@@ -768,7 +768,7 @@ struct FileEditorView: View {
                     fontFamily: Preferences.shared.codeFontFamily,
                     ligatures: Preferences.shared.codeLigatures,
                     lineHeight: Preferences.shared.codeLineHeight,
-                    wrapsLines: options.wrapsLines || (limited && document.largeFile?.wantsWrapping == true),
+                    wrapsLines: options.wrapsLines && document.largeFile?.allowsWrapping != false,
                     highlightsCurrentLine: options.highlightsCurrentLine,
                     closesBrackets: options[.autoClose],
                     diagnostics: languages?.diagnostics(for: url) ?? [],

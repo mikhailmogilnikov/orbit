@@ -16,37 +16,44 @@ struct ProblemsPanel: View {
         if problems.isEmpty {
             PanelEmptyState("No Problems", message: "Errors and warnings from open files, agent changes and tasks show up here.")
         } else {
-            List {
-                ForEach(problems) { file in
-                    Section(isExpanded: FileGroupHeader.expansion(of: file.url, in: $collapsed)) {
-                        ForEach(Array(file.diagnostics.enumerated()), id: \.offset) { _, problem in
-                            ProblemRow(problem: problem, fix: fix.map { fix in { fix([FileProblems(url: file.url, diagnostics: [problem])]) } }) {
-                                workspace.openFile(file.url, line: problem.range.start.line)
-                            }
-                            // Under the file's icon, without lines between, like Xcode's issues.
-                            .padding(.leading, FileGroupHeader.rowIndent)
-                            .listRowSeparator(.hidden)
-                            .contextMenu {
-                                if let fix {
-                                    Button("Fix with Agent") { fix([FileProblems(url: file.url, diagnostics: [problem])]) }
-                                    Button("Fix All in “\(file.url.lastPathComponent)” with Agent") { fix([file]) }
-                                    Button("Fix All Errors with Agent") { fix(problems.compactMap(Self.errorsOnly)) }
-                                    Divider()
+            // A lazy stack, not a List: torn down while the columns around the
+            // editor slid (the bottom panel switching away mid-animation), a
+            // List's NSOutlineView rebuilt rows from what was gone and SwiftUI
+            // crashed (ViewListTree.visitItem, D245).
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(problems) { file in
+                        FileGroupHeader(url: file.url, count: file.diagnostics.count, tint: Self.tint(for: file),
+                                        workspace: workspace, collapsed: $collapsed)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                        if !collapsed.contains(file.url) {
+                            ForEach(Array(file.diagnostics.enumerated()), id: \.offset) { _, problem in
+                                ProblemRow(problem: problem, fix: fix.map { fix in { fix([FileProblems(url: file.url, diagnostics: [problem])]) } }) {
+                                    workspace.openFile(file.url, line: problem.range.start.line)
                                 }
-                                Button("Copy Message") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(problem.message, forType: .string)
+                                // Under the file's icon, without lines between, like Xcode's issues.
+                                .padding(.leading, FileGroupHeader.rowIndent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 2)
+                                .contextMenu {
+                                    if let fix {
+                                        Button("Fix with Agent") { fix([FileProblems(url: file.url, diagnostics: [problem])]) }
+                                        Button("Fix All in “\(file.url.lastPathComponent)” with Agent") { fix([file]) }
+                                        Button("Fix All Errors with Agent") { fix(problems.compactMap(Self.errorsOnly)) }
+                                        Divider()
+                                    }
+                                    Button("Copy Message") {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(problem.message, forType: .string)
+                                    }
                                 }
                             }
                         }
-                    } header: {
-                        FileGroupHeader(url: file.url, count: file.diagnostics.count, tint: Self.tint(for: file),
-                                        workspace: workspace, collapsed: $collapsed)
                     }
                 }
+                .padding(.vertical, 4)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
         }
     }
 }

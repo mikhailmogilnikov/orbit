@@ -36,6 +36,25 @@ enum ReviewStress {
             await tracker.endAgentTurn()
             workspace.fileSystemDidChange()
         })
+        // The same change in every run, the caret on it, then Keep and Undo on its hunks.
+        stress.add(StressStep("review.hunks", weight: 1) { run in
+            let url = run.file("tabs.go")
+            guard var lines = (try? String(contentsOf: url, encoding: .utf8))?.components(separatedBy: "\n"), lines.count > 40 else { return }
+            _ = await tracker.beginAgentTurn()
+            lines[5] = "\t// changed by a pretend agent"
+            lines.insert("\t// added by a pretend agent", at: 30)
+            try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            await tracker.refreshAgentChanges()
+            await tracker.endAgentTurn()
+            workspace.fileSystemDidChange()
+            await run.open("tabs.go")
+            for command in ["editor.keepChange", "editor.undoChange"] {
+                run.run("editor.nextChange")
+                await run.settle()
+                run.run(command)
+                await run.settle()
+            }
+        })
         stress.add(StressStep("review.decide", weight: 2, when: { _ in !tracker.changedFiles.isEmpty }) { run in
             if run.chance(0.5) { run.run("review.acceptAll") } else { run.run("review.rejectAll") }
         })

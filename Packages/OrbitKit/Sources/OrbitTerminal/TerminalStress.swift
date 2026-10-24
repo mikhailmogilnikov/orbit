@@ -23,7 +23,8 @@ enum TerminalStress {
             let tasks = ProjectTasks.find(in: run.project)
             guard let task = store.runningTasks.isEmpty ? tasks.first(where: { $0.name == "slow" }) ?? run.pick(tasks) : run.pick(tasks) else { return }
             store.run(task)
-            try? await Task.sleep(for: .milliseconds(300))
+            // Running tasks are looked at once a second: until this one shows (or ends).
+            for _ in 0..<30 where store.runningTasks.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
         })
         context.stress.add(StressStep("terminal.interrupt", weight: 1) { run in
             if store.selected == nil { run.run("terminal.new") }
