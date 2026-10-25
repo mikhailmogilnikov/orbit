@@ -13,7 +13,7 @@ final class FoldingController: NSObject, NSTextContentStorageDelegate {
     weak var ruler: LineNumberRuler?
     /// Shares the squiggles' text geometry (line starts, rects).
     let geometry: DiagnosticsController
-    var languages: LanguageIntelligence?
+    weak var languages: LanguageIntelligence?
     var url: URL? {
         didSet { if let url, url != oldValue { pendingRestore = FoldMemory.headers(for: url) } }
     }

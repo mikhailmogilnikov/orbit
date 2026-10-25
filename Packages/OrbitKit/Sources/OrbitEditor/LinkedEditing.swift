@@ -9,7 +9,7 @@ import STTextView
 final class LinkedEditingController {
     weak var textView: OrbitTextView?
     let geometry: DiagnosticsController
-    var languages: LanguageIntelligence?
+    weak var languages: LanguageIntelligence?
     var url: URL?
     private var request: Task<Void, Never>?
 

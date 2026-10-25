@@ -57,6 +57,14 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Launch and updates
 
+- The editor area's width from a `GeometryReader` (D246): the split line,
+  the two tab rows and their edges still line up, opening and closing the
+  sidebar and inspector, in full screen too.
+- The stress run's memory fixes (D246): Settings' search still opens the
+  best match on Return; with Source Control turned off and on, the
+  Explorer's git colors come back; the inline edit prompt (⌘K) still edits,
+  and says Agents is turned off when it is.
+
 - The stress run's fixes (D245), with a mouse or "Show scroll bars: Always":
   the agents' chat and its empty state (the content keeps a scroller's width
   free on the right), the tabs of a split editor still ending where the left

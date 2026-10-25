@@ -20,8 +20,10 @@ struct SettingsScreen: View {
 
     private var ui: UIRegistry { host.ui }
 
-    private var panes: [SettingsPane] {
-        let host = host
+    private var panes: [SettingsPane] { Self.panes(of: host) }
+
+    private static func panes(of host: PluginHost) -> [SettingsPane] {
+        let ui = host.ui
         var shell = [
             SettingsPane(
                 id: "general", title: "General", systemImage: "gearshape.fill", tint: .gray, group: .app, order: 0,
@@ -105,8 +107,10 @@ struct SettingsScreen: View {
     static let projectPane = "project"
 
     /// Panes the query finds, each with the options it finds in them (D177).
-    private var results: [SettingsSearch.Result] {
-        guard isSearching else { return panes.map { SettingsSearch.Result(pane: $0, items: []) } }
+    private var results: [SettingsSearch.Result] { Self.results(query: query, index: index, panes: panes) }
+
+    private static func results(query: String, index: SettingsSearch.Index?, panes: [SettingsPane]) -> [SettingsSearch.Result] {
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return panes.map { SettingsSearch.Result(pane: $0, items: []) } }
         return SettingsSearch.results(for: query, in: index ?? SettingsSearch.Index(panes))
     }
 
@@ -155,14 +159,12 @@ struct SettingsScreen: View {
         }
         .background(FullScreenObserver(isFullScreen: $isFullScreen))
         .searchable(text: $query, placement: .sidebar, prompt: "Search")
-        // Return opens the best match, as in System Settings.
-        .onSubmit(of: .search) {
-            guard let first = results.first else { return }
-            if let item = first.items.first {
-                select(SettingsSearch.tag(item, in: first.pane))
-            } else {
-                select(first.pane.id)
-            }
+        // Return opens the best match, as in System Settings. Not through
+        // `self`: SwiftUI keeps this action after Settings close, and the
+        // whole screen kept every pane and the models behind them (D246).
+        .onSubmit(of: .search) { [host, navigator, query = $query, index = $index, picked = $pickedResult] in
+            guard let first = Self.results(query: query.wrappedValue, index: index.wrappedValue, panes: Self.panes(of: host)).first else { return }
+            Self.select(first.items.first.map { SettingsSearch.tag($0, in: first.pane) } ?? first.pane.id, navigator: navigator, picked: picked)
         }
         .onChange(of: query) {
             expanded = []
@@ -250,12 +252,14 @@ struct SettingsScreen: View {
     }
 
     /// A pane ("general") or a found option in it ("editor/wordWrap").
-    private func select(_ tag: String) {
+    private func select(_ tag: String) { Self.select(tag, navigator: navigator, picked: $pickedResult) }
+
+    private static func select(_ tag: String, navigator: SettingsNavigator, picked: Binding<String?>) {
         if let item = SettingsSearch.item(ofTag: tag) {
-            pickedResult = tag
+            picked.wrappedValue = tag
             navigator.reveal(item, in: SettingsSearch.pane(ofTag: tag))
         } else {
-            pickedResult = nil
+            picked.wrappedValue = nil
             navigator.show(tag)
         }
     }

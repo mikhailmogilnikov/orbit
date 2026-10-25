@@ -240,15 +240,18 @@ final class UIState {
     }
 
     /// A plugin turned off (D194): whatever it added goes with it.
+    /// Into new arrays, not in place: what's left past an array's end still
+    /// reads as a reference to `leaks`, which a stress run asks what holds a
+    /// plugin that was turned off (D246).
     func remove(owner: String) {
-        sidebarPanels.removeAll { $0.pluginID == owner }
-        inspectorPanels.removeAll { $0.pluginID == owner }
-        bottomPanels.removeAll { $0.pluginID == owner }
-        editorProviders.removeAll { $0.pluginID == owner }
-        statusItems.removeAll { $0.pluginID == owner }
-        editorActions.removeAll { $0.pluginID == owner }
-        settingsPanes.removeAll { $0.pluginID == owner }
-        extensionSources.removeAll { $0.owner == owner }
+        sidebarPanels = sidebarPanels.filter { $0.pluginID != owner }
+        inspectorPanels = inspectorPanels.filter { $0.pluginID != owner }
+        bottomPanels = bottomPanels.filter { $0.pluginID != owner }
+        editorProviders = editorProviders.filter { $0.pluginID != owner }
+        statusItems = statusItems.filter { $0.pluginID != owner }
+        editorActions = editorActions.filter { $0.pluginID != owner }
+        settingsPanes = settingsPanes.filter { $0.pluginID != owner }
+        extensionSources = extensionSources.filter { $0.owner != owner }
     }
 }
 
@@ -550,7 +553,7 @@ public final class CommandRegistry {
     }
 
     func remove(owner: String) {
-        state.all.removeAll { $0.pluginID == owner }
+        state.all = state.all.filter { $0.pluginID != owner }
     }
 
     public func unregister(_ id: String) {

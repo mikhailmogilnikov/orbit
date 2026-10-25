@@ -60,8 +60,14 @@ On another Mac, import it with `generate_keys -f <file>`.
    `make acknowledgements` first: the licenses in About Orbit come from it (D207).
 3. **Build:**
    ```bash
+   make stress-full
    make release VERSION=0.2.0
    ```
+   `make stress-full` (about 10 minutes, the first time longer: the macOS 26
+   VM gets the Command Line Tools) runs the stress run longer, with `leaks`,
+   and on macOS 26; when it passes on a committed tree it stamps the commit,
+   and `make release` refuses a commit without a stamp, unless only docs and
+   the site changed since one (D246). `SKIP_STRESS=1` builds without.
    Output: `.build/release/0.2.0/Orbit-0.2.0.zip` and
    `.build/release/0.2.0/appcast.xml`. The app itself is at
    `.build/xcode/Build/Products/Release/Orbit.app`. The keychain may ask

@@ -16,7 +16,7 @@ struct PathBarBlock: Sendable {
 struct PathBar<Trailing: View>: View {
     let document: TextDocument
     let workspace: Workspace
-    let languages: LanguageIntelligence?
+    weak var languages: LanguageIntelligence?
     /// Plugins' buttons for the file (`EditorAction`), at the end.
     @ViewBuilder let trailing: () -> Trailing
 
@@ -202,7 +202,7 @@ struct PathBar<Trailing: View>: View {
 /// itself doesn't redraw on every keystroke (it reads the revision, the bar doesn't).
 private struct OutlineLoader: View {
     let document: TextDocument
-    let languages: LanguageIntelligence?
+    weak var languages: LanguageIntelligence?
     @Binding var symbols: [LanguageSymbol]
     @Binding var blocks: [PathBarBlock]
 

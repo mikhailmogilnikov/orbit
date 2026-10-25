@@ -63,7 +63,8 @@ A plugin is a class conforming to `OrbitPlugin` with a static `manifest`. In
   puts one in the editor's right-click menu (D67)
 - `services.register` — typed services for other plugins
 - `stress` — the plugin's part of `make stress` (D244): steps, checks, files
-  for the run's project, exemptions (debug builds)
+  for the run's project, exemptions (debug builds); a step says what it let
+  go of with `expectFreed` and which step prepares it with `needs` (D246)
 - `settings` — per-plugin namespaced UserDefaults
 
 Each window has its own `PluginHost` (D101), which activates enabled plugins

@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- The stress run checks that closed tabs, windows, terminals, chats and plugins turned off are freed, plays git conflicts (merge, rebase, cherry-pick, stash pop), shrinks a failed run to its fewest steps (`SHRINK=`), runs on macOS 26 in the VM (`make stress-vm`), and `make stress-full` (longer, with `leaks`) gates `make release` (D246); fixed what it found: a hang on macOS 26 and 1x screens with a zoomed font in a narrow split, every closed tab kept its text view and the file's layout, Settings kept every pane's models each time it opened, and the Explorer, the editor and the inline edit prompt kept plugins that were turned off
 - The stress run in four parallel copies, each in a mode (scrollers that take room, text sizes, themes, a big project), with external chaos, a pretend ACP agent and a pretend language server (D245); fixed what it found: two layout hangs (agents' chat, split tabs), a freeze typing in minified files, the Problems list crash
 - Every feature is in the stress run (D244): plugins bring steps, checks and project files, Orbit runs every command, panel, Settings pane, plugin switch and step, then random ones; uncovered features fail it and `StressCoverageTests`
 - `make stress` drives a debug build through awkward files, window sizes, full screen, edits and agent edits, in order and at random, and stops on a crash, a hang or a busy CPU, in the background beside the Orbit in use (D243); overlapping selections merge, Join Editors right after Split no longer crashes
@@ -257,9 +258,10 @@
 - Text editing basics (D105): move / copy lines ⌥↑↓ ⇧⌥↑↓, multiple carets (⌘D, ⇧⌘L, ⌥-click, ⌃⇧↑↓), Go to Line ⌃G, matching bracket outline, font zoom ⌘= ⌘- ⌘0
 
 ## Next (rough priority)
-0. Stress run, phase 3 (D244, D245): the macOS 26 VM, git conflicts and
-   rebases, shrinking a failed run to its shortest steps, memory checks,
-   `make stress-full` before a release
+0. Two failures the stress run saw once and couldn't replay (D246): a copy
+   quit with no crash report while its project folder was renamed and back,
+   and in the big project an editor showed 28 of a 31-character file's
+   characters after switching tabs
 1. Code plugins in TypeScript via JavaScriptCore, same package format
 2. Developer ID signing and notarization: the script is ready (D222); waits for
    an Apple Developer Program membership and its certificate
@@ -319,6 +321,9 @@ tried by hand are in [manual-checks.md](manual-checks.md).
 - An agent turn in a project of 20 000 files takes about 11 s before it
   starts: the checkpoint snapshots the whole tree (D245). The UI stays
   responsive.
+- A plugin turned off can stay in memory until the views that showed it draw
+  again (a hidden inspector, a list's reused cells, the menu bar): one
+  instance, not one per switch (D246).
 
 **Agents and review**
 - Claude Code needs the standalone `claude` CLI logged in (`claude` → `/login`).

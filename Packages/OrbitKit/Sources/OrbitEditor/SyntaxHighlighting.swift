@@ -15,16 +15,20 @@ struct SyntaxHighlightPlugin: STPlugin {
     let grammar: Grammar
 
     func setUp(context: any Context) {
-        context.events.onWillChangeText { affectedRange, _ in
-            context.coordinator?.willChangeText(in: NSRange(affectedRange, in: context.textView.textContentManager))
+        // The text view keeps these handlers: capturing `context`, which holds
+        // the text view, kept every closed tab's text view and layout (D246).
+        let coordinator = context.coordinator
+        context.events.onWillChangeText { [weak textView = context.textView] affectedRange, _ in
+            guard let textView else { return }
+            coordinator?.willChangeText(in: NSRange(affectedRange, in: textView.textContentManager))
         }
 
         context.events.onDidChangeText { _, replacementString in
-            context.coordinator?.didChangeText(replacementLength: replacementString?.utf16.count ?? 0)
+            coordinator?.didChangeText(replacementLength: replacementString?.utf16.count ?? 0)
         }
 
         context.events.onDidLayoutViewport { _ in
-            context.coordinator?.viewportDidChange()
+            coordinator?.viewportDidChange()
         }
     }
 

@@ -35,7 +35,10 @@ Read before significant work:
 make build   # xcodegen + xcodebuild (Debug, optimized: D165) → .build/xcode/Build/Products/Debug/Orbit.app
 make run     # build, kill running Orbit, open the app
 make test    # swift test in Packages/OrbitKit
-make stress  # every feature of the debug build, 4 copies in 4 modes, in the background (D243–D245)
+make stress  # every feature of the debug build, 4 copies in 4 modes, in the background (D243–D246)
+SHRINK=.build/stress/<seed>/<copy>/log.txt make stress   # a failure's fewest steps (D246)
+make stress-vm    # the same on macOS 26 in the Tart VM (D235)
+make stress-full  # before a release: longer, with leaks, and on macOS 26; make release asks for it
 make test-languages   # LSP client against real servers (D55); runs on Linux too
 make test-language-installs   # every server installed from Mason and run (D57); slow once
 make import-lspconfig   # regenerate the imported server table from nvim-lspconfig (D65)
@@ -140,7 +143,8 @@ examples/extensions/      sample extensions (theme, icon theme)
   run's project, or an exemption with its reason. A crash or freeze the run
   finds becomes a `regression:` step. `StressCoverageTests` and the run's
   coverage report fail on what's left out; run `make stress` after UI or
-  editor changes.
+  editor changes. A step that closes or turns off something says what it
+  let go of (`expectFreed`): three of a kind alive fail the run (D246).
 - Agent changes are reviewed **inline in the editor** — do not reintroduce a
   separate review mode/tab (explicit product decision D7).
 - Icon-only buttons get a `.help` tooltip; when a command does the same,

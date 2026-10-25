@@ -134,6 +134,19 @@ build)
     [ -n "$version" ] || { echo "usage: $0 build <version>" >&2; exit 1; }
     [ -n "$(public_key)" ] || { echo "No update key yet: run 'make release-setup' first." >&2; exit 1; }
     if [ -n "$(git status --porcelain)" ]; then echo "warning: uncommitted changes go into this build" >&2; fi
+    # The full stress run passed on this commit, or on one before it that
+    # differs only in docs and the site (release notes) (D246).
+    stressed=
+    for stamp in .build/stress/passed-*; do
+        [ -f "$stamp" ] || continue
+        passed=${stamp##*passed-}
+        git merge-base --is-ancestor "$passed" HEAD 2>/dev/null || continue
+        if [ -z "$(git diff --name-only "$passed" HEAD | grep -vE '^(docs/|site/)|\.md$' || true)" ]; then stressed=$passed; break; fi
+    done
+    if [ -z "$stressed" ] && [ -z "${SKIP_STRESS:-}" ]; then
+        echo "No full stress run passed on this commit: make stress-full (SKIP_STRESS=1 builds without)" >&2; exit 1
+    fi
+    [ -z "$stressed" ] || echo "Stress run passed on ${stressed:0:9}"
     find_developer_id
     build_number=$(git rev-list --count HEAD)
     sign=(CODE_SIGN_IDENTITY=- ENABLE_HARDENED_RUNTIME=NO)

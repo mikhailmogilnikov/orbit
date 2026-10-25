@@ -187,6 +187,22 @@ public final class PluginHost {
         return entries.filter { off.contains($0.id) }.compactMap { active[$0.id]?.deactivationWarning() }
     }
 
+    /// What turning `pluginID` off has to free (D246): it and what requires
+    /// it, and the models they registered as services (not one a plugin that
+    /// stays on registered too: Git Lens hands on Source Control's model).
+    public func objectsFreed(whenOff pluginID: String) -> [(name: String, object: AnyObject)] {
+        var off: Set<String> = [pluginID]
+        for entry in entries where entry.manifest.requires.contains(where: off.contains) { off.insert(entry.id) }
+        let services = self.services.state.services.values.filter { type(of: $0.service) is AnyClass }
+        let staying = Set(services.filter { !off.contains($0.owner ?? "") }.map { ObjectIdentifier($0.service as AnyObject) })
+        var result: [(String, AnyObject)] = off.compactMap { id in active[id].map { ("plugin \(id)", $0 as AnyObject) } }
+        for service in services where off.contains(service.owner ?? "") {
+            let object = service.service as AnyObject
+            if !staying.contains(ObjectIdentifier(object)) { result.append(("\(type(of: object)) of \(service.owner ?? "")", object)) }
+        }
+        return result
+    }
+
     /// Switched on, with all it requires; entries come after what they require.
     private var wanted: Set<String> {
         var result = Set<String>()

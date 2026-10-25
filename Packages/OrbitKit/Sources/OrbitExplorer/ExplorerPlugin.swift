@@ -35,7 +35,7 @@ public final class ExplorerPlugin: OrbitPlugin {
             FilesSettingsPane()
         })
         context.ui.addSidebarPanel(PanelContribution(id: "explorer", title: "Explorer", systemImage: "folder", order: 0) {
-            ExplorerView(model: model, workspace: workspace, commands: context.commands, decorations: context.services.resolve(FileStatusProviding.self))
+            ExplorerView(model: model, workspace: workspace, commands: context.commands, services: context.services)
         }.command("explorer.show"))
         context.ui.addEditorProvider(EditorProvider(id: "explorer.compare", accepts: { $0.kind == CompareFiles.kind }) { tab in
             if let (left, right) = CompareFiles.files(of: tab) {
@@ -692,8 +692,11 @@ struct ExplorerView: View {
     let model: FileTreeModel
     let workspace: Workspace
     let commands: CommandRegistry
-    /// Git status colors; nil when the Git plugin is disabled.
-    let decorations: FileStatusProviding?
+    let services: ServiceRegistry
+    /// Git status colors; nil when the Git plugin is disabled. Looked up, not
+    /// kept: the list's selection binding holds the view, and a model kept
+    /// there outlived Source Control turned off (D246).
+    private var decorations: FileStatusProviding? { services.resolve(FileStatusProviding.self) }
 
     var body: some View {
         Group {

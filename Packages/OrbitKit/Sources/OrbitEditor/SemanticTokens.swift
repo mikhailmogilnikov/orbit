@@ -8,7 +8,7 @@ import OrbitAPI
 final class SemanticTokensController {
     let geometry: DiagnosticsController
     let palette: SyntaxPalette
-    var languages: LanguageIntelligence?
+    weak var languages: LanguageIntelligence?
     var url: URL?
     var isEnabled = true {
         didSet {

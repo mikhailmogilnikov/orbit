@@ -375,7 +375,6 @@ struct EditorArea: View {
     @Binding var columnVisibility: NavigationSplitViewVisibility
     @Binding var showsInspector: Bool
     let sidebarInset: CGFloat
-    @State private var width: CGFloat = 0
     @State private var dropZone: EditorDropZone?
     @Environment(TabDrag.self) private var drag
 
@@ -384,8 +383,33 @@ struct EditorArea: View {
     }
 
     var body: some View {
+        // The width from outside (D103): measured on the area itself and fed to
+        // its split and tab row, half a point of either changed it again, and
+        // on a 1x screen (macOS 26 in the VM) the window laid out forever (D246).
+        GeometryReader { proxy in
+            area(width: proxy.size.width)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        // Up into the hidden title bar, so the tab row lines up with the traffic lights.
+        .ignoresSafeArea(.container, edges: .top)
+        // Clears the floating sidebar by hand: its safe-area inset is cancelled
+        // for this column (see SidebarInsetCanceller).
+        .padding(.leading, sidebarInset)
+        // Switching tabs swaps the editor view; its min size must not reach the
+        // split view (constraint-loop crash, same as InspectorHost).
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        // The column's inherited inset is cancelled a run loop late
+        // (SidebarInsetCanceller): for a frame after the sidebar opens it
+        // counted on top of the padding and everything jumped twice as far,
+        // then back. Ignored here, the padding alone clears the sidebar.
+        .ignoresSafeArea(.container, edges: .leading)
+        .nativeSurface(Theme.editorSurface)
+        .background(SidebarInsetCanceller(inset: sidebarInset))
+    }
+
+    private func area(width: CGFloat) -> some View {
         let workspace = host.workspace
-        VStack(spacing: 0) {
+        return VStack(spacing: 0) {
             WindowTopBar(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector, areaWidth: width, sidebarInset: sidebarInset)
             Divider()
             Group {
@@ -413,24 +437,9 @@ struct EditorArea: View {
                 StatusBar(items: statusItems, ui: host.ui, commands: host.commands)
             }
         }
-        // Up into the hidden title bar, so the tab row lines up with the traffic lights.
         .ignoresSafeArea(.container, edges: .top)
         // The split line runs through the tab row too: both measure from here.
         .coordinateSpace(.named(EditorGroups.space))
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-        // Clears the floating sidebar by hand: its safe-area inset is cancelled
-        // for this column (see SidebarInsetCanceller).
-        .padding(.leading, sidebarInset)
-        // Switching tabs swaps the editor view; its min size must not reach the
-        // split view (constraint-loop crash, same as InspectorHost).
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-        // The column's inherited inset is cancelled a run loop late
-        // (SidebarInsetCanceller): for a frame after the sidebar opens it
-        // counted on top of the padding and everything jumped twice as far,
-        // then back. Ignored here, the padding alone clears the sidebar.
-        .ignoresSafeArea(.container, edges: .leading)
-        .nativeSurface(Theme.editorSurface)
-        .background(SidebarInsetCanceller(inset: sidebarInset))
     }
 }
 

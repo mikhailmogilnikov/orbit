@@ -40,6 +40,22 @@ enum ShellStress {
             workspace.splitEditor()
             workspace.joinGroups()
         })
+        // D246: on a 1x screen (macOS 26 in the VM) a zoomed font in a narrow
+        // split laid the window out forever, the editor area's width fed back.
+        stress.add(StressStep("shell.zoomedNarrowSplit", weight: 1, regression: true) { context in
+            guard let window = window(of: host), let screen = window.screen ?? NSScreen.main else { return }
+            let frame = window.frame
+            await context.open("src/short.tsx")
+            context.run("editor.zoomIn")
+            if !workspace.isSplit { workspace.splitEditor() }
+            context.run("editor.zoomIn")
+            window.setFrame(window.constrainFrameRect(NSRect(origin: frame.origin, size: NSSize(width: 1024, height: 681)), to: screen), display: true)
+            await context.settle()
+            await context.open("one-line.txt")
+            await context.settle()
+            context.run("editor.zoomReset")
+            window.setFrame(frame, display: true)
+        })
         stress.add(StressStep("shell.tabs", weight: 3, when: { _ in workspace.allTabs.count > 1 }) { context in
             for _ in 0..<context.int(1...6) {
                 switch context.int(0...3) {
@@ -77,6 +93,52 @@ enum ShellStress {
             if let panel = context.pick(ui.bottomPanels) { ui.toggleBottomPanel(panel.id) }
         })
 
+        // A window opened, used and closed: all it held goes with it (D101, D246).
+        stress.add(StressStep("shell.secondWindow", weight: 1) { context in
+            let before = Set(ProjectWindows.shared.allHosts.map(ObjectIdentifier.init))
+            ProjectWindows.shared.newWindow()
+            var opened: PluginHost?
+            for _ in 0..<100 where opened == nil {
+                try? await Task.sleep(for: .milliseconds(50))
+                opened = ProjectWindows.shared.allHosts.first { !before.contains(ObjectIdentifier($0)) }
+            }
+            guard let opened else { return context.note("no second window") }
+            opened.workspace.requestOpenFolder(context.file("src"))
+            await context.settle()
+            opened.workspace.openFile(context.file("src/long.swift"))
+            await context.settle()
+            if let panel = context.pick(opened.ui.sidebarPanels) { opened.ui.revealSidebarPanel(panel.id) }
+            await context.settle()
+            window(of: opened)?.performClose(nil)
+            context.expectFreed(opened, "a closed window's PluginHost")
+            context.expectFreed(opened.workspace, "a closed window's Workspace")
+        })
+        // Settings opened and closed: its views go with it (D246).
+        stress.add(StressStep("shell.settingsFreed", weight: 1) { context in
+            guard let window = window(of: host), let content = window.contentView, !context.ui.isSettingsVisible else { return }
+            let before = Set(views(in: content).map(ObjectIdentifier.init))
+            context.ui.showSettings(context.pick(context.ui.settingsPanes.map(\.id)) ?? "general")
+            await context.settle()
+            // The outermost new views: freed, so is everything inside them.
+            let opened = views(in: content).filter { !before.contains(ObjectIdentifier($0)) }
+            let openedIDs = Set(opened.map(ObjectIdentifier.init))
+            let roots = opened.filter { $0.superview.map { !openedIDs.contains(ObjectIdentifier($0)) } ?? true }
+            context.ui.isSettingsVisible = false
+            await context.settle()
+            // The largest of them stands for Settings: one a close, so three closes make three.
+            if let root = roots.max(by: { views(in: $0).count < views(in: $1).count }), root.window == nil {
+                context.expectFreed(root, "a view of closed Settings")
+            }
+        })
+        stress.add(StressStep("shell.pluginOffAndOn", weight: 1) { context in
+            let optional = host.entries.filter {
+                !$0.manifest.isRequired && StressCoverage.exemption(for: StressCoverage.plugin($0.id), in: host.stress.exemptions) == nil
+            }
+            guard let entry = context.pick(optional) else { return }
+            context.note(entry.id)
+            await StressRunner.shared.turnOffAndOn(entry.id)
+        })
+
         stress.add(StressCheck("shell.groups") { _ in
             let groups = workspace.groups
             guard (1...2).contains(groups.count) else { return "\(groups.count) editor groups" }
@@ -107,6 +169,10 @@ enum ShellStress {
             guard parts.count == 2, let pid = pid_t(parts[0]), pid != getpid(), pid != list.processIdentifier else { return nil }
             return (pid, String(parts[1]).components(separatedBy: "/").last ?? "")
         }
+    }
+
+    private static func views(in view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { views(in: $0) }
     }
 
     private static func window(of host: PluginHost) -> NSWindow? {

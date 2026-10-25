@@ -102,8 +102,10 @@ final class InlineEditModel {
     private let document: TextDocument
     private let target: InlineEdit.Target
     private let path: String
-    private let completion: AgentCompletion
-    private let changes: ChangeTracking?
+    // Weak: a prompt left open must not keep the Agents and Review plugins'
+    // models after they're turned off (D246).
+    private weak var completion: AgentCompletion?
+    private weak var changes: ChangeTracking?
     private let directory: URL
     @ObservationIgnored private var task: Task<Void, Never>?
 
@@ -123,6 +125,7 @@ final class InlineEditModel {
 
     func run() {
         guard canRun else { return }
+        guard let completion else { return state = .failed("Agents is turned off.") }
         state = .running
         let prompt = InlineEdit.prompt(instruction: instruction, path: path, fileLines: LineDiff.lines(document.text), target: target)
         task = Task { [weak self, completion, directory] in

@@ -15,24 +15,33 @@
 #   STEPS=600 SEED=7 make stress       more steps, or a failed run's order again
 #   JOBS=1 make stress                 one copy doing it all
 #   STEPS=0 make stress                the fixed part and the coverage check only
-#   REPLAY=<log.txt> make stress       a failed copy's steps again, in its order (the
-#                                      log's first line has the copy's seed: SEED= it for the same picks)
-#   MODE=1 REPLAY=<log.txt> make stress  with a copy's mode (its number above)
+#   REPLAY=<log.txt> make stress       a failed copy's steps again, in its order, with its seed
+#                                      and mode (several logs: one copy each, side by side)
+#   SHRINK=<log.txt> make stress       the fewest of a failed copy's steps that still fail
+#                                      the same way (D246): shrunk.txt, to REPLAY
+#   MODE=1 REPLAY=<log.txt> make stress  in another copy's mode (its number above)
+#   LEAKS=1 make stress                `leaks` on each copy once its steps pass (D246)
+#   MEMORY_LIMIT=2048 make stress      a copy over this many MB fails (4096)
 #   FOREGROUND=1 make stress           one copy in front, with full screen (it takes over the Mac)
 #   APP=<Orbit.app> scripts/stress.sh  another debug build
+#   OUT=<folder> scripts/stress.sh     results there, not in .build/stress/<seed>
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/orbit-env.sh
 
 APP=${APP:-.build/xcode/Build/Products/Debug/Orbit.app}
+[ -z "${SHRINK:-}" ] || exec python3 -u -I scripts/stress-shrink.py "$SHRINK" "$APP"
 STEPS=${STEPS:-150}
 SEED=${SEED:-$RANDOM}
 FOREGROUND=${FOREGROUND:-}
-REPLAY=${REPLAY:-}
+REPLAYS=(${REPLAY:-})
+LEAKS=${LEAKS:-}
+MEMORY_LIMIT=${MEMORY_LIMIT:-4096}
 JOBS=${JOBS:-4}
-[ -z "$REPLAY$FOREGROUND" ] || JOBS=1
+[ ${#REPLAYS[@]} = 0 ] || JOBS=${#REPLAYS[@]}
+[ -z "$FOREGROUND" ] || JOBS=1
 RESULTS=$PWD/.build/stress
-OUT=$RESULTS/$SEED
+OUT=${OUT:-$RESULTS/$SEED}
 
 # What each copy runs in, by its number (the first is Orbit's own settings).
 MODES=(
@@ -45,7 +54,7 @@ MODE_NAMES=("as set" "always-shown scrollers, dark, large text" "light, small te
 
 [ -x "$APP/Contents/MacOS/Orbit" ] || { echo "No debug build at $APP: make build" >&2; exit 1; }
 rm -rf "$OUT" && mkdir -p "$OUT"
-[ -z "$REPLAY" ] || cp "$REPLAY" "$OUT/replay.txt"
+OUT=$(cd "$OUT" && pwd)
 started=$(date +%s)
 echo "Stress run on macOS $(sw_vers -productVersion), seed $SEED, $STEPS random steps, $JOBS $([ "$JOBS" = 1 ] && echo copy || echo copies)$([ -n "$FOREGROUND" ] && echo ", in front"): $OUT"
 
@@ -57,25 +66,36 @@ for ((job = 0; job < JOBS; job++)); do
     mkdir -p "$out"
     orbit_side_copy "$APP" "$app" "$ORBIT_DOMAIN" "$([ -n "$FOREGROUND" ] || echo background)"
     orbit_scratch
-    mode_index=$(( ${MODE:-$job} % ${#MODES[@]} ))
+    replay=
+    if [ ${#REPLAYS[@]} != 0 ]; then
+        replay=$out/replay.txt
+        cp "${REPLAYS[$job]}" "$replay"
+        # The failed copy's mode, kept beside its log.
+        mode_index=${MODE:-$(cat "$(dirname "${REPLAYS[$job]}")/mode.txt" 2>/dev/null || echo 0)}
+    else
+        mode_index=${MODE:-$job}
+    fi
+    mode_index=$(( mode_index % ${#MODES[@]} ))
+    echo "$mode_index" > "$out/mode.txt"
     mode=${MODES[$mode_index]}
     plan=$(python3 -I -c '
 import json, sys
-seed, steps, project, out, background, replay, job, jobs, mode = sys.argv[1:]
+seed, steps, project, out, background, replay, job, jobs, mode, leaks, limit = sys.argv[1:]
 plan = {"seed": int(seed), "steps": int(steps), "project": project, "output": out, "background": background == "true",
-        "shard": int(job), "shards": int(jobs), "bigProject": bool(json.loads(mode).get("orbit.stressBigProject"))}
+        "shard": int(job), "shards": int(jobs), "bigProject": bool(json.loads(mode).get("orbit.stressBigProject")),
+        "leaks": leaks == "1", "memoryLimitMB": int(limit)}
 if replay: plan["replay"] = replay
 print(json.dumps(plan))' \
         "$((SEED + job * 7919))" "$(( (STEPS + JOBS - 1) / JOBS ))" "$ORBIT_SCRATCH/project" "$out" \
-        "$([ -n "$FOREGROUND" ] && echo false || echo true)" "$([ -z "$REPLAY" ] || echo "$OUT/replay.txt")" "$job" "$JOBS" "$mode")
+        "$([ -n "$FOREGROUND" ] && echo false || echo true)" "$replay" "$job" "$JOBS" "$mode" "${LEAKS:-0}" "$MEMORY_LIMIT")
     # No folders to reopen (the runner opens its project), every plugin on, the copy's mode.
     ORBIT_EXTRA_PREFS=$(python3 -I -c '
 import json, sys
 prefs = {"orbit.stress": sys.argv[1], "orbit.openFolders": [], "orbit.disabledPlugins": []}
 prefs.update(json.loads(sys.argv[2]))
 print(json.dumps(prefs))' "$plan" "$mode") orbit_use_prefs "$ORBIT_SCRATCH/project" src/short.tsx
-    # -g: launched without coming to the front.
-    open -g -n --stdout "$out/app.log" --stderr "$out/app.log" "$app"
+    # -g: launched without coming to the front. With LEAKS, where each leak was made.
+    open -g -n --stdout "$out/app.log" --stderr "$out/app.log" $([ -z "$LEAKS" ] || echo --env MallocStackLogging=1) "$app"
     pid=
     for _ in $(seq 1 50); do pid=$(pgrep -nf "$app/Contents/MacOS/Orbit" || true); [ -z "$pid" ] || break; sleep 0.1; done
     [ -n "$pid" ] || { echo "error: copy $job didn't start" >&2; exit 1; }
@@ -117,20 +137,21 @@ for ((job = 0; job < JOBS; job++)); do
         for _ in $(seq 1 30); do report=$(crash "dev.orbit.app.stress$job" || true); [ -z "$report" ] || break; sleep 1; done
         result="crashed: ${report:-no crash report}"
     fi
-    echo "copy $job (${MODE_NAMES[$(( ${MODE:-$job} % ${#MODE_NAMES[@]} ))]}): $result"
+    echo "$result" > "$out/outcome.txt"
+    echo "copy $job (${MODE_NAMES[$(cat "$out/mode.txt")]}): $result"
     case "$result" in
         passed*) ;;
         *)
             failed=1
-            grep -E '^[0-9]+: ' "$out/log.txt" 2>/dev/null | tail -5 | sed 's/^/    /'
+            { grep -E '^[0-9]+: ' "$out/log.txt" 2>/dev/null || true; } | tail -5 | sed 's/^/    /'
             [ ! -f "$out/sample.txt" ] || echo "    sample of what it was doing: $out/sample.txt"
-            echo "    log: $out/log.txt (REPLAY=$out/log.txt make stress plays it again)"
+            echo "    log: $out/log.txt (REPLAY= it to play it again, SHRINK= it for the fewest steps that fail)"
             ;;
     esac
 done
 
 # The copies' coverage added up: what none reached and nothing exempts fails the run.
-if [ -z "$REPLAY" ]; then
+if [ ${#REPLAYS[@]} = 0 ]; then
     python3 -I - "$OUT" <<'EOF' || failed=1
 import glob, json, sys
 known, reached, exemptions = set(), set(), {}

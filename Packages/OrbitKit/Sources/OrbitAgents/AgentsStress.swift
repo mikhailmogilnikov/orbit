@@ -65,6 +65,7 @@ enum AgentsStress {
             session.submit()
             try? await Task.sleep(for: .milliseconds(run.int(50...500)))
             store.close(session)
+            run.expectFreed(session, "a closed chat's AgentSession")
         })
         // Notes on lines, as the inline review writes them, then sent to the agent.
         stress.add(StressStep("agents.reviewComments", weight: 1) { run in

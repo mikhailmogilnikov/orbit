@@ -36,7 +36,7 @@ struct CodeEditor: NSViewRepresentable {
     var closesBrackets = true
     /// From the language server (D54); hover, ⌘-click and the squiggles use them.
     var diagnostics: [Diagnostic] = []
-    var languages: LanguageIntelligence?
+    weak var languages: LanguageIntelligence?
     var showsInlayHints = true
     var showsStickyScroll = true
     var showsIndentGuides = true
@@ -406,7 +406,7 @@ struct CodeEditor: NSViewRepresentable {
         lazy var folding = FoldingController(geometry: diagnosticsController)
         lazy var stickyScroll = StickyScrollController(geometry: diagnosticsController, folding: folding, palette: palette)
         var inlayHintsRevision: Int?
-        var languages: LanguageIntelligence?
+        weak var languages: LanguageIntelligence?
         var onOpenLocation: (SourceLocation) -> Void = { _ in }
         private var hoverTask: Task<Void, Never>?
         private var hoverPanel: HoverPanel?

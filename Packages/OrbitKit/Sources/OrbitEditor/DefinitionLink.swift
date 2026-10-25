@@ -9,7 +9,7 @@ import OrbitAPI
 final class DefinitionLinkController {
     weak var textView: STTextView?
     let geometry: DiagnosticsController
-    var languages: LanguageIntelligence?
+    weak var languages: LanguageIntelligence?
     var url: URL?
     /// Text-view coordinates of the pointer, nil while it's outside.
     var pointer: NSPoint?

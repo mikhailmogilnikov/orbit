@@ -255,6 +255,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D243. `make stress` tries to break a debug build
 - D244. Every feature is in the stress run: plugins bring steps and checks, Orbit runs them itself
 - D245. The stress run in parallel copies and modes, with chaos, a pretend agent and a pretend language server
+- D246. The stress run checks what's let go is freed, plays git conflicts, shrinks a failure and gates a release
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -5309,3 +5310,90 @@ What it found and what changed:
   didn't crash under it, stay Lists.
 - An agent turn in the big project took 11 s, the checkpoint snapshotting
   20 000 files (the UI stays responsive): on the roadmap.
+  (D246 adds what a step lets go of to the checks; the steps' own random
+  numbers keep their step's number in a replay.)
+
+### D246. The stress run checks what's let go is freed, plays git conflicts, shrinks a failure and gates a release
+
+Memory. A step says what it let go of (`StressContext.expectFreed`): a
+closed tab's editor and text view, a closed window's `PluginHost` and
+`Workspace`, a closed terminal or chat, the outermost views of a closed
+Settings, and for a plugin turned off what it and its dependents registered
+(`PluginHost.objectsFreed(whenOff:)`). The fixed part turns each optional
+plugin off and on three times. Freed isn't asked of each object: AppKit and
+SwiftUI keep what a view last drew (a collapsed inspector's last display
+list, a list's cells kept for reuse, Settings' search action in the
+window's environment, a layout engine's pending views, the menu bar until it
+updates) and work in flight (git, a server, an agent turn's checkpoint of a
+big project) holds its own until it returns. A leak keeps every one, so
+three of a kind let go and all alive fail the run, after 15 s and after
+everything is drawn again (each tab shown, the columns, the bottom panel and
+Settings shown and put back, the window resized, the menus updated). The
+failure writes `retainers.txt`: `leaks --traceTree` for one of each kind,
+where its nearest holders were allocated (`malloc_history`, with `LEAKS=1`)
+and what holds a text view on the way. The registries remove entries into
+new arrays so their spare capacity doesn't read as references there.
+`LEAKS=1` runs `/usr/bin/leaks` on each copy after its steps (allocations
+logged, so the busy limit is 60 s): roots in Orbit's modules or the
+libraries it builds on fail it; AppKit's and SwiftUI's own are counted. A
+copy over `MEMORY_LIMIT` (4096 MB) fails, and the result line has the
+largest footprint.
+
+What it found:
+- Every closed tab kept its text view, with the file's whole layout: the
+  syntax highlighter's text-change handlers captured STTextView's plugin
+  context, which holds the text view. They capture the coordinator, and the
+  text view weakly.
+- The Explorer kept Source Control's model after it was turned off (the
+  list's selection binding holds the view, which held the file status); it
+  looks the service up instead. The file editor, the editor's language
+  parts (folding, lenses, hints, semantic tokens, linked editing, the path
+  bar) and the inline edit prompt hold other plugins' models weakly, so an
+  editor AppKit or SwiftUI keeps a while can't keep a plugin turned off.
+- Settings' Return-opens-the-best-match action captured the whole screen,
+  and every pane with the models behind it; each time Settings opened, one
+  more stayed. It captures the host, the navigator and bindings.
+- On macOS 26 in the VM (a 1x screen) a zoomed font in a narrow split hung
+  the window: the editor area measured its own width and fed it to its
+  split and tab row (against D103), half a point of either changed it
+  again, and at 1x the rounding never settled. The width comes from a
+  `GeometryReader` around the area now; the six steps the shrinker found
+  are the regression `shell.zoomedNarrowSplit`.
+
+Git conflicts: the run's project has `conflict.txt`, and a step makes the
+same lines differ on a branch and here, then brings them together by a
+merge, a rebase, a cherry-pick or a stash pop (half of them diff3), opening
+the file with its markers; the editor's part resolves them as the conflict
+bar does (one block, all, next/previous) or breaks a block by hand and
+saves, and Source Control's part marks them resolved and commits or
+continues, or aborts. A step can name the step that makes it available
+(`needs`), which the fixed part runs first.
+
+Shrinking: `SHRINK=<log.txt> make stress` finds the fewest of a failed
+copy's steps that still fail the same way (the same check, hang, kind of
+leak, or crash by its exception and first frame in Orbit), by delta
+debugging with four replays side by side (`scripts/stress-shrink.py`).
+`REPLAY` takes several logs, one copy each, and each log's seed and mode
+(`mode.txt` beside it). A replayed step keeps its number, so its random
+numbers (and an alert's answer) are the ones it had: a 155-step failure
+shrank to its 2 steps in 12 minutes. The fixed and random parts look
+steps up by id when they run them: a list of steps holds their closures,
+and with them the models of a plugin a step turns off.
+
+macOS 26 and releases: `make stress-vm` runs it in the Tart VM (D235): it
+starts the VM, installs an SSH key through the guest agent and the Command
+Line Tools once (git and python3), copies the build and the scripts in,
+runs two copies and brings the results back; `REPLAY` and `SHRINK` work
+there too. Tart's guest agent isn't in the vanilla image: the key goes in
+with the image's password (admin). Writing the run's project (git on the
+main thread, slow the first time on a new Mac) pauses the watchdog. `make stress-full` is the
+run before a release: 800 random steps with `leaks`, then the VM; when both
+pass on a committed tree it stamps the commit (`.build/stress/passed-…`),
+and `make release` refuses a commit without one, unless the commits since a
+stamped one change only docs and the site (release notes), or `SKIP_STRESS=1`.
+
+Seen once and not replayed (timing): a copy quit while the project folder
+was renamed and back, with no crash report and no result; and in the big
+project an editor showed 28 characters of a 31-character file after
+switching tabs. Both on the roadmap.
+

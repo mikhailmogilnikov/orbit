@@ -67,6 +67,10 @@ import Testing
             let steps = host.stress.steps
             #expect(Set(steps.map(\.id)).count == steps.count)
             #expect(steps.allSatisfy { $0.weight > 0 })
+            // What prepares a step is a step too (D246).
+            for step in steps {
+                if let needs = step.needs { #expect(steps.contains { $0.id == needs }, "\(step.id) needs \(needs), which no plugin adds") }
+            }
             // Each crash a run found is a step every run plays (D243): they don't quietly go.
             let regressions = Set(steps.filter(\.isRegression).map(\.id))
             #expect(regressions.isSuperset(of: ["editor.selectAllThenExpand"]))

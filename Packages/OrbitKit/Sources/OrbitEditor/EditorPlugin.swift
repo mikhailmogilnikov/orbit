@@ -691,13 +691,16 @@ extension EditorPlugin {
 struct FileEditorView: View {
     let document: TextDocument
     let workspace: Workspace
-    let changes: ChangeTracking?
-    let reviewComments: ReviewComments?
-    let fileStatus: FileStatusProviding?
-    let conflictResolver: ConflictResolving?
-    let blameProvider: LineBlaming?
-    let versionControl: VersionControlBaseline?
-    let languages: LanguageIntelligence?
+    // Other plugins' models, weakly: AppKit and SwiftUI keep views a while
+    // after they're gone (a list's cells for reuse, a layout engine's pending
+    // views), and an editor kept there kept a plugin turned off (D246).
+    weak var changes: ChangeTracking?
+    weak var reviewComments: ReviewComments?
+    weak var fileStatus: FileStatusProviding?
+    weak var conflictResolver: ConflictResolving?
+    weak var blameProvider: LineBlaming?
+    weak var versionControl: VersionControlBaseline?
+    weak var languages: LanguageIntelligence?
     let options: EditorOptions
     let ui: UIRegistry
     let commands: CommandRegistry

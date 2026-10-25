@@ -9,7 +9,7 @@ final class SymbolHighlightController {
     weak var textView: STTextView?
     /// Shares the squiggles' text geometry (line starts, rects).
     let geometry: DiagnosticsController
-    var languages: LanguageIntelligence?
+    weak var languages: LanguageIntelligence?
     var url: URL?
     /// The uses shown changed (the overview ruler marks them).
     var onChange: (([SymbolHighlight]) -> Void)?

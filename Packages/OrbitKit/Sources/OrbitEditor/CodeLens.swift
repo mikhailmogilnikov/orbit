@@ -9,7 +9,7 @@ import OrbitAPI
 final class CodeLensController {
     weak var textView: STTextView?
     let geometry: DiagnosticsController
-    var languages: LanguageIntelligence?
+    weak var languages: LanguageIntelligence?
     var url: URL?
     var isEnabled = true {
         didSet {

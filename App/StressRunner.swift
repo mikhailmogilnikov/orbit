@@ -31,6 +31,10 @@ final class StressRunner {
         var shards: Int?
         /// Thousands of files in the project, for the index, search and the tree.
         var bigProject: Bool?
+        /// `leaks` on the process once the steps pass: Orbit's objects nothing points to fail the run (D246).
+        var leaks: Bool?
+        /// A footprint over this fails the run (D246).
+        var memoryLimitMB: Int?
     }
 
     private var plan: Plan?
@@ -43,7 +47,17 @@ final class StressRunner {
     private var unavailable: Set<String> = []
     private var sentBack: Set<Int> = []
     private var openMenu: NSMenu?
-    private let heartbeat = OSAllocatedUnfairLock(initialState: (beat: Date(), step: ""))
+    private let heartbeat = OSAllocatedUnfairLock(initialState: (beat: Date(), step: "", paused: false))
+    private var toFree: [(what: String, object: Weak)] = []
+    /// What steps let go of and still lives, by kind, weakly.
+    private var lettingGo: [String: [Weak]] = [:]
+    private var peakFootprint = 0
+    private var alertCount = 0
+
+    private final class Weak {
+        weak var object: AnyObject?
+        init(_ object: AnyObject) { self.object = object }
+    }
 
     /// Full screen takes a Space of its own and switches to it: only in front.
     var inBackground: Bool { plan?.background ?? true }
@@ -72,6 +86,8 @@ final class StressRunner {
 
     private func run() async {
         guard let host = await waitForHost() else { return finish("no window to run in") }
+        // Writing the project runs git on this thread, slowly the first time on a new Mac: not a hang.
+        heartbeat.withLock { $0.paused = true }
         do {
             try? FileManager.default.removeItem(at: project)
             try host.stress.makeProject(at: project)
@@ -79,6 +95,7 @@ final class StressRunner {
             return finish("couldn't write the project: \(error.localizedDescription)")
         }
         if plan!.bigProject == true { writeBigProject() }
+        heartbeat.withLock { $0.paused = false; $0.beat = Date() }
         guard await openProject() else { return finish("the project didn't open") }
         noteCoverage()
         note("project \(project.path), seed \(plan!.seed)")
@@ -112,15 +129,18 @@ final class StressRunner {
             && isMine(StressCoverage.plugin(entry.id)) {
             await step("plugin \(entry.id) off and on") { [weak self] _ in
                 guard let self else { return }
-                currentHost.setEnabled(false, pluginID: entry.id)
-                await settle()
-                do { try check() } catch { finish("with \(entry.id) off: \(error)") }
-                currentHost.setEnabled(true, pluginID: entry.id)
+                // Three times: a leak keeps all three.
+                for _ in 0..<3 {
+                    await turnOffAndOn(entry.id)
+                    await settle()
+                }
                 reached.insert(StressCoverage.plugin(entry.id))
             }
         }
-        for stressStep in currentHost.stress.steps.sorted(by: { $0.id < $1.id }) where isMine(StressCoverage.step(stressStep.id)) {
-            await run(stressStep, preparing: true)
+        // By id, each looked up when it runs: a list of steps holds their
+        // closures, and so the models of a plugin a step turns off.
+        for id in currentHost.stress.steps.map(\.id).sorted() where isMine(StressCoverage.step(id)) {
+            if let stressStep = currentHost.stress.steps.first(where: { $0.id == id }) { await run(stressStep, preparing: true) }
         }
         // Commands that were off the first time (nothing to go back to, no
         // split, no stash, no agent change): again, now that steps made that
@@ -128,7 +148,7 @@ final class StressRunner {
         for id in commands where isMine(StressCoverage.command(id)) && !reached.contains(StressCoverage.command(id)) {
             await step("command \(id), again") { [weak self] context in
                 guard let self, !context.run(id) else { return }
-                for setup in ["shell.richState", "review.agentTurn", "git.stash", "git.stage", "preview.markdown"] {
+                for setup in ["shell.richState", "review.agentTurn", "git.stash", "git.stage", "preview.markdown", "terminal.command"] {
                     if let prepare = currentHost.stress.steps.first(where: { $0.id == setup }) { await prepare.run(context) }
                     await settle()
                     if context.run(id) { return }
@@ -188,8 +208,12 @@ final class StressRunner {
     /// A log's steps again (`REPLAY=…/log.txt make stress`), to reproduce a failure.
     private func replaySteps(from path: String) async {
         guard let log = try? String(contentsOfFile: path, encoding: .utf8) else { return finish("no log at \(path)") }
+        // The failed run's seed and step numbers: each step's random numbers
+        // come from both, so a step plays as it did with others left out (D246).
+        if let seed = log.firstMatch(of: /, seed (\d+)\n/).flatMap({ UInt64($0.1) }) { plan?.seed = seed }
         for line in log.split(separator: "\n") {
-            guard let colon = line.firstIndex(of: ":"), Int(line[..<colon]) != nil else { continue }
+            guard let colon = line.firstIndex(of: ":"), let number = Int(line[..<colon]) else { continue }
+            stepCount = number - 1
             let label = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
             let words = label.split(separator: " ", maxSplits: 1).map(String.init)
             guard words.count == 2 else {
@@ -213,10 +237,7 @@ final class StressRunner {
             case "plugin":
                 let id = String(argument.split(separator: " ")[0])
                 await step("plugin \(id) off and on") { [weak self] _ in
-                    guard let self else { return }
-                    currentHost.setEnabled(false, pluginID: id)
-                    await settle()
-                    currentHost.setEnabled(true, pluginID: id)
+                    for _ in 0..<3 { await self?.turnOffAndOn(id) }
                 }
             case "step", "regression":
                 if let found = currentHost.stress.steps.first(where: { $0.id == argument }) { await run(found, preparing: true) }
@@ -230,8 +251,7 @@ final class StressRunner {
     /// available depends on timing (a language server's answer), and the same
     /// seed has to give the same steps.
     private func randomStep() async {
-        let steps = currentHost.stress.steps.sorted { $0.id < $1.id }
-        let total = steps.reduce(0) { $0 + $1.weight }
+        let (steps, total) = Self.weights(currentHost.stress.steps)
         // A command or a file a quarter of the time each, a plugin's step otherwise.
         switch random.next() % 4 {
         case 0:
@@ -247,17 +267,30 @@ final class StressRunner {
         default:
             guard total > 0 else { return }
             var roll = Int(random.next() % UInt64(total))
-            for candidate in steps {
-                roll -= candidate.weight
-                if roll < 0 { return await run(candidate, preparing: false) }
+            for (id, weight) in steps {
+                roll -= weight
+                if roll < 0, let candidate = currentHost.stress.steps.first(where: { $0.id == id }) {
+                    return await run(candidate, preparing: false)
+                }
             }
         }
+    }
+
+    /// Ids and weights, not the steps: see the fixed part.
+    private static func weights(_ steps: [StressStep]) -> (steps: [(id: String, weight: Int)], total: Int) {
+        let sorted = steps.sorted { $0.id < $1.id }.map { ($0.id, $0.weight) }
+        return (sorted, sorted.reduce(0) { $0 + $1.1 })
     }
 
     private func run(_ stressStep: StressStep, preparing: Bool) async {
         if !stressStep.isAvailable(context()) {
             guard preparing else { return note("skipped, not available: \(stressStep.id)") }
-            await context().open(Self.textFile)
+            if let needs = stressStep.needs, let prepare = currentHost.stress.steps.first(where: { $0.id == needs }) {
+                note("first \(needs)")
+                await prepare.run(context())
+                await settle()
+            }
+            if !stressStep.isAvailable(context()) { await context().open(Self.textFile) }
             guard stressStep.isAvailable(context()) else {
                 unavailable.insert(stressStep.id)
                 return note("unavailable: \(stressStep.id)")
@@ -274,6 +307,7 @@ final class StressRunner {
     /// closed, the main thread idle and every check holding.
     private func step(_ label: String, _ body: (StressContext) async -> Void) async {
         stepCount += 1
+        alertCount = 0
         let line = "\(stepCount): \(label)"
         heartbeat.withLock { $0.step = line }
         write(line)
@@ -285,6 +319,8 @@ final class StressRunner {
         dismissModals()
         await settle()
         do { try check() } catch { finish("\(line): \(error)") }
+        if let leaked = await pilingUp() { finish("\(line): piling up: \(leaked)") }
+        checkFootprint()
         noteCoverage()
         let took = Date().timeIntervalSince(started)
         if took > 2 { note("slow: \(took.formatted(.number.precision(.fractionLength(1)))) s") }
@@ -306,14 +342,136 @@ final class StressRunner {
             let elapsed = Date().timeIntervalSince(clock)
             last = (elapsed - 0.1, (Self.cpuTime() - cpu) / elapsed)
             quiet = last.lateness < 0.03 && last.cpu < 0.5 ? quiet + 1 : 0
-            if Date().timeIntervalSince(started) > 20 {
-                let problem = "busy for 20 s after \(heartbeat.withLock { $0.step }): the main thread woke \(Int(last.lateness * 1000)) ms late, \(Int(last.cpu * 100))% CPU"
+            // Logging every allocation for leaks makes everything a few times slower.
+            let limit: TimeInterval = plan?.leaks == true ? 60 : 20
+            if Date().timeIntervalSince(started) > limit {
+                let problem = "busy for \(Int(limit)) s after \(heartbeat.withLock { $0.step }): the main thread woke \(Int(last.lateness * 1000)) ms late, \(Int(last.cpu * 100))% CPU"
                 // Still busy for the script to sample what spins, then the end.
                 try? "busy: \(problem)".write(to: output.appendingPathComponent("result.txt"), atomically: true, encoding: .utf8)
                 try? await Task.sleep(for: .seconds(8))
                 return finish(problem)
             }
         }
+    }
+
+    /// What steps let go of (`StressContext.expectFreed`), by kind, while it
+    /// lives. One of a kind may stay a while, even two: AppKit and SwiftUI
+    /// keep what a view last drew (a hidden column, a tab in the background,
+    /// Settings' search field, a layout engine's pending views) until it draws
+    /// again, and work in flight (git, a server, an agent turn's checkpoint of
+    /// a big project) holds its own until it returns. A leak keeps every one:
+    /// three of a kind let go and all alive fail the run (D246).
+    private func pilingUp() async -> String? {
+        for (what, object) in toFree { lettingGo[what, default: []].append(object) }
+        toFree = []
+        guard !piled().isEmpty else { return nil }
+        for _ in 0..<300 where !piled().isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
+        if !piled().isEmpty {
+            await redrawEverything()
+            for _ in 0..<40 where !piled().isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
+        }
+        let kinds = piled()
+        guard !kinds.isEmpty else { return nil }
+        // What holds each: the chains of references to it, from leaks.
+        var trees = ""
+        for kind in kinds.prefix(3) {
+            guard let object = lettingGo[kind]?.first?.object else { continue }
+            let address = String(format: "%#lx", UInt(bitPattern: Unmanaged.passUnretained(object).toOpaque()))
+            let tree = await leaks(["--traceTree=\(address)"])
+            trees += "== \(kind) at \(address)\n" + tree + "\n"
+            // Tasks and closures say nothing of whose they are: where they were
+            // made does (with LEAKS, the copy logs its allocations). The
+            // nearest holders: the tree's first three levels.
+            let lines: [String] = tree.split(separator: "\n").map(String.init)
+            let near = lines.filter { (line: String) -> Bool in
+                let indent = line.prefix { " +!:|".contains($0) }.count
+                return indent >= 6 && indent <= 10 && line.dropFirst(indent).first?.isNumber == true
+            }
+            let holders = near.compactMap { $0.firstMatch(of: /<(?:Task stack|Closure context[^>]*?|Swift HeapGenericLocalVariable|Swift HeapLocalVariable) (0x[0-9a-f]+)>/).map { String($0.1) } }
+            for holder in Array(Set(holders)).sorted().prefix(6) {
+                trees += "-- made at \(holder)\n" + (await run("/usr/bin/malloc_history", ["\(getpid())", holder])) + "\n"
+            }
+            // A text view on the way is a leak of its own (it holds its editor's parts): what holds it.
+            if let textView = tree.firstMatch(of: /<OrbitTextView (0x[0-9a-f]+)>/).map({ String($0.1) }) {
+                trees += "== the OrbitTextView on the way, at \(textView)\n" + (await leaks(["--traceTree=\(textView)"])) + "\n"
+            }
+        }
+        try? trees.write(to: output.appendingPathComponent("retainers.txt"), atomically: true, encoding: .utf8)
+        return kinds.map { "\(lettingGo[$0]?.count ?? 0) × \($0)" }.joined(separator: ", ") + " (retainers.txt)"
+    }
+
+    /// The kinds with three or more still alive; the freed ones dropped.
+    private func piled() -> [String] {
+        lettingGo = lettingGo.mapValues { $0.filter { $0.object != nil } }.filter { !$0.value.isEmpty }
+        return lettingGo.filter { $0.value.count >= 3 }.keys.sorted()
+    }
+
+    /// Every tab shown, the columns, the bottom panel and Settings shown and
+    /// put back, a window that changed size, the menu bar updated as when it
+    /// opens: what a view last drew is drawn again.
+    private func redrawEverything() async {
+        guard let window else { return }
+        let workspace = currentHost.workspace
+        let focused = workspace.focusedGroup, shown = workspace.groups.map { ($0.id, $0.activeTabID) }
+        for group in workspace.groups {
+            for tab in group.tabs {
+                workspace.activate(tab.id, in: group.id)
+                await settle()
+            }
+        }
+        for case let (group, tab?) in shown { workspace.activate(tab, in: group) }
+        workspace.focusGroup(focused)
+        NSApp.mainMenu?.update()
+        for item in NSApp.mainMenu?.items ?? [] { item.submenu?.update() }
+        for column in ["shell.toggleAgents", "shell.toggleSidebar"] {
+            currentHost.commands.run(column)
+            await settle()
+            currentHost.commands.run(column)
+            await settle()
+        }
+        let ui = currentHost.ui
+        ui.isBottomPanelVisible.toggle()
+        await settle()
+        ui.isBottomPanelVisible.toggle()
+        if !ui.isSettingsVisible {
+            ui.isSettingsVisible = true
+            await settle()
+            ui.isSettingsVisible = false
+            await settle()
+        }
+        let frame = window.frame
+        window.setFrame(frame.insetBy(dx: 1, dy: 1), display: true)
+        await settle()
+        window.setFrame(frame, display: true)
+        await settle()
+    }
+
+    /// Off, with every check holding, then on again; what it held is let go (D246).
+    func turnOffAndOn(_ id: String) async {
+        // Held weakly from here: a list of them would keep them.
+        for (name, object) in currentHost.objectsFreed(whenOff: id) { toFree.append((name, Weak(object))) }
+        currentHost.setEnabled(false, pluginID: id)
+        await settle()
+        do { try check() } catch { finish("with \(id) off: \(error)") }
+        currentHost.setEnabled(true, pluginID: id)
+    }
+
+    /// Noted every 25 steps; over the plan's limit fails the run.
+    private func checkFootprint() {
+        let megabytes = Self.footprint() / 1_048_576
+        peakFootprint = max(peakFootprint, megabytes)
+        if stepCount % 25 == 0 { note("memory: \(megabytes) MB") }
+        if let limit = plan?.memoryLimitMB, megabytes > limit { finish("memory: \(megabytes) MB, over the run's \(limit) MB") }
+    }
+
+    /// What Activity Monitor shows as the process's memory.
+    private static func footprint() -> Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return result == KERN_SUCCESS ? Int(info.phys_footprint) : 0
     }
 
     private static func cpuTime() -> Double {
@@ -393,7 +551,8 @@ final class StressRunner {
             host: currentHost, project: project, seed: seed.next(),
             reached: { [weak self] in self?.reached.insert($0) },
             settle: { [weak self] in await self?.settle() },
-            note: { [weak self] in self?.note($0) }
+            note: { [weak self] in self?.note($0) },
+            expectFreed: { [weak self] object, what in self?.toFree.append((what, Weak(object))) }
         )
     }
 
@@ -446,6 +605,8 @@ final class StressRunner {
 
     /// An alert's answer: one of its buttons at random, so both sides of a confirmation run.
     private func answer(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        alertCount += 1
+        var random = StressRandom(seed: (plan?.seed ?? 0) &+ UInt64(stepCount) &* 0x9E37_79B9 &+ UInt64(alertCount))
         let index = alert.buttons.isEmpty ? 0 : Int(random.next() % UInt64(alert.buttons.count))
         note("alert \"\(alert.messageText)\": \(alert.buttons.indices.contains(index) ? alert.buttons[index].title : "OK")")
         return NSApplication.ModalResponse(rawValue: NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + index)
@@ -460,14 +621,65 @@ final class StressRunner {
     }
 
     private func finish(_ failure: String?) {
+        if failure == nil, plan?.leaks == true {
+            plan?.leaks = false
+            Task { finish(await leaks()) }
+            return
+        }
         if let failure { note("FAILED: \(failure)") }
         _ = uncoveredReport()
-        try? (failure.map { "failed: \($0)" } ?? "passed: \(stepCount) steps").write(
+        try? (failure.map { "failed: \($0)" } ?? "passed: \(stepCount) steps, \(peakFootprint) MB at most").write(
             to: output.appendingPathComponent("result.txt"), atomically: true, encoding: .utf8
         )
         try? log?.synchronize()
         exit(failure == nil ? 0 : 3)
     }
+
+    /// `leaks` on this process: what nothing points to any more and is Orbit's own, or of the
+    /// libraries it builds on, fails the run. AppKit's and SwiftUI's own
+    /// leaks are only counted. The whole report is leaks.txt.
+    private func leaks() async -> String? {
+        // Closed tabs and windows go after the run loop turns a few times.
+        await settle()
+        let text = await leaks([])
+        try? text.write(to: output.appendingPathComponent("leaks.txt"), atomically: true, encoding: .utf8)
+        guard text.contains("leaks for") else { return "leaks didn't run (leaks.txt)" }
+        let roots = text.split(separator: "\n").filter { $0.contains("ROOT LEAK") || $0.contains("ROOT CYCLE") }
+        let ours = roots.filter { line in Self.ownModules.contains { line.contains($0) } }
+        note("leaks: \(roots.count) roots, \(ours.count) of them Orbit's")
+        for line in ours.prefix(20) { note("leak: \(line.trimmingCharacters(in: .whitespaces))") }
+        return ours.isEmpty ? nil : "leaks: \(ours.count) of Orbit's objects nothing points to (leaks.txt)"
+    }
+
+    /// /usr/bin/leaks on this process. A try that caught malloc mid-change says so: again.
+    private func leaks(_ arguments: [String]) async -> String {
+        var text = ""
+        for _ in 0..<3 {
+            text = await run("/usr/bin/leaks", ["\(getpid())"] + arguments)
+            if !text.contains("[fatal]") { break }
+        }
+        return text
+    }
+
+    /// A tool that stops this process while it looks (leaks, malloc_history): the watchdog waits.
+    private func run(_ tool: String, _ arguments: [String]) async -> String {
+        heartbeat.withLock { $0.paused = true }
+        defer { heartbeat.withLock { $0.paused = false; $0.beat = Date() } }
+        return await Task.detached { () -> String in
+            let process = Process()
+            let pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: tool)
+            process.arguments = arguments
+            process.standardOutput = pipe
+            process.standardError = pipe
+            guard (try? process.run()) != nil else { return "" }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(decoding: data, as: UTF8.self)
+        }.value
+    }
+
+    private static let ownModules = ["<Orbit", " Orbit", "STTextView", "SwiftTerm", "Neon", "SwiftTreeSitter"]
 
     /// The watchdog: a main thread that hasn't ticked for 10 s is stuck. It
     /// writes the step and leaves the process to the script, which samples it.
@@ -504,8 +716,8 @@ final class StressRunner {
         Thread.detachNewThread {
             while true {
                 Thread.sleep(forTimeInterval: 1)
-                let (beat, step) = heartbeat.withLock { ($0.beat, $0.step) }
-                if Date().timeIntervalSince(beat) > 10 {
+                let (beat, step, paused) = heartbeat.withLock { ($0.beat, $0.step, $0.paused) }
+                if !paused, Date().timeIntervalSince(beat) > 10 {
                     try? "hung: the main thread stopped at \(step)".write(to: result, atomically: true, encoding: .utf8)
                     return
                 }

@@ -7,7 +7,7 @@ APP := $(DERIVED)/Build/Products/$(CONFIG)/Orbit.app
 # -Onone for previews and the debugger.
 OPTIMIZE := SWIFT_OPTIMIZATION_LEVEL=-O GCC_OPTIMIZATION_LEVEL=s
 
-.PHONY: project build run test test-languages test-language-installs stress import-lspconfig import-grammars acknowledgements release release-setup release-publish clean
+.PHONY: project build run test test-languages test-language-installs stress stress-vm stress-full import-lspconfig import-grammars acknowledgements release release-setup release-publish clean
 
 project:
 	xcodegen generate --quiet
@@ -29,6 +29,15 @@ test:
 # REPLAY=<log> MODE=<n> a failed copy again; FOREGROUND=1 adds full screen.
 stress: build
 	scripts/stress.sh
+
+# The same on macOS 26, the minimum, in the Tart VM (D235, D246).
+stress-vm: build
+	scripts/stress-vm.sh
+
+# Before a release (D246): longer, with leaks, and on macOS 26; stamps the
+# commit, which make release asks for. SHRINK=<log> make stress shrinks a failure.
+stress-full: build
+	scripts/stress-full.sh
 
 # Each language against its real server (D55). Also runs on Linux
 # (scripts/linux-swift.sh), where SwiftPM drops the macOS-only pins.

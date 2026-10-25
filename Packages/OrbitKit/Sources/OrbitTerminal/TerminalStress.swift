@@ -26,6 +26,11 @@ enum TerminalStress {
             // Running tasks are looked at once a second: until this one shows (or ends).
             for _ in 0..<30 where store.runningTasks.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
         })
+        context.stress.add(StressStep("terminal.close", weight: 1, when: { _ in store.selected != nil }) { run in
+            guard let session = store.selected else { return }
+            store.close(session)
+            run.expectFreed(session, "a closed TerminalSession")
+        })
         context.stress.add(StressStep("terminal.interrupt", weight: 1) { run in
             if store.selected == nil { run.run("terminal.new") }
             await run.settle()

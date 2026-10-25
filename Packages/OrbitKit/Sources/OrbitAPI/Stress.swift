@@ -19,11 +19,14 @@ public struct StressStep: Identifiable {
     public let covers: [String]
     /// A sequence that once broke Orbit: every run plays it in its fixed part.
     public let isRegression: Bool
+    /// The step that makes this one available ("git.conflict" for resolving
+    /// one): the fixed part runs it first when this one isn't (D246).
+    public let needs: String?
     public let isAvailable: @MainActor (StressContext) -> Bool
     public let run: @MainActor (StressContext) async -> Void
 
     public init(
-        _ id: String, weight: Int = 3, covers: [String] = [], regression: Bool = false,
+        _ id: String, weight: Int = 3, covers: [String] = [], regression: Bool = false, needs: String? = nil,
         when isAvailable: @escaping @MainActor (StressContext) -> Bool = { _ in true },
         run: @escaping @MainActor (StressContext) async -> Void
     ) {
@@ -31,6 +34,7 @@ public struct StressStep: Identifiable {
         self.weight = weight
         self.covers = covers
         isRegression = regression
+        self.needs = needs
         self.isAvailable = isAvailable
         self.run = run
     }
@@ -62,10 +66,12 @@ public final class StressContext {
     private let reached: (String) -> Void
     private let waitForIdle: () async -> Void
     private let log: (String) -> Void
+    private let freed: (AnyObject, String) -> Void
 
     public init(
         host: PluginHost, project: URL, seed: UInt64,
-        reached: @escaping (String) -> Void, settle: @escaping () async -> Void, note: @escaping (String) -> Void
+        reached: @escaping (String) -> Void, settle: @escaping () async -> Void, note: @escaping (String) -> Void,
+        expectFreed: @escaping (AnyObject, String) -> Void = { _, _ in }
     ) {
         workspace = host.workspace
         commands = host.commands
@@ -76,6 +82,7 @@ public final class StressContext {
         self.reached = reached
         waitForIdle = settle
         log = note
+        freed = expectFreed
     }
 
     public func file(_ path: String) -> URL { project.appendingPathComponent(path) }
@@ -101,6 +108,11 @@ public final class StressContext {
 
     /// A line in the run's log under the step.
     public func note(_ text: String) { log(text) }
+
+    /// Something the step let go of (a closed tab's editor, a closed window's
+    /// models, a plugin turned off): it has to be freed soon after the step,
+    /// or the run fails on a leak (D246). Held weakly.
+    public func expectFreed(_ object: AnyObject, _ what: String) { freed(object, what) }
 
     public func int(_ range: ClosedRange<Int>) -> Int {
         range.lowerBound + Int(random.next() % UInt64(range.count))
@@ -266,10 +278,10 @@ public final class StressRegistry {
     func removeAll() { state.steps = []; state.checks = []; state.files = []; state.preparations = []; state.exemptions = [:] }
 
     func remove(owner: String) {
-        state.steps.removeAll { $0.pluginID == owner }
-        state.checks.removeAll { $0.pluginID == owner }
-        state.files.removeAll { $0.owner == owner }
-        state.preparations.removeAll { $0.owner == owner }
+        state.steps = state.steps.filter { $0.pluginID != owner }
+        state.checks = state.checks.filter { $0.pluginID != owner }
+        state.files = state.files.filter { $0.owner != owner }
+        state.preparations = state.preparations.filter { $0.owner != owner }
         state.exemptions = state.exemptions.filter { $0.value.owner != owner }
     }
 }

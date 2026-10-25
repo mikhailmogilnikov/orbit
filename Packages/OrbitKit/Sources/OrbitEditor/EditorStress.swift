@@ -98,6 +98,41 @@ enum EditorStress {
             context.workspace.fileSystemDidChange()
         })
         // D243: Select All Occurrences in a long file, then Expand Selection, froze the editor.
+        // A merge's markers resolved as the conflict bar does, a block at a
+        // time or all at once, or edited by hand into a mess (D246).
+        stress.add(StressStep("editor.resolveConflicts", weight: 2, needs: "git.conflict", when: { _ in editor().map { MergeConflicts.hasMarkers($0.document.text) } == true }) { run in
+            guard let coordinator = editor() else { return }
+            let choice = run.pick([MergeConflicts.Choice.current, .incoming, .both]) ?? .current
+            switch run.int(0...3) {
+            case 0: coordinator.resolveAllConflicts(choice)
+            case 1:
+                coordinator.revealConflict(forward: run.chance(0.5))
+                await run.settle()
+                fallthrough
+            case 2:
+                let conflicts = MergeConflicts.find(in: LineDiff.lines(coordinator.document.text))
+                if let conflict = run.pick(conflicts) { coordinator.resolveConflict(conflict, choice) }
+            default:
+                guard let textView = coordinator.textView, let separator = MergeConflicts.find(in: LineDiff.lines(coordinator.document.text)).first?.separator else { return }
+                // The ======= line deleted: what's left is no block at all.
+                let text = textView.documentText
+                var start = 0
+                for _ in 0..<separator { start = NSMaxRange(text.lineRange(for: NSRange(location: start, length: 0))) }
+                textView.insertText("", replacementRange: text.lineRange(for: NSRange(location: start, length: 0)))
+            }
+            await run.settle()
+            if run.chance(0.7) { run.run("editor.save") }
+        })
+        // A closed tab's editor goes with its text view, layout and overlays (D246).
+        stress.add(StressStep("editor.closeTab", weight: 2) { run in
+            await run.open(run.pick(["src/short.tsx", "src/long.swift", "unicode.txt", "crlf.txt"]) ?? "src/short.tsx")
+            let url = context.workspace.activeTab?.url
+            // Shown on both sides of a split, the other side's editor stays.
+            guard let coordinator = editor(), context.workspace.allTabs.filter({ $0.url == url }).count == 1 else { return }
+            context.workspace.closeActiveTab()
+            run.expectFreed(coordinator, "a closed tab's editor")
+            if let textView = coordinator.textView { run.expectFreed(textView, "a closed tab's text view") }
+        })
         stress.add(StressStep("editor.selectAllThenExpand", weight: 1, regression: true) { run in
             await run.open("src/long.swift")
             guard let textView = editor()?.textView else { return }
