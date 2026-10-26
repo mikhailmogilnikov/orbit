@@ -5389,9 +5389,8 @@ there too. Tart's guest agent isn't in the vanilla image: the key goes in
 with the image's password (admin). Writing the run's project (git on the
 main thread, slow the first time on a new Mac) pauses the watchdog. `make stress-full` is the
 run before a release: 800 random steps with `leaks`, then the VM; when both
-pass on a committed tree it stamps the commit (`.build/stress/passed-…`),
-and `make release` refuses a commit without one, unless the commits since a
-stamped one change only docs and the site (release notes), or `SKIP_STRESS=1`.
+pass it stamps the code, and `make release` refuses code that changed since
+(D247 changed the stamp from a commit to the code), or `SKIP_STRESS=1`.
 
 Seen once and not replayed (timing): a copy quit while the project folder
 was renamed and back, with no crash report and no result; and in the big
@@ -5446,4 +5445,10 @@ and a shrink twelve. Now:
   don't get there: it catches them; lldb on `objc_exception_throw` did),
   and the pretend agent's permission answers come from the step's numbers,
   so a replay answers the same.
+- `make stress-full` stamps the code it ran, not a commit
+  (`.build/stress/full-passed.json`, the fingerprints `make stress` keeps),
+  and `make release` compares the code with it: a stamp asked for a clean
+  tree, and a README or a docs commit called for another ten-minute run on
+  code that hadn't changed. The scripts are a fingerprint of their own: a
+  change runs `make stress` in full, but doesn't count for a release.
 
