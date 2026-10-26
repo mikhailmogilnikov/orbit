@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- The stress run's gallery: every panel, Settings pane and a few editors in every mode, side by side; and timings (launch, files, typing, scrolling, tabs, Settings, memory, CPU at rest) against a baseline, in `make stress-full` (D248)
 - Opening Settings with the sidebar and the inspector open in the smallest window no longer crashes (D247); the stress run found it, shrank it to three steps and keeps it as a regression
 - A faster stress run (D247): only the plugins whose code changed since a run passed and what uses them, setups once each, leaks without allocation logging, a shrinker that tries the last steps first and stops a round early; leaks fixed in Terminal's options and language servers' process handlers
 - The stress run checks that closed tabs, windows, terminals, chats and plugins turned off are freed, plays git conflicts (merge, rebase, cherry-pick, stash pop), shrinks a failed run to its fewest steps (`SHRINK=`), runs on macOS 26 in the VM (`make stress-vm`), and `make stress-full` (longer, with `leaks`) gates `make release` (D246); fixed what it found: a hang on macOS 26 and 1x screens with a zoomed font in a narrow split, every closed tab kept its text view and the file's layout, Settings kept every pane's models each time it opened, and the Explorer, the editor and the inline edit prompt kept plugins that were turned off
@@ -264,8 +265,10 @@
    quit with no crash report while its project folder was renamed and back,
    and in the big project an editor showed 28 of a 31-character file's
    characters after switching tabs
-1. Code plugins in TypeScript via JavaScriptCore, same package format
-2. Developer ID signing and notarization: the script is ready (D222); waits for
+1. Faster: a key press takes ~31 ms to insert and draw in a 6 000-line file
+   (two frames), a tab switch 100–130 ms and Settings 230–290 ms (D248)
+2. Code plugins in TypeScript via JavaScriptCore, same package format
+3. Developer ID signing and notarization: the script is ready (D222); waits for
    an Apple Developer Program membership and its certificate
 
 ## Not implemented yet

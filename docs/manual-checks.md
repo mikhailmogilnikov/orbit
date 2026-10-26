@@ -57,6 +57,10 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Launch and updates
 
+- The stress run's gallery (D248) showed the Markdown preview empty in a
+  split editor (seed 61, `panel_git`): a web view doesn't draw behind other
+  windows, or the preview really is blank there. Open a Markdown preview
+  beside its source and look.
 - Settings from a small window with the sidebar and the inspector open
   (D247): the inspector closes for a moment as Settings come in; it should
   be open again on Back to Project, and not flash or animate oddly.

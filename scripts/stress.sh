@@ -28,8 +28,13 @@
 #                                      each object was made (everything a few times slower)
 #   MEMORY_LIMIT=2048 make stress      a copy over this many MB fails (4096)
 #   FOREGROUND=1 make stress           one copy in front, with full screen (it takes over the Mac)
+#   PERF=1 make stress                 one quiet copy times launch, opening files, typing, scrolling,
+#                                      tabs, Settings, memory and CPU at rest, against the baseline
+#                                      (D248; PERF_ACCEPT=1 makes this run the baseline)
 #   APP=<Orbit.app> scripts/stress.sh  another debug build
 #   OUT=<folder> scripts/stress.sh     results there, not in .build/stress/<seed>
+#   SHOTS=1 make stress                gallery.html: a full run shows every panel, Settings pane
+#                                      and a few editors in each copy and shoots them (D248; ~50 s)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/orbit-env.sh
@@ -43,15 +48,16 @@ FOREGROUND=${FOREGROUND:-}
 REPLAYS=(${REPLAY:-})
 LEAKS=${LEAKS:-}
 STACKS=${STACKS:-}
+PERF=${PERF:-}
 MEMORY_LIMIT=${MEMORY_LIMIT:-4096}
 JOBS=${JOBS:-4}
 [ ${#REPLAYS[@]} = 0 ] || JOBS=${#REPLAYS[@]}
-[ -z "$FOREGROUND" ] || JOBS=1
+[ -z "$FOREGROUND$PERF" ] || JOBS=1
 RESULTS=$PWD/.build/stress
 OUT=${OUT:-$RESULTS/$SEED}
 PASSED=$RESULTS/passed.json
 CHANGED=
-if [ ${#REPLAYS[@]} = 0 ] && [ -z "${FULL:-}$FOREGROUND" ]; then
+if [ ${#REPLAYS[@]} = 0 ] && [ -z "${FULL:-}$FOREGROUND$PERF" ]; then
     changes=$(python3 -I scripts/stress-changes.py compare "$PASSED")
     case "$changes" in
         none) echo "Nothing changed since the last stress run that passed (FULL=1 runs it anyway)"; exit 0 ;;
@@ -100,15 +106,15 @@ for ((job = 0; job < JOBS; job++)); do
     mode=${MODES[$mode_index]}
     plan=$(python3 -I -c '
 import json, sys
-seed, steps, project, out, background, replay, job, jobs, mode, leaks, limit, changed, stacks = sys.argv[1:]
+seed, steps, project, out, background, replay, job, jobs, mode, leaks, limit, changed, stacks, gallery, perf = sys.argv[1:]
 plan = {"seed": int(seed), "steps": int(steps), "project": project, "output": out, "background": background == "true",
         "shard": int(job), "shards": int(jobs), "bigProject": bool(json.loads(mode).get("orbit.stressBigProject")),
-        "leaks": leaks == "1", "memoryLimitMB": int(limit), "stacks": stacks == "1"}
+        "leaks": leaks == "1", "memoryLimitMB": int(limit), "stacks": stacks == "1", "gallery": gallery == "1", "perf": perf == "1"}
 if replay: plan["replay"] = replay
 if changed: plan["changed"] = changed.split()
 print(json.dumps(plan))' \
         "$((SEED + job * 7919))" "$(( (STEPS + JOBS - 1) / JOBS ))" "$ORBIT_SCRATCH/project" "$out" \
-        "$([ -n "$FOREGROUND" ] && echo false || echo true)" "$replay" "$job" "$JOBS" "$mode" "${LEAKS:-0}" "$MEMORY_LIMIT" "$CHANGED" "${STACKS:-0}")
+        "$([ -n "$FOREGROUND" ] && echo false || echo true)" "$replay" "$job" "$JOBS" "$mode" "${LEAKS:-0}" "$MEMORY_LIMIT" "$CHANGED" "${STACKS:-0}" "$([ -z "$CHANGED$PERF" ] && [ ${#REPLAYS[@]} = 0 ] && [ "${SHOTS:-0}" = 1 ] && echo 1 || echo 0)" "${PERF:-0}")
     # No folders to reopen (the runner opens its project), every plugin on, the copy's mode.
     ORBIT_EXTRA_PREFS=$(python3 -I -c '
 import json, sys
@@ -171,8 +177,11 @@ for ((job = 0; job < JOBS; job++)); do
     esac
 done
 
+if [ -n "$PERF" ] && [ "$failed" = 0 ]; then
+    python3 -I scripts/stress-perf.py "$OUT/0/perf.json" "$RESULTS/perf-baseline.json" "${PERF_ACCEPT:-0}" || failed=1
+fi
 # The copies' coverage added up: what none reached and nothing exempts fails the run.
-if [ ${#REPLAYS[@]} = 0 ]; then
+if [ ${#REPLAYS[@]} = 0 ] && [ -z "$PERF" ]; then
     python3 -I - "$OUT" <<'EOF' || failed=1
 import glob, json, sys
 known, every, reached, exemptions = set(), set(), set(), {}
@@ -190,7 +199,8 @@ for key in stale: print(f"STALE EXEMPTION {key}")
 sys.exit(1 if uncovered or stale or not known else 0)
 EOF
 fi
+python3 -I scripts/stress-gallery.py "$OUT" "${MODE_NAMES[@]}" || true
 # The code it ran, as passed: the next run leaves out what's still the same.
-[ "$failed" != 0 ] || [ ${#REPLAYS[@]} != 0 ] || [ -n "$FOREGROUND" ] || [ ! -f "$OUT/fingerprints.json" ] || cp "$OUT/fingerprints.json" "$PASSED"
+[ "$failed" != 0 ] || [ ${#REPLAYS[@]} != 0 ] || [ -n "$FOREGROUND$PERF" ] || [ ! -f "$OUT/fingerprints.json" ] || cp "$OUT/fingerprints.json" "$PASSED"
 echo "$([ "$failed" = 0 ] && echo passed || echo FAILED) in $(( $(date +%s) - started )) s; seed $SEED"
 exit "$failed"

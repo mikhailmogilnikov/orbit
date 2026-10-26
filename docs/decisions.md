@@ -257,6 +257,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D245. The stress run in parallel copies and modes, with chaos, a pretend agent and a pretend language server
 - D246. The stress run checks what's let go is freed, plays git conflicts, shrinks a failure and gates a release
 - D247. A faster stress run: what changed since one passed, shorter steps, leaks without allocation logging, a faster shrinker
+- D248. The stress run's gallery of every panel and pane, and timings against a baseline
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -5451,4 +5452,42 @@ and a shrink twelve. Now:
   tree, and a README or a docs commit called for another ten-minute run on
   code that hadn't changed. The scripts are a fingerprint of their own: a
   change runs `make stress` in full, but doesn't count for a release.
+
+### D248. The stress run's gallery of every panel and pane, and timings against a baseline
+
+The stress run caught crashes, hangs and leaks, but not what's drawn wrong,
+nor what got slower; both were the author's to notice by hand.
+
+The gallery (`SHOTS=1 make stress`, and always in `make stress-full`: it
+adds about 50 s): after the fixed part of a full run each copy shows every
+panel, every Settings pane, a few kinds of file (code, a long file,
+Markdown, Unicode, conflict markers, binary) and a split editor, and shoots
+its window (`CGWindowListCreateImage` of that window alone: the copies are
+behind the user's windows, and an app may capture its own without asking).
+`scripts/stress-gallery.py` writes `gallery.html`: one row a state, every
+mode side by side, to look through in a minute after UI changes. The first
+shots showed the intro tour over everything: Help → Welcome to Orbit, run
+among the commands, played it and every later step ran under it. The run
+skips it after each step now.
+
+Not done: checking the layout itself (controls outside the window, on each
+other, buttons without a label) from the accessibility tree. SwiftUI builds
+that tree only for an accessibility client (VoiceOver, UI tests); asked from
+inside the app it showed the window's three buttons and nothing of the 30
+to 47 hosting views. Being our own client needs the Accessibility
+permission, which a copy with a new signature each build doesn't have.
+
+Timings: `PERF=1 make stress` runs one copy with no neighbours, which times
+the launch to a window, opening a small, a 6 000-line and a 120 000-line
+file, a key press in a long file (inserted and drawn), scrolling a page,
+switching tabs, opening Settings, the memory a tab adds and the CPU used at
+rest; each three times, the median, waiting for the main thread in 10 ms
+ticks. `scripts/stress-perf.py` compares them with the accepted baseline
+(`.build/stress/perf-baseline.json`, the first run or `PERF_ACCEPT=1`): a
+third worse and past a floor (20 ms, 5 MB, 2 % CPU, 500 ms for a launch:
+the first after a build is cold) fails; the whole footprint moves by a
+third run to run and is only shown. `make stress-full` includes it. The
+first numbers on an M-series Mac: a key press 31 ms, a page of scrolling
+10 ms, a tab switch 100–130 ms, Settings 230–290 ms, a small file 80 ms, a
+6 000-line one 200–275 ms, a tab 4–6 MB, 0.1 % CPU at rest.
 

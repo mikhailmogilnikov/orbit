@@ -41,6 +41,11 @@ final class StressRunner {
         var changed: [String]?
         /// Allocations are logged (for `malloc_history`): everything is slower.
         var stacks: Bool?
+        /// After the fixed part, every panel, Settings pane and a few editors
+        /// shown and shot for the run's gallery (D248).
+        var gallery: Bool?
+        /// Measure instead of break: perf.json (D248).
+        var perf: Bool?
     }
 
     private var plan: Plan?
@@ -64,6 +69,7 @@ final class StressRunner {
     private var lettingGo: [String: [Weak]] = [:]
     private var peakFootprint = 0
     private var alertCount = 0
+    private var windowAfter: TimeInterval = 0
 
     private final class Weak {
         weak var object: AnyObject?
@@ -105,6 +111,7 @@ final class StressRunner {
 
     private func run() async {
         guard let host = await waitForHost() else { return finish("no window to run in") }
+        windowAfter = Self.sinceLaunch()
         // Writing the project runs git on this thread, slowly the first time on a new Mac: not a hang.
         heartbeat.withLock { $0.paused = true }
         do {
@@ -123,6 +130,7 @@ final class StressRunner {
         if let replay = plan!.replay {
             return await replaySteps(from: replay)
         }
+        if plan!.perf == true { return await measure() }
 
         // The fixed part: everything once, in a fixed order, this copy's share of it.
         let commands = currentHost.commands.all.map(\.id).sorted().filter { !isExempt(StressCoverage.command($0)) }
@@ -186,6 +194,7 @@ final class StressRunner {
             }
         }
         note("fixed part: \(stepCount) steps")
+        if plan!.gallery == true { await galleryTour() }
         // With shards each copy reached only its share: the script decides.
         if (plan!.shards ?? 1) == 1, plan!.checksCoverage ?? true, let uncovered = uncoveredReport() {
             return finish(uncovered)
@@ -552,6 +561,9 @@ final class StressRunner {
         }
         currentHost.ui.dismissQuickPick()
         CheatSheetState.shared.shownFor = nil
+        // Help → Welcome to Orbit plays the tour over the window: skipped, or
+        // every later step ran (and the gallery shot) under it (D248).
+        if Onboarding.shared.isShowing(in: currentHost) { Onboarding.shared.finish() }
         // A step's extra windows (New Window): the run keeps to its first.
         let projectWindows = NSApp.windows.filter { ProjectWindows.shared.host(for: $0) != nil && $0.isVisible }
         if projectWindows.count > 2, let extra = projectWindows.last, extra !== window { extra.performClose(nil) }
@@ -669,7 +681,173 @@ final class StressRunner {
         return NSApplication.ModalResponse(rawValue: NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + index)
     }
 
+    // MARK: Performance (D248)
+
+    /// What a person waits for, timed in a copy with no neighbours: launch,
+    /// opening files, typing, scrolling, switching tabs, Settings, memory per
+    /// tab and the CPU left busy at rest. Each action three times, the median;
+    /// the script compares perf.json with the accepted baseline.
+    private func measure() async {
+        var results: [String: Double] = [:]
+        _ = await quiet()
+        results["launch to a window ms"] = windowAfter * 1000
+        let host = currentHost, workspace = host.workspace
+        func median(_ values: [Double]) -> Double { values.sorted()[values.count / 2] }
+        func timed(_ action: () async -> Void) async -> Double {
+            let started = Date()
+            await action()
+            let wait = await quiet()
+            return max(0, Date().timeIntervalSince(started) - wait) * 1000
+        }
+        func reopen(_ path: String) async -> Double {
+            if let tab = workspace.allTabs.first(where: { $0.url?.lastPathComponent == (path as NSString).lastPathComponent }) {
+                workspace.close(tab.id)
+                _ = await quiet()
+            }
+            return await timed { workspace.openFile(project.appendingPathComponent(path)) }
+        }
+        for (name, path) in [("open small file ms", "src/short.tsx"), ("open 6 000-line file ms", "src/long.swift"), ("open 120 000-line log ms", "huge.log")] {
+            var times: [Double] = []
+            for _ in 0..<3 { times.append(await reopen(path)) }
+            results[name] = median(times)
+        }
+        // Typing and scrolling: the text view as a key press reaches it, laid out and drawn each time.
+        _ = await reopen("src/long.swift")
+        if let textView = Self.textView(in: window) as? (NSView & NSTextInputClient) {
+            var keys: [Double] = []
+            for character in "let measured = 1 // typing in a long file".map(String.init) {
+                let started = Date()
+                textView.insertText(character, replacementRange: NSRange(location: NSNotFound, length: 0))
+                window?.displayIfNeeded()
+                keys.append(Date().timeIntervalSince(started) * 1000)
+            }
+            results["typing ms per key"] = median(keys)
+            _ = await quiet()
+            if let clip = textView.enclosingScrollView?.contentView {
+                var pages: [Double] = []
+                for page in 1...30 {
+                    let started = Date()
+                    clip.scroll(to: NSPoint(x: 0, y: CGFloat(page) * clip.bounds.height))
+                    textView.enclosingScrollView?.reflectScrolledClipView(clip)
+                    window?.displayIfNeeded()
+                    pages.append(Date().timeIntervalSince(started) * 1000)
+                }
+                results["scroll ms per page"] = median(pages)
+            }
+            _ = await quiet()
+        }
+        // Six tabs, switched to one after another.
+        for path in ["tabs.go", "crlf.txt", "unicode.txt", "src/short.tsx", "one-line.txt"] {
+            workspace.openFile(project.appendingPathComponent(path))
+            _ = await quiet()
+        }
+        var switches: [Double] = []
+        for _ in 0..<12 { switches.append(await timed { workspace.showAdjacentTab(1) }) }
+        results["switch tab ms"] = median(switches)
+        var settings: [Double] = []
+        for _ in 0..<3 {
+            settings.append(await timed { host.ui.showSettings("editor") })
+            host.ui.isSettingsVisible = false
+            _ = await quiet()
+        }
+        results["open Settings ms"] = median(settings)
+        // Memory: ten more files open, the footprint they added.
+        let before = Self.footprint()
+        for path in projectFiles().filter({ $0.hasPrefix("big/") == false && !$0.hasSuffix(".bin") }).prefix(10) {
+            workspace.openFile(project.appendingPathComponent(path))
+            _ = await quiet()
+        }
+        results["memory MB per tab"] = Double(max(0, Self.footprint() - before)) / 1_048_576 / 10
+        // At rest: what's still running with nothing to do.
+        try? await Task.sleep(for: .seconds(2))
+        let cpu = Self.cpuTime(), clock = Date()
+        try? await Task.sleep(for: .seconds(3))
+        results["CPU % at rest"] = (Self.cpuTime() - cpu) / Date().timeIntervalSince(clock) * 100
+        results["memory MB at the end"] = Double(Self.footprint()) / 1_048_576
+        if let data = try? JSONSerialization.data(withJSONObject: results, options: [.sortedKeys, .prettyPrinted]) {
+            try? data.write(to: output.appendingPathComponent("perf.json"))
+        }
+        for (name, value) in results.sorted(by: { $0.key < $1.key }) { note("\(name): \(value.formatted(.number.precision(.fractionLength(1))))") }
+        finish(nil)
+    }
+
+    /// Waits for the main thread to keep its time for 50 ms (five 10 ms ticks
+    /// on time, finer than `settle`); returns that wait, to take off a timing.
+    private func quiet() async -> TimeInterval {
+        let started = Date()
+        var onTime = 0
+        while onTime < 5, Date().timeIntervalSince(started) < 20 {
+            let tick = Date()
+            try? await Task.sleep(for: .milliseconds(10))
+            onTime = Date().timeIntervalSince(tick) - 0.01 < 0.004 ? onTime + 1 : 0
+        }
+        return 0.05
+    }
+
+    private static func textView(in window: NSWindow?) -> NSView? {
+        func find(_ view: NSView) -> NSView? {
+            if String(describing: type(of: view)) == "OrbitTextView", view.window != nil, !view.isHiddenOrHasHiddenAncestor { return view }
+            for sub in view.subviews { if let found = find(sub) { return found } }
+            return nil
+        }
+        return window?.contentView.flatMap(find)
+    }
+
+    /// Since the process started, from the kernel.
+    private static func sinceLaunch() -> TimeInterval {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return 0 }
+        let start = info.kp_proc.p_un.__p_starttime
+        return Date().timeIntervalSince1970 - (Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
+    }
+
     // MARK: Output
+
+    /// Every panel and Settings pane, a few kinds of file and a split editor,
+    /// each shot as it shows (D248): every copy the same, so the gallery puts
+    /// the modes side by side.
+    private func galleryTour() async {
+        let ui = currentHost.ui
+        for panel in ui.sidebarPanels + ui.inspectorPanels + ui.bottomPanels {
+            await step("panel \(panel.id)") { [weak self] _ in self?.reveal(panel.id) }
+            shoot("panel \(panel.id)")
+        }
+        for pane in ui.settingsPanes.map(\.id) {
+            await step("settings \(pane)") { context in context.ui.showSettings(pane) }
+            shoot("settings \(pane)")
+        }
+        await step("settings closed") { context in context.ui.isSettingsVisible = false }
+        for file in ["src/short.tsx", "src/long.swift", "docs/readme.md", "unicode.txt", "conflict.txt", "binary.bin"] {
+            await step("open \(file)") { context in await context.open(file) }
+            shoot("file \(file)")
+        }
+        if !currentHost.workspace.isSplit {
+            await step("command shell.splitEditor") { context in context.run("shell.splitEditor") }
+        }
+        shoot("split editor")
+    }
+
+    private typealias WindowImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+
+    /// The run's window as the window server composites it (glass included),
+    /// alone, though it's behind the user's windows: shots/ for the gallery
+    /// (D248). The call is gone from the SDK, not from the system; an app may
+    /// capture its own windows without asking.
+    private func shoot(_ label: String) {
+        guard let window,
+              let handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_NOW),
+              let symbol = dlsym(handle, "CGWindowListCreateImage") else { return }
+        let create = unsafeBitCast(symbol, to: WindowImage.self)
+        // That window only, with its shadow trimmed.
+        guard let image = create(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue() else { return }
+        let folder = output.appendingPathComponent("shots")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let name = label.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: " ", with: "_")
+        let data = NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.7])
+        try? data?.write(to: folder.appendingPathComponent("\(name).jpg"))
+    }
 
     private func note(_ text: String) { write("   \(text)") }
 
