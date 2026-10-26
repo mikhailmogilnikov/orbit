@@ -35,7 +35,8 @@ def fingerprints():
     plugins = [name for name in modules if name not in shared_modules]
     parts = {name: digest([f"{sources}/{name}"]) for name in plugins}
     shared = [f"{sources}/{name}" for name in modules if name in shared_modules]
-    parts["*"] = digest(["App", "project.yml", "Packages/OrbitKit/Package.swift", "Packages/OrbitKit/Package.resolved", *shared])
+    # Not Package.resolved: `swift test` and `make build` write it differently (Sparkle's pin).
+    parts["*"] = digest(["App", "project.yml", "Packages/OrbitKit/Package.swift", *shared])
     parts["scripts"] = digest(["scripts"])
     return parts
 
