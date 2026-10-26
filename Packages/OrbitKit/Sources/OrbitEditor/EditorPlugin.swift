@@ -15,6 +15,7 @@ public final class EditorPlugin: OrbitPlugin {
 
     private var activationObserver: NSObjectProtocol?
     private var autoSaver: AutoSaver?
+    private var kept: KeptEditors?
 
     public init() {}
 
@@ -41,6 +42,8 @@ public final class EditorPlugin: OrbitPlugin {
         Self.prefetchGrammars(workspace, services: services)
         let options = EditorOptions(settings: context.settings, workspace: workspace)
         autoSaver = AutoSaver(workspace: workspace, options: options)
+        let kept = KeptEditors(context)
+        self.kept = kept
 
         context.ui.addSettingsPane(SettingsPane(
             id: "editor", title: "Editor", systemImage: "chevron.left.forwardslash.chevron.right", tint: .blue, group: .code, order: 0,
@@ -75,7 +78,7 @@ public final class EditorPlugin: OrbitPlugin {
             id: "editor.text",
             priority: 0,
             accepts: { $0.kind == EditorTab.fileKind && $0.url != nil }
-        ) { tab in
+        ) { [weak kept] tab in
             let changes = services.resolve(ChangeTracking.self)
             let reviewComments = services.resolve(ReviewComments.self)
             let fileStatus = services.resolve(FileStatusProviding.self)
@@ -104,7 +107,9 @@ public final class EditorPlugin: OrbitPlugin {
                 languages: languages,
                 options: options,
                 ui: context.ui,
-                commands: context.commands
+                commands: context.commands,
+                kept: kept,
+                wiring: wiring
             )
             .id(EditorWiring(tab: tab.id, services: wiring))
         })
@@ -623,6 +628,8 @@ public final class EditorPlugin: OrbitPlugin {
     public func deactivate() {
         if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
         autoSaver = nil
+        kept?.releaseAll()
+        kept = nil
     }
 }
 
@@ -704,6 +711,8 @@ struct FileEditorView: View {
     let options: EditorOptions
     let ui: UIRegistry
     let commands: CommandRegistry
+    weak var kept: KeptEditors?
+    let wiring: [ObjectIdentifier?]
     /// What the gutter's change markers compare against.
     @State private var gitBaseline: String?
     @State private var isComparing = false
@@ -793,7 +802,10 @@ struct FileEditorView: View {
                     takesFocus: workspace.quietTabID != EditorTab.file(url).id,
                     focusRequest: workspace.editorFocusRequest.flatMap { $0.tabID == EditorTab.file(url).id ? $0.serial : nil },
                     commands: commands,
-                    onCaretMove: { workspace.caretMoved(to: EditorLocation(url: url, line: $0, column: $1)) }
+                    onCaretMove: { workspace.caretMoved(to: EditorLocation(url: url, line: $0, column: $1)) },
+                    kept: kept,
+                    keptTab: EditorTab.file(url).id,
+                    keptWiring: wiring
                 )
                 .overlay(alignment: .topTrailing) {
                     // Without the path bar, the actions float over the editor's corner.

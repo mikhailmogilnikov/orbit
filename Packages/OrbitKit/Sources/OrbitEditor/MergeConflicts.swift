@@ -24,7 +24,13 @@ struct MergeConflict: Hashable {
 enum MergeConflicts {
     enum Choice { case current, incoming, both }
 
-    static func hasMarkers(_ text: String) -> Bool { text.contains("<<<<<<<") }
+    /// A literal search: `contains` folds character clusters, and on each
+    /// keystroke and tab switch in a long file it took a sixth of the time.
+    static func hasMarkers(_ text: String) -> Bool {
+        text.utf8.withContiguousStorageIfAvailable { bytes in
+            bytes.baseAddress.map { memmem($0, bytes.count, "<<<<<<<", 7) != nil } ?? false
+        } ?? ((text as NSString).range(of: "<<<<<<<", options: .literal).location != NSNotFound)
+    }
 
     static func find(in lines: [String]) -> [MergeConflict] {
         func marker(_ line: String, _ character: Character) -> String? {

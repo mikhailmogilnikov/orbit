@@ -85,6 +85,11 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Editor
 
+- Kept editors (D249): switching back to one of the last four tabs shows it
+  at once, scrolled where it was, with the caret and ⌘Z of its edits; after
+  switching the appearance (dark/light), the color theme or the code font
+  with the tab in the background, it comes back in the new look; a find bar
+  or a completion list open when switching away doesn't stay on screen.
 - Scrolling past the end (D237): the last line reaches the top in long and
   short files, after resizing the window and the bottom panel, and with
   wrapping on; a click and a drag under the text land on the last line; ⌘↓

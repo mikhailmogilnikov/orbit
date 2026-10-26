@@ -133,6 +133,26 @@ enum EditorStress {
             run.expectFreed(coordinator, "a closed tab's editor")
             if let textView = coordinator.textView { run.expectFreed(textView, "a closed tab's text view") }
         })
+        // Switching back finds the tab's editor as it was (D249); a tab closed
+        // in the background lets its kept editor go.
+        final class Finding { var problem: String? }
+        let switchBack = Finding()
+        stress.add(StressStep("editor.switchBack", weight: 2) { run in
+            await run.open("src/short.tsx")
+            guard let first = editor(), let url = context.workspace.activeTab?.url else { return }
+            await run.open(run.pick(["src/long.swift", "unicode.txt", "crlf.txt"]) ?? "crlf.txt")
+            // A preview tab is replaced, not put in the background; one on both sides of a split has two editors.
+            let tabs = context.workspace.allTabs.filter { $0.url == url }
+            guard tabs.count == 1 else { return }
+            if run.chance(0.5) {
+                await run.open("src/short.tsx")
+                if let back = editor(), back !== first { switchBack.problem = "switching back to short.tsx built its editor again" }
+            } else {
+                context.workspace.close(tabs[0].id)
+                run.expectFreed(first, "a background tab's kept editor, the tab closed")
+            }
+        })
+        stress.add(StressCheck("editor.switchBackKeepsTheEditor") { _ in switchBack.problem })
         stress.add(StressStep("editor.selectAllThenExpand", weight: 1, regression: true) { run in
             await run.open("src/long.swift")
             guard let textView = editor()?.textView else { return }
@@ -143,6 +163,17 @@ enum EditorStress {
             await run.settle()
             // One caret again: the next steps would type into thousands.
             editor()?.textView?.selectionRanges = [NSRange(location: 0, length: 0)]
+        })
+        // 14 000 lines pasted at 351 carets: the gutter's git markers diffed them for 20 s (D249).
+        stress.add(StressStep("editor.hugePasteAtManyCarets", weight: 1, regression: true) { run in
+            await run.open("src/short.tsx")
+            guard let textView = editor()?.textView else { return }
+            let length = textView.documentText.length
+            textView.selectionRanges = (0..<351).map { NSRange(location: $0 * length / 351, length: 0) }
+            let paste = (0..<40).map { "    const pasted\($0) = compute(\($0), \"a fairly long line of pasted text\");" }.joined(separator: "\n")
+            textView.insertText(paste, replacementRange: NSRange(location: NSNotFound, length: 0))
+            await run.settle()
+            textView.selectionRanges = [NSRange(location: 0, length: 0)]
         })
         stress.add(StressStep("editor.formats", weight: 1) { run in
             // Line endings and encodings other than UTF-8 with LF (and the status item that shows them).

@@ -67,10 +67,40 @@ struct CodeEditor: NSViewRepresentable {
     var commands: CommandRegistry?
     /// The caret's 0-based line and UTF-16 column, for Go Back (D99).
     var onCaretMove: (Int, Int) -> Void = { _, _ in }
+    /// Where this editor waits while its tab is in the background (D249).
+    weak var kept: KeptEditors?
+    var keptTab: EditorTab.ID?
+    /// The services it's wired to: another set makes a new editor.
+    var keptWiring: AnyHashable?
 
-    func makeCoordinator() -> Coordinator { Coordinator(document: document) }
+    func makeCoordinator() -> Coordinator {
+        if let kept, let keptTab, let keptWiring, let coordinator = kept.take(keptTab, wiring: keptWiring, document: document) { return coordinator }
+        return Coordinator(document: document)
+    }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> NSView {
+        let host = EditorHostView()
+        let coordinator = context.coordinator
+        coordinator.kept = kept
+        coordinator.keptTab = keptTab
+        coordinator.keptWiring = keptWiring
+        if let scrollView = coordinator.detachedView, let textView = coordinator.textView {
+            // Back as it was: scrolled, laid out, colored, with its undo.
+            coordinator.detachedView = nil
+            host.addSubview(scrollView)
+            ActiveEditor.shared.coordinator = coordinator
+            OpenEditors.shared.register(coordinator)
+            coordinator.focusRequest = focusRequest
+            coordinator.onCaretMove = onCaretMove
+            coordinator.commands = commands
+            if takesFocus { DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) } }
+            return host
+        }
+        host.addSubview(makeScrollView(context: context))
+        return host
+    }
+
+    private func makeScrollView(context: Context) -> NSScrollView {
         // `STTextView.scrollableTextView()`, in our scroll view (see `EditorScrollView`).
         let scrollView = EditorScrollView()
         scrollView.clipsToBounds = true
@@ -210,7 +240,7 @@ struct CodeEditor: NSViewRepresentable {
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ host: NSView, context: Context) {
         let coordinator = context.coordinator
         guard let textView = coordinator.textView else { return }
 
@@ -329,14 +359,21 @@ struct CodeEditor: NSViewRepresentable {
         return min(location, new.length)
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+    static func dismantleNSView(_ host: NSView, coordinator: Coordinator) {
         ActiveEditor.shared.remove(coordinator)
         coordinator.closePopups()
         coordinator.inlineDiff.closeComment()
         coordinator.inlineEditPopover?.close()
         coordinator.rememberViewState()
         EditorViewStates.flush()
-        OpenEditors.shared.unregister(coordinator)
+        if let kept = coordinator.kept, let tab = coordinator.keptTab, let wiring = coordinator.keptWiring,
+           let scrollView = host.subviews.first as? NSScrollView {
+            scrollView.removeFromSuperview()
+            coordinator.detachedView = scrollView
+            kept.keep(coordinator, tab: tab, wiring: wiring)
+        } else {
+            OpenEditors.shared.unregister(coordinator)
+        }
     }
 
     /// Sets the paragraph style's line height; true when it changed. The inline
@@ -420,6 +457,11 @@ struct CodeEditor: NSViewRepresentable {
         var imagesTask: Task<Void, Never>?
         var colorLiterals: [Int: ColorLiteral] = [:]
         weak var overview: OverviewRuler?
+        /// The scroll view while the tab is in the background (D249).
+        var detachedView: NSScrollView?
+        weak var kept: KeptEditors?
+        var keptTab: EditorTab.ID?
+        var keptWiring: AnyHashable?
         var syncedRevision = 0
         /// The line scrolled back to on open; folds coming back later shift the text, so it's scrolled to again.
         var restoredTopLine: (line: Int, at: Date)?
@@ -604,7 +646,7 @@ struct CodeEditor: NSViewRepresentable {
                 closePopups()
                 return
             }
-            document.text = textView.text ?? ""
+            document.text = String(nativeCopyOf: textView.documentText)
             syncedRevision = document.revision
             guard let edit else { return }
             formatAfterTyping(edit.replacement)
@@ -700,7 +742,8 @@ struct CodeEditor: NSViewRepresentable {
             }
             markersTask = Task { [weak self] in
                 if delay > .zero { try? await Task.sleep(for: delay) }
-                guard !Task.isCancelled, let current = self?.textView?.text else { return }
+                // The document's text, native: the text view's, bridged, made a big paste's diff take 20 s (D249).
+                guard !Task.isCancelled, let current = self?.document.text else { return }
                 let markers = await Task.detached(priority: .utility) { LineMarkers(baseline: baseline, current: current) }.value
                 guard !Task.isCancelled else { return }
                 self?.ruler?.changeMarkers = markers
@@ -1696,5 +1739,37 @@ final class EditorSelectionService: EditorSelectionProviding {
         let first = line(at: range.location)
         let last = max(first, line(at: NSMaxRange(range) - 1))
         return EditorSelection(url: coordinator.document.url, text: selected, lines: first...last)
+    }
+}
+
+extension String {
+    /// The text view's string is its NSString bridged: every reader after
+    /// (the dirty dot, conflict markers, the language server's diff) walked
+    /// it a character at a time through Objective-C, and so does Swift's own
+    /// copy. Its characters taken in one go, it's native for all of them.
+    init(nativeCopyOf string: NSString) {
+        let length = string.length
+        guard length > 0 else {
+            self = ""
+            return
+        }
+        self = withUnsafeTemporaryAllocation(of: unichar.self, capacity: length) { buffer in
+            string.getCharacters(buffer.baseAddress!, range: NSRange(location: 0, length: length))
+            return String(decoding: buffer, as: UTF16.self)
+        }
+    }
+}
+
+/// Holds the editor's scroll view: the scroll view comes and goes with its
+/// tab (D249). Sized by hand, not autoresized: a kept one comes back at its
+/// old size, and a host still at zero would have stretched it by that much.
+final class EditorHostView: NSView {
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        for subview in subviews { subview.frame = bounds }
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if bounds.size != .zero { subview.frame = bounds }
     }
 }

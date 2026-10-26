@@ -30,7 +30,7 @@
 #   FOREGROUND=1 make stress           one copy in front, with full screen (it takes over the Mac)
 #   PERF=1 make stress                 one quiet copy times launch, opening files, typing, scrolling,
 #                                      tabs, Settings, memory and CPU at rest, against the baseline
-#                                      (D248; PERF_ACCEPT=1 makes this run the baseline)
+#                                      (D248, D249: the median of the last five that passed; PERF_ACCEPT=1 starts over)
 #   APP=<Orbit.app> scripts/stress.sh  another debug build
 #   OUT=<folder> scripts/stress.sh     results there, not in .build/stress/<seed>
 #   SHOTS=1 make stress                gallery.html: a full run shows every panel, Settings pane

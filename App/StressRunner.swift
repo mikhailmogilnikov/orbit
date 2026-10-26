@@ -685,7 +685,7 @@ final class StressRunner {
 
     /// What a person waits for, timed in a copy with no neighbours: launch,
     /// opening files, typing, scrolling, switching tabs, Settings, memory per
-    /// tab and the CPU left busy at rest. Each action three times, the median;
+    /// tab and the CPU left busy at rest. Each action a few times, the median;
     /// the script compares perf.json with the accepted baseline.
     private func measure() async {
         var results: [String: Double] = [:]
@@ -708,7 +708,7 @@ final class StressRunner {
         }
         for (name, path) in [("open small file ms", "src/short.tsx"), ("open 6 000-line file ms", "src/long.swift"), ("open 120 000-line log ms", "huge.log")] {
             var times: [Double] = []
-            for _ in 0..<3 { times.append(await reopen(path)) }
+            for _ in 0..<5 { times.append(await reopen(path)) }
             results[name] = median(times)
         }
         // Typing and scrolling: the text view as a key press reaches it, laid out and drawn each time.
@@ -736,14 +736,25 @@ final class StressRunner {
             }
             _ = await quiet()
         }
-        // Six tabs, switched to one after another.
+        // Six tabs; back and forth between two, as ⌃Tab does: until the
+        // other file is drawn, and until the tabs' animation is over too.
         for path in ["tabs.go", "crlf.txt", "unicode.txt", "src/short.tsx", "one-line.txt"] {
             workspace.openFile(project.appendingPathComponent(path))
             _ = await quiet()
         }
-        var switches: [Double] = []
-        for _ in 0..<12 { switches.append(await timed { workspace.showAdjacentTab(1) }) }
+        var switches: [Double] = [], drawn: [Double] = []
+        for index in 0..<12 {
+            let shown = Self.textView(in: window)
+            let started = Date()
+            workspace.showAdjacentTab(index.isMultiple(of: 2) ? -1 : 1)
+            while Self.textView(in: window) === shown, Date().timeIntervalSince(started) < 2 { try? await Task.sleep(for: .milliseconds(1)) }
+            window?.displayIfNeeded()
+            drawn.append(Date().timeIntervalSince(started) * 1000)
+            let wait = await quiet()
+            switches.append(max(0, Date().timeIntervalSince(started) - wait) * 1000)
+        }
         results["switch tab ms"] = median(switches)
+        results["switch tab, drawn ms"] = median(drawn)
         var settings: [Double] = []
         for _ in 0..<3 {
             settings.append(await timed { host.ui.showSettings("editor") })
@@ -751,12 +762,19 @@ final class StressRunner {
             _ = await quiet()
         }
         results["open Settings ms"] = median(settings)
-        // Memory: ten more files open, the footprint they added.
+        // Memory: ten more files open, the footprint they added. Each side
+        // redrawn, for AppKit and SwiftUI to let go of the views they drew
+        // last, and freed memory given back: reused by the tabs, it hid what
+        // they took.
+        await redrawEverything()
+        malloc_zone_pressure_relief(nil, 0)
         let before = Self.footprint()
         for path in projectFiles().filter({ $0.hasPrefix("big/") == false && !$0.hasSuffix(".bin") }).prefix(10) {
             workspace.openFile(project.appendingPathComponent(path))
             _ = await quiet()
         }
+        await redrawEverything()
+        malloc_zone_pressure_relief(nil, 0)
         results["memory MB per tab"] = Double(max(0, Self.footprint() - before)) / 1_048_576 / 10
         // At rest: what's still running with nothing to do.
         try? await Task.sleep(for: .seconds(2))

@@ -72,13 +72,33 @@ public enum LineDiff {
 
     /// Contiguous regions where old and new differ.
     public static func changeBlocks(oldLines: [String], newLines: [String]) -> [(old: Range<Int>, new: Range<Int>)] {
-        let difference = newLines.difference(from: oldLines)
+        // Lines as numbers, the same line the same number: the diff compares
+        // pairs of lines over and over, each line is hashed once (D249).
+        var numbers: [String: Int] = [:]
+        func number(_ line: String) -> Int {
+            if let known = numbers[line] { return known }
+            numbers[line] = numbers.count
+            return numbers.count - 1
+        }
+        let old = oldLines.map(number), new = newLines.map(number)
+        var prefix = 0
+        while prefix < old.count, prefix < new.count, old[prefix] == new[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < old.count - prefix, suffix < new.count - prefix, old[old.count - 1 - suffix] == new[new.count - 1 - suffix] { suffix += 1 }
+        let oldMiddle = prefix..<(old.count - suffix), newMiddle = prefix..<(new.count - suffix)
+        // The diff takes (n + m) × d steps, and d is at least |n − m|: a
+        // paste at 351 carets added 14 000 lines and took 20 s. Past that the
+        // middle is one change.
+        if (oldMiddle.count + newMiddle.count) * abs(oldMiddle.count - newMiddle.count) > 20_000_000 {
+            return [(oldMiddle, newMiddle)]
+        }
+        let difference = new[newMiddle].difference(from: old[oldMiddle])
         var removed = Set<Int>()
         var inserted = Set<Int>()
         for change in difference {
             switch change {
-            case .remove(let offset, _, _): removed.insert(offset)
-            case .insert(let offset, _, _): inserted.insert(offset)
+            case .remove(let offset, _, _): removed.insert(prefix + offset)
+            case .insert(let offset, _, _): inserted.insert(prefix + offset)
             }
         }
 

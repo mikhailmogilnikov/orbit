@@ -199,6 +199,11 @@ examples/extensions/      sample extensions (theme, icon theme)
   gutter (`showsLineNumbers` stays off, see D24).
 - Inline diff gaps are paragraph styles in the text storage; anything that
   replaces `textView.text` must call `inlineDiff.invalidate()`.
+- The last four tabs keep their editors off-screen (`KeptEditors`, D249):
+  `dismantleNSView` doesn't end an editor; what must stop when one goes for
+  good goes in `KeptEditors.release`. `textView.text` is a bridged
+  NSString, slow to walk from Swift: per keystroke, copy it once with
+  `String(nativeCopyOf: textView.documentText)`.
 - Views over the text view go through `OverlaySet` (D164): removing and
   re-adding them on each viewport layout re-dirties the layout and the
   editor spins at 100% CPU.

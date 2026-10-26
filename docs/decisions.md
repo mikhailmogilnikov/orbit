@@ -258,6 +258,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D246. The stress run checks what's let go is freed, plays git conflicts, shrinks a failure and gates a release
 - D247. A faster stress run: what changed since one passed, shorter steps, leaks without allocation logging, a faster shrinker
 - D248. The stress run's gallery of every panel and pane, and timings against a baseline
+- D249. Faster typing and tab switches: the text's bytes searched and copied in bulk, the last tabs' editors kept
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -5483,11 +5484,71 @@ file, a key press in a long file (inserted and drawn), scrolling a page,
 switching tabs, opening Settings, the memory a tab adds and the CPU used at
 rest; each three times, the median, waiting for the main thread in 10 ms
 ticks. `scripts/stress-perf.py` compares them with the accepted baseline
-(`.build/stress/perf-baseline.json`, the first run or `PERF_ACCEPT=1`): a
+(`.build/stress/perf-baseline.json`, the first run or `PERF_ACCEPT=1`;
+D249 made it the median of the last five that passed): a
 third worse and past a floor (20 ms, 5 MB, 2 % CPU, 500 ms for a launch:
 the first after a build is cold) fails; the whole footprint moves by a
 third run to run and is only shown. `make stress-full` includes it. The
 first numbers on an M-series Mac: a key press 31 ms, a page of scrolling
 10 ms, a tab switch 100–130 ms, Settings 230–290 ms, a small file 80 ms, a
 6 000-line one 200–275 ms, a tab 4–6 MB, 0.1 % CPU at rest.
+(D249 made a key press 9 ms and times a tab switch back and forth, to the
+other file drawn and to the end of the tabs' animation.)
 
+### D249. Faster typing and tab switches: the text's bytes searched and copied in bulk, the last tabs' editors kept
+
+D248's numbers put a key press in a 6 000-line file at 31 ms and a tab
+switch at 100–130 ms. `sample` of a perf copy repeating each showed where.
+
+A key press: a sixth of it was the conflict-marker check (`<<<<<<<`), run
+by the editor's view and the inline diff on every change. Foundation's
+`contains` folds character clusters and is slow on any text; now a byte
+search (`memmem`), or a literal one for a text view's string. The document
+got the text view's string as its NSString, bridged: every reader after
+(the tab's dirty dot, the markers, the language server's diff) walked it a
+character at a time through Objective-C, and so did Swift's own copy to
+native, which took half a key press when tried. `String(nativeCopyOf:)`
+takes the characters in one call. The language server's incremental change
+compared two UTF-16 arrays of the whole text, copied each time; it compares
+UTF-8 bytes in place and counts UTF-16 columns only up to the edit. A key
+press is 9 ms.
+
+A tab switch had no such spot: building the editor (text view, layout,
+highlighter) was about 15 of the 52 ms to the other file drawn; the rest
+is the window following the file (tab row, path bar, outline, status bar,
+the explorer's selection, focus). The editors of the last four tabs are
+kept off-screen (`KeptEditors`, one set a window, like a terminal's view,
+D20): switching back puts the scroll view back as it was, scrolled, laid
+out, colored, and with its undo, which a new text view lost. A closed tab's
+editor goes (the set watches the tabs), and so do all of them when the
+services an editor is wired to change (a plugin turned on or off) or the
+window closes; a document closed and reopened gets a new one; the same file
+on both sides of a split keeps the one put away last. The editor's SwiftUI
+view hosts the scroll view in `EditorHostView`, which sizes it by hand: a
+kept one comes back at its old size into a host still at zero. Switching
+now draws the other file in ~35 ms.
+
+The old 100–130 ms counted until the main thread was idle, which includes
+the tab chips' 0.2 s glass animation; the timing now goes back and forth
+between two tabs, as ⌃Tab does, and gives both: until the file is drawn
+(`switch tab, drawn`) and until all is still (~85 ms). The memory a tab
+adds is measured after freed memory is given back
+(`malloc_zone_pressure_relief`) and the window redrawn, for AppKit and
+SwiftUI to let go of the views they drew last: typing faster freed memory
+the new tabs reused, and it read 0 MB; it's 7–9 MB.
+
+The stress run found a freeze on the way: 351 carets pasting 40 lines
+added 14 000, and the gutter's git markers diffed them against git's copy
+for 20 s, comparing the text view's bridged lines. They diff the document's
+native text now; `LineDiff.changeBlocks` diffs lines as numbers (each one
+hashed once), trims the lines both ends share, and past a bound on the
+diff's work (it takes (n + m) × d steps, d at least |n − m|) takes the
+middle as one change. A regression step plays it.
+
+The comparison failed runs that changed nothing: one run's numbers move by
+a third (a 6 000-line file opened in 197 ms, then 332), and the baseline
+was one run, a lucky one. The baseline is now each number's median over
+the last five runs that passed (`PERF_ACCEPT=1` starts it over), a number
+fails at half again slower past its floor, files are opened five times,
+and a launch's floor is 2 s: the first one after a build is cold (2.2 s to
+a warm one's 1.3), and one took 4 s.

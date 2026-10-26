@@ -17,6 +17,16 @@ import Testing
         #expect(hunks[2].added == 1)
     }
 
+    @Test func aHugePasteIsOneChange() {
+        // Thousands of lines pasted at many carets: one block, not seconds of diffing (D249).
+        let oldLines = (0..<80).map { "line \($0)" }
+        let newLines = ["line 0"] + (0..<14_000).map { "pasted \($0 % 40) \($0 / 40)" } + ["line 79"]
+        let blocks = LineDiff.changeBlocks(oldLines: oldLines, newLines: newLines)
+        #expect(blocks.count == 1)
+        #expect(blocks[0].old == 1..<79)
+        #expect(blocks[0].new == 1..<14_001)
+    }
+
     @Test func revertingEveryHunkRestoresBaseline() {
         var current = new
         while let hunk = LineDiff.hunks(old: old, new: current).first {

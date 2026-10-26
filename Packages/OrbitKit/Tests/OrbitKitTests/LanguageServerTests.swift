@@ -343,6 +343,10 @@ import Testing
         #expect(change.range.start.character == 1)
         #expect(change.range.end.character == 3)
         #expect(change.text == "😃")
+        // é and è share their first UTF-8 byte.
+        let accent = try #require(TextChange(from: "x\naé", to: "x\naè"))
+        #expect(accent.range == SourceRange(start: SourcePosition(line: 1, character: 1), end: SourcePosition(line: 1, character: 2)))
+        #expect(accent.text == "è")
     }
 
     @Test func positionsRoundTripThroughOffsets() {

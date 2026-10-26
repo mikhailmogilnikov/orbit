@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- Faster typing and tab switches (D249): a key press in a 6 000-line file takes 9 ms instead of 31, a tab switch draws the other file in ~35 ms, and the last four tabs keep their editors, scrolled, laid out and with their undo; a huge paste at many carets no longer freezes the git markers for 20 s
 - The stress run's gallery: every panel, Settings pane and a few editors in every mode, side by side; and timings (launch, files, typing, scrolling, tabs, Settings, memory, CPU at rest) against a baseline, in `make stress-full` (D248)
 - Opening Settings with the sidebar and the inspector open in the smallest window no longer crashes (D247); the stress run found it, shrank it to three steps and keeps it as a regression
 - A faster stress run (D247): only the plugins whose code changed since a run passed and what uses them, setups once each, leaks without allocation logging, a shrinker that tries the last steps first and stops a round early; leaks fixed in Terminal's options and language servers' process handlers
@@ -265,8 +266,8 @@
    quit with no crash report while its project folder was renamed and back,
    and in the big project an editor showed 28 of a 31-character file's
    characters after switching tabs
-1. Faster: a key press takes ~31 ms to insert and draw in a 6 000-line file
-   (two frames), a tab switch 100–130 ms and Settings 230–290 ms (D248)
+1. Faster: Settings take 230–290 ms to open, a 6 000-line file 200–275 ms;
+   a tab switch is mostly the window following the file (D249)
 2. Code plugins in TypeScript via JavaScriptCore, same package format
 3. Developer ID signing and notarization: the script is ready (D222); waits for
    an Apple Developer Program membership and its certificate
