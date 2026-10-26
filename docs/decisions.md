@@ -259,6 +259,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D247. A faster stress run: what changed since one passed, shorter steps, leaks without allocation logging, a faster shrinker
 - D248. The stress run's gallery of every panel and pane, and timings against a baseline
 - D249. Faster typing and tab switches: the text's bytes searched and copied in bulk, the last tabs' editors kept
+- D250. A long file's first screen colored from a parse of its start; where opening files and Settings spend their time
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -5552,3 +5553,30 @@ the last five runs that passed (`PERF_ACCEPT=1` starts it over), a number
 fails at half again slower past its floor, files are opened five times,
 and a launch's floor is 2 s: the first one after a build is cold (2.2 s to
 a warm one's 1.3), and one took 4 s.
+
+### D250. A long file's first screen colored from a parse of its start; where opening files and Settings spend their time
+
+Opening waits up to 40 ms for the first screen's colors, so a file doesn't
+show up gray and then change. A 6 000-line file (534 000
+characters) never parsed in time: every open spent the 40 ms and drew it
+gray anyway. Past 64 K characters the worker now parses the start alone, to
+the end of the line the screen ends on, colors the screen from that tree and
+lets the open go on; then it gives that tree the rest of the file as text
+added at its end, so the whole parse reuses it and only what it changed
+(a comment opened on the screen and closed past it) goes out again. The
+file is drawn, colored, in ~75 ms instead of ~90; coloring the rest of it
+takes the open to ~240 ms, out of sight. `PERF=1` times both (`open 6
+000-line file, drawn`). A test checks the result ends as one parse would.
+
+Settings take ~250 ms to their first frame, and none of it is Orbit's
+code: SwiftUI builds the pane's grouped form (126 ms from one pane to
+another), and Settings replace the workspace (D36), taken down on the way
+in and built again on the way out (176 ms). Faster would mean keeping the
+workspace under Settings, which D36 and D247 chose against; not done.
+
+Two costs of AppKit and SwiftUI show in every change of the window's views,
+a tab or a file opened: a window without a title bar works out where it can
+be dragged from by walking its views (a tenth of opening a file), and asks
+each SwiftUI host under the title bar whether it takes the focus, which
+walks SwiftUI's focus tree. Neither has a knob of ours; an opaque editor
+host didn't shorten the walk.

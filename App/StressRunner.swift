@@ -711,6 +711,22 @@ final class StressRunner {
             for _ in 0..<5 { times.append(await reopen(path)) }
             results[name] = median(times)
         }
+        // The long file again, until it's drawn: the rest of its colors come after (D250).
+        var drawn: [Double] = []
+        for _ in 0..<5 {
+            if let tab = workspace.allTabs.first(where: { $0.url?.lastPathComponent == "long.swift" }) {
+                workspace.close(tab.id)
+                _ = await quiet()
+            }
+            let shown = Self.textView(in: window)
+            let started = Date()
+            workspace.openFile(project.appendingPathComponent("src/long.swift"))
+            while Self.textView(in: window) === shown, Date().timeIntervalSince(started) < 2 { try? await Task.sleep(for: .milliseconds(1)) }
+            window?.displayIfNeeded()
+            drawn.append(Date().timeIntervalSince(started) * 1000)
+            _ = await quiet()
+        }
+        results["open 6 000-line file, drawn ms"] = median(drawn)
         // Typing and scrolling: the text view as a key press reaches it, laid out and drawn each time.
         _ = await reopen("src/long.swift")
         if let textView = Self.textView(in: window) as? (NSView & NSTextInputClient) {
@@ -742,7 +758,8 @@ final class StressRunner {
             workspace.openFile(project.appendingPathComponent(path))
             _ = await quiet()
         }
-        var switches: [Double] = [], drawn: [Double] = []
+        var switches: [Double] = []
+        drawn = []
         for index in 0..<12 {
             let shown = Self.textView(in: window)
             let started = Date()

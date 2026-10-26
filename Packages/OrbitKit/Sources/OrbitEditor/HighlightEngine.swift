@@ -419,16 +419,23 @@ final class HighlightWorker: @unchecked Sendable {
             layers.removeAll()
             injectionsDirty = IndexSet(integersIn: 0..<text.length)
         }
+        let focus = Self.clamp(taken.focus, to: text.length)
+        var answered = false
+        if taken.reset != nil, !taken.waiters.isEmpty, text.length > Self.firstScreenLength, colorFirstScreen(focus) {
+            for waiter in taken.waiters { waiter.signal() }
+            answered = true
+        }
         if needsParse { parse() }
         if needsParse || taken.reloadsLayers { updateLayers() }
 
         // What's on screen goes out first and in one piece; the main thread may be waiting for it.
-        let focus = Self.clamp(taken.focus, to: text.length)
         let onScreen = invalid.intersection(IndexSet(integersIn: Range(focus) ?? 0..<0))
         if !onScreen.isEmpty {
             deliver(onScreen)
         }
-        for waiter in taken.waiters { waiter.signal() }
+        if !answered {
+            for waiter in taken.waiters { waiter.signal() }
+        }
 
         if let next = nextChunk(near: focus.location) {
             deliver(IndexSet(integersIn: next))
@@ -498,6 +505,27 @@ final class HighlightWorker: @unchecked Sendable {
             startByte: start * 2, oldEndByte: oldEnd * 2, newEndByte: newEnd * 2,
             startPoint: startPoint, oldEndPoint: oldEndPoint, newEndPoint: Self.point(at: newEnd, in: layer.lineStarts)
         ))
+    }
+
+    /// Longer texts color their first screen before the whole parse (D250).
+    private static let firstScreenLength = 64 * 1024
+
+    /// A long file's first screen, colored before the whole of it is parsed:
+    /// a 6 000-line file never parsed within the 40 ms an open waits, so the
+    /// wait was spent and the screen came up gray. Its start is parsed alone,
+    /// then the rest is given to that tree as text added at the end: the whole
+    /// parse reuses it, and only what it changed goes out again.
+    private func colorFirstScreen(_ focus: NSRange) -> Bool {
+        let string = text.string
+        let cut = NSMaxRange(string.lineRange(for: NSRange(location: min(string.length, NSMaxRange(focus)), length: 0)))
+        guard cut < string.length, let start = Self.parse(string.substring(to: cut) as NSString, with: parser, old: nil) else { return false }
+        tree = start
+        deliver(invalid.intersection(IndexSet(integersIn: (Range(focus) ?? 0..<0).clamped(to: 0..<cut))))
+        start.edit(InputEdit(
+            startByte: cut * 2, oldEndByte: cut * 2, newEndByte: string.length * 2,
+            startPoint: point(at: cut), oldEndPoint: point(at: cut), newEndPoint: point(at: string.length)
+        ))
+        return true
     }
 
     private func parse() {

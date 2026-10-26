@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- A long file opens colored: its first screen is colored from a parse of its start, in ~75 ms instead of drawn gray at ~90 (D250)
 - Faster typing and tab switches (D249): a key press in a 6 000-line file takes 9 ms instead of 31, a tab switch draws the other file in ~35 ms, and the last four tabs keep their editors, scrolled, laid out and with their undo; a huge paste at many carets no longer freezes the git markers for 20 s
 - The stress run's gallery: every panel, Settings pane and a few editors in every mode, side by side; and timings (launch, files, typing, scrolling, tabs, Settings, memory, CPU at rest) against a baseline, in `make stress-full` (D248)
 - Opening Settings with the sidebar and the inspector open in the smallest window no longer crashes (D247); the stress run found it, shrank it to three steps and keeps it as a regression
@@ -266,8 +267,9 @@
    quit with no crash report while its project folder was renamed and back,
    and in the big project an editor showed 28 of a 31-character file's
    characters after switching tabs
-1. Faster: Settings take 230–290 ms to open, a 6 000-line file 200–275 ms;
-   a tab switch is mostly the window following the file (D249)
+1. Faster: Settings take ~250 ms to open and ~180 to close, all SwiftUI's
+   form and the workspace built again (D250); a launch took 4 s instead of
+   1.3–2.2 twice in `PERF=1` runs back to back, not looked into yet
 2. Code plugins in TypeScript via JavaScriptCore, same package format
 3. Developer ID signing and notarization: the script is ready (D222); waits for
    an Apple Developer Program membership and its certificate

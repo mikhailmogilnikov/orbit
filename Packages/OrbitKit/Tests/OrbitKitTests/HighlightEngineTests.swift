@@ -90,6 +90,40 @@ import Testing
         #expect(Self.merged(cache.spans.spans) == Self.merged(freshCache.spans.spans))
     }
 
+    /// A long file's first screen comes from a parse of its start (D250), here
+    /// with a comment opened on it and closed past it; the whole parse after
+    /// ends where a highlight without that step does.
+    @MainActor
+    @Test func firstScreenEndsAsTheWholeParse() throws {
+        let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Sources/OrbitEditor/HighlightEngine.swift")
+        let code = try String(contentsOf: source, encoding: .utf8)
+        let text = String(code.prefix(15_000)) + "\n/* opened on the first screen\n" + code + "\n*/\n" + code + code
+        #expect((text as NSString).length > 64 * 1024)
+        let theme = Extensions.shared.colorTheme(dark: false)
+        let swift = try TestGrammars.grammar("Swift")
+
+        let worker = try #require(Self.worker(swift, theme))
+        var cache = HighlightCache()
+        let waiter = DispatchSemaphore(value: 0)
+        worker.setFocus(NSRange(location: 0, length: 16 * 1024))
+        worker.reset(TextSnapshot(string: text as NSString), version: cache.version, waiter: waiter)
+        waiter.wait()
+        let firstScreen = worker.takePatches()
+        #expect(!firstScreen.isEmpty)
+        _ = cache.apply(firstScreen)
+        worker.waitUntilIdle()
+        _ = cache.apply(worker.takePatches())
+
+        let whole = try #require(Self.worker(swift, theme))
+        var wholeCache = HighlightCache()
+        whole.reset(TextSnapshot(string: text as NSString), version: 0)
+        whole.waitUntilIdle()
+        _ = wholeCache.apply(whole.takePatches())
+
+        #expect(Self.merged(cache.spans.spans) == Self.merged(wholeCache.spans.spans))
+    }
+
     /// Embedded languages (D69): a fence's code is colored by its language, and
     /// edits that open, close or retag fences end where a fresh highlight does.
     @MainActor
