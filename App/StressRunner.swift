@@ -14,6 +14,7 @@ import os
 @MainActor
 final class StressRunner {
     static let shared = StressRunner()
+    nonisolated(unsafe) private static var exceptionFile: String?
 
     struct Plan: Decodable {
         var seed: UInt64
@@ -35,6 +36,11 @@ final class StressRunner {
         var leaks: Bool?
         /// A footprint over this fails the run (D246).
         var memoryLimitMB: Int?
+        /// The plugin modules whose code changed since a run passed: only
+        /// their plugins' part runs, with what uses them, and the shell's (D246).
+        var changed: [String]?
+        /// Allocations are logged (for `malloc_history`): everything is slower.
+        var stacks: Bool?
     }
 
     private var plan: Plan?
@@ -43,6 +49,11 @@ final class StressRunner {
     private var stepCount = 0
     private var reached: Set<String> = []
     private var known: Set<String> = []
+    /// Every key, run or not: an exemption matching none is stale.
+    private var allKnown: Set<String> = []
+    /// With `changed`, the plugins this run covers; nil when all.
+    private var covering: Set<String>?
+    private var owners: [String: String] = [:]
     private var exemptions: [String: String] = [:]
     private var unavailable: Set<String> = []
     private var sentBack: Set<Int> = []
@@ -76,6 +87,14 @@ final class StressRunner {
         log = try? FileHandle(forWritingTo: output.appendingPathComponent("log.txt"))
         ProjectWindows.shared.activatesApp = !plan.background
         StressAnswers.alert = { [weak self] alert in self?.answer(alert) ?? .cancel }
+        // An exception's reason, which the crash report leaves out (AppKit's
+        // layout loops say which view): exception.txt beside the log (D247).
+        Self.exceptionFile = output.appendingPathComponent("exception.txt").path
+        NSSetUncaughtExceptionHandler { exception in
+            guard let path = StressRunner.exceptionFile else { return }
+            let text = "\(exception.name.rawValue): \(exception.reason ?? "")\n\(exception.userInfo.map { "\($0)" } ?? "")\n" + exception.callStackSymbols.joined(separator: "\n")
+            FileManager.default.createFile(atPath: path, contents: Data(text.utf8))
+        }
         NSScrollView.watchForTileLoops()
         TileLoops.report = { [weak self] in self?.note($0) }
         startHeartbeat()
@@ -97,6 +116,7 @@ final class StressRunner {
         if plan!.bigProject == true { writeBigProject() }
         heartbeat.withLock { $0.paused = false; $0.beat = Date() }
         guard await openProject() else { return finish("the project didn't open") }
+        chooseCovered()
         noteCoverage()
         note("project \(project.path), seed \(plan!.seed)")
 
@@ -143,18 +163,26 @@ final class StressRunner {
             if let stressStep = currentHost.stress.steps.first(where: { $0.id == id }) { await run(stressStep, preparing: true) }
         }
         // Commands that were off the first time (nothing to go back to, no
-        // split, no stash, no agent change): again, now that steps made that
-        // state, each after the steps that make the most of it.
-        for id in commands where isMine(StressCoverage.command(id)) && !reached.contains(StressCoverage.command(id)) {
-            await step("command \(id), again") { [weak self] context in
-                guard let self, !context.run(id) else { return }
-                for setup in ["shell.richState", "review.agentTurn", "git.stash", "git.stage", "preview.markdown", "terminal.command"] {
-                    if let prepare = currentHost.stress.steps.first(where: { $0.id == setup }) { await prepare.run(context) }
-                    await settle()
-                    if context.run(id) { return }
+        // split, no stash, no agent change): each step that makes such state,
+        // then every command still off that it turned on, again while it turns
+        // more on (Keep Change takes the change Undo Change needed) (D246; one
+        // by one, each command ran every setup until it came on).
+        var waiting = commands.filter { isMine(StressCoverage.command($0)) && !reached.contains(StressCoverage.command($0)) }
+        for setup in ["", "shell.richState", "review.agentTurn", "git.stash", "git.stage", "preview.markdown", "terminal.command", "agents.reviewComments", "open"] {
+            for _ in 0..<(setup.isEmpty || setup == "open" ? 1 : 3) where !waiting.isEmpty {
+                switch setup {
+                case "": break
+                case "open": await step("open docs/readme.md") { context in await context.open("docs/readme.md") }
+                default:
+                    guard let prepare = currentHost.stress.steps.first(where: { $0.id == setup }) else { break }
+                    await run(prepare, preparing: false)
                 }
-                await context.open("docs/readme.md")
-                context.run(id)
+                let before = waiting.count
+                for id in waiting where currentHost.commands.all.first(where: { $0.id == id })?.isEnabled() == true {
+                    await step("command \(id)") { context in context.run(id) }
+                }
+                waiting.removeAll { reached.contains(StressCoverage.command($0)) }
+                if waiting.count == before { break }
             }
         }
         note("fixed part: \(stepCount) steps")
@@ -174,7 +202,31 @@ final class StressRunner {
 
     /// Whether a thing of the fixed part is this copy's: by its key, so every
     /// copy splits the same way without knowing the others' lists.
+    /// The changed plugins, and what uses them (it requires them, or looked
+    /// up their services: the editor shows Source Control's and Review's).
+    private func chooseCovered() {
+        guard let changed = plan?.changed else { return }
+        let host = currentHost
+        var covered = Set(host.entries.map(\.id).filter { host.moduleName(of: $0).map(changed.contains) == true })
+        var added = covered
+        while !added.isEmpty {
+            added = Set(added.flatMap { host.users(of: $0) }).subtracting(covered)
+            covered.formUnion(added)
+        }
+        covering = covered
+        note("changed since a run passed: \(changed.sorted().joined(separator: ", ")); covering \(covered.sorted().joined(separator: ", ")) and the shell")
+    }
+
+    /// The shell's keys always; a plugin's when this run covers it.
+    private func isCovered(_ key: String) -> Bool {
+        guard let covering else { return true }
+        if owners[key] == nil { owners = StressCoverage.owners(in: currentHost) }
+        guard let owner = owners[key] else { return true }
+        return covering.contains(owner)
+    }
+
     private func isMine(_ key: String) -> Bool {
+        guard isCovered(key) else { return false }
         let shards = UInt64(max(1, plan?.shards ?? 1))
         guard shards > 1 else { return true }
         // FNV-1a: the same on every run (Swift's hashValue isn't).
@@ -251,11 +303,11 @@ final class StressRunner {
     /// available depends on timing (a language server's answer), and the same
     /// seed has to give the same steps.
     private func randomStep() async {
-        let (steps, total) = Self.weights(currentHost.stress.steps)
+        let (steps, total) = Self.weights(currentHost.stress.steps.filter { isCovered(StressCoverage.step($0.id)) })
         // A command or a file a quarter of the time each, a plugin's step otherwise.
         switch random.next() % 4 {
         case 0:
-            let commands = currentHost.commands.all.map(\.id).filter { !isExempt(StressCoverage.command($0)) }.sorted()
+            let commands = currentHost.commands.all.map(\.id).filter { !isExempt(StressCoverage.command($0)) && isCovered(StressCoverage.command($0)) }.sorted()
             guard !commands.isEmpty else { return }
             let command = commands[Int(random.next() % UInt64(commands.count))]
             await step("command \(command)") { context in context.run(command) }
@@ -343,7 +395,7 @@ final class StressRunner {
             last = (elapsed - 0.1, (Self.cpuTime() - cpu) / elapsed)
             quiet = last.lateness < 0.03 && last.cpu < 0.5 ? quiet + 1 : 0
             // Logging every allocation for leaks makes everything a few times slower.
-            let limit: TimeInterval = plan?.leaks == true ? 60 : 20
+            let limit: TimeInterval = plan?.stacks == true ? 60 : 20
             if Date().timeIntervalSince(started) > limit {
                 let problem = "busy for \(Int(limit)) s after \(heartbeat.withLock { $0.step }): the main thread woke \(Int(last.lateness * 1000)) ms late, \(Int(last.cpu * 100))% CPU"
                 // Still busy for the script to sample what spins, then the end.
@@ -365,12 +417,14 @@ final class StressRunner {
         for (what, object) in toFree { lettingGo[what, default: []].append(object) }
         toFree = []
         guard !piled().isEmpty else { return nil }
+        let waited = Date()
         for _ in 0..<300 where !piled().isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
         if !piled().isEmpty {
             await redrawEverything()
             for _ in 0..<40 where !piled().isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
         }
         let kinds = piled()
+        note("waited \(Date().timeIntervalSince(waited).formatted(.number.precision(.fractionLength(1)))) s for what was let go\(kinds.isEmpty ? "" : ": still \(kinds.joined(separator: ", "))")")
         guard !kinds.isEmpty else { return nil }
         // What holds each: the chains of references to it, from leaks.
         var trees = ""
@@ -388,7 +442,7 @@ final class StressRunner {
                 return indent >= 6 && indent <= 10 && line.dropFirst(indent).first?.isNumber == true
             }
             let holders = near.compactMap { $0.firstMatch(of: /<(?:Task stack|Closure context[^>]*?|Swift HeapGenericLocalVariable|Swift HeapLocalVariable) (0x[0-9a-f]+)>/).map { String($0.1) } }
-            for holder in Array(Set(holders)).sorted().prefix(6) {
+            for holder in Array(Set(holders)).sorted().prefix(plan?.stacks == true ? 6 : 0) {
                 trees += "-- made at \(holder)\n" + (await run("/usr/bin/malloc_history", ["\(getpid())", holder])) + "\n"
             }
             // A text view on the way is a leak of its own (it holds its editor's parts): what holds it.
@@ -397,7 +451,8 @@ final class StressRunner {
             }
         }
         try? trees.write(to: output.appendingPathComponent("retainers.txt"), atomically: true, encoding: .utf8)
-        return kinds.map { "\(lettingGo[$0]?.count ?? 0) × \($0)" }.joined(separator: ", ") + " (retainers.txt)"
+        return kinds.map { "\(lettingGo[$0]?.count ?? 0) × \($0)" }.joined(separator: ", ")
+            + (plan?.stacks == true ? " (retainers.txt)" : " (retainers.txt; STACKS=1 REPLAY= the log says where the holders were made)")
     }
 
     /// The kinds with three or more still alive; the freed ones dropped.
@@ -504,7 +559,9 @@ final class StressRunner {
 
     private func noteCoverage() {
         let host = currentHost
-        known.formUnion(StressCoverage.keys(in: host))
+        let keys = StressCoverage.keys(in: host)
+        allKnown.formUnion(keys)
+        known.formUnion(keys.filter(isCovered))
         exemptions.merge(host.stress.exemptions) { first, _ in first }
         for tab in host.workspace.allTabs {
             if let provider = host.ui.provider(for: tab) { reached.insert(StressCoverage.provider(provider.id)) }
@@ -518,14 +575,14 @@ final class StressRunner {
     /// What no step reached and nothing exempts; nil when that's nothing.
     private func uncoveredReport() -> String? {
         let uncovered = known.subtracting(reached).filter { !isExempt($0) }.sorted()
-        let stale = StressCoverage.staleExemptions(exemptions, keys: known)
+        let stale = StressCoverage.staleExemptions(exemptions, keys: allKnown)
         var lines = ["reached \(reached.intersection(known).count) of \(known.count); \(exemptions.count) exempt"]
         lines += exemptions.sorted { $0.key < $1.key }.map { "exempt \($0.key): \($0.value)" }
         lines += uncovered.map { "UNCOVERED \($0)" }
         lines += stale.map { "STALE EXEMPTION \($0) (nothing has that key)" }
         lines += unavailable.sorted().map { "unavailable step \($0)" }
         try? lines.joined(separator: "\n").write(to: output.appendingPathComponent("coverage.txt"), atomically: true, encoding: .utf8)
-        let json: [String: Any] = ["known": known.sorted(), "reached": reached.sorted(), "exemptions": exemptions]
+        let json: [String: Any] = ["known": known.sorted(), "all": allKnown.sorted(), "reached": reached.sorted(), "exemptions": exemptions]
         if let data = try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]) {
             try? data.write(to: output.appendingPathComponent("coverage.json"))
         }
@@ -645,10 +702,14 @@ final class StressRunner {
         try? text.write(to: output.appendingPathComponent("leaks.txt"), atomically: true, encoding: .utf8)
         guard text.contains("leaks for") else { return "leaks didn't run (leaks.txt)" }
         let roots = text.split(separator: "\n").filter { $0.contains("ROOT LEAK") || $0.contains("ROOT CYCLE") }
-        let ours = roots.filter { line in Self.ownModules.contains { line.contains($0) } }
+        let names = Self.ownClassNames
+        // leaks names a Swift class without its module ("<TerminalOptions>"): by the classes in the app's own images too.
+        let ours = roots.filter { line in
+            Self.ownModules.contains { line.contains($0) } || names.contains { line.contains("<\($0) ") || line.contains("<\($0)>") }
+        }
         note("leaks: \(roots.count) roots, \(ours.count) of them Orbit's")
         for line in ours.prefix(20) { note("leak: \(line.trimmingCharacters(in: .whitespaces))") }
-        return ours.isEmpty ? nil : "leaks: \(ours.count) of Orbit's objects nothing points to (leaks.txt)"
+        return ours.isEmpty ? nil : "leaks: \(ours.count) of Orbit's objects nothing points to (leaks.txt\(plan?.stacks == true ? "" : "; STACKS=1 LEAKS=1 REPLAY= the log says where they were made"))"
     }
 
     /// /usr/bin/leaks on this process. A try that caught malloc mid-change says so: again.
@@ -677,6 +738,25 @@ final class StressRunner {
             process.waitUntilExit()
             return String(decoding: data, as: UTF8.self)
         }.value
+    }
+
+    /// The classes Orbit's own images define, the libraries linked into them included.
+    private static var ownClassNames: Set<String> {
+        var names = Set<String>()
+        var imageCount: UInt32 = 0
+        let images = objc_copyImageNames(&imageCount)
+        defer { free(images) }
+        for index in 0..<Int(imageCount) where String(cString: images[index]).hasPrefix(Bundle.main.bundlePath) {
+            var classCount: UInt32 = 0
+            guard let classes = objc_copyClassNamesForImage(images[index], &classCount) else { continue }
+            defer { free(classes) }
+            for item in 0..<Int(classCount) {
+                guard let type = NSClassFromString(String(cString: classes[item])) else { continue }
+                let name = NSStringFromClass(type).components(separatedBy: ".").last ?? ""
+                if name.count > 3 { names.insert(name) }
+            }
+        }
+        return names
     }
 
     private static let ownModules = ["<Orbit", " Orbit", "STTextView", "SwiftTerm", "Neon", "SwiftTreeSitter"]

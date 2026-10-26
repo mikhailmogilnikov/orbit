@@ -98,6 +98,12 @@ public final class JSONRPCConnection: @unchecked Sendable {
         process.standardError = stderrPipe
     }
 
+    deinit {
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        process.terminationHandler = nil
+    }
+
     public func start() throws {
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
@@ -121,6 +127,8 @@ public final class JSONRPCConnection: @unchecked Sendable {
             }
         }
         process.terminationHandler = { [weak self] process in
+            // Foundation keeps a handler still set when the process goes: one block a server (D246).
+            process.terminationHandler = nil
             guard let self else { return }
             // Give the readers a moment to drain stderr before reporting.
             self.queue.asyncAfter(deadline: .now() + 0.1) {

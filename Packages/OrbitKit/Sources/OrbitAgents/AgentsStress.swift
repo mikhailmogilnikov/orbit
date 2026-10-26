@@ -23,26 +23,33 @@ enum AgentsStress {
         /// crash scenario failed), now and then a new one anyway.
         func session(_ run: StressContext) async -> AgentSession? {
             if store.selected.map({ ![.ready, .dormant, .starting].contains($0.status) }) ?? true || run.chance(0.15) {
-                run.run(run.chance(0.2) ? "agents.newIsolated" : "agents.new.\(provider.id)")
+                let command = run.chance(0.2) ? "agents.newIsolated" : "agents.new.\(provider.id)"
+                run.note(command)
+                run.run(command)
             }
             guard let session = store.selected else { return nil }
             if session.status == .dormant { await session.start() }
             for _ in 0..<80 where session.status != .ready { try? await Task.sleep(for: .milliseconds(100)) }
             return session.status == .ready ? session : nil
         }
-        func turn(_ session: AgentSession, _ scenario: String) async {
+        func turn(_ session: AgentSession, _ scenario: String, _ run: StressContext) async {
             session.draft = "stress:\(scenario) — and some Ünïcödé 👩‍👩‍👧"
             session.submit()
             for _ in 0..<80 where session.status == .working {
-                // A permission is answered as a person would: either way.
-                if let request = session.firstPendingPermission, let option = request.option(allow: Bool.random()) { request.choose(option) }
+                // A permission is answered as a person would: either way (from the step's numbers, so a replay answers the same).
+                if let request = session.firstPendingPermission, let option = request.option(allow: run.chance(0.5)) {
+                    run.note("permission: \(option.name)")
+                    request.choose(option)
+                }
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
 
         stress.add(StressStep("agents.turn", weight: 4) { run in
             guard let session = await session(run) else { return }
-            await turn(session, run.pick(["reply", "edit", "read", "permission", "big", "error"]) ?? "reply")
+            let scenario = run.pick(["reply", "edit", "read", "permission", "big", "error"]) ?? "reply"
+            run.note(scenario)
+            await turn(session, scenario, run)
         })
         stress.add(StressStep("agents.stop", weight: 1) { run in
             guard let session = await session(run) else { return }
@@ -57,7 +64,7 @@ enum AgentsStress {
         })
         stress.add(StressStep("agents.crash", weight: 1) { run in
             guard let session = await session(run) else { return }
-            await turn(session, "crash")
+            await turn(session, "crash", run)
         })
         stress.add(StressStep("agents.closeWhileWorking", weight: 1) { run in
             guard let session = await session(run) else { return }
@@ -82,8 +89,8 @@ enum AgentsStress {
         stress.add(StressStep("agents.transcriptRelayout", weight: 1) { run in
             guard let session = await session(run) else { return }
             context.ui.revealInspectorPanel("agents")
-            await turn(session, run.pick(["big", "reply", "edit"]) ?? "big")
-            for _ in 0..<run.int(3...8) {
+            await turn(session, run.pick(["big", "reply", "edit"]) ?? "big", run)
+            for _ in 0..<run.int(2...3) {
                 Preferences.shared.interfaceTextSize = Double(run.int(10...15))
                 await run.settle()
             }

@@ -15,7 +15,7 @@ clean=$([ -z "$(git status --porcelain)" ] && echo 1 || true)
 started=$(date +%s)
 
 echo "== macOS $(sw_vers -productVersion), $STEPS steps, with leaks"
-SEED=$SEED STEPS=$STEPS LEAKS=1 scripts/stress.sh
+FULL=1 SEED=$SEED STEPS=$STEPS LEAKS=1 scripts/stress.sh
 if [ -z "${NO_VM:-}" ]; then
     echo "== macOS 26 in the VM"
     SEED=$((SEED + 1)) STEPS=$((STEPS / 4)) scripts/stress-vm.sh

@@ -256,6 +256,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D244. Every feature is in the stress run: plugins bring steps and checks, Orbit runs them itself
 - D245. The stress run in parallel copies and modes, with chaos, a pretend agent and a pretend language server
 - D246. The stress run checks what's let go is freed, plays git conflicts, shrinks a failure and gates a release
+- D247. A faster stress run: what changed since one passed, shorter steps, leaks without allocation logging, a faster shrinker
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -5396,4 +5397,53 @@ Seen once and not replayed (timing): a copy quit while the project folder
 was renamed and back, with no crash report and no result; and in the big
 project an editor showed 28 characters of a 31-character file after
 switching tabs. Both on the roadmap.
+
+### D247. A faster stress run: what changed since one passed, shorter steps, leaks without allocation logging, a faster shrinker
+
+`make stress` took two minutes for any change, `make stress-full` fifteen
+and a shrink twelve. Now:
+- Only what changed. A run that passes stamps the code it ran
+  (`.build/stress/passed.json`, `scripts/stress-changes.py`): a fingerprint
+  per plugin module and one for everything else (the app, the kernel and UI
+  kit, the scripts, the build settings). The next run compares: nothing
+  changed, it says so and stops; only plugin modules changed, the fixed part
+  and 60 random steps cover their plugins and what uses them (it requires
+  them, or looked up a service they registered: `ServiceRegistry.resolve`
+  remembers who asked, `PluginHost.users(of:)`), and the shell's part; else
+  it all runs. Coverage counts only what's covered; the rest is "unchanged
+  since a run passed". `FULL=1` runs everything; `make stress-full` always
+  does. A change to Source Control alone took 93 s instead of 125 s: most of
+  the app uses it.
+- The commands the first pass found off get each setup step once (again
+  while it turns more on: Keep Change takes the change Undo Change needs),
+  not every setup for each command; the longest repeated steps (the
+  Problems teardown, the transcript relayout) do less of the same.
+- `LEAKS=1` no longer logs allocations: `leaks` doesn't need it, only saying
+  where an object was made does. `STACKS=1` turns it on for a replay of a
+  failure (and the busy limit to 60 s); without it `retainers.txt` has the
+  chains of references, not where the holders were made. A full run with
+  leaks: 136 s instead of 162 s.
+- The shrinker tries the log's last 1, 2, 4… steps first, stops a round as
+  soon as a copy fails the same way, and counts a crash macOS wrote no report
+  for (it stops writing them when a process crashes often) as the same
+  crash. `stress.sh` cleans up when it's stopped.
+- Leaks also found: Terminal's options held themselves (their change
+  handler captured them), one per time the plugin was turned off, and each
+  language server's process handlers stayed (cleared now). `leaks` names a
+  Swift class without its module, so Orbit's are told by the class names in
+  the app's own images.
+- The shrinker brought a crash down to three steps: a new chat (which opens
+  the inspector), the window at its smallest, then Settings. With the
+  sidebar and the inspector open in a 960-point window, the workspace taken
+  down for Settings kept resizing its column (SwiftUI re-reading the safe
+  area on every frame change) and AppKit threw on the endless layout. No
+  agent needed; hiding either column first avoided it, and so does Orbit
+  now: the inspector closes for a run loop before Settings come in, without
+  that counting as the user's choice, and is back with the workspace. The
+  regression `shell.settingsInSmallWindow` crashed without it. Swapping the
+  two in two passes alone didn't help. Found on the way: an uncaught
+  exception's reason goes to `exception.txt` (AppKit's own layout loops
+  don't get there: it catches them; lldb on `objc_exception_throw` did),
+  and the pretend agent's permission answers come from the step's numbers,
+  so a replay answers the same.
 

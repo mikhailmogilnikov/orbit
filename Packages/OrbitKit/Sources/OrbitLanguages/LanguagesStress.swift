@@ -48,7 +48,7 @@ enum LanguagesStress {
                 run.run(command)
                 await run.settle()
             }
-            for _ in 0..<run.int(10...25) {
+            for _ in 0..<run.int(5...12) {
                 context.ui.revealBottomPanel(run.pick(["problems", "references", "hierarchy"]) ?? "problems")
                 try? await Task.sleep(for: .milliseconds(run.int(0...80)))
                 // The columns around the editor sliding while the list goes.

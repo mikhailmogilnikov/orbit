@@ -11,7 +11,10 @@
 # style, appearance, text sizes, wrapping, no color theme, a big project);
 # their coverage is added up here. All in the background: never activated,
 # windows behind yours, so the Mac stays usable.
-#   make stress                        4 copies, 150 random steps between them
+#   make stress                        4 copies; only what changed since a run passed (D246):
+#                                      those plugins and what uses them, 60 random steps;
+#                                      the app, kernel, UI kit or scripts changed: all, 150
+#   FULL=1 make stress                 everything, changed or not
 #   STEPS=600 SEED=7 make stress       more steps, or a failed run's order again
 #   JOBS=1 make stress                 one copy doing it all
 #   STEPS=0 make stress                the fixed part and the coverage check only
@@ -21,6 +24,8 @@
 #                                      the same way (D246): shrunk.txt, to REPLAY
 #   MODE=1 REPLAY=<log.txt> make stress  in another copy's mode (its number above)
 #   LEAKS=1 make stress                `leaks` on each copy once its steps pass (D246)
+#   STACKS=1 REPLAY=<log> make stress  allocations logged, so leaks and retainers.txt say where
+#                                      each object was made (everything a few times slower)
 #   MEMORY_LIMIT=2048 make stress      a copy over this many MB fails (4096)
 #   FOREGROUND=1 make stress           one copy in front, with full screen (it takes over the Mac)
 #   APP=<Orbit.app> scripts/stress.sh  another debug build
@@ -28,20 +33,33 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/orbit-env.sh
+# Stopped (the shrinker stops a round early): the copies' settings and scratch folders still go.
+trap 'exit 143' TERM INT
 
 APP=${APP:-.build/xcode/Build/Products/Debug/Orbit.app}
 [ -z "${SHRINK:-}" ] || exec python3 -u -I scripts/stress-shrink.py "$SHRINK" "$APP"
-STEPS=${STEPS:-150}
 SEED=${SEED:-$RANDOM}
 FOREGROUND=${FOREGROUND:-}
 REPLAYS=(${REPLAY:-})
 LEAKS=${LEAKS:-}
+STACKS=${STACKS:-}
 MEMORY_LIMIT=${MEMORY_LIMIT:-4096}
 JOBS=${JOBS:-4}
 [ ${#REPLAYS[@]} = 0 ] || JOBS=${#REPLAYS[@]}
 [ -z "$FOREGROUND" ] || JOBS=1
 RESULTS=$PWD/.build/stress
 OUT=${OUT:-$RESULTS/$SEED}
+PASSED=$RESULTS/passed.json
+CHANGED=
+if [ ${#REPLAYS[@]} = 0 ] && [ -z "${FULL:-}$FOREGROUND" ]; then
+    changes=$(python3 -I scripts/stress-changes.py compare "$PASSED")
+    case "$changes" in
+        none) echo "Nothing changed since the last stress run that passed (FULL=1 runs it anyway)"; exit 0 ;;
+        all) ;;
+        *) CHANGED=$changes ;;
+    esac
+fi
+STEPS=${STEPS:-$([ -n "$CHANGED" ] && echo 60 || echo 150)}
 
 # What each copy runs in, by its number (the first is Orbit's own settings).
 MODES=(
@@ -55,8 +73,10 @@ MODE_NAMES=("as set" "always-shown scrollers, dark, large text" "light, small te
 [ -x "$APP/Contents/MacOS/Orbit" ] || { echo "No debug build at $APP: make build" >&2; exit 1; }
 rm -rf "$OUT" && mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
+# The code as it is now, stamped as passed if the run passes.
+mkdir -p "$RESULTS" && python3 -I scripts/stress-changes.py save "$OUT/fingerprints.json"
 started=$(date +%s)
-echo "Stress run on macOS $(sw_vers -productVersion), seed $SEED, $STEPS random steps, $JOBS $([ "$JOBS" = 1 ] && echo copy || echo copies)$([ -n "$FOREGROUND" ] && echo ", in front"): $OUT"
+echo "Stress run on macOS $(sw_vers -productVersion), seed $SEED, $STEPS random steps, $JOBS $([ "$JOBS" = 1 ] && echo copy || echo copies)$([ -n "$FOREGROUND" ] && echo ", in front")$([ -z "$CHANGED" ] || echo ", only what changed: $CHANGED"): $OUT"
 
 PIDS=()
 for ((job = 0; job < JOBS; job++)); do
@@ -80,14 +100,15 @@ for ((job = 0; job < JOBS; job++)); do
     mode=${MODES[$mode_index]}
     plan=$(python3 -I -c '
 import json, sys
-seed, steps, project, out, background, replay, job, jobs, mode, leaks, limit = sys.argv[1:]
+seed, steps, project, out, background, replay, job, jobs, mode, leaks, limit, changed, stacks = sys.argv[1:]
 plan = {"seed": int(seed), "steps": int(steps), "project": project, "output": out, "background": background == "true",
         "shard": int(job), "shards": int(jobs), "bigProject": bool(json.loads(mode).get("orbit.stressBigProject")),
-        "leaks": leaks == "1", "memoryLimitMB": int(limit)}
+        "leaks": leaks == "1", "memoryLimitMB": int(limit), "stacks": stacks == "1"}
 if replay: plan["replay"] = replay
+if changed: plan["changed"] = changed.split()
 print(json.dumps(plan))' \
         "$((SEED + job * 7919))" "$(( (STEPS + JOBS - 1) / JOBS ))" "$ORBIT_SCRATCH/project" "$out" \
-        "$([ -n "$FOREGROUND" ] && echo false || echo true)" "$replay" "$job" "$JOBS" "$mode" "${LEAKS:-0}" "$MEMORY_LIMIT")
+        "$([ -n "$FOREGROUND" ] && echo false || echo true)" "$replay" "$job" "$JOBS" "$mode" "${LEAKS:-0}" "$MEMORY_LIMIT" "$CHANGED" "${STACKS:-0}")
     # No folders to reopen (the runner opens its project), every plugin on, the copy's mode.
     ORBIT_EXTRA_PREFS=$(python3 -I -c '
 import json, sys
@@ -95,7 +116,7 @@ prefs = {"orbit.stress": sys.argv[1], "orbit.openFolders": [], "orbit.disabledPl
 prefs.update(json.loads(sys.argv[2]))
 print(json.dumps(prefs))' "$plan" "$mode") orbit_use_prefs "$ORBIT_SCRATCH/project" src/short.tsx
     # -g: launched without coming to the front. With LEAKS, where each leak was made.
-    open -g -n --stdout "$out/app.log" --stderr "$out/app.log" $([ -z "$LEAKS" ] || echo --env MallocStackLogging=1) "$app"
+    open -g -n --stdout "$out/app.log" --stderr "$out/app.log" $([ -z "$STACKS" ] || echo --env MallocStackLogging=1) "$app"
     pid=
     for _ in $(seq 1 50); do pid=$(pgrep -nf "$app/Contents/MacOS/Orbit" || true); [ -z "$pid" ] || break; sleep 0.1; done
     [ -n "$pid" ] || { echo "error: copy $job didn't start" >&2; exit 1; }
@@ -154,19 +175,22 @@ done
 if [ ${#REPLAYS[@]} = 0 ]; then
     python3 -I - "$OUT" <<'EOF' || failed=1
 import glob, json, sys
-known, reached, exemptions = set(), set(), {}
+known, every, reached, exemptions = set(), set(), set(), {}
 for path in glob.glob(f"{sys.argv[1]}/*/coverage.json"):
     data = json.load(open(path))
-    known |= set(data["known"]); reached |= set(data["reached"]); exemptions.update(data["exemptions"])
+    known |= set(data["known"]); every |= set(data.get("all", data["known"])); reached |= set(data["reached"]); exemptions.update(data["exemptions"])
 def exempt(key):
     return key in exemptions or any(e.endswith("*") and key.startswith(e[:-1]) for e in exemptions)
 uncovered = sorted(k for k in known - reached if not exempt(k))
-stale = sorted(e for e in exemptions if not (any(k.startswith(e[:-1]) for k in known) if e.endswith("*") else e in known))
-print(f"coverage: reached {len(reached & known)} of {len(known)}; {len(exemptions)} exempt")
+stale = sorted(e for e in exemptions if not (any(k.startswith(e[:-1]) for k in every) if e.endswith("*") else e in every))
+left = len(every - known)
+print(f"coverage: reached {len(reached & known)} of {len(known)}; {len(exemptions)} exempt" + (f"; {left} unchanged since a run passed" if left else ""))
 for key in uncovered: print(f"UNCOVERED {key}")
 for key in stale: print(f"STALE EXEMPTION {key}")
 sys.exit(1 if uncovered or stale or not known else 0)
 EOF
 fi
+# The code it ran, as passed: the next run leaves out what's still the same.
+[ "$failed" != 0 ] || [ ${#REPLAYS[@]} != 0 ] || [ -n "$FOREGROUND" ] || [ ! -f "$OUT/fingerprints.json" ] || cp "$OUT/fingerprints.json" "$PASSED"
 echo "$([ "$failed" = 0 ] && echo passed || echo FAILED) in $(( $(date +%s) - started )) s; seed $SEED"
 exit "$failed"

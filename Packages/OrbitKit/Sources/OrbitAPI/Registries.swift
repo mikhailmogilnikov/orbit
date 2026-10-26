@@ -604,6 +604,9 @@ public final class CommandRegistry {
 @Observable
 final class ServiceState {
     var services: [ObjectIdentifier: (owner: String?, service: Any)] = [:]
+    /// Who looked up whose service, by the plugin that registered it: what a
+    /// change to that plugin can break (a stress run reruns those, D246).
+    @ObservationIgnored var users: [String: Set<String>] = [:]
 }
 
 /// Typed service locator: plugins expose APIs to each other through protocols
@@ -640,7 +643,11 @@ public final class ServiceRegistry {
     }
 
     public func resolve<Service>(_ type: Service.Type) -> Service? {
-        state.services[ObjectIdentifier(type)]?.service as? Service
+        guard let entry = state.services[ObjectIdentifier(type)] else { return nil }
+        if let owner, let provider = entry.owner, provider != owner, state.users[provider]?.contains(owner) != true {
+            state.users[provider, default: []].insert(owner)
+        }
+        return entry.service as? Service
     }
 }
 

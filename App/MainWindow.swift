@@ -13,6 +13,10 @@ struct MainWindow: View {
     @State private var tabDrag = TabDrag()
     /// The part of the detail column under the floating sidebar.
     @State private var sidebarInset: CGFloat = 0
+    /// Settings or the workspace, a run loop after `ui.isSettingsVisible`.
+    @State private var showsSettings = false
+    /// The inspector closed, not as the user's choice, for the workspace to go.
+    @State private var parksInspector = false
 
     private var workspace: Workspace { host.workspace }
     private var ui: UIRegistry { host.ui }
@@ -24,6 +28,20 @@ struct MainWindow: View {
             .onChange(of: appearance, initial: true) { _, new in apply(new) }
             .onChange(of: ui.requestedInspectorPanel) { _, id in showInspectorPanel(id) }
             .onChange(of: ui.requestedSidebarPanel) { _, id in showSidebarPanel(id) }
+            .onChange(of: ui.isSettingsVisible) { _, visible in swapSettings(visible) }
+    }
+
+    /// The workspace goes for Settings with its inspector closed (D247): taken
+    /// down with the sidebar and the inspector open in a small window, its
+    /// column kept resizing until AppKit threw on the endless layout. The
+    /// inspector comes back with the workspace.
+    private func swapSettings(_ visible: Bool) {
+        guard visible, showsInspector, workspace.root != nil else { return showsSettings = visible }
+        parksInspector = true
+        DispatchQueue.main.async {
+            showsSettings = ui.isSettingsVisible
+            parksInspector = false
+        }
     }
 
     /// The layout is saved as it changes, for the next launch (D80).
@@ -48,7 +66,7 @@ struct MainWindow: View {
     private var layers: some View {
         // Settings replace the workspace view while shown (see SettingsScreen).
         Group {
-            if ui.isSettingsVisible {
+            if showsSettings {
                 SettingsScreen(host: host)
             } else if workspace.root == nil {
                 ProjectPicker(host: host)
@@ -199,6 +217,10 @@ struct MainWindow: View {
         return Preferences.shared.appearance
     }
 
+    private var inspectorShown: Binding<Bool> {
+        Binding(get: { showsInspector && !parksInspector }, set: { shown in if !parksInspector { showsInspector = shown } })
+    }
+
     private var workspaceView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarHost(panels: ui.sidebarPanels, selection: $sidebarPanelID)
@@ -208,7 +230,7 @@ struct MainWindow: View {
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             EditorArea(host: host, columnVisibility: $columnVisibility, showsInspector: $showsInspector, sidebarInset: sidebarInset)
-                .inspector(isPresented: $showsInspector) {
+                .inspector(isPresented: inspectorShown) {
                     InspectorHost(panels: ui.inspectorPanels, selection: $inspectorPanelID)
                         .inspectorColumnWidth(min: 340, ideal: 420, max: 720)
                 }

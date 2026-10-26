@@ -1,6 +1,8 @@
 # Roadmap
 
 ## Done
+- Opening Settings with the sidebar and the inspector open in the smallest window no longer crashes (D247); the stress run found it, shrank it to three steps and keeps it as a regression
+- A faster stress run (D247): only the plugins whose code changed since a run passed and what uses them, setups once each, leaks without allocation logging, a shrinker that tries the last steps first and stops a round early; leaks fixed in Terminal's options and language servers' process handlers
 - The stress run checks that closed tabs, windows, terminals, chats and plugins turned off are freed, plays git conflicts (merge, rebase, cherry-pick, stash pop), shrinks a failed run to its fewest steps (`SHRINK=`), runs on macOS 26 in the VM (`make stress-vm`), and `make stress-full` (longer, with `leaks`) gates `make release` (D246); fixed what it found: a hang on macOS 26 and 1x screens with a zoomed font in a narrow split, every closed tab kept its text view and the file's layout, Settings kept every pane's models each time it opened, and the Explorer, the editor and the inline edit prompt kept plugins that were turned off
 - The stress run in four parallel copies, each in a mode (scrollers that take room, text sizes, themes, a big project), with external chaos, a pretend ACP agent and a pretend language server (D245); fixed what it found: two layout hangs (agents' chat, split tabs), a freeze typing in minified files, the Problems list crash
 - Every feature is in the stress run (D244): plugins bring steps, checks and project files, Orbit runs every command, panel, Settings pane, plugin switch and step, then random ones; uncovered features fail it and `StressCoverageTests`

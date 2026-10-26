@@ -35,7 +35,7 @@ Read before significant work:
 make build   # xcodegen + xcodebuild (Debug, optimized: D165) → .build/xcode/Build/Products/Debug/Orbit.app
 make run     # build, kill running Orbit, open the app
 make test    # swift test in Packages/OrbitKit
-make stress  # every feature of the debug build, 4 copies in 4 modes, in the background (D243–D246)
+make stress  # every feature of the debug build, 4 copies in 4 modes, in the background (D243–D246); only what changed since a run passed, FULL=1 all (D247)
 SHRINK=.build/stress/<seed>/<copy>/log.txt make stress   # a failure's fewest steps (D246)
 make stress-vm    # the same on macOS 26 in the Tart VM (D235)
 make stress-full  # before a release: longer, with leaks, and on macOS 26; make release asks for it

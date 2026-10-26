@@ -56,6 +56,21 @@ enum ShellStress {
             context.run("editor.zoomReset")
             window.setFrame(frame, display: true)
         })
+        // D247: Settings opened with the sidebar and the inspector open in the
+        // smallest window: the workspace taken down kept resizing and AppKit threw.
+        stress.add(StressStep("shell.settingsInSmallWindow", weight: 1, regression: true) { context in
+            guard let window = window(of: host), let screen = window.screen ?? NSScreen.main else { return }
+            let frame = window.frame
+            context.ui.revealSidebarPanel(context.ui.sidebarPanels.first?.id ?? "explorer")
+            context.ui.revealInspectorPanel(context.ui.inspectorPanels.first?.id ?? "agents")
+            window.setFrame(window.constrainFrameRect(NSRect(origin: frame.origin, size: NSSize(width: 960, height: 600)), to: screen), display: true)
+            await context.settle()
+            context.ui.showSettings("general")
+            await context.settle()
+            context.ui.isSettingsVisible = false
+            await context.settle()
+            window.setFrame(frame, display: true)
+        })
         stress.add(StressStep("shell.tabs", weight: 3, when: { _ in workspace.allTabs.count > 1 }) { context in
             for _ in 0..<context.int(1...6) {
                 switch context.int(0...3) {
@@ -117,7 +132,9 @@ enum ShellStress {
         stress.add(StressStep("shell.settingsFreed", weight: 1) { context in
             guard let window = window(of: host), let content = window.contentView, !context.ui.isSettingsVisible else { return }
             let before = Set(views(in: content).map(ObjectIdentifier.init))
-            context.ui.showSettings(context.pick(context.ui.settingsPanes.map(\.id)) ?? "general")
+            let pane = context.pick(context.ui.settingsPanes.map(\.id)) ?? "general"
+            context.note(pane)
+            context.ui.showSettings(pane)
             await context.settle()
             // The outermost new views: freed, so is everything inside them.
             let opened = views(in: content).filter { !before.contains(ObjectIdentifier($0)) }

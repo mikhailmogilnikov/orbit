@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # The fewest of a failed stress copy's steps that still fail the same way
-# (D246): `SHRINK=<log.txt> make stress`. Delta debugging over the log's steps,
-# four replays side by side (scripts/stress.sh with several REPLAY logs). A
-# step keeps its number, so its random numbers are the ones it had; "the same
-# way" is the same check, hang, leak or crash (its exception and the first
-# frame in Orbit). Writes shrunk.txt and its mode beside it, to REPLAY.
-import json, os, re, subprocess, sys
+# (D246): `SHRINK=<log.txt> make stress`. The log's last steps first (1, 2, 4,
+# 8…: what broke is usually near the end), then delta debugging over what's
+# left, four replays side by side (scripts/stress.sh with several REPLAY logs),
+# a round stopped as soon as one of them fails the same way. A step keeps its
+# number, so its random numbers are the ones it had; "the same way" is the same
+# check, hang, leak or crash (its exception and the first frame in Orbit; a
+# crash macOS wrote no report for counts too). Writes shrunk.txt and its mode
+# beside it, to REPLAY.
+import json, os, re, signal, subprocess, sys, time
 
 log_path, app = os.path.abspath(sys.argv[1]), sys.argv[2]
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,6 +32,15 @@ def crash_signature(report):
     index = lambda frame: frame.get("imageIndex", len(images))
     ours = [frame.get("symbol", "?") for frame in frames if index(frame) < len(images) and "Orbit" in images[index(frame)]]
     return f"crashed: {body.get('exception', {}).get('type', '?')} in {ours[0] if ours else '?'}"
+
+
+def same(outcome):
+    """Fails as the original did. macOS stops writing reports when a process crashes often."""
+    if outcome.startswith("passed") or not outcome:
+        return False
+    if target.startswith("crashed") and outcome.startswith("crashed: no crash report"):
+        return True
+    return signature(outcome) == target
 
 
 def signature(outcome):
@@ -58,17 +70,29 @@ def run(candidates):
         open(path, "w").write("\n".join([seed_line] + candidate) + "\n")
         logs.append(path)
     open(os.path.join(out, "mode.txt"), "w").write(mode)
-    env = dict(os.environ, REPLAY=" ".join(logs), OUT=os.path.join(out, "copies"), MODE=mode, APP=app)
+    copies = os.path.join(out, "copies")
+    env = dict(os.environ, REPLAY=" ".join(logs), OUT=copies, MODE=mode, APP=app)
     env.pop("SHRINK", None)
-    subprocess.run(["scripts/stress.sh"], cwd=root, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    results = []
-    for index in range(len(candidates)):
-        try:
-            outcome = open(os.path.join(out, "copies", str(index), "outcome.txt")).read().strip()
-        except OSError:
-            outcome = "no outcome"
-        results.append(not outcome.startswith("passed") and signature(outcome) == target)
-    return results
+    script = subprocess.Popen(["scripts/stress.sh"], cwd=root, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              start_new_session=True)
+    while script.poll() is None:
+        time.sleep(0.5)
+        # A copy that failed the same way settles the round: the others needn't finish.
+        for index in range(len(candidates)):
+            if same(read(os.path.join(copies, str(index), "result.txt"))):
+                os.killpg(script.pid, signal.SIGTERM)
+                for other in range(len(candidates)):
+                    subprocess.run(["pkill", "-f", f".build/stress/OrbitStress{other}.app/Contents/MacOS/Orbit"])
+                script.wait()
+                return [other == index for other in range(len(candidates))]
+    return [same(read(os.path.join(copies, str(index), "outcome.txt"))) for index in range(len(candidates))]
+
+
+def read(path):
+    try:
+        return open(path).read().strip()
+    except OSError:
+        return ""
 
 
 def chunks(items, count):
@@ -87,6 +111,19 @@ target = signature(original)
 print(f"Shrinking {len(steps)} steps that failed as: {target}")
 if not any(run([steps, steps])):
     sys.exit("It doesn't fail the same way when replayed (twice): it depends on timing; the log is all there is.")
+
+# The last steps alone first: 1, 2, 4… of them, four at a time.
+length = 1
+while length < len(steps):
+    batch = []
+    while length < len(steps) and len(batch) < jobs:
+        batch.append(steps[-length:])
+        length *= 2
+    hits = [candidate for candidate, failed in zip(batch, run(batch)) if failed]
+    if hits:
+        steps = min(hits, key=len)
+        print(f"  the last {len(steps)} steps fail alone")
+        break
 
 count = 2
 while len(steps) > 1:

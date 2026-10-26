@@ -57,6 +57,9 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Launch and updates
 
+- Settings from a small window with the sidebar and the inspector open
+  (D247): the inspector closes for a moment as Settings come in; it should
+  be open again on Back to Project, and not flash or animate oddly.
 - The editor area's width from a `GeometryReader` (D246): the split line,
   the two tab rows and their edges still line up, opening and closing the
   sidebar and inspector, in full screen too.

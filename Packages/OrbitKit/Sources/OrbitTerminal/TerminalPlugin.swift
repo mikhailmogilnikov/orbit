@@ -186,7 +186,8 @@ final class TerminalStore: TerminalOpening {
         self.options = options
         options.onChange = { [weak self] in
             guard let self else { return }
-            for session in sessions { options.apply(to: session.view) }
+            // Through self: `options` itself here held the options in their own handler (D246).
+            for session in sessions { self.options.apply(to: session.view) }
         }
     }
 

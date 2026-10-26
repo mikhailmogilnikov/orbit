@@ -171,6 +171,22 @@ public enum StressCoverage {
         }.sorted()
     }
 
+    /// The plugin each key belongs to; the shell's have none (D246).
+    @MainActor
+    public static func owners(in host: PluginHost) -> [String: String] {
+        let ui = host.ui
+        var owners: [String: String] = [:]
+        for command in host.commands.all { owners[self.command(command.id)] = command.pluginID }
+        for item in ui.sidebarPanels + ui.inspectorPanels + ui.bottomPanels { owners[panel(item.id)] = item.pluginID }
+        for item in ui.editorProviders { owners[provider(item.id)] = item.pluginID }
+        for item in ui.settingsPanes { owners[settings(item.id)] = item.pluginID }
+        for item in ui.statusItems { owners[status(item.id)] = item.pluginID }
+        for item in ui.state.extensionSources { owners[source(item.source.kind)] = item.owner }
+        for entry in host.entries where !entry.manifest.isRequired { owners[plugin(entry.id)] = entry.id }
+        for item in host.stress.steps { owners[step(item.id)] = item.pluginID }
+        return owners
+    }
+
     /// Every key of the window's registries.
     @MainActor
     public static func keys(in host: PluginHost) -> Set<String> {

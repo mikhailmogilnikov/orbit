@@ -203,6 +203,19 @@ public final class PluginHost {
         return result
     }
 
+    /// The module a plugin's code is in ("OrbitGit"): a stress run leaves out
+    /// what didn't change since one passed (D246).
+    public func moduleName(of pluginID: String) -> String? {
+        types[pluginID].map { String(String(reflecting: $0).prefix { $0 != "." }) }
+    }
+
+    /// The plugins that use `pluginID`: they require it, or looked up a
+    /// service it registered (D246).
+    public func users(of pluginID: String) -> Set<String> {
+        let requiring = entries.filter { $0.manifest.requires.contains(pluginID) }.map(\.id)
+        return Set(requiring).union(services.state.users[pluginID] ?? [])
+    }
+
     /// Switched on, with all it requires; entries come after what they require.
     private var wanted: Set<String> {
         var result = Set<String>()
