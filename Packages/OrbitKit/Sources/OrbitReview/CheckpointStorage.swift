@@ -41,7 +41,46 @@ enum CheckpointStorage {
             guard (try? process.run()) != nil else { continue }
             process.waitUntilExit()
         }
+        removeGone()
         return max(0, before - size(of: Checkpoints.storage))
+    }
+
+    /// Deletes the shadow repositories of folders that are gone (D250): the
+    /// stress run's and the tests' scratch projects had left hundreds, 8 GB.
+    /// A folder on a disk that isn't mounted isn't gone.
+    @discardableResult
+    nonisolated static func removeGone(in storage: URL = Checkpoints.storage) -> Int {
+        let fm = FileManager.default
+        let repositories = (try? fm.contentsOfDirectory(at: storage, includingPropertiesForKeys: nil)) ?? []
+        var removed = 0
+        for repository in repositories where fm.fileExists(atPath: repository.appendingPathComponent("HEAD").path) {
+            guard let folder = worktree(of: repository), isGone(folder) else { continue }
+            let parts = folder.split(separator: "/")
+            if parts.first == "Volumes", parts.count > 1, isGone("/Volumes/\(parts[1])") { continue }
+            if (try? fm.removeItem(at: repository)) != nil { removed += 1 }
+        }
+        return removed
+    }
+
+    /// Not there at all: a folder Orbit may not look into (privacy settings) isn't gone.
+    private nonisolated static func isGone(_ path: String) -> Bool {
+        var info = stat()
+        return stat(path, &info) != 0 && errno == ENOENT
+    }
+
+    /// The project folder a shadow repository snapshots, as git reads it from its config.
+    private nonisolated static func worktree(of repository: URL) -> String? {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["config", "--file", repository.appendingPathComponent("config").path, "core.worktree"]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let path = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .newlines)
+        return process.terminationStatus == 0 && path.hasPrefix("/") ? path : nil
     }
 }
 
@@ -71,9 +110,14 @@ final class CheckpointRetention {
         cleanUpIfDue()
     }
 
-    /// At most once a day, in the background.
+    /// At most once a day, in the background; kept forever, only the repositories of folders that are gone go.
     func cleanUpIfDue() {
-        guard let days, !isCleaning, lastCleanup.map({ Date().timeIntervalSince($0) > 86_400 }) ?? true else { return }
+        guard !isCleaning, lastCleanup.map({ Date().timeIntervalSince($0) > 86_400 }) ?? true else { return }
+        guard let days else {
+            lastCleanup = Date()
+            Task.detached(priority: .utility) { CheckpointStorage.removeGone() }
+            return
+        }
         Task { _ = await cleanUp(olderThan: days) }
     }
 

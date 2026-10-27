@@ -5662,8 +5662,11 @@ Found on the way to the 0.4.3 release (`make stress-full` failed):
   one per scratch project (956 of them, 8.3 GB). Only `dev.orbit.app`
   keeps them there now; any other process has a temporary folder of its
   own, as isolated copies already did, and the stress run deletes the ones
-  of processes that are gone. The ones already in Application Support are
-  left alone: the user's own projects are among them.
+  of processes that are gone. A shadow repository whose folder (its
+  `core.worktree`) is gone is deleted, once a day and with each cleanup in
+  Settings, whatever the kept-for choice: 653 of the 954 here, all scratch
+  projects. Only a path that isn't there at all counts, not one on a disk
+  that isn't mounted or one Orbit may not look into.
 - Still open: `agents.transcriptRelayout` (the text size changed under a
   long transcript) kept the process busy past 20 s twice, under four copies
   with `leaks`; its replays, with `leaks` too, passed. After Git or Terminal are turned off and on, their models stay alive in
