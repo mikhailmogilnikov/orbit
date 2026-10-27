@@ -255,7 +255,11 @@ final class FoldingController: NSObject, NSTextContentStorageDelegate {
     func textDidChange(_ edit: TextEdit) {
         pendingRestore.removeAll()
         let touched = folds.filter { NSMaxRange(edit.range) >= $0.location && edit.range.location < NSMaxRange($0) }
+        // A fold past the text's end (an undone paste of thousands of lines)
+        // would hide what's left there; it opens instead (D250).
+        let length = geometry.length
         folds = folds.filter { !touched.contains($0) }.map { NSRange(location: edit.map($0.location), length: $0.length) }
+            .filter { NSMaxRange($0) <= length }
         // Regions shift by the lines the edit added or removed until the next refresh.
         let starts = geometry.lineStarts
         let delta = starts.count - lineCount

@@ -71,6 +71,23 @@ enum ShellStress {
             await context.settle()
             window.setFrame(frame, display: true)
         })
+        // D250: the agents' inspector shown from inside a view update (a new
+        // chat reveals it) in the smallest window: the split view's columns
+        // kept asking for another Update Constraints pass, and in a window of
+        // few views (just opened, no tabs) AppKit threw. Here, with the run's
+        // many views, it only plays the path; the shrunk log reproduced it.
+        stress.add(StressStep("shell.inspectorInSmallWindow", weight: 1, regression: true) { context in
+            guard let window = window(of: host), let screen = window.screen ?? NSScreen.main else { return }
+            let frame = window.frame
+            if UserDefaults.standard.bool(forKey: "orbit.showsInspector") { context.run("shell.toggleAgents") }
+            await context.settle()
+            window.setFrame(window.constrainFrameRect(NSRect(origin: frame.origin, size: NSSize(width: 960, height: 600)), to: screen), display: true)
+            await context.settle()
+            await context.settle()
+            context.ui.revealInspectorPanel(context.ui.inspectorPanels.first?.id ?? "agents")
+            await context.settle()
+            window.setFrame(frame, display: true)
+        })
         stress.add(StressStep("shell.tabs", weight: 3, when: { _ in workspace.allTabs.count > 1 }) { context in
             for _ in 0..<context.int(1...6) {
                 switch context.int(0...3) {

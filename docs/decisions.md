@@ -5584,20 +5584,42 @@ host didn't shorten the walk.
 Found on the way to the 0.4.3 release (`make stress-full` failed):
 - Copies that "crashed with no crash report" did crash: macOS keeps 25
   crash reports an app a day (osanalytics' limit), and the runs make more.
-  A copy now writes its own backtrace on a fatal signal (`crash.txt`, with
-  only what's safe in a signal handler) and the run shows the frame; one
-  that exits on its own says from where (`quit.txt`). The roadmap's copy
-  that quit while its folder was renamed was likely one of these.
+  The run moves its copies' reports into their folders (`crash.ips`, and
+  the ones from before into `.build/stress/crash-reports`); the user's own
+  Orbit's stay. A copy writing its own backtrace from a signal handler was
+  tried and dropped: a crash inside the Objective-C runtime holds its lock,
+  and the handler deadlocked on it, a crash turned into a hang. A copy that
+  exits on its own says from where (`quit.txt`).
+- The agents' inspector shown from inside a view update (a new chat reveals
+  it through `requestedInspectorPanel`'s onChange) in the smallest window:
+  the split view's columns kept asking for another Update Constraints pass,
+  and in a window of few views (just opened, no tabs) AppKit threw. It's
+  shown a run loop later, as ⌥⌘I does. Shrunk to four steps (window size,
+  a settle, a new chat); in the run's full state it doesn't reproduce, as
+  AppKit's limit is the window's view count.
 - Undoing the huge paste crashed sticky scroll: the fold regions shift by
   the lines an edit adds or removes, and the ones on removed lines went to
   negative lines. They're dropped till the next refresh; sticky scroll
-  skips a line the text doesn't have. The regression step undoes now.
+  skips a line the text doesn't have; folds past the text's end open. The
+  regression step undoes now.
+- The editor's text view had the Mac's automatic corrections, text
+  replacement and smart quotes (STTextView takes the keyboard settings):
+  off, it's code.
+- The run's own tile counter called `MainActor.assumeIsolated` on every
+  scroll view tile, and one tiled while an autorelease pool freed it
+  crashed in that check: it counts on the main thread without it.
 - Kept editors (D249): SwiftUI may build the new editor before it lets go
   of the old one, so an editor wired to a plugin just turned off could be
   kept; it's let go of, and an editor going for good stops its tasks.
-- Still open: two GitModels more than allowed alive after Git is turned off
-  and on, about half the runs, with or without kept editors (tasks hold
-  them; Source Control's refresh loop holds its model weakly now, which
-  wasn't it); and AppKit's "more Update Constraints passes than views" when
-  the agents' inspector opens in the smallest window with wrapping on, the
-  editor squeezed to 84×0. Both happen on the build before D249 too.
+- For chasing these: `PILING=0` turns off the check of what steps let go
+  of (a flaky leak stopped replays short of the crash), `SHRINK_JOBS=1`
+  shrinks with one copy at a time (side by side, the timing a crash needed
+  went), and the shrinker tells crashes apart by the exception's reason
+  in the copy's log (macOS files the same one as EXC_CRASH or
+  EXC_BREAKPOINT).
+- Still open: after the folder is closed with unsaved files (Don't Save)
+  and Save is run, AppKit throws in layout (its reason wasn't logged:
+  the log filled with "Unrecognized colorspace number -1", 288 000 lines);
+  after Git or Terminal are turned off and on, their models stay alive in
+  some runs, with or without kept editors (tasks hold them; Source
+  Control's refresh loop holds its model weakly now, which wasn't it).

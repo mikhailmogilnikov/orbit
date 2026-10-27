@@ -119,6 +119,12 @@ struct CodeEditor: NSViewRepresentable {
         textView.showsLineNumbers = false
         textView.highlightSelectedLine = highlightsCurrentLine
         textView.isHorizontallyResizable = !wrapsLines
+        // Code, not prose: STTextView takes these from the Mac's keyboard
+        // settings (on by default): smart quotes and corrections in code (D250).
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticTextCompletionEnabled = false
         textView.text = document.text
         textView.textDelegate = context.coordinator
         context.coordinator.applyIndentation(

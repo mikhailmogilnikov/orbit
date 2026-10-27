@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- Opening the agents' inspector with a new chat in the smallest window no longer crashes; the editor no longer applies the Mac's smart quotes and corrections to code; stress runs keep their copies' crash reports, past macOS' 25 a day (D250)
 - A long file opens colored: its first screen is colored from a parse of its start, in ~75 ms instead of drawn gray at ~90 (D250)
 - Faster typing and tab switches (D249): a key press in a 6 000-line file takes 9 ms instead of 31, a tab switch draws the other file in ~35 ms, and the last four tabs keep their editors, scrolled, laid out and with their undo; a huge paste at many carets no longer freezes the git markers for 20 s
 - The stress run's gallery: every panel, Settings pane and a few editors in every mode, side by side; and timings (launch, files, typing, scrolling, tabs, Settings, memory, CPU at rest) against a baseline, in `make stress-full` (D248)
@@ -263,14 +264,12 @@
 - Text editing basics (D105): move / copy lines ⌥↑↓ ⇧⌥↑↓, multiple carets (⌘D, ⇧⌘L, ⌥-click, ⌃⇧↑↓), Go to Line ⌃G, matching bracket outline, font zoom ⌘= ⌘- ⌘0
 
 ## Next (rough priority)
-0. Found by `make stress-full` (D250), both older than 0.4.2: opening the
-   agents' inspector in the smallest window with wrapping on throws AppKit's
-   "more Update Constraints passes than views" (the editor squeezed to
-   84×0); after Git is turned off and on, its old models stay alive in about
-   half the runs. Seen once (D246): an editor showed 28 of a 31-character
-   file's characters after switching tabs in the big project. (The copy that
-   "quit with no crash report" crashed: macOS keeps 25 reports a day; copies
-   write their own backtrace now.)
+0. Found by `make stress-full` (D250): closing the folder with unsaved
+   files (Don't Save), then Save, throws in AppKit's layout (the log fills
+   with "Unrecognized colorspace number -1"); after Git or Terminal are
+   turned off and on, their models stay alive in some runs. Seen once
+   (D246): an editor showed 28 of a 31-character file's characters after
+   switching tabs in the big project.
 1. Faster: Settings take ~250 ms to open and ~180 to close, all SwiftUI's
    form and the workspace built again (D250); a launch took 4 s instead of
    1.3–2.2 twice in `PERF=1` runs back to back, not looked into yet

@@ -16,8 +16,6 @@ final class StressRunner {
     static let shared = StressRunner()
     nonisolated(unsafe) private static var exceptionFile: String?
     nonisolated(unsafe) private static var resultFile: String?
-    nonisolated(unsafe) private static var crashPath: UnsafeMutablePointer<CChar>?
-    nonisolated(unsafe) private static let crashFrames = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: 256)
 
     struct Plan: Decodable {
         var seed: UInt64
@@ -49,6 +47,9 @@ final class StressRunner {
         var gallery: Bool?
         /// Measure instead of break: perf.json (D248).
         var perf: Bool?
+        /// False: what steps let go of isn't checked, so a crash past a
+        /// flaky leak can be played again (`PILING=0`, D250).
+        var piling: Bool?
     }
 
     private var plan: Plan?
@@ -112,24 +113,6 @@ final class StressRunner {
             let quit = (path as NSString).deletingLastPathComponent + "/quit.txt"
             FileManager.default.createFile(atPath: quit, contents: Data(Thread.callStackSymbols.joined(separator: "\n").utf8))
             FileManager.default.createFile(atPath: path, contents: Data("quit on its own, no crash (quit.txt says from where)".utf8))
-        }
-        // macOS keeps 25 crash reports an app a day and runs crash more than
-        // that: the copy writes its own backtrace on a fatal signal (D250),
-        // with what's safe in a signal handler, then dies as it would have.
-        Self.crashPath = strdup(output.appendingPathComponent("crash.txt").path)
-        for number in [SIGTRAP, SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE] {
-            signal(number) { number in
-                if let path = StressRunner.crashPath {
-                    let file = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-                    if file >= 0 {
-                        let count = backtrace(StressRunner.crashFrames, 256)
-                        backtrace_symbols_fd(StressRunner.crashFrames, count, file)
-                        close(file)
-                    }
-                }
-                signal(number, SIG_DFL)
-                raise(number)
-            }
         }
         NSScrollView.watchForTileLoops()
         TileLoops.report = { [weak self] in self?.note($0) }
@@ -410,7 +393,7 @@ final class StressRunner {
         dismissModals()
         await settle()
         do { try check() } catch { finish("\(line): \(error)") }
-        if let leaked = await pilingUp() { finish("\(line): piling up: \(leaked)") }
+        if plan?.piling != false, let leaked = await pilingUp() { finish("\(line): piling up: \(leaked)") }
         checkFootprint()
         noteCoverage()
         let took = Date().timeIntervalSince(started)
@@ -1071,26 +1054,32 @@ extension NSScrollView {
 
     @objc dynamic func stressCountedTile() {
         stressCountedTile()
-        MainActor.assumeIsolated { TileLoops.count(self) }
+        // Counted without MainActor.assumeIsolated: a scroll view tiled while
+        // an autorelease pool freed it crashed in that check itself (D250).
+        guard Thread.isMainThread, TileLoops.count(self) else { return }
+        MainActor.assumeIsolated { TileLoops.report(self) }
     }
 }
 
-@MainActor
 enum TileLoops {
-    private static var counts: [ObjectIdentifier: (count: Int, since: Date)] = [:]
-    static var report: ((String) -> Void)?
+    nonisolated(unsafe) private static var counts: [ObjectIdentifier: (count: Int, since: Date)] = [:]
+    @MainActor static var report: ((String) -> Void)?
 
-    static func count(_ view: NSScrollView) {
+    /// On the main thread; true the 300th time in two seconds.
+    static func count(_ view: NSScrollView) -> Bool {
         let key = ObjectIdentifier(view)
         var entry = counts[key] ?? (0, Date())
         if Date().timeIntervalSince(entry.since) > 2 { entry = (0, Date()) }
         entry.count += 1
         counts[key] = entry
-        guard entry.count == 300 else { return }
+        return entry.count == 300
+    }
+
+    @MainActor static func report(_ view: NSScrollView) {
         var chain: [String] = []
         var parent = view.superview
         while let current = parent, chain.count < 12 {
-            chain.append(String(describing: type(of: current)).prefix(80).description)
+            chain.append(String(describing: type(of: current)).prefix(60).description + " \(Int(current.frame.width))×\(Int(current.frame.height))")
             parent = current.superview
         }
         report?("tile loop: \(type(of: view)) frame \(NSStringFromRect(view.frame)) doc \(view.documentView.map { "\(type(of: $0)) \(NSStringFromRect($0.frame))" } ?? "none") style \(view.scrollerStyle.rawValue) autohides \(view.autohidesScrollers) vertical \(view.verticalScroller?.isHidden == false) horizontal \(view.horizontalScroller?.isHidden == false)\n      in \(chain.joined(separator: " < "))")

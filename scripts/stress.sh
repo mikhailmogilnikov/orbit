@@ -31,6 +31,7 @@
 #   PERF=1 make stress                 one quiet copy times launch, opening files, typing, scrolling,
 #                                      tabs, Settings, memory and CPU at rest, against the baseline
 #                                      (D248, D249: the median of the last five that passed; PERF_ACCEPT=1 starts over)
+#   PILING=0 REPLAY=<log> make stress  what steps let go of isn't checked: a crash past a flaky leak (D250)
 #   APP=<Orbit.app> scripts/stress.sh  another debug build
 #   OUT=<folder> scripts/stress.sh     results there, not in .build/stress/<seed>
 #   SHOTS=1 make stress                gallery.html: a full run shows every panel, Settings pane
@@ -82,6 +83,11 @@ OUT=$(cd "$OUT" && pwd)
 # The code as it is now, stamped as passed if the run passes.
 mkdir -p "$RESULTS" && python3 -I scripts/stress-changes.py save "$OUT/fingerprints.json"
 started=$(date +%s)
+# The copies' reports from before, out of the way of macOS' 25 a day (D250).
+mkdir -p "$RESULTS/crash-reports"
+for report in ~/Library/Logs/DiagnosticReports/Orbit-*.ips; do
+    [ -f "$report" ] && head -1 "$report" | grep -q '"bundleID":"dev.orbit.app.stress' && mv "$report" "$RESULTS/crash-reports/" || true
+done
 echo "Stress run on macOS $(sw_vers -productVersion), seed $SEED, $STEPS random steps, $JOBS $([ "$JOBS" = 1 ] && echo copy || echo copies)$([ -n "$FOREGROUND" ] && echo ", in front")$([ -z "$CHANGED" ] || echo ", only what changed: $CHANGED"): $OUT"
 
 PIDS=()
@@ -106,15 +112,15 @@ for ((job = 0; job < JOBS; job++)); do
     mode=${MODES[$mode_index]}
     plan=$(python3 -I -c '
 import json, sys
-seed, steps, project, out, background, replay, job, jobs, mode, leaks, limit, changed, stacks, gallery, perf = sys.argv[1:]
+seed, steps, project, out, background, replay, job, jobs, mode, leaks, limit, changed, stacks, gallery, perf, piling = sys.argv[1:]
 plan = {"seed": int(seed), "steps": int(steps), "project": project, "output": out, "background": background == "true",
         "shard": int(job), "shards": int(jobs), "bigProject": bool(json.loads(mode).get("orbit.stressBigProject")),
-        "leaks": leaks == "1", "memoryLimitMB": int(limit), "stacks": stacks == "1", "gallery": gallery == "1", "perf": perf == "1"}
+        "leaks": leaks == "1", "memoryLimitMB": int(limit), "stacks": stacks == "1", "gallery": gallery == "1", "perf": perf == "1", "piling": piling != "0"}
 if replay: plan["replay"] = replay
 if changed: plan["changed"] = changed.split()
 print(json.dumps(plan))' \
         "$((SEED + job * 7919))" "$(( (STEPS + JOBS - 1) / JOBS ))" "$ORBIT_SCRATCH/project" "$out" \
-        "$([ -n "$FOREGROUND" ] && echo false || echo true)" "$replay" "$job" "$JOBS" "$mode" "${LEAKS:-0}" "$MEMORY_LIMIT" "$CHANGED" "${STACKS:-0}" "$([ -z "$CHANGED$PERF" ] && [ ${#REPLAYS[@]} = 0 ] && [ "${SHOTS:-0}" = 1 ] && echo 1 || echo 0)" "${PERF:-0}")
+        "$([ -n "$FOREGROUND" ] && echo false || echo true)" "$replay" "$job" "$JOBS" "$mode" "${LEAKS:-0}" "$MEMORY_LIMIT" "$CHANGED" "${STACKS:-0}" "$([ -z "$CHANGED$PERF" ] && [ ${#REPLAYS[@]} = 0 ] && [ "${SHOTS:-0}" = 1 ] && echo 1 || echo 0)" "${PERF:-0}" "${PILING:-1}")
     # No folders to reopen (the runner opens its project), every plugin on, the copy's mode.
     ORBIT_EXTRA_PREFS=$(python3 -I -c '
 import json, sys
@@ -158,15 +164,14 @@ failed=0
 for ((job = 0; job < JOBS; job++)); do
     out=$OUT/$job
     result=$(cat "$out/result.txt" 2>/dev/null || true)
-    if [ -z "$result" ] && [ -s "$out/crash.txt" ]; then
-        # The copy's own backtrace: macOS stops writing reports after 25 a day (D250).
-        frame=$(sed '1,/_sigtramp/d' "$out/crash.txt" | grep -m1 -E 'Orbit +0x' | sed -E 's/.*0x[0-9a-f]+ //; s/ \+ [0-9]+$//' | xcrun swift-demangle --simplified 2>/dev/null | cut -c1-160)
-        result="crashed: ${frame:-see crash.txt} ($out/crash.txt)"
-    elif [ -z "$result" ]; then
+    if [ -z "$result" ]; then
         # ReportCrash takes a while to write it.
         report=
         for _ in $(seq 1 30); do report=$(crash "dev.orbit.app.stress$job" || true); [ -z "$report" ] || break; sleep 1; done
-        result="crashed: ${report:-no crash report}"
+        # Kept with the run: macOS writes 25 reports an app a day, and runs
+        # crash more than that; the copies' reports leave its folder (D250).
+        if [ -n "$report" ]; then mv "$report" "$out/crash.ips" && report=$out/crash.ips; fi
+        result="crashed: ${report:-no crash report (macOS keeps 25 a day)}"
     fi
     echo "$result" > "$out/outcome.txt"
     echo "copy $job (${MODE_NAMES[$(cat "$out/mode.txt")]}): $result"

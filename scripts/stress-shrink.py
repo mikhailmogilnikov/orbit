@@ -18,10 +18,21 @@ seed_line = next((line for line in lines if re.search(r", seed \d+$", line)), ""
 steps = [line for line in lines if re.match(r"^\d+: ", line)]
 mode = open(os.path.join(folder, "mode.txt")).read().strip() if os.path.exists(os.path.join(folder, "mode.txt")) else "0"
 work = os.path.join(root, ".build", "stress", "shrink-" + os.path.basename(os.path.dirname(folder)) + "-" + os.path.basename(folder))
-jobs = 4
+# One at a time for what crashes only alone (SHRINK_JOBS=1): side by side
+# they slow each other and the timing it needs goes (D250).
+jobs = int(os.environ.get("SHRINK_JOBS", "4"))
 
 
 def crash_signature(report):
+    # An Objective-C exception's reason, when the copy's log has it: macOS
+    # files the same one as EXC_CRASH one time, EXC_BREAKPOINT the next (D250).
+    try:
+        log = open(os.path.join(os.path.dirname(report), "app.log"), errors="replace").read()
+        found = re.search(r"Terminating app due to uncaught exception '([^']+)', reason: '([^']{0,80})", log)
+        if found:
+            return f"crashed: {found.group(1)}: {re.sub(r'0x[0-9a-f]+|[0-9.]+', '#', found.group(2))}"
+    except OSError:
+        pass
     try:
         text = open(report).read()
         body = json.loads(text[text.index("\n") + 1:])
@@ -109,7 +120,7 @@ original = open(os.path.join(folder, "outcome.txt")).read().strip() if os.path.e
     else open(os.path.join(folder, "result.txt")).read().strip()
 target = signature(original)
 print(f"Shrinking {len(steps)} steps that failed as: {target}")
-if not any(run([steps, steps])):
+if not any(any(run([steps, steps] if jobs > 1 else [steps])) for _ in range(1 if jobs > 1 else 2)):
     sys.exit("It doesn't fail the same way when replayed (twice): it depends on timing; the log is all there is.")
 
 # The last steps alone first: 1, 2, 4… of them, four at a time.

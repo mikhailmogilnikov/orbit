@@ -109,9 +109,12 @@ struct MainWindow: View {
     private func showInspectorPanel(_ id: String?) {
         guard let id else { return }
         ui.isSettingsVisible = false
-        showsInspector = true
         inspectorPanelID = id
         ui.requestedInspectorPanel = nil
+        // A run loop later, as a command toggles it: shown from inside this
+        // view update in the smallest window, the split view's columns kept
+        // asking for another Update Constraints pass and AppKit threw (D250).
+        DispatchQueue.main.async { showsInspector = true }
     }
 
     private func showSidebarPanel(_ id: String?) {
