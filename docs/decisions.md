@@ -5617,9 +5617,55 @@ Found on the way to the 0.4.3 release (`make stress-full` failed):
   went), and the shrinker tells crashes apart by the exception's reason
   in the copy's log (macOS files the same one as EXC_CRASH or
   EXC_BREAKPOINT).
-- Still open: after the folder is closed with unsaved files (Don't Save)
-  and Save is run, AppKit throws in layout (its reason wasn't logged:
-  the log filled with "Unrecognized colorspace number -1", 288 000 lines);
-  after Git or Terminal are turned off and on, their models stay alive in
+- What these layout throws in the smallest window have in common: the
+  detail column runs under the sidebar (D104), so its least width is the
+  sidebar's plus its own (the inspector's 340 and the editor's): with a
+  288-point sidebar it needed 997 of the window's 960, AppKit couldn't
+  fit it and kept laying out. Found by a folder opened again in a welcome
+  window at its smallest (Close Folder, then the run opening its project),
+  and Settings shown and hidden after it; a sidebar held to 200 points made
+  both go. The sidebar's max (420, D104's limit for the screen) is now
+  also what the window leaves the detail column, so a narrow window
+  narrows a wide sidebar. Measuring the detail column lays it all out, so
+  it's only done in a window under 1 420 points (dragged across a wide
+  window with large text, it hung). Showing the inspector a run loop late after the
+  welcome screen was tried first: that replay passed, Settings in the same
+  run then threw. `shell.reopenInSmallWindow` and
+  `shell.settingsInSmallWindow` widen the sidebar first; the first crashed
+  every time without the limit. The run's tile-loop note gives each split
+  view's columns: width, least, and what their content needs.
+- A tab closed and opened again in one update (the run's tab step: close,
+  next, reopen) kept its editor view, and the editor its coordinator with
+  the closed document: the new document's text showed, typing and saves
+  went into the closed one. The editor's identity has the document in it
+  now (`editor.closeAndReopenAtOnce` failed every time without it). The
+  run's tab step notes what it did; the shrinker no longer stops on a
+  copy's process group that is already gone (macOS says EPERM).
+- `</div>` typed at the top of a 6 000-line Swift file (a regex literal
+  never closed) made the rest of it one expression, and each 8 K chunk's
+  highlight query followed its matches in progress to the file's end: 16 s
+  for the first chunk, six minutes for the file in a debug build, the
+  worker's core busy all along. A match limit (Neovim's 256) didn't help,
+  and tree-sitter 0.25 has no "matches within the range" yet (0.26 does).
+  When a node in the chunk runs past it by more than a chunk, the query
+  starts at the nodes in the chunk that don't: ~35 ms a chunk, captures
+  the same as from the root. A file of the usual shape is queried from
+  its root as before, so a pattern on the root (Python's module
+  docstring) is only lost in such a file. A test checks both, and
+  `editor.unclosedAtTheTop` was busy without it; the run's typing step
+  notes what it typed.
+- On macOS 26 the run's fixed part found Pop Latest Stash on, and off by
+  the time it ran (git busy after Push, the command before): uncovered,
+  the run failed. A command that's off again is tried a few times more.
+- Settings → Checkpoints measured for over 20 s: every stress copy and
+  test run had made shadow repositories in the user's Application Support,
+  one per scratch project (956 of them, 8.3 GB). Only `dev.orbit.app`
+  keeps them there now; any other process has a temporary folder of its
+  own, as isolated copies already did, and the stress run deletes the ones
+  of processes that are gone. The ones already in Application Support are
+  left alone: the user's own projects are among them.
+- Still open: `agents.transcriptRelayout` (the text size changed under a
+  long transcript) kept the process busy past 20 s twice, under four copies
+  with `leaks`; its replays, with `leaks` too, passed. After Git or Terminal are turned off and on, their models stay alive in
   some runs, with or without kept editors (tasks hold them; Source
   Control's refresh loop holds its model weakly now, which wasn't it).

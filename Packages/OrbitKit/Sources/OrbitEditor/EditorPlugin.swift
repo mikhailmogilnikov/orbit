@@ -95,8 +95,9 @@ public final class EditorPlugin: OrbitPlugin {
                 blameProvider.map { ObjectIdentifier($0) }, versionControl.map { ObjectIdentifier($0) },
                 languages.map { ObjectIdentifier($0) },
             ]
+            let document = workspace.documents.document(for: tab.url!)
             FileEditorView(
-                document: workspace.documents.document(for: tab.url!),
+                document: document,
                 workspace: workspace,
                 changes: changes,
                 reviewComments: reviewComments,
@@ -111,7 +112,7 @@ public final class EditorPlugin: OrbitPlugin {
                 kept: kept,
                 wiring: wiring
             )
-            .id(EditorWiring(tab: tab.id, services: wiring))
+            .id(EditorWiring(tab: tab.id, document: ObjectIdentifier(document), services: wiring))
         })
 
         context.commands.register(OrbitCommand(
@@ -636,6 +637,9 @@ public final class EditorPlugin: OrbitPlugin {
 /// A text tab's view identity: the tab and the services it was wired to.
 private struct EditorWiring: Hashable {
     let tab: EditorTab.ID
+    /// A tab closed and opened again in one update gets a new document: the
+    /// editor kept the closed one, and typing went into it (D250).
+    let document: ObjectIdentifier
     let services: [ObjectIdentifier?]
 }
 

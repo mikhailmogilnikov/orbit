@@ -19,9 +19,13 @@ enum EditorStress {
 
         stress.add(StressStep("editor.type", weight: 8, when: hasEditor) { run in
             guard let textView = editor()?.textView else { return }
+            var typed: [String] = []
             for _ in 0..<run.int(1...4) {
-                textView.insertText(run.pick(snippets) ?? "x", replacementRange: NSRange(location: NSNotFound, length: 0))
+                let snippet = run.pick(snippets) ?? "x"
+                textView.insertText(snippet, replacementRange: NSRange(location: NSNotFound, length: 0))
+                typed.append(snippet.count > 12 ? "\(snippet.prefix(8).debugDescription)… (\(snippet.utf16.count))" : snippet.debugDescription)
             }
+            run.note("\(typed.joined(separator: " ")) at \(textView.selectionRanges.first?.location ?? -1) of \(textView.documentText.length)")
         })
         stress.add(StressStep("editor.keys", weight: 6, when: hasEditor) { run in
             guard let textView = editor()?.textView else { return }
@@ -182,6 +186,30 @@ enum EditorStress {
             await run.settle()
             textView.selectionRanges = [NSRange(location: 0, length: 0)]
         })
+        // D250: `</div>` typed at the top of a 6 000-line Swift file made the
+        // rest one expression, and each chunk's highlight query followed it
+        // to the end: the worker stayed busy for minutes.
+        stress.add(StressStep("editor.unclosedAtTheTop", weight: 1, regression: true) { run in
+            await run.open("src/long.swift")
+            guard let textView = editor()?.textView else { return }
+            textView.selectionRanges = [NSRange(location: 0, length: 0)]
+            textView.insertText("()</div>", replacementRange: NSRange(location: NSNotFound, length: 0))
+            await run.settle()
+            textView.undoManager?.undo()
+        })
+        // D250: a tab closed and opened again in one update kept its editor,
+        // and the editor its closed document: a change from outside showed,
+        // typing went into the closed one.
+        stress.add(StressStep("editor.closeAndReopenAtOnce", weight: 1, regression: true) { run in
+            await run.open("one-line.txt")
+            guard let url = context.workspace.activeTab?.url,
+                  context.workspace.documents.existingDocument(for: url)?.isDirty == false else { return }
+            context.workspace.closeActiveTab()
+            context.workspace.reopenClosedTab()
+            await run.settle()
+            try? context.workspace.documents.write("no newline at the end, changed \(run.int(0...999))", to: url)
+            await run.settle()
+        })
         stress.add(StressStep("editor.formats", weight: 1) { run in
             // Line endings and encodings other than UTF-8 with LF (and the status item that shows them).
             // Every one, CRLF last: what the item shows when the step ends, in every run.
@@ -193,7 +221,8 @@ enum EditorStress {
                 guard let textView = coordinator.textView, textView.window != nil else { continue }
                 let shown = textView.documentText as String
                 if shown != coordinator.document.text {
-                    return "\(coordinator.document.url.lastPathComponent): the editor shows \(shown.utf16.count) characters, the document has \(coordinator.document.text.utf16.count)"
+                    let disk = (try? String(contentsOf: coordinator.document.url, encoding: .utf8)).map { "\($0.utf16.count)" } ?? "none"
+                    return "\(coordinator.document.url.lastPathComponent): the editor shows \(shown.utf16.count) characters, the document has \(coordinator.document.text.utf16.count), the file \(disk)"
                 }
                 let length = (shown as NSString).length
                 if let range = textView.selectionRanges.first(where: { NSMaxRange($0) > length }) {

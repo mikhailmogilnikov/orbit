@@ -744,12 +744,49 @@ final class HighlightWorker: @unchecked Sendable {
         let lower = max(0, range.location - base), upper = min(text.length, NSMaxRange(range) - base)
         guard upper > lower else { return }
         let local = NSRange(location: lower, length: upper - lower)
-        let cursor = queries.highlights.execute(node: root, in: tree)
-        cursor.setRange(local)
         let context = Predicate.Context(textProvider: { range, _ in
             NSMaxRange(range) <= text.length ? text.substring(with: range) : nil
         })
-        for highlight in cursor.resolve(with: context).highlights() {
+        for start in Self.queryRoots(root, for: local) {
+            let cursor = queries.highlights.execute(node: start, in: tree)
+            cursor.setRange(local)
+            fill(&paint, range: range, with: cursor.resolve(with: context).highlights(), queries: queries, base: base)
+        }
+    }
+
+    /// Where a query of `range` starts: the root, unless a node in the range
+    /// runs far past it. `</div>` typed at the top of a 6 000-line Swift file
+    /// made the rest one tuple (a regex literal never closed), and a query of
+    /// a chunk followed its matches in progress to the file's end: 16 s for
+    /// one chunk, minutes for the file (D250). Then it starts at the nodes in
+    /// the range that don't; a pattern on the root itself is lost there.
+    static func queryRoots(_ root: Node, for range: NSRange) -> [Node] {
+        let far = NSMaxRange(range) + chunkLength
+        var starts: [Node] = []
+        var runsFar = false
+        // By hand, not recursion: the tree can be deep, the worker's stack is small.
+        var pending = [root]
+        while let node = pending.popLast() {
+            guard NSMaxRange(node.range) > far, node.childCount > 0 else {
+                starts.append(node)
+                continue
+            }
+            if node != root { runsFar = true }
+            var inRange: [Node] = []
+            for index in 0..<node.childCount {
+                guard let child = node.child(at: index) else { continue }
+                if child.range.location >= NSMaxRange(range) { break }
+                if NSMaxRange(child.range) > range.location || child.range.length == 0 && child.range.location == range.location {
+                    inRange.append(child)
+                }
+            }
+            pending += inRange.reversed()
+        }
+        return runsFar ? starts : [root]
+    }
+
+    private func fill(_ paint: inout [UInt16], range: NSRange, with highlights: [NamedRange], queries: LanguageQueries, base: Int) {
+        for highlight in highlights {
             guard let id = queries.ids[highlight.name] else { continue }
             let isNone = id == CaptureTable.none
             guard isNone || isColored(id) else { continue }

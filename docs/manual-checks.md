@@ -236,6 +236,9 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Shell, settings and looks
 
+- Sidebar in a narrow window (D250): with the inspector open, a wide sidebar
+  narrows as the window does and can't be dragged past what the window
+  leaves; no jumps; what width it has once the window is wide again.
 - Full-height sidebars on macOS 26 (D233, D240), checked in a VM: windowed,
   full screen, Settings and back, hiding the sidebar, .txt/.json/.py files,
   the traffic lights inside the glass, the inspector's edges in full screen.

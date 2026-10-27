@@ -88,6 +88,10 @@ mkdir -p "$RESULTS/crash-reports"
 for report in ~/Library/Logs/DiagnosticReports/Orbit-*.ips; do
     [ -f "$report" ] && head -1 "$report" | grep -q '"bundleID":"dev.orbit.app.stress' && mv "$report" "$RESULTS/crash-reports/" || true
 done
+# Checkpoints of copies (and tests) that are gone: each process has its own folder (D250).
+for folder in "$(getconf DARWIN_USER_TEMP_DIR)"orbit-checkpoints-*; do
+    [ -d "$folder" ] && ! kill -0 "${folder##*-}" 2>/dev/null && rm -rf "$folder" || true
+done
 echo "Stress run on macOS $(sw_vers -productVersion), seed $SEED, $STEPS random steps, $JOBS $([ "$JOBS" = 1 ] && echo copy || echo copies)$([ -n "$FOREGROUND" ] && echo ", in front")$([ -z "$CHANGED" ] || echo ", only what changed: $CHANGED"): $OUT"
 
 PIDS=()

@@ -63,6 +63,8 @@ enum ShellStress {
             let frame = window.frame
             context.ui.revealSidebarPanel(context.ui.sidebarPanels.first?.id ?? "explorer")
             context.ui.revealInspectorPanel(context.ui.inspectorPanels.first?.id ?? "agents")
+            await context.settle()
+            widenSidebar(in: window)
             window.setFrame(window.constrainFrameRect(NSRect(origin: frame.origin, size: NSSize(width: 960, height: 600)), to: screen), display: true)
             await context.settle()
             context.ui.showSettings("general")
@@ -88,15 +90,39 @@ enum ShellStress {
             await context.settle()
             window.setFrame(frame, display: true)
         })
+        // D250: a folder opened again in a welcome window at its smallest, a
+        // wide sidebar and the inspector open: the detail column's least width
+        // (the sidebar's, the inspector's, the editor's) was past the window's,
+        // and AppKit threw on the endless layout.
+        stress.add(StressStep("shell.reopenInSmallWindow", weight: 1, regression: true) { context in
+            guard let window = window(of: host), let screen = window.screen ?? NSScreen.main else { return }
+            let frame = window.frame
+            context.ui.revealSidebarPanel(context.ui.sidebarPanels.first?.id ?? "explorer")
+            context.ui.revealInspectorPanel(context.ui.inspectorPanels.first?.id ?? "agents")
+            await context.settle()
+            widenSidebar(in: window)
+            await context.settle()
+            window.setFrame(window.constrainFrameRect(NSRect(origin: frame.origin, size: NSSize(width: 960, height: 600)), to: screen), display: true)
+            await context.settle()
+            context.run("workspace.closeFolder")
+            await context.settle()
+            if let welcome = ProjectWindows.shared.host(for: window), welcome.workspace.root == nil {
+                welcome.workspace.requestOpenFolder(context.project)
+                await context.settle()
+            }
+            window.setFrame(frame, display: true)
+        })
         stress.add(StressStep("shell.tabs", weight: 3, when: { _ in workspace.allTabs.count > 1 }) { context in
+            var done: [String] = []
             for _ in 0..<context.int(1...6) {
                 switch context.int(0...3) {
-                case 0: workspace.showAdjacentTab(context.chance(0.5) ? 1 : -1)
-                case 1: workspace.closeActiveTab()
-                case 2: workspace.reopenClosedTab()
-                default: if context.chance(0.5) { workspace.goBack() } else { workspace.goForward() }
+                case 0: let step = context.chance(0.5) ? 1 : -1; workspace.showAdjacentTab(step); done.append(step > 0 ? "next" : "previous")
+                case 1: workspace.closeActiveTab(); done.append("close")
+                case 2: workspace.reopenClosedTab(); done.append("reopen")
+                default: let back = context.chance(0.5); if back { workspace.goBack() } else { workspace.goForward() }; done.append(back ? "back" : "forward")
                 }
             }
+            context.note(done.joined(separator: ", ") + " → " + (workspace.activeTab?.title ?? "none"))
         })
         // The same state in every run, for commands that need it: tabs on both
         // sides of a split, one just closed, a place to go back to.
@@ -203,6 +229,14 @@ enum ShellStress {
             guard parts.count == 2, let pid = pid_t(parts[0]), pid != getpid(), pid != list.processIdentifier else { return nil }
             return (pid, String(parts[1]).components(separatedBy: "/").last ?? "")
         }
+    }
+
+    /// The sidebar dragged to its widest (420): the window's outermost split view.
+    private static func widenSidebar(in window: NSWindow) {
+        guard let content = window.contentView,
+              let split = views(in: content).lazy.compactMap({ $0 as? NSSplitView }).first(where: { $0.arrangedSubviews.count == 2 })
+        else { return }
+        split.setPosition(420, ofDividerAt: 0)
     }
 
     private static func views(in view: NSView) -> [NSView] {

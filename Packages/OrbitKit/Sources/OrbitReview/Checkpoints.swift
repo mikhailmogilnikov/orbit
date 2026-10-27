@@ -17,9 +17,15 @@ struct Checkpoints: Sendable {
         gitDir = Self.storage.appendingPathComponent(digest, isDirectory: true)
     }
 
-    /// Every project's shadow repository, one folder each.
-    static let storage = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Orbit/checkpoints", isDirectory: true)
+    /// Every project's shadow repository, one folder each. As for isolated
+    /// copies, only the app keeps them in Application Support: the stress
+    /// run's copies and the tests, each on folders of its own, had left
+    /// thousands there, and Settings took over 20 s to measure them (D250).
+    static let storage = Bundle.main.bundleIdentifier == "dev.orbit.app"
+        ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Orbit/checkpoints", isDirectory: true)
+        : FileManager.default.temporaryDirectory
+            .appendingPathComponent("orbit-checkpoints-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
 
     struct Change: Sendable {
         var url: URL

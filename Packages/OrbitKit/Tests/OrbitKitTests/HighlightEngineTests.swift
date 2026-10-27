@@ -1,4 +1,5 @@
 import Foundation
+import SwiftTreeSitter
 import Testing
 @testable import OrbitAPI
 @testable import OrbitEditor
@@ -122,6 +123,42 @@ import Testing
         _ = wholeCache.apply(whole.takePatches())
 
         #expect(Self.merged(cache.spans.spans) == Self.merged(wholeCache.spans.spans))
+    }
+
+    /// `</div>` typed at the top of a long Swift file makes the rest one
+    /// expression: each chunk's query followed it to the file's end, minutes
+    /// in all (D250). Queried from below it, the file is colored in seconds
+    /// and a chunk colors as a query from the root does.
+    @MainActor
+    @Test func aNodeRunningPastTheChunkDoesNotSlowItsQuery() throws {
+        let body = (0..<6000).map { "func f\($0)(_ x: Int) -> Int { x * \($0) } // \(String(repeating: "·", count: $0 % 90))\n" }.joined()
+        let text = String(body.prefix(34)) + "func f() {\n    return 1\n}\n()</div>" + String(body.dropFirst(34))
+        let swift = try TestGrammars.grammar("Swift")
+        let queries = try #require(HighlightQueries.queries(for: swift))
+        let parser = Parser()
+        try parser.setLanguage(queries.language)
+        let tree = try #require(parser.parse(text))
+        let root = try #require(tree.rootNode)
+        func captures(from starts: [Node], in range: NSRange) -> [String] {
+            starts.flatMap { start in
+                let cursor = queries.highlights.execute(node: start, in: tree)
+                cursor.setRange(range)
+                return cursor.flatMap(\.captures).map { "\($0.range) \($0.name ?? "")" }
+            }.sorted()
+        }
+        // Near the end, where a query from the root is still quick.
+        let late = NSRange(location: 467_173, length: 8 * 1024)
+        #expect(HighlightWorker.queryRoots(root, for: late) != [root])
+        #expect(captures(from: HighlightWorker.queryRoots(root, for: late), in: late) == captures(from: [root], in: late))
+
+        let worker = try #require(Self.worker(swift, Extensions.shared.colorTheme(dark: false)))
+        let started = Date()
+        worker.reset(TextSnapshot(string: text as NSString), version: 0)
+        worker.waitUntilIdle()
+        #expect(Date().timeIntervalSince(started) < 20)
+        // A file like any other is queried from its root.
+        let plain = try #require(parser.parse(body)?.rootNode)
+        #expect(HighlightWorker.queryRoots(plain, for: late) == [plain])
     }
 
     /// Embedded languages (D69): a fence's code is colored by its language, and

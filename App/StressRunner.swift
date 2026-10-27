@@ -200,7 +200,13 @@ final class StressRunner {
                 }
                 let before = waiting.count
                 for id in waiting where currentHost.commands.all.first(where: { $0.id == id })?.isEnabled() == true {
-                    await step("command \(id)") { context in context.run(id) }
+                    await step("command \(id)") { context in
+                        // Off again by the time it ran (git busy after the command before, macOS 26): a moment later.
+                        for _ in 0..<10 {
+                            if context.run(id) { return }
+                            try? await Task.sleep(for: .milliseconds(300))
+                        }
+                    }
                 }
                 waiting.removeAll { reached.contains(StressCoverage.command($0)) }
                 if waiting.count == before { break }
@@ -1078,8 +1084,17 @@ enum TileLoops {
     @MainActor static func report(_ view: NSScrollView) {
         var chain: [String] = []
         var parent = view.superview
-        while let current = parent, chain.count < 12 {
-            chain.append(String(describing: type(of: current)).prefix(60).description + " \(Int(current.frame.width))×\(Int(current.frame.height))")
+        while let current = parent, chain.count < 20 {
+            var item = String(describing: type(of: current)).prefix(60).description + " \(Int(current.frame.width))×\(Int(current.frame.height))"
+            if let split = current as? NSSplitView {
+                // Each column's width, its item's least, and what its content needs (D250).
+                let items = (split.delegate as? NSSplitViewController)?.splitViewItems ?? []
+                item += " [" + split.arrangedSubviews.enumerated().map { index, column in
+                    let min = items.indices.contains(index) ? items[index].minimumThickness : -1
+                    return "\(Int(column.frame.width)) min \(Int(min)) fit \(Int(column.fittingSize.width))"
+                }.joined(separator: ", ") + "]"
+            }
+            chain.append(item)
             parent = current.superview
         }
         report?("tile loop: \(type(of: view)) frame \(NSStringFromRect(view.frame)) doc \(view.documentView.map { "\(type(of: $0)) \(NSStringFromRect($0.frame))" } ?? "none") style \(view.scrollerStyle.rawValue) autohides \(view.autohidesScrollers) vertical \(view.verticalScroller?.isHidden == false) horizontal \(view.horizontalScroller?.isHidden == false)\n      in \(chain.joined(separator: " < "))")

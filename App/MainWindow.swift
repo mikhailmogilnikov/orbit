@@ -689,7 +689,9 @@ struct WindowTopBar: View {
 /// its own defaults (no max) when a drag starts. Without a max the sidebar could
 /// be dragged until the detail column (which runs under the sidebar, so its min
 /// width grows with it) no longer fit the screen: the window bounced between
-/// two widths and AppKit crashed in an update-constraints loop.
+/// two widths and AppKit crashed in an update-constraints loop. The same in a
+/// window too narrow for the sidebar's width and the detail's least (the
+/// inspector's and the editor's): the max is what the window leaves (D250).
 private struct SidebarWidthLimit: NSViewRepresentable {
     let min: CGFloat
     let max: CGFloat
@@ -729,11 +731,23 @@ private struct SidebarWidthLimit: NSViewRepresentable {
                    let item = controller.splitViewItems.first(where: { isDescendant(of: $0.viewController.view) }) {
                     // Only on a real change: each write re-lays out the split view.
                     if item.minimumThickness != limits.min { item.minimumThickness = limits.min }
-                    if item.maximumThickness != limits.max { item.maximumThickness = limits.max }
+                    let max = Swift.min(limits.max, Swift.max(limits.min, fitting(item, in: split, of: controller)))
+                    if item.maximumThickness != max { item.maximumThickness = max }
                     return
                 }
                 view = current.superview
             }
+        }
+
+        /// The widest sidebar the detail column still fits beside: it runs
+        /// under the sidebar, so its least width is the sidebar's and its own.
+        private func fitting(_ item: NSSplitViewItem, in split: NSSplitView, of controller: NSSplitViewController) -> CGFloat {
+            // Measuring lays the whole detail column out: on every resize, only
+            // in a window narrow enough for it to matter (its own least is ~710).
+            guard split.bounds.width < limits.max + 1000, let detail = controller.splitViewItems.last,
+                  detail !== item, !item.isCollapsed else { return limits.max }
+            let sidebar = item.viewController.view.frame.width
+            return sidebar + split.bounds.width - detail.viewController.view.fittingSize.width
         }
 
         isolated deinit {

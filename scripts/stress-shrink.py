@@ -91,7 +91,10 @@ def run(candidates):
         # A copy that failed the same way settles the round: the others needn't finish.
         for index in range(len(candidates)):
             if same(read(os.path.join(copies, str(index), "result.txt"))):
-                os.killpg(script.pid, signal.SIGTERM)
+                try:
+                    os.killpg(script.pid, signal.SIGTERM)
+                except (PermissionError, ProcessLookupError):
+                    pass  # The group is gone, its leader not reaped yet (macOS says EPERM).
                 for other in range(len(candidates)):
                     subprocess.run(["pkill", "-f", f".build/stress/OrbitStress{other}.app/Contents/MacOS/Orbit"])
                 script.wait()
