@@ -15,6 +15,9 @@ import os
 final class StressRunner {
     static let shared = StressRunner()
     nonisolated(unsafe) private static var exceptionFile: String?
+    nonisolated(unsafe) private static var resultFile: String?
+    nonisolated(unsafe) private static var crashPath: UnsafeMutablePointer<CChar>?
+    nonisolated(unsafe) private static let crashFrames = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: 256)
 
     struct Plan: Decodable {
         var seed: UInt64
@@ -100,6 +103,33 @@ final class StressRunner {
             guard let path = StressRunner.exceptionFile else { return }
             let text = "\(exception.name.rawValue): \(exception.reason ?? "")\n\(exception.userInfo.map { "\($0)" } ?? "")\n" + exception.callStackSymbols.joined(separator: "\n")
             FileManager.default.createFile(atPath: path, contents: Data(text.utf8))
+        }
+        // A copy that quits on its own (an exit, AppKit terminating) leaves no
+        // crash report: who quit it goes in result.txt instead (D250).
+        Self.resultFile = output.appendingPathComponent("result.txt").path
+        atexit_b {
+            guard let path = StressRunner.resultFile, !FileManager.default.fileExists(atPath: path) else { return }
+            let quit = (path as NSString).deletingLastPathComponent + "/quit.txt"
+            FileManager.default.createFile(atPath: quit, contents: Data(Thread.callStackSymbols.joined(separator: "\n").utf8))
+            FileManager.default.createFile(atPath: path, contents: Data("quit on its own, no crash (quit.txt says from where)".utf8))
+        }
+        // macOS keeps 25 crash reports an app a day and runs crash more than
+        // that: the copy writes its own backtrace on a fatal signal (D250),
+        // with what's safe in a signal handler, then dies as it would have.
+        Self.crashPath = strdup(output.appendingPathComponent("crash.txt").path)
+        for number in [SIGTRAP, SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE] {
+            signal(number) { number in
+                if let path = StressRunner.crashPath {
+                    let file = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+                    if file >= 0 {
+                        let count = backtrace(StressRunner.crashFrames, 256)
+                        backtrace_symbols_fd(StressRunner.crashFrames, count, file)
+                        close(file)
+                    }
+                }
+                signal(number, SIG_DFL)
+                raise(number)
+            }
         }
         NSScrollView.watchForTileLoops()
         TileLoops.report = { [weak self] in self?.note($0) }

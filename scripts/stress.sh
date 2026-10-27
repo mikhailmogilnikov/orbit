@@ -158,7 +158,11 @@ failed=0
 for ((job = 0; job < JOBS; job++)); do
     out=$OUT/$job
     result=$(cat "$out/result.txt" 2>/dev/null || true)
-    if [ -z "$result" ]; then
+    if [ -z "$result" ] && [ -s "$out/crash.txt" ]; then
+        # The copy's own backtrace: macOS stops writing reports after 25 a day (D250).
+        frame=$(sed '1,/_sigtramp/d' "$out/crash.txt" | grep -m1 -E 'Orbit +0x' | sed -E 's/.*0x[0-9a-f]+ //; s/ \+ [0-9]+$//' | xcrun swift-demangle --simplified 2>/dev/null | cut -c1-160)
+        result="crashed: ${frame:-see crash.txt} ($out/crash.txt)"
+    elif [ -z "$result" ]; then
         # ReportCrash takes a while to write it.
         report=
         for _ in $(seq 1 30); do report=$(crash "dev.orbit.app.stress$job" || true); [ -z "$report" ] || break; sleep 1; done

@@ -19,6 +19,8 @@ final class KeptEditors {
     /// Most recent first.
     private var entries: [Entry] = []
     private weak var workspace: Workspace?
+    /// The services editors are wired to now: the last asked for.
+    private var wiring: AnyHashable?
 
     init(_ context: PluginContext) {
         workspace = context.workspace
@@ -28,6 +30,7 @@ final class KeptEditors {
     /// The kept editor of this tab, wired the same and showing this document;
     /// out of the set while it's shown.
     func take(_ tab: EditorTab.ID, wiring: AnyHashable, document: TextDocument) -> CodeEditor.Coordinator? {
+        self.wiring = wiring
         release { $0.wiring != wiring }
         guard let index = entries.firstIndex(where: { $0.tab == tab }) else { return nil }
         let coordinator = entries.remove(at: index).coordinator
@@ -42,6 +45,8 @@ final class KeptEditors {
     func keep(_ coordinator: CodeEditor.Coordinator, tab: EditorTab.ID, wiring: AnyHashable) {
         // Closing the tab took it away: the tabs may have been watched first.
         guard workspace?.allTabs.contains(where: { $0.id == tab }) == true else { return Self.release(coordinator) }
+        // Wired to a plugin turned on or off since: SwiftUI may build the new editor before it lets go of this one.
+        guard self.wiring == nil || self.wiring == wiring else { return Self.release(coordinator) }
         // The same file on both sides of a split: the one put away last stays.
         release { $0.tab == tab }
         entries.insert(Entry(tab: tab, wiring: wiring, coordinator: coordinator), at: 0)
@@ -68,6 +73,7 @@ final class KeptEditors {
     }
 
     private static func release(_ coordinator: CodeEditor.Coordinator) {
+        coordinator.stopWork()
         coordinator.detachedView = nil
         OpenEditors.shared.unregister(coordinator)
     }

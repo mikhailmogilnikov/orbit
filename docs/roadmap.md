@@ -263,10 +263,14 @@
 - Text editing basics (D105): move / copy lines ⌥↑↓ ⇧⌥↑↓, multiple carets (⌘D, ⇧⌘L, ⌥-click, ⌃⇧↑↓), Go to Line ⌃G, matching bracket outline, font zoom ⌘= ⌘- ⌘0
 
 ## Next (rough priority)
-0. Two failures the stress run saw once and couldn't replay (D246): a copy
-   quit with no crash report while its project folder was renamed and back,
-   and in the big project an editor showed 28 of a 31-character file's
-   characters after switching tabs
+0. Found by `make stress-full` (D250), both older than 0.4.2: opening the
+   agents' inspector in the smallest window with wrapping on throws AppKit's
+   "more Update Constraints passes than views" (the editor squeezed to
+   84×0); after Git is turned off and on, its old models stay alive in about
+   half the runs. Seen once (D246): an editor showed 28 of a 31-character
+   file's characters after switching tabs in the big project. (The copy that
+   "quit with no crash report" crashed: macOS keeps 25 reports a day; copies
+   write their own backtrace now.)
 1. Faster: Settings take ~250 ms to open and ~180 to close, all SwiftUI's
    form and the workspace built again (D250); a launch took 4 s instead of
    1.3–2.2 twice in `PERF=1` runs back to back, not looked into yet

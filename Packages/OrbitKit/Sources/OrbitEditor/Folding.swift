@@ -264,7 +264,15 @@ final class FoldingController: NSObject, NSTextContentStorageDelegate {
             let line = SourcePosition(offset: edit.range.location, in: starts).line
             var moved: [Int: Int] = [:]
             for (start, end) in regions {
-                if start > line { moved[start + delta] = end + delta } else if end < line { moved[start] = end } else if end + delta > start { moved[start] = end + delta }
+                if start > line {
+                    // On lines the edit removed (an undone paste of thousands, D250): gone till the refresh.
+                    guard start + delta > line else { continue }
+                    moved[start + delta] = end + delta
+                } else if end < line {
+                    moved[start] = end
+                } else if end + delta > start {
+                    moved[start] = end + delta
+                }
             }
             regions = moved
         }

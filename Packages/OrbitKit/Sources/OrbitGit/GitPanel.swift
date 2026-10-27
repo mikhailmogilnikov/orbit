@@ -31,9 +31,11 @@ struct GitPanel: View {
         }
         // Picks up saves and edits made elsewhere while the panel is on screen;
         // in the background there's no one to see it (activation refreshes).
-        .task {
+        // The model weakly: a view kept a while after Git was turned off kept it alive (D250).
+        .task { [weak model] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
+                guard let model else { return }
                 if NSApp.isActive { model.refresh() }
             }
         }

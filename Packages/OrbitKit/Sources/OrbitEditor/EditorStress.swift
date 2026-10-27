@@ -164,7 +164,9 @@ enum EditorStress {
             // One caret again: the next steps would type into thousands.
             editor()?.textView?.selectionRanges = [NSRange(location: 0, length: 0)]
         })
-        // 14 000 lines pasted at 351 carets: the gutter's git markers diffed them for 20 s (D249).
+        // 14 000 lines pasted at 351 carets: the gutter's git markers diffed them
+        // for 20 s (D249); undone, the fold regions on the removed lines went
+        // to negative lines and sticky scroll crashed on them (D250).
         stress.add(StressStep("editor.hugePasteAtManyCarets", weight: 1, regression: true) { run in
             await run.open("src/short.tsx")
             guard let textView = editor()?.textView else { return }
@@ -172,6 +174,11 @@ enum EditorStress {
             textView.selectionRanges = (0..<351).map { NSRange(location: $0 * length / 351, length: 0) }
             let paste = (0..<40).map { "    const pasted\($0) = compute(\($0), \"a fairly long line of pasted text\");" }.joined(separator: "\n")
             textView.insertText(paste, replacementRange: NSRange(location: NSNotFound, length: 0))
+            await run.settle()
+            // Scrolled down, so sticky scroll pins lines, then undone.
+            textView.scrollRangeToVisible(NSRange(location: textView.documentText.length / 2, length: 0))
+            await run.settle()
+            textView.undoManager?.undo()
             await run.settle()
             textView.selectionRanges = [NSRange(location: 0, length: 0)]
         })

@@ -372,6 +372,7 @@ struct CodeEditor: NSViewRepresentable {
             coordinator.detachedView = scrollView
             kept.keep(coordinator, tab: tab, wiring: wiring)
         } else {
+            coordinator.stopWork()
             OpenEditors.shared.unregister(coordinator)
         }
     }
@@ -488,7 +489,17 @@ struct CodeEditor: NSViewRepresentable {
             }
         }
 
+        /// Gone for good, closed or let go of while kept (D249): what it started stops.
+        func stopWork() {
+            blameTask?.cancel()
+            markersTask?.cancel()
+            imagesTask?.cancel()
+            hoverTask?.cancel()
+            onTypeFormatting?.cancel()
+        }
+
         isolated deinit {
+            stopWork()
             if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
             if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
             hoverPanel?.hide()

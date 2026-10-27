@@ -169,8 +169,11 @@ final class StickyScrollController {
         return fragment.layoutFragmentFrame.maxY + textView.contentFrame.minY
     }
 
-    /// Doc comments fold too, but a comment isn't where you are.
+    /// Doc comments fold too, but a comment isn't where you are. A line the
+    /// text no longer has (the regions lag an undone paste of thousands of
+    /// lines, D250) isn't pinned either.
     private func isComment(line: Int, in string: NSString, starts: [Int]) -> Bool {
+        guard line >= 0, line < starts.count, starts[line] <= string.length else { return true }
         let range = string.lineRange(for: NSRange(location: starts[line], length: 0))
         let text = string.substring(with: range).trimmingCharacters(in: .whitespaces)
         return ["/*", "//", "*", "#", "<!--", "\"\"\"", "'''", "--"].contains { text.hasPrefix($0) }

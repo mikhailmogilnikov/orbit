@@ -5580,3 +5580,24 @@ be dragged from by walking its views (a tenth of opening a file), and asks
 each SwiftUI host under the title bar whether it takes the focus, which
 walks SwiftUI's focus tree. Neither has a knob of ours; an opaque editor
 host didn't shorten the walk.
+
+Found on the way to the 0.4.3 release (`make stress-full` failed):
+- Copies that "crashed with no crash report" did crash: macOS keeps 25
+  crash reports an app a day (osanalytics' limit), and the runs make more.
+  A copy now writes its own backtrace on a fatal signal (`crash.txt`, with
+  only what's safe in a signal handler) and the run shows the frame; one
+  that exits on its own says from where (`quit.txt`). The roadmap's copy
+  that quit while its folder was renamed was likely one of these.
+- Undoing the huge paste crashed sticky scroll: the fold regions shift by
+  the lines an edit adds or removes, and the ones on removed lines went to
+  negative lines. They're dropped till the next refresh; sticky scroll
+  skips a line the text doesn't have. The regression step undoes now.
+- Kept editors (D249): SwiftUI may build the new editor before it lets go
+  of the old one, so an editor wired to a plugin just turned off could be
+  kept; it's let go of, and an editor going for good stops its tasks.
+- Still open: two GitModels more than allowed alive after Git is turned off
+  and on, about half the runs, with or without kept editors (tasks hold
+  them; Source Control's refresh loop holds its model weakly now, which
+  wasn't it); and AppKit's "more Update Constraints passes than views" when
+  the agents' inspector opens in the smallest window with wrapping on, the
+  editor squeezed to 84×0. Both happen on the build before D249 too.
