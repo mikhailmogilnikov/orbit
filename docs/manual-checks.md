@@ -164,6 +164,9 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Explorer, search and windows
 
+- Explorer ⌘C ⌘X ⌘V (D252): files and folders within the project, from
+  Finder into the tree and from the tree into Finder; Cut moves; a folder
+  pasted while selected lands beside it; undo.
 - Explorer file operations (D93): the name field's focus and selection, Return /
   ⌘⌫ reaching the list, the header's hover buttons, ⌘Z routing. Multiple
   selection (D111): ⌘- / ⇧-click with our own row highlight, the menu acting

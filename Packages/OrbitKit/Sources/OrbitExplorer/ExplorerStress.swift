@@ -1,14 +1,54 @@
 #if DEBUG
-import Foundation
+import AppKit
 import OrbitAPI
 
 /// The explorer's part of a stress run (D244): files made, renamed and moved
 /// in Orbit, and changed and removed outside it while they're open.
 @MainActor
 enum ExplorerStress {
-    static func register(_ context: PluginContext) {
+    static func register(_ context: PluginContext, model: FileTreeModel) {
         let stress = context.stress
         let workspace = context.workspace
+        // D252: Edit → Copy and Paste with the tree focused, as ⌘C ⌘V: a file
+        // into a folder, then that folder into itself (beside it, as in Finder).
+        // On a pasteboard of its own: the copies run side by side, and the user's clipboard stays.
+        stress.add(StressStep("explorer.copyPaste", weight: 1) { [weak model] run in
+            guard let model else { return }
+            let own = NSPasteboard(name: .init("orbit-stress-\(UUID().uuidString)"))
+            model.pasteboard = own
+            defer {
+                model.pasteboard = .general
+                own.releaseGlobally()
+            }
+            let folder = run.file("pasted-\(run.int(0...9999))")
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            context.ui.revealSidebarPanel("explorer")
+            await run.open("one-line.txt")
+            model.selectedFolder = nil
+            model.focusList()
+            await run.settle()
+            // The menu's way, from the focused view up; in the background there's no key window to send it to.
+            guard let responder = NSApp.windows.first(where: { $0.firstResponder is NSOutlineView })?.firstResponder else {
+                return run.note("the tree didn't take the keys")
+            }
+            // The selection right before each: the list puts it back on the open file as its rows change.
+            @MainActor func send(_ action: Selector, selecting selected: URL?) async {
+                model.selectedFolder = selected
+                _ = responder.tryToPerform(action, with: nil)
+                await run.settle()
+            }
+            await send(#selector(NSText.copy(_:)), selecting: nil)
+            await send(#selector(NSText.paste(_:)), selecting: folder)
+            if !FileManager.default.fileExists(atPath: folder.appendingPathComponent("one-line.txt").path) { run.note("the file didn't land in the folder") }
+            await send(#selector(NSText.copy(_:)), selecting: folder)
+            await send(#selector(NSText.paste(_:)), selecting: folder)
+            let beside = folder.deletingLastPathComponent().appendingPathComponent(folder.lastPathComponent + " copy")
+            if !FileManager.default.fileExists(atPath: beside.appendingPathComponent("one-line.txt").path) { run.note("the folder didn't land beside itself") }
+            // It went into itself (D252).
+            if FileManager.default.fileExists(atPath: folder.appendingPathComponent(folder.lastPathComponent).path) { run.note("the folder went into itself") }
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: beside)
+        })
         let names = ["new.txt", "Ünïcödé file.md", "with spaces.swift", ".hidden", "no-extension", "a.b.c.d"]
         func made(_ run: StressContext) -> [URL] {
             let folder = run.file("made")

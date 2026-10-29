@@ -349,8 +349,9 @@ public final class Workspace {
             if copy, keepingBoth, manager.fileExists(atPath: destination.path) {
                 destination = Self.freeCopyName(for: destination)
             }
-            if destination == url { continue }
-            if folder == url || folder.path.hasPrefix(url.path + "/") {
+            // By path: a folder's URL may end in a slash (off the pasteboard) or not (D252).
+            if destination.path == url.path { continue }
+            if folder.path == url.path || folder.path.hasPrefix(url.path + "/") {
                 result.problems.append("“\(url.lastPathComponent)” can't go into itself.")
                 continue
             }

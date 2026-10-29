@@ -261,6 +261,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D249. Faster typing and tab switches: the text's bytes searched and copied in bulk, the last tabs' editors kept
 - D250. A long file's first screen colored from a parse of its start; where opening files and Settings spend their time
 - D251. Zed's default file types (`.env.*`); wrapped text keeps its place on screen as TextKit lays out above it
+- D252. The Explorer's ⌘C ⌘X ⌘V put the files themselves on the pasteboard, not SwiftUI's copies of them
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -5723,4 +5724,25 @@ was tried first and dropped: TextKit doesn't keep it, its height went on
 changing (53 000–59 000 points for the same file). STTextView keeps the
 estimated height from the frame while a scroll gesture lasts, so the
 scroller doesn't follow it either.
+
+### D252. The Explorer's ⌘C ⌘X ⌘V put the files themselves on the pasteboard, not SwiftUI's copies of them
+
+Copying and pasting files and folders in the Explorer didn't work. ⌘C and
+⌘X went through SwiftUI's `onCopyCommand` / `onCutCommand`, which take item
+providers, and SwiftUI exported each file as a copy in
+`~/Library/Caches/com.apple.SwiftUI.Drag-…`. So the pasteboard named the
+copies: Cut copied instead of moving (they weren't the files cut), Finder
+got the copies, and a folder copied and pasted while still selected went
+into itself (the check that stops that saw a different path). The tree
+answers `copy:`, `cut:` and `paste:` itself now (`onCommand`), with the
+real URLs, as its context menu already did; `onPasteCommand` checked the
+pasteboard late and a paste right after a copy sometimes did nothing.
+Found on the way: a folder pasted on itself goes beside it, as in Finder
+("folder copy"); folders are compared by path (a folder's URL off the
+pasteboard ends in a slash, so "into itself" wasn't seen in
+`Workspace.transferItems` either); whether the target is a folder is read
+from the disk when the tree hasn't loaded it. `explorer.copyPaste` sends
+the menu's actions to the focused tree on a pasteboard of its own (the
+copies run side by side, and it left the user's clipboard alone); tests
+cover the model.
 

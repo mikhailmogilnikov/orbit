@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- Copying, cutting and pasting files and folders in the Explorer (⌘C ⌘X ⌘V) works, with Finder too; a folder pasted on itself goes beside it (D252)
 - `.env.development` and other `.env.*` files are colored as Env, as in Zed, with Zed's other default file types (`tsconfig*.json`, `.vscode/**/*.json`, `.cursorrules`); wrapped Markdown no longer jumps under the pointer in most passes while scrolling (D251)
 - Opening the agents' inspector with a new chat in the smallest window, or opening a folder again there after Close Folder, no longer crashes (a wide sidebar narrows to what a narrow window leaves); the editor no longer applies the Mac's smart quotes and corrections to code, nor types into a tab's old document when the tab is closed and reopened at once, nor keeps a core busy for minutes coloring a long file whose top opens something never closed; Settings → Checkpoints no longer counts the stress run's and the tests' checkpoints, and the checkpoints of folders that are gone are deleted; stress runs keep their copies' crash reports, past macOS' 25 a day (D250)
 - A long file opens colored: its first screen is colored from a parse of its start, in ~75 ms instead of drawn gray at ~90 (D250)

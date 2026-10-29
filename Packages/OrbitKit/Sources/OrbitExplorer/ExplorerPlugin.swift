@@ -121,7 +121,7 @@ public final class ExplorerPlugin: OrbitPlugin {
             workspace.fileSystemDidChange()
         })
         #if DEBUG
-        ExplorerStress.register(context)
+        ExplorerStress.register(context, model: model)
         #endif
     }
 }
@@ -333,7 +333,9 @@ final class FileTreeModel {
     /// Where New File puts things: the selected folder, or the selected file's.
     var targetFolder: URL? {
         guard let item = selectedItem else { return workspace.root }
-        return node(for: item)?.isDirectory == true ? item : item.deletingLastPathComponent()
+        // On disk: a folder just made isn't in the tree yet.
+        let isFolder = node(for: item)?.isDirectory ?? ((try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true)
+        return isFolder ? item : item.deletingLastPathComponent()
     }
 
     func startCreating(in folder: URL?, isFolder: Bool) {
@@ -497,6 +499,8 @@ final class FileTreeModel {
     var search: ProjectSearching? { services.resolve(ProjectSearching.self) }
     /// What ⌘X put on the pasteboard: pasting those moves them.
     private var cutItems: [URL] = []
+    /// The system's; a test's own.
+    var pasteboard = NSPasteboard.general
 
     func openTerminal(at url: URL) {
         terminal?.openTerminal(in: node(for: url)?.isDirectory == true ? url : url.deletingLastPathComponent())
@@ -504,8 +508,8 @@ final class FileTreeModel {
 
     /// Cut and Copy put the files on the pasteboard, so Finder can paste them too.
     func copyItems(_ urls: [URL], cut: Bool) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects(urls.map { $0 as NSURL })
+        pasteboard.clearContents()
+        pasteboard.writeObjects(urls.map { $0 as NSURL })
         noteCopied(urls, cut: cut)
     }
 
@@ -514,17 +518,23 @@ final class FileTreeModel {
     }
 
     var canPaste: Bool {
-        NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
     }
 
     /// Into a folder, or next to a file. Cut items move; others are copied,
     /// "a copy.txt" when the name is taken (the same folder duplicates).
     func paste(into target: URL?) {
         guard let target = target ?? workspace.root,
-              let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+              let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
               !urls.isEmpty else { return }
-        let folder = node(for: target)?.isDirectory == true ? target : target.deletingLastPathComponent()
         let items = urls.map(\.standardizedFileURL)
+        // On disk: a folder the tree never loaded is one too.
+        var folder = (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true ? target.standardizedFileURL : target.deletingLastPathComponent()
+        // A folder copied and pasted while still selected goes beside itself, as in Finder (D252).
+        // By path: a folder's URL off the pasteboard ends in a slash, the target's may not.
+        while let item = items.first(where: { folder.path == $0.path || folder.path.hasPrefix($0.path + "/") }) {
+            folder = item.deletingLastPathComponent().standardizedFileURL
+        }
         if !cutItems.isEmpty, Set(items) == Set(cutItems) {
             cutItems = []
             let moved = workspace.transferItems(items, into: folder)
@@ -546,8 +556,8 @@ final class FileTreeModel {
 
     /// One per line.
     func copyPaths(_ urls: [URL], relative: Bool) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(urls.map { relative ? workspace.relativePath($0) : $0.path }.joined(separator: "\n"), forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(urls.map { relative ? workspace.relativePath($0) : $0.path }.joined(separator: "\n"), forType: .string)
     }
 
     func sync() {
@@ -1222,16 +1232,18 @@ struct FileKeys: ViewModifier {
                 }
                 return .handled
             }
-            .onCopyCommand { pasteboardItems(cut: false) }
-            .onCutCommand { pasteboardItems(cut: true) }
-            .onPasteCommand(of: [.fileURL]) { _ in model.paste(into: model.targetFolder) }
+            // Not `onCopyCommand`: SwiftUI exports its item providers as copies
+            // in a cache folder, so Cut didn't move, a folder pasted on itself
+            // went into itself and Finder got the copies (D252).
+            .onCommand(#selector(NSText.copy(_:))) { copyItems(cut: false) }
+            .onCommand(#selector(NSText.cut(_:))) { copyItems(cut: true) }
+            // Paste as well: `onPasteCommand` checked the pasteboard late, a paste right after a copy did nothing.
+            .onCommand(#selector(NSText.paste(_:))) { if !isEditingText { model.paste(into: model.targetFolder) } }
     }
 
-    private func pasteboardItems(cut: Bool) -> [NSItemProvider] {
-        guard !isEditingText, let item = model.selectedItem else { return [] }
-        let items = model.targets(for: item)
-        model.noteCopied(items, cut: cut)
-        return items.map { NSItemProvider(object: $0 as NSURL) }
+    private func copyItems(cut: Bool) {
+        guard !isEditingText, let item = model.selectedItem else { return }
+        model.copyItems(model.targets(for: item), cut: cut)
     }
 }
 
