@@ -1343,6 +1343,8 @@ struct TabItem: View {
         .onChange(of: isDirty) { _, dirty in if dirty { workspace.pin(tab.id) } }
         .modifier(TabDragGesture(tab: tab, group: group.id, workspace: workspace))
         .modifier(KeepsWindowStillWhileHovered())
+        // The middle button closes it, as in Cursor and Safari (D253).
+        .overlay(MiddleClick { workspace.requestClose(tab.id, in: group.id) })
         .contextMenu {
             if group.previewTabID == tab.id {
                 Button("Keep Open") { workspace.pin(tab.id) }
@@ -1351,6 +1353,13 @@ struct TabItem: View {
             Button("Close") { workspace.requestClose(tab.id, in: group.id) }
             Button("Close Others") {
                 for other in group.tabs where other.id != tab.id { workspace.requestClose(other.id, in: group.id) }
+            }
+            Button("Close to the Right") {
+                for other in group.tabs.drop(while: { $0.id != tab.id }).dropFirst() { workspace.requestClose(other.id, in: group.id) }
+            }
+            .disabled(group.tabs.last?.id == tab.id)
+            Button("Close All") {
+                for other in group.tabs { workspace.requestClose(other.id, in: group.id) }
             }
             Divider()
             Button(workspace.isSplit ? "Move to Other Side" : "Move to the Right") {
@@ -1364,8 +1373,51 @@ struct TabItem: View {
             }
             if let url = tab.url {
                 Divider()
+                Button("Copy Path") { Self.copy(url.path) }
+                Button("Copy Relative Path") { Self.copy(workspace.relativePath(url)) }
+                Divider()
                 Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                if tab.kind == EditorTab.fileKind {
+                    // The tree opens its folders to the active file (D253).
+                    Button("Reveal in Explorer") {
+                        workspace.activate(tab.id, in: group.id)
+                        ProjectWindows.shared.allHosts.first { $0.workspace === workspace }?.ui.revealSidebarPanel("explorer")
+                    }
+                }
             }
+        }
+    }
+}
+
+extension TabItem {
+    fileprivate static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+/// Clicks with the middle button, on a view whose other clicks go through.
+private struct MiddleClick: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> ClickView { ClickView() }
+    func updateNSView(_ view: ClickView, context: Context) { view.action = action }
+
+    final class ClickView: NSView {
+        var action: () -> Void = {}
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let type = NSApp.currentEvent?.type, type == .otherMouseDown || type == .otherMouseUp else { return nil }
+            return super.hitTest(point)
+        }
+
+        override func otherMouseDown(with event: NSEvent) {
+            if event.buttonNumber != 2 { super.otherMouseDown(with: event) }
+        }
+
+        override func otherMouseUp(with event: NSEvent) {
+            guard event.buttonNumber == 2, bounds.contains(convert(event.locationInWindow, from: nil)) else { return super.otherMouseUp(with: event) }
+            action()
         }
     }
 }

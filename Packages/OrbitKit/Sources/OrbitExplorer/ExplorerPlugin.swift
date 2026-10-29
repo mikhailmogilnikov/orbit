@@ -120,6 +120,14 @@ public final class ExplorerPlugin: OrbitPlugin {
         ) {
             workspace.fileSystemDidChange()
         })
+        // Cursor's Collapse Folders in Explorer (D253).
+        context.commands.register(OrbitCommand(
+            id: "explorer.collapseAll",
+            title: "Collapse Folders in Explorer",
+            category: "File",
+            systemImage: "rectangle.compress.vertical",
+            isEnabled: { workspace.root != nil }
+        ) { [weak model] in model?.collapseAll() })
         #if DEBUG
         ExplorerStress.register(context, model: model)
         #endif
@@ -228,7 +236,8 @@ final class FileTreeModel {
             .filter { target != $0.path && !target.hasPrefix($0.path + "/") }
         let copies = NSEvent.modifierFlags.contains(.option)
         let outside = files.filter { !$0.path.hasPrefix(rootPath) }
-        let moving = files.filter { $0.path.hasPrefix(rootPath) && (copies || $0.deletingLastPathComponent() != folder.standardizedFileURL) }
+        // By path: the parent's URL ends in a slash, the folder's may not (a drop in place asked to move).
+        let moving = files.filter { $0.path.hasPrefix(rootPath) && (copies || $0.deletingLastPathComponent().path != target) }
         guard !moving.isEmpty || !outside.isEmpty else { return false }
         // After the drag session: the confirmation is a modal alert.
         Task { @MainActor in
@@ -272,6 +281,30 @@ final class FileTreeModel {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { folder.isExpanded = expanded }
+    }
+
+    /// Every folder closed but the project's own.
+    func collapseAll() {
+        func close(_ node: FileNode) {
+            for child in node.children ?? [] where child.isDirectory {
+                close(child)
+                if child.isExpanded { setExpanded(child, false) }
+            }
+        }
+        if let root { close(root) }
+    }
+
+    /// Opens the folders down to a file of the project; false when it isn't one.
+    func expandToShow(_ url: URL) -> Bool {
+        guard let root else { return false }
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(root.url.standardizedFileURL.path + "/") else { return false }
+        var node = root
+        while let child = node.children?.first(where: { path.hasPrefix($0.url.standardizedFileURL.path + "/") }), child.isDirectory {
+            if !child.isExpanded { setExpanded(child, true) }
+            node = child
+        }
+        return node.children?.contains { $0.url.standardizedFileURL.path == path } == true
     }
 
     /// The highlighted row: drawn by the rows themselves, always gray (D96).
@@ -367,7 +400,7 @@ final class FileTreeModel {
     }
 
     func startRenaming(_ url: URL?) {
-        guard let url, url.standardizedFileURL != workspace.root?.standardizedFileURL else { return }
+        guard let url, url.standardizedFileURL.path != workspace.root?.standardizedFileURL.path else { return }
         creating = nil
         renaming = url
     }
@@ -711,32 +744,38 @@ struct ExplorerView: View {
     var body: some View {
         Group {
             if let root = model.root {
-                List(selection: multipleSelection) {
-                    Section {
-                        FileChildren(node: root, model: model, workspace: workspace, decorations: decorations)
-                    } header: {
-                        ExplorerHeader(root: root, model: model, commands: commands)
+                ScrollViewReader { proxy in
+                    List(selection: multipleSelection) {
+                        Section {
+                            FileChildren(node: root, model: model, workspace: workspace, decorations: decorations)
+                        } header: {
+                            ExplorerHeader(root: root, model: model, commands: commands)
+                        }
                     }
-                }
-                .listStyle(.sidebar)
-                .focused($isListFocused)
-                .task(id: model.focusRequest) {
-                    guard model.focusRequest > handledFocusRequest else { return }
-                    handledFocusRequest = model.focusRequest
-                    isListFocused = true
-                }
-                .modifier(FileKeys(model: model))
-                .background(NativeSelectionHider(model: model, selection: model.selectedRow))
-                // Below the rows (or between them): into the project's top folder.
-                .dropDestination(for: URL.self) { urls, _ in
-                    model.drop(urls, into: root.url)
-                } isTargeted: { model.setDropTarget(root.url, $0) }
-                .overlay {
-                    if model.dropTarget == root.url {
-                        RoundedRectangle(cornerRadius: Theme.corner)
-                            .strokeBorder(Theme.dropBorder, lineWidth: 1.5)
-                            .padding(4)
-                            .allowsHitTesting(false)
+                    .listStyle(.sidebar)
+                    // The open file shown in the tree, as Cursor's `explorer.autoReveal` (D253):
+                    // opened with ⌘P or a definition, its folders open and it scrolls into view.
+                    .onChange(of: workspace.activeTab?.id) { reveal(with: proxy) }
+                    .onAppear { reveal(with: proxy) }
+                    .focused($isListFocused)
+                    .task(id: model.focusRequest) {
+                        guard model.focusRequest > handledFocusRequest else { return }
+                        handledFocusRequest = model.focusRequest
+                        isListFocused = true
+                    }
+                    .modifier(FileKeys(model: model))
+                    .background(NativeSelectionHider(model: model, selection: model.selectedRow))
+                    // Below the rows (or between them): into the project's top folder.
+                    .dropDestination(for: URL.self) { urls, _ in
+                        model.drop(urls, into: root.url)
+                    } isTargeted: { model.setDropTarget(root.url, $0) }
+                    .overlay {
+                        if model.dropTarget == root.url {
+                            RoundedRectangle(cornerRadius: Theme.corner)
+                                .strokeBorder(Theme.dropBorder, lineWidth: 1.5)
+                                .padding(4)
+                                .allowsHitTesting(false)
+                        }
                     }
                 }
             } else {
@@ -761,6 +800,12 @@ struct ExplorerView: View {
             model.selectedFolder = nil
             model.extraSelection = []
         }
+    }
+
+    private func reveal(with proxy: ScrollViewProxy) {
+        guard let url = workspace.activeTab?.url, model.expandToShow(url) else { return }
+        // After the rows the folders opened are laid out.
+        DispatchQueue.main.async { proxy.scrollTo(url) }
     }
 
     @Environment(\.undoManager) private var undoManager
@@ -1265,6 +1310,9 @@ struct ExplorerHeader: View {
                 }
                 IconButton("folder.badge.plus", help: commands.help("explorer.newFolder", "New Folder")) {
                     model.startCreating(in: root.url, isFolder: true)
+                }
+                IconButton("rectangle.compress.vertical", help: commands.help("explorer.collapseAll", "Collapse Folders")) {
+                    model.collapseAll()
                 }
             }
         }

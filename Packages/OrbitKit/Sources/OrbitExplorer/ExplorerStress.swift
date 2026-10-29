@@ -49,6 +49,19 @@ enum ExplorerStress {
             try? FileManager.default.removeItem(at: folder)
             try? FileManager.default.removeItem(at: beside)
         })
+        // D253: a file opened outside the tree (⌘P, a definition) opens its folders in it.
+        stress.addFile("deep/a/b/c.txt", "deep down\n")
+        stress.add(StressStep("explorer.revealsActiveFile", weight: 1) { [weak model] run in
+            guard let model else { return }
+            context.ui.revealSidebarPanel("explorer")
+            // Another file first: the tree follows a change of the active tab.
+            await run.open("one-line.txt")
+            if let deep = model.node(for: run.file("deep")) { model.setExpanded(deep, false) }
+            await run.settle()
+            await run.open("deep/a/b/c.txt")
+            let closed = ["deep", "deep/a", "deep/a/b"].filter { model.node(for: run.file($0))?.isExpanded != true }
+            if !closed.isEmpty { run.note("not opened in the tree: \(closed.joined(separator: ", "))") }
+        })
         let names = ["new.txt", "Ünïcödé file.md", "with spaces.swift", ".hidden", "no-extension", "a.b.c.d"]
         func made(_ run: StressContext) -> [URL] {
             let folder = run.file("made")

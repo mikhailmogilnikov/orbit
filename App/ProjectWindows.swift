@@ -207,13 +207,39 @@ final class ProjectWindows {
     private func openNewWindow(_ root: URL?) {
         let value = ProjectWindowID()
         if let root { pendingRoots[value.id] = root.standardizedFileURL }
-        openWindow?(id: "main", value: value)
+        // With no window left, the menus' own: a closed window's may be gone with it.
+        (hosts.isEmpty ? menusOpenWindow ?? openWindow : openWindow)?(id: "main", value: value)
+    }
+
+    /// Open Folder with no window (D254): the folder gets one.
+    func presentOpenFolderPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open"
+        if panel.runSheetModal() == .OK, let url = panel.url { open(url) }
+    }
+
+    /// Settings with no window (D254): in a new one, once its view is up.
+    func showSettingsInNewWindow() {
+        showsSettingsInNextWindow = true
+        newWindow()
+    }
+
+    @ObservationIgnored private var showsSettingsInNextWindow = false
+
+    func windowAppeared(_ host: PluginHost) {
+        guard showsSettingsInNextWindow else { return }
+        showsSettingsInNextWindow = false
+        host.ui.showSettings()
     }
 
     @discardableResult
     private func focusWindow(showing url: URL) -> Bool {
-        let url = url.standardizedFileURL
-        guard let id = order.first(where: { hosts[$0]?.workspace.root == url }),
+        // By path: Finder's URL for a folder ends in a slash, a recent folder's may not.
+        let path = url.standardizedFileURL.path
+        guard let id = order.first(where: { hosts[$0]?.workspace.root?.path == path }),
               let window = windows[id]?.window else { return false }
         window.makeKeyAndOrderFront(nil)
         return true
@@ -224,13 +250,8 @@ final class ProjectWindows {
     private func windowShouldClose(_ id: UUID) -> Bool {
         guard !isTerminating, let host = hosts[id] else { return true }
         guard host.workspace.confirmUnsavedChanges(in: host.workspace.documents.dirtyDocuments) else { return false }
-        // The last window closing quits the app: its folder opens again next time.
-        // Minimized windows count: they keep the app running.
-        if windows.values.filter({ $0.window != nil }).count <= 1 {
-            saveOpenFolders()
-            isTerminating = true
-            return true
-        }
+        // The last one too: Orbit keeps running without windows, as Xcode and
+        // Cursor do (D254); it used to quit, its folder open again next time.
         // After the window is gone: emptied, its views would flash the welcome screen.
         DispatchQueue.main.async { host.shutdown() }
         hosts[id] = nil

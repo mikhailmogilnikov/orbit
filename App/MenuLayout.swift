@@ -32,7 +32,7 @@ enum MenuLayout {
 
     static let view: [Section] = [
         [.commandPalette],
-        [.command("shell.toggleSidebar"), .command("explorer.show"), .command("git.show"), .command("explorer.refresh")],
+        [.command("shell.toggleSidebar"), .command("explorer.show"), .command("git.show"), .command("explorer.refresh"), .command("explorer.collapseAll")],
         [.command("shell.toggleAgents"), .command("agents.overview")],
         [.command("languages.problems"), .command("terminal.toggle")],
         [.command("shell.splitEditor"), .command("shell.joinEditors"), .command("shell.moveTabToOtherSide"),
@@ -168,17 +168,30 @@ struct OrbitMenus: Commands {
                 .help("Adds `orbit` to /usr/local/bin: `orbit .` opens a folder from the terminal")
         }
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { host?.ui.showSettings() }
-                .keyboardShortcut(",", modifiers: .command)
+            Button("Settings…") {
+                if let host { host.ui.showSettings() } else { ProjectWindows.shared.showSettingsInNewWindow() }
+            }
+            .keyboardShortcut(",", modifiers: .command)
         }
         // File: ours replaces New / Open / Save / Close (⌘W closes a tab, not the window).
-        CommandGroup(replacing: .newItem) { menu("File", MenuLayout.file) }
+        CommandGroup(replacing: .newItem) {
+            if host == nil { windowlessFileMenu } else { menu("File", MenuLayout.file) }
+        }
         CommandGroup(replacing: .saveItem) {}
         CommandGroup(after: .sidebar) {
             Divider()
             menu("View", MenuLayout.view)
         }
         CommandGroup(after: .help) { menu("Help", MenuLayout.help) }
+    }
+
+    /// With no window open (D254): the commands are a window's, so these stand in.
+    @ViewBuilder private var windowlessFileMenu: some View {
+        Button("New Window") { ProjectWindows.shared.newWindow() }
+            .keyboardShortcut("n", modifiers: [.command, .control])
+        Button("Open Folder…") { ProjectWindows.shared.presentOpenFolderPanel() }
+            .keyboardShortcut("o", modifiers: .command)
+        OpenRecentMenu()
     }
 
     @CommandsBuilder private var ownMenus: some Commands {
