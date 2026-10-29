@@ -47,12 +47,12 @@ final class RecentFolders {
 
     /// The Dock icon's menu: recent folders (open ones checked), then
     /// New Window, Open Folder… and a new agent chat. AppKit adds the window list and Quit.
-    func dockMenu(host: PluginHost) -> NSMenu {
+    func dockMenu(host: PluginHost?) -> NSMenu {
         let menu = NSMenu()
         let target = DockMenuTarget.shared
         target.host = host
         let open = Set(ProjectWindows.shared.allHosts.compactMap { $0.workspace.root?.standardizedFileURL })
-        let current = host.workspace.root
+        let current = host?.workspace.root
         for folder in existing {
             let item = NSMenuItem(title: folder.lastPathComponent, action: #selector(DockMenuTarget.openFolder(_:)), keyEquivalent: "")
             item.target = target
@@ -96,6 +96,12 @@ final class DockMenuTarget: NSObject {
     @objc func run(_ item: NSMenuItem) {
         guard let id = item.representedObject as? String else { return }
         NSApp.activate()
-        host?.commands.run(id)
+        if let host {
+            host.commands.run(id)
+        } else if id == "shell.newWindow" {
+            ProjectWindows.shared.newWindow()
+        } else if id == "workspace.openFolder" {
+            ProjectWindows.shared.presentOpenFolderPanel()
+        }
     }
 }

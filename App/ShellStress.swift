@@ -171,6 +171,19 @@ enum ShellStress {
             context.expectFreed(opened, "a closed window's PluginHost")
             context.expectFreed(opened.workspace, "a closed window's Workspace")
         })
+        // D254: the last window closed, Orbit keeps running; a new one opens the menus' way.
+        stress.add(StressStep("shell.lastWindowClosed", weight: 1) { context in
+            guard ProjectWindows.shared.allHosts.count == 1, let window = window(of: host) else { return }
+            window.performClose(nil)
+            for _ in 0..<40 where !ProjectWindows.shared.allHosts.isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
+            // Unsaved edits and Cancel: it stays.
+            guard ProjectWindows.shared.allHosts.isEmpty else { return context.note("the window stayed") }
+            context.expectFreed(host, "the last window's PluginHost")
+            context.expectFreed(workspace, "the last window's Workspace")
+            ProjectWindows.shared.newWindow()
+            for _ in 0..<100 where ProjectWindows.shared.allHosts.isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
+            if ProjectWindows.shared.allHosts.isEmpty { context.note("no window came back") }
+        })
         // Settings opened and closed: its views go with it (D246).
         stress.add(StressStep("shell.settingsFreed", weight: 1) { context in
             guard let window = window(of: host), let content = window.contentView, !context.ui.isSettingsVisible else { return }

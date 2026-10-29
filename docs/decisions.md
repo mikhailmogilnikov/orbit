@@ -262,6 +262,8 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D250. A long file's first screen colored from a parse of its start; where opening files and Settings spend their time
 - D251. Zed's default file types (`.env.*`); wrapped text keeps its place on screen as TextKit lays out above it
 - D252. The Explorer's ⌘C ⌘X ⌘V put the files themselves on the pasteboard, not SwiftUI's copies of them
+- D253. What Cursor users reach for first: the tree follows the open file, Collapse Folders, a tab's middle click and fuller menu
+- D254. Orbit keeps running when its last window closes, as Xcode and Cursor do
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2307,6 +2309,8 @@ last 10 in `orbit.recentFolders`, following `Workspace.root`; folders gone
 from disk are left out.
 
 ### D101. A window per project; the welcome window
+
+(D254: closing the last window no longer quits; Orbit keeps running without windows.)
 
 Several projects at once, as in Cursor: each window has its own folder
 and its own `PluginHost` — a full set of plugins, so tabs, terminals,
@@ -5745,4 +5749,47 @@ from the disk when the tree hasn't loaded it. `explorer.copyPaste` sends
 the menu's actions to the focused tree on a pasteboard of its own (the
 copies run side by side, and it left the user's clipboard alone); tests
 cover the model.
+
+### D253. What Cursor users reach for first: the tree follows the open file, Collapse Folders, a tab's middle click and fuller menu
+
+Looked for what makes Orbit unpleasant next to Cursor, after D252's paste:
+- A file opened outside the tree (⌘P, a definition, a search result) left
+  the tree as it was, its row in a closed folder. As Cursor's
+  `explorer.autoReveal`, a change of the active tab opens the folders down
+  to the file and scrolls it into view (also when the panel shows again);
+  a folder the user closes stays closed until the tab changes.
+  `explorer.revealsActiveFile` checks the folders open.
+- Collapse Folders in Explorer (`explorer.collapseAll`, the header's third
+  button on hover and View).
+- A tab's middle click closes it, as in Cursor and Safari: a view over the
+  tab that hit-tests only for the middle button, so clicks, hovers and
+  drags go to the tab. The stress run can't send it (a copy in the
+  background gets no synthesized clicks): a manual check.
+- A tab's menu: Close to the Right, Close All, Copy Path, Copy Relative
+  Path and Reveal in Explorer besides what it had.
+- Folders compared by path, not URL, where a trailing slash came between
+  them: a folder dropped from Finder on the Dock while open from Recent
+  Projects opened a second window, a drop in the folder a file was already
+  in asked to move it, and the project's folder could be renamed.
+- Checked and fine: the tree's ⌘Z after a rename or a new folder (the
+  window's undo manager), dragging rows (SwiftUI's `URL` transfer gives the
+  file itself, unlike D252's copy command), the terminal's copy, paste and
+  select all, Quick Open's recent files.
+- Left as decided: closing the last window quits (D101).
+
+### D254. Orbit keeps running when its last window closes, as Xcode and Cursor do
+
+Closing the last window quit Orbit (D101), its folder open again at the
+next launch. Xcode, Cursor and VS Code on the Mac keep running, and that's
+what the author wants. The last window now closes like any other: its
+plugins stop, its host goes, and Orbit stays with no window. The Dock
+icon opens a welcome window (SwiftUI's window group makes one with a new
+id), and so do the Dock menu's New Window and Open Folder…. The menus'
+commands are a window's, so with none open the File menu has its own New
+Window, Open Folder… (⌘O) and Open Recent, and Settings… (⌘,) opens a
+window showing Settings. A window opened then uses the menus' open-window
+action, not the closed window's. What reopens at launch is what was open
+at ⌘Q: a window closed before quitting doesn't come back.
+`shell.lastWindowClosed` closes the run's only window, checks its host and
+workspace go, and opens another.
 

@@ -63,7 +63,10 @@ struct ProjectWindowView: View {
             .tint(Theme.controlTint)
             .pillControls()
             .background(ProjectWindowReader(id: id))
-            .onAppear { ProjectWindows.shared.windowAppeared(openWindow: openWindow) }
+            .onAppear {
+                ProjectWindows.shared.windowAppeared(openWindow: openWindow)
+                ProjectWindows.shared.windowAppeared(host)
+            }
             .onChange(of: host.workspace.root, initial: true) { _, root in
                 if let root { RecentFolders.shared.note(root) }
                 ProjectWindows.shared.rootDidChange(host)
@@ -102,7 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         // AppKit asks on the main thread; NSMenu just can't cross the isolation boundary.
         nonisolated(unsafe) var menu: NSMenu?
-        MainActor.assumeIsolated { menu = ProjectWindows.shared.activeHost.map { RecentFolders.shared.dockMenu(host: $0) } }
+        MainActor.assumeIsolated { menu = RecentFolders.shared.dockMenu(host: ProjectWindows.shared.activeHost) }
         return menu
     }
 
@@ -125,7 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Running with no window, as Xcode and Cursor (D254); the Dock icon opens one.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
 
 struct CommandButton: View {

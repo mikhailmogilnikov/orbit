@@ -164,6 +164,13 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Explorer, search and windows
 
+- No window open (D254): close the last one, Orbit stays in the Dock; the
+  Dock icon opens a welcome window; File → New Window, Open Folder… (⌘O),
+  Open Recent and Settings… (⌘,) work from the menu bar; ⌘Q still asks
+  about unsaved edits.
+- The tree following the open file (D253): ⌘P a file deep in a closed
+  folder, the folders open and the row scrolls into view; Collapse Folders;
+  a tab's middle click closes it (a click, a hover and a drag still work).
 - Explorer ⌘C ⌘X ⌘V (D252): files and folders within the project, from
   Finder into the tree and from the tree into Finder; Cut moves; a folder
   pasted while selected lands beside it; undo.
