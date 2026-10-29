@@ -197,10 +197,14 @@ fi
 if [ ${#REPLAYS[@]} = 0 ] && [ -z "$PERF" ]; then
     python3 -I - "$OUT" <<'EOF' || failed=1
 import glob, json, sys
-known, every, reached, exemptions = set(), set(), set(), {}
+known, every, reached, exemptions = None, set(), set(), {}
 for path in glob.glob(f"{sys.argv[1]}/*/coverage.json"):
     data = json.load(open(path))
-    known |= set(data["known"]); every |= set(data.get("all", data["known"])); reached |= set(data["reached"]); exemptions.update(data["exemptions"])
+    # What every copy covers: what uses a changed plugin is seen as it looks
+    # services up, and copies saw it at different times (D250).
+    known = set(data["known"]) if known is None else known & set(data["known"])
+    every |= set(data.get("all", data["known"])); reached |= set(data["reached"]); exemptions.update(data["exemptions"])
+known = known or set()
 def exempt(key):
     return key in exemptions or any(e.endswith("*") and key.startswith(e[:-1]) for e in exemptions)
 uncovered = sorted(k for k in known - reached if not exempt(k))

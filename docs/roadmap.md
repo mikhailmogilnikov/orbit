@@ -264,10 +264,8 @@
 - Text editing basics (D105): move / copy lines ⌥↑↓ ⇧⌥↑↓, multiple carets (⌘D, ⇧⌘L, ⌥-click, ⌃⇧↑↓), Go to Line ⌃G, matching bracket outline, font zoom ⌘= ⌘- ⌘0
 
 ## Next (rough priority)
-0. Found by `make stress-full` (D250): after Git or Terminal are
-   turned off and on, their models stay alive in some runs; the text size
-   changed under a long transcript kept a copy busy past 20 s twice (not
-   reproduced). Seen once
+0. Found by `make stress-full` (D250): the text size changed under a
+   long transcript kept a copy busy past 20 s twice (not reproduced). Seen once
    (D246): an editor showed 28 of a 31-character file's characters after
    switching tabs in the big project.
 1. Faster: Settings take ~250 ms to open and ~180 to close, all SwiftUI's

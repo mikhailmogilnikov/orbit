@@ -29,8 +29,8 @@ public final class GitPlugin: OrbitPlugin {
             items: { [
                 SettingsItem("changeMarkers", "Change markers", keywords: ["gutter", "diff", "modified lines"]),
             ] }
-        ) {
-            GitSettingsPane(model: model)
+        ) { [weak model] in
+            if let model { GitSettingsPane(model: model) }
         })
         context.services.register(FileStatusProviding.self, model)
         context.services.register(VersionControlBaseline.self, model)
@@ -41,29 +41,38 @@ public final class GitPlugin: OrbitPlugin {
         ui.addEditorProvider(EditorProvider(
             id: "git.diff",
             accepts: { $0.kind == GitModel.diffKind || $0.kind == GitModel.stagedDiffKind }
-        ) { tab in
-            GitDiffView(model: model, url: tab.url!, staged: tab.kind == GitModel.stagedDiffKind)
-                .id(tab.id)
+        ) { [weak model] tab in
+            if let model {
+                GitDiffView(model: model, url: tab.url!, staged: tab.kind == GitModel.stagedDiffKind)
+                    .id(tab.id)
+            }
         })
 
         ui.addEditorProvider(EditorProvider(
             id: "git.commit",
             accepts: { $0.kind == GitModel.commitKind || $0.kind == GitModel.compareKind }
-        ) { tab in
-            GitCommitDiffView(model: model, tab: tab)
-                .id(tab.id)
+        ) { [weak model] tab in
+            if let model {
+                GitCommitDiffView(model: model, tab: tab)
+                    .id(tab.id)
+            }
         })
 
         ui.addEditorProvider(EditorProvider(
             id: "git.revision",
             accepts: { $0.kind == GitModel.revisionKind }
-        ) { tab in
-            GitRevisionView(model: model, tab: tab)
-                .id(tab.id)
+        ) { [weak model] tab in
+            if let model {
+                GitRevisionView(model: model, tab: tab)
+                    .id(tab.id)
+            }
         })
 
-        ui.addSidebarPanel(PanelContribution(id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", order: 15) {
-            GitPanel(model: model)
+        // The model weakly in what the shell shows: AppKit keeps views a while
+        // after they're gone (a popover's positioning view, a hosting view's
+        // responders), and they kept the plugin turned off (D250).
+        ui.addSidebarPanel(PanelContribution(id: "git", title: "Source Control", systemImage: "arrow.triangle.branch", order: 15) { [weak model] in
+            if let model { GitPanel(model: model) }
         }.command("git.show"))
 
         let isReady: @MainActor () -> Bool = { model.state == .ready && !model.isBusy }

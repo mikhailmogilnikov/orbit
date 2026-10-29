@@ -35,8 +35,8 @@ public final class GitLensPlugin: OrbitPlugin {
             items: { [
                 SettingsItem("statusBlame", "Blame for the current line", keywords: ["status bar", "git blame", "author"]),
             ] }
-        ) {
-            GitLensSettingsPane(model: model)
+        ) { [weak model] in
+            if let model { GitLensSettingsPane(model: model) }
         })
 
         let isReady: @MainActor () -> Bool = { model.state == .ready && !model.isBusy }
@@ -79,13 +79,13 @@ public final class GitLensPlugin: OrbitPlugin {
 
         ui.addStatusItem(StatusItem(
             id: "git.blame", placement: .trailing, order: 50,
-            isVisible: {
-                guard model.showsBlame, model.state == .ready, model.status.hasCommits,
+            isVisible: { [weak model] in
+                guard let model, model.showsBlame, model.state == .ready, model.status.hasCommits,
                       let cursor = services.resolve(EditorSelectionProviding.self)?.cursor else { return false }
                 return cursor.url == workspace.activeTab?.url && model.status(of: cursor.url) != .untracked
             }
-        ) {
-            if let editor = services.resolve(EditorSelectionProviding.self) {
+        ) { [weak model] in
+            if let model, let editor = services.resolve(EditorSelectionProviding.self) {
                 BlameStatus(model: model, editor: editor, workspace: workspace)
             }
         })

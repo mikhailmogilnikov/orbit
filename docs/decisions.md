@@ -5669,6 +5669,22 @@ Found on the way to the 0.4.3 release (`make stress-full` failed):
   that isn't mounted or one Orbit may not look into.
 - Still open: `agents.transcriptRelayout` (the text size changed under a
   long transcript) kept the process busy past 20 s twice, under four copies
-  with `leaks`; its replays, with `leaks` too, passed. After Git or Terminal are turned off and on, their models stay alive in
-  some runs, with or without kept editors (tasks hold them; Source
-  Control's refresh loop holds its model weakly now, which wasn't it).
+  with `leaks`; its replays, with `leaks` too, passed.
+- Git's and Terminal's models alive after their plugin was turned off and
+  on: Git's went with the kept editors' fix above (its runs all came
+  before it). Terminal's, in one replay of four: `STACKS=1` named the
+  holder, the closures of its panel contribution (the panel and the
+  header's New Terminal button), kept by the shell's bottom-panel header,
+  which AppKit holds a while in a hosting view's responders. They and the
+  running-tasks status item hold the store weakly now: 18 replays of 18
+  passed, 5 of 12 had failed. Source Control kept its model the same way
+  in two copies of four (a popover's positioning view, a hosting view's
+  responders): its panel, editors, Settings panes and Git Lens' status
+  item hold it weakly too; four full runs passed. `leaks`' paths through
+  an `ObjectIdentifier` (the editor's wiring) are its conservative scan,
+  not a hold.
+- A run of what changed failed its coverage with every copy passing: what
+  uses a changed plugin is seen as it looks services up, so copies chose
+  different plugins to cover (Terminal: one with the editor and Agents,
+  one without) and the sum asked for what some never took. It asks for
+  what every copy covers.

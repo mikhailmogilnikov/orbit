@@ -43,14 +43,18 @@ public final class TerminalPlugin: OrbitPlugin {
         let services = context.services
         store.browser = { services.resolve(WebPreviewing.self) }
 
-        ui.addStatusItem(StatusItem(id: "tasks.running", placement: .leading, order: 40, isVisible: { !store.runningTasks.isEmpty }) {
-            RunningTasksStatus(store: store)
+        // The shell's views hold these a while after the plugin is turned off (its
+        // panel header's button, in AppKit's responders): the store weakly (D250).
+        ui.addStatusItem(StatusItem(id: "tasks.running", placement: .leading, order: 40, isVisible: { [weak store] in
+            store?.runningTasks.isEmpty == false
+        }) { [weak store] in
+            if let store { RunningTasksStatus(store: store) }
         })
 
-        ui.addBottomPanel(PanelContribution(id: TerminalStore.panelID, title: "Terminal", systemImage: "terminal") {
-            TerminalPanel(store: store)
-        }.accessory {
-            IconButton("plus", help: "New Terminal (⌃⇧`)") { store.newSession() }
+        ui.addBottomPanel(PanelContribution(id: TerminalStore.panelID, title: "Terminal", systemImage: "terminal") { [weak store] in
+            if let store { TerminalPanel(store: store) }
+        }.accessory { [weak store] in
+            IconButton("plus", help: "New Terminal (⌃⇧`)") { store?.newSession() }
         }.command("terminal.toggle"))
 
         context.commands.register(OrbitCommand(
@@ -441,10 +445,10 @@ struct TerminalList: View {
             ScrollView {
                 VStack(spacing: 1) {
                     ForEach(store.sessions) { session in
-                        TerminalTab(session: session, isSelected: session.id == store.selectedID, isRunningTask: store.runningTasks.contains(session.id)) {
-                            store.select(session)
-                        } close: {
-                            store.close(session)
+                        TerminalTab(session: session, isSelected: session.id == store.selectedID, isRunningTask: store.runningTasks.contains(session.id)) { [weak store] in
+                            store?.select(session)
+                        } close: { [weak store] in
+                            store?.close(session)
                         }
                         .id(session.id)
                     }
