@@ -37,6 +37,9 @@ final class LanguageServer {
     @ObservationIgnored private var resolvesCodeActions = false
     @ObservationIgnored private var renames = false
     @ObservationIgnored private var preparesRename = false
+    /// Which moved files the server fixes imports for, and hears about (`workspace.fileOperations`, D255); nil: none.
+    @ObservationIgnored private var willRenameFilters: [FileOperationFilter]?
+    @ObservationIgnored private var didRenameFilters: [FileOperationFilter]?
     @ObservationIgnored private(set) var formats = false
     @ObservationIgnored private var findsReferences = false
     @ObservationIgnored private var highlightsSymbols = false
@@ -275,6 +278,7 @@ final class LanguageServer {
                 ],
                 "workspace": [
                     "workspaceFolders": true, "configuration": true, "applyEdit": true,
+                    "fileOperations": ["dynamicRegistration": false, "willRename": true, "didRename": true],
                     "didChangeWatchedFiles": ["dynamicRegistration": true, "relativePatternSupport": true],
                     "workspaceEdit": ["documentChanges": true, "resourceOperations": ["create", "rename", "delete"]],
                     // No `resolveSupport`: results must come with their ranges.
@@ -340,6 +344,9 @@ final class LanguageServer {
         let rename = capabilities?["renameProvider"]
         renames = enabled(rename)
         preparesRename = rename?["prepareProvider"]?.bool ?? false
+        let fileOperations = capabilities?["workspace"]?["fileOperations"]
+        willRenameFilters = FileOperationFilter.parse(fileOperations?["willRename"])
+        didRenameFilters = FileOperationFilter.parse(fileOperations?["didRename"])
         formats = enabled(capabilities?["documentFormattingProvider"])
         findsReferences = enabled(capabilities?["referencesProvider"])
         highlightsSymbols = enabled(capabilities?["documentHighlightProvider"])
@@ -1129,6 +1136,31 @@ final class LanguageServer {
         params["newName"] = .string(newName)
         let result = try await connection.request("textDocument/rename", .object(params))
         return workspaceEdit(result)
+    }
+
+    /// What keeps imports pointing at files moved in Orbit (`workspace/willRenameFiles`,
+    /// D255). Asked after the move, as VS Code does: the server hasn't seen it yet.
+    func editsForMoves(_ moves: [FileMove]) async -> WorkspaceEdit? {
+        guard let connection, state == .running, let filters = willRenameFilters else { return nil }
+        let files = Self.renames(moves, matching: filters)
+        guard !files.isEmpty,
+              let result = try? await connection.request("workspace/willRenameFiles", ["files": .array(files)]),
+              !result.isNull else { return nil }
+        return workspaceEdit(result)
+    }
+
+    func didMove(_ moves: [FileMove]) {
+        guard let connection, state == .running, let filters = didRenameFilters else { return }
+        let files = Self.renames(moves, matching: filters)
+        if !files.isEmpty { connection.notify("workspace/didRenameFiles", ["files": .array(files)]) }
+    }
+
+    private nonisolated static func renames(_ moves: [FileMove], matching filters: [FileOperationFilter]) -> [JSONValue] {
+        moves.filter { move in filters.contains { $0.matches(move.from.path, isFolder: move.isFolder) } }.map { move in
+            // A folder's URI without its trailing slash, as VS Code sends it.
+            func uri(_ url: URL) -> JSONValue { .string(URL(fileURLWithPath: url.path, isDirectory: false).absoluteString) }
+            return ["oldUri": uri(move.from), "newUri": uri(move.to)]
+        }
     }
 
     /// The whole document's formatting edits; nil when the server doesn't format.

@@ -65,6 +65,31 @@ import Testing
     }
 
     /// A Node crash names its error above the frames; the tail alone hid it.
+    /// D255: which moves a server hears of, and its edits landing where the files went.
+    @Test func fileMovesFollowServerFiltersAndLandWhereFilesWent() throws {
+        let filters = try #require(FileOperationFilter.parse(["filters": [
+            ["scheme": "file", "pattern": ["glob": "**/*.{ts,tsx}", "matches": "file"]],
+            ["pattern": ["glob": "**", "matches": "folder"]],
+            ["scheme": "untitled", "pattern": ["glob": "**"]],
+        ]]))
+        #expect(filters.count == 2)
+        #expect(filters.contains { $0.matches("/p/src/a.ts", isFolder: false) })
+        #expect(!filters.contains { $0.matches("/p/src/logo.png", isFolder: false) })
+        #expect(filters.contains { $0.matches("/p/src", isFolder: true) })
+        #expect(FileOperationFilter.parse(nil) == nil)
+
+        let moves = [FileMove(from: URL(fileURLWithPath: "/p/src/a.ts"), to: URL(fileURLWithPath: "/p/lib/b.ts"), isFolder: false),
+                     FileMove(from: URL(fileURLWithPath: "/p/old"), to: URL(fileURLWithPath: "/p/new"), isFolder: true)]
+        #expect(LanguageManager.movedURL(URL(fileURLWithPath: "/p/src/a.ts"), by: moves)?.path == "/p/lib/b.ts")
+        #expect(LanguageManager.movedURL(URL(fileURLWithPath: "/p/old/x/y.ts"), by: moves)?.path == "/p/new/x/y.ts")
+        #expect(LanguageManager.movedURL(URL(fileURLWithPath: "/p/older/y.ts"), by: moves) == nil)
+
+        let edit = SourceEdit(range: SourceRange(start: SourcePosition(line: 0, character: 0), end: SourcePosition(line: 0, character: 1)), newText: "x")
+        let relocated = WorkspaceEdit(files: [URL(fileURLWithPath: "/p/old/z.ts"): [edit], URL(fileURLWithPath: "/p/main.ts"): [edit]])
+            .relocated { LanguageManager.movedURL($0, by: moves) }
+        #expect(Set(relocated.files.keys.map(\.path)) == ["/p/new/z.ts", "/p/main.ts"])
+    }
+
     /// LSP globs as servers register them for `didChangeWatchedFiles` (D77).
     @Test func watchersMatchLikeVSCode() throws {
         let root = "/p"

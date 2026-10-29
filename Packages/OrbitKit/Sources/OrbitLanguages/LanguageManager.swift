@@ -89,6 +89,7 @@ final class LanguageManager: LanguageIntelligence {
         self.environment = environment
         root = workspace.root
         observe()
+        followMoves()
         followDisabledSwitches()
         autoUpdate()
         Task { [weak self] in
@@ -439,6 +440,50 @@ final class LanguageManager: LanguageIntelligence {
                 await install(config.id)
             }
         }
+    }
+
+    /// Files moved or renamed in Orbit: the servers that take part in renames
+    /// (TypeScript's, rust-analyzer, Dart…) fix what imports them (D255).
+    private func followMoves() {
+        withObservationTracking {
+            _ = workspace.lastMoves
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, !self.workspace.isClosed else { return }
+                if let moves = self.workspace.lastMoves?.items { self.updateImports(after: moves) }
+                self.followMoves()
+            }
+        }
+    }
+
+    private func updateImports(after items: [FileTransfer.Item]) {
+        let moves = items.map { item in
+            FileMove(from: item.from, to: item.to, isFolder: (try? item.to.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true)
+        }
+        let running = servers.values.filter { $0.state == .running }
+        guard !running.isEmpty else { return }
+        let updates = Preferences.shared.updatesImportsOnMove
+        Task { [weak self] in
+            for server in running {
+                if updates, let edit = await server.editsForMoves(moves), !edit.isEmpty, let self {
+                    // The server names the moved files where they were.
+                    self.apply(edit.relocated { Self.movedURL($0, by: moves) })
+                }
+                server.didMove(moves)
+            }
+        }
+    }
+
+    nonisolated static func movedURL(_ url: URL, by moves: [FileMove]) -> URL? {
+        let path = url.standardizedFileURL.path
+        for move in moves {
+            let from = move.from.standardizedFileURL.path
+            if path == from { return move.to.standardizedFileURL }
+            if path.hasPrefix(from + "/") {
+                return URL(fileURLWithPath: move.to.standardizedFileURL.path + path.dropFirst(from.count)).standardizedFileURL
+            }
+        }
+        return nil
     }
 
     /// Another window flipped a switch.
@@ -1007,7 +1052,7 @@ final class LanguageManager: LanguageIntelligence {
                     }
                 }
                 do {
-                    try workspace.moveItem(from, to: to)
+                    try workspace.moveItem(from, to: to, announced: false)
                 } catch {
                     worked = false
                 }

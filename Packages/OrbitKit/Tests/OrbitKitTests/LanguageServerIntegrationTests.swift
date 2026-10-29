@@ -192,6 +192,29 @@ struct LanguageServerIntegrationTests {
         #expect(tokens.contains { $0.line == property.line && $0.character == property.character && $0.type == "property" }, "\(tokens)")
     }
 
+    /// D255: asked after the file moved (as Orbit asks), TypeScript still says
+    /// how the imports of it change, and the moved file's own under its old name.
+    @Test(.enabled(if: LanguageCase.typeScriptBare.isAvailable))
+    func typeScriptFixesImportsOfAMovedFile() async throws {
+        let root = try LanguageCase.typeScriptBare.makeProject()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let server = LanguageServer(config: .typescript, root: root)
+        let started = await server.start(environment: Task { ProcessInfo.processInfo.environment })
+        try #require(started, "TypeScript didn't start: \(server.state)")
+        let main = root.appendingPathComponent("src/main.ts"), greeter = root.appendingPathComponent("src/greeter.ts")
+        for file in [main, greeter] { server.sync(file, text: try String(contentsOf: file, encoding: .utf8)) }
+        try await eventually(LanguageCase.typeScriptBare.timeout, "the project loaded") {
+            server.diagnostics[main.standardizedFileURL]?.isEmpty == false
+        }
+        let moved = root.appendingPathComponent("src/lib/greeter.ts")
+        try FileManager.default.createDirectory(at: moved.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: greeter, to: moved)
+        let edit = try #require(await server.editsForMoves([FileMove(from: greeter, to: moved, isFolder: false)]))
+        let mainEdits = edit.files[main.standardizedFileURL] ?? []
+        #expect(mainEdits.contains { $0.newText.contains("./lib/greeter") }, "\(edit)")
+        server.shutdown()
+    }
+
     /// D78: unused code comes tagged (drawn faded), deprecated code too (struck through).
     @Test(.enabled(if: LanguageCase.typeScriptBare.isAvailable))
     func typeScriptTagsUnusedAndDeprecated() async throws {

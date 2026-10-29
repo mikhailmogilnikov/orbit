@@ -61,6 +61,26 @@ enum LanguagesStress {
                 try? await Task.sleep(for: .milliseconds(run.int(0...80)))
             }
         })
+        // D255: a file renamed in Orbit, and the server fixing what names it.
+        stress.add(StressStep("languages.moveUpdatesImports", weight: 1) { run in
+            let workspace = context.workspace
+            let name = "moved-\(run.int(0...9999)).fake"
+            let file = run.file("src/\(name)"), importer = run.file("src/importer.fake")
+            try? Data("value = 1\n".utf8).write(to: file)
+            try? Data("import \(name)\n".utf8).write(to: importer)
+            workspace.fileSystemDidChange()
+            await run.open("src/importer.fake")
+            if run.chance(0.5) { await run.open("src/\(name)") }
+            try? await Task.sleep(for: .milliseconds(run.int(300...900)))
+            let renamed = "renamed-\(name)"
+            guard (try? workspace.renameItem(file, to: renamed)) != nil else { return run.note("the rename failed") }
+            for _ in 0..<30 where workspace.documents.existingDocument(for: importer)?.text.contains(renamed) != true {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            run.note(workspace.documents.existingDocument(for: importer)?.text.contains(renamed) == true
+                     ? "the import followed" : "the import stayed (the server may be down)")
+            if run.chance(0.5) { _ = try? workspace.renameItem(run.file("src/\(renamed)"), to: name) }
+        })
         stress.exempt(StressCoverage.source(.languageServers), because: "installs servers from the network (Mason)")
     }
 
@@ -126,7 +146,9 @@ while True:
         answer(message, {"capabilities": {
             "textDocumentSync": 1, "hoverProvider": True, "definitionProvider": True, "referencesProvider": True,
             "documentSymbolProvider": True, "documentFormattingProvider": True, "renameProvider": True,
-            "completionProvider": {"triggerCharacters": [".", "("]}, "codeActionProvider": True, "callHierarchyProvider": True},
+            "completionProvider": {"triggerCharacters": [".", "("]}, "codeActionProvider": True, "callHierarchyProvider": True,
+            "workspace": {"fileOperations": {"willRename": {"filters": [{"pattern": {"glob": "**/*.fake", "matches": "file"}}]},
+                                             "didRename": {"filters": [{"pattern": {"glob": "**"}}]}}}},
             "serverInfo": {"name": "fake-lsp", "version": "1"}})
     elif method == "initialized":
         send({"jsonrpc": "2.0", "id": "progress-1", "method": "window/workDoneProgress/create", "params": {"token": "fake"}})
@@ -176,6 +198,17 @@ while True:
         text = documents.get(params["textDocument"]["uri"], "")
         lines = text.split("\n")
         answer(message, [{"range": {"start": position(0, 0), "end": position(len(lines), 0)}, "newText": text.strip() + "\n"}])
+    elif method == "workspace/willRenameFiles":
+        # Every open line naming the old file names the new one (D255).
+        changes = {}
+        for rename in params["files"]:
+            old, new = rename["oldUri"].rsplit("/", 1)[1], rename["newUri"].rsplit("/", 1)[1]
+            for uri, text in documents.items():
+                for number, line in enumerate(text.split("\n")):
+                    start = line.find(old)
+                    if start >= 0:
+                        changes.setdefault(uri, []).append({"range": {"start": position(number, start), "end": position(number, start + len(old))}, "newText": new})
+        answer(message, {"changes": changes} if changes else None)
     elif method == "shutdown":
         answer(message, None)
     elif method == "exit":

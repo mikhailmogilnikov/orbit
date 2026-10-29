@@ -49,6 +49,34 @@ struct FileWatcher: Sendable {
     }
 }
 
+/// A file or folder moved in Orbit, as language servers hear of it (D255).
+struct FileMove: Sendable, Equatable {
+    let from: URL
+    let to: URL
+    let isFolder: Bool
+}
+
+/// Which renames a server takes part in (`FileOperationFilter`).
+struct FileOperationFilter: Sendable {
+    let pattern: NSRegularExpression
+    /// "file", "folder", or nil for both.
+    let kind: String?
+
+    static func parse(_ options: JSONValue?) -> [FileOperationFilter]? {
+        guard let filters = options?["filters"]?.array else { return nil }
+        return filters.compactMap { filter in
+            guard (filter["scheme"]?.string ?? "file") == "file",
+                  let glob = filter["pattern"]?["glob"]?.string, let regex = Glob.regex(glob) else { return nil }
+            return FileOperationFilter(pattern: regex, kind: filter["pattern"]?["matches"]?.string)
+        }
+    }
+
+    func matches(_ path: String, isFolder: Bool) -> Bool {
+        if let kind, (kind == "folder") != isFolder { return false }
+        return Glob.matches(pattern, path)
+    }
+}
+
 /// LSP's glob syntax: `*`, `**`, `?`, `{a,b}`, `[abc]` / `[!abc]`.
 enum Glob {
     static func regex(_ glob: String) -> NSRegularExpression? {

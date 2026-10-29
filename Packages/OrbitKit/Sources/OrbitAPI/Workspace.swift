@@ -122,6 +122,11 @@ public final class Workspace {
 
     /// Bumped whenever files on disk may have changed (agent finished a tool call, etc.).
     public private(set) var fileSystemGeneration = 0
+    /// Files and folders moved or renamed in Orbit, for language servers to
+    /// fix their imports (D255); the serial changes with each batch. Moves made
+    /// by a server's own edit aren't here.
+    public private(set) var lastMoves: (serial: Int, items: [FileTransfer.Item])?
+    @ObservationIgnored private var unannouncedMoves: [FileTransfer.Item] = []
 
     private static let lastRootKey = "orbit.lastWorkspaceRoot"
     private static let recentFilesKey = "orbit.recentFiles"
@@ -365,6 +370,7 @@ public final class Workspace {
                 } else {
                     try manager.moveItem(at: url, to: destination)
                     relocate(from: url, to: destination)
+                    announceMove(.init(from: url, to: destination))
                 }
                 result.items.append(.init(from: url, to: destination))
             } catch {
@@ -393,7 +399,8 @@ public final class Workspace {
 
     /// Moves one item to an exact place (a rename, undoing a move); tabs and
     /// buffers follow. Never replaces an item; missing folders are created.
-    public func moveItem(_ url: URL, to destination: URL) throws {
+    /// `announced`: false for a move a language server asked for itself.
+    public func moveItem(_ url: URL, to destination: URL, announced: Bool = true) throws {
         let url = url.standardizedFileURL, destination = destination.standardizedFileURL
         guard destination != url else { return }
         let manager = FileManager.default
@@ -410,7 +417,20 @@ public final class Workspace {
             try manager.moveItem(at: url, to: destination)
         }
         relocate(from: url, to: destination)
+        if announced { announceMove(.init(from: url, to: destination)) }
         fileSystemDidChange()
+    }
+
+    /// Undoing a drop moves its items one by one: they go out as one batch.
+    private func announceMove(_ item: FileTransfer.Item) {
+        if unannouncedMoves.isEmpty {
+            Task { @MainActor [weak self] in
+                guard let self, !unannouncedMoves.isEmpty else { return }
+                lastMoves = ((lastMoves?.serial ?? 0) + 1, unannouncedMoves)
+                unannouncedMoves = []
+            }
+        }
+        unannouncedMoves.append(item)
     }
 
     /// Renames an item in place; returns its new URL.

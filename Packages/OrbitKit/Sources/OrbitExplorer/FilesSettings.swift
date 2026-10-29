@@ -23,6 +23,14 @@ struct FilesSettingsPane: View {
                 .settingsItem("ignored")
             }
 
+            Section("Moving Files") {
+                Toggle(isOn: $preferences.updatesImportsOnMove) {
+                    Text("Update imports when files move")
+                    Text("Moving or renaming a file in Orbit changes the code that imports it, where its language server can tell.")
+                }
+                .settingsItem("updatesImports")
+            }
+
             Section {
                 ForEach(preferences.excludedFiles, id: \.self) { pattern in
                     LabeledContent {

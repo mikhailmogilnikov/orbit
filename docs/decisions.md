@@ -264,6 +264,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D252. The Explorer's ⌘C ⌘X ⌘V put the files themselves on the pasteboard, not SwiftUI's copies of them
 - D253. What Cursor users reach for first: the tree follows the open file, Collapse Folders, a tab's middle click and fuller menu
 - D254. Orbit keeps running when its last window closes, as Xcode and Cursor do
+- D255. Imports follow a file moved or renamed in Orbit; a mouse's side buttons go back and forward
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -2294,6 +2295,7 @@ shortcut with ⇧ on "-" reads as "_" and never matches. The menu items stay
 for discovery (View menu, palette); "Show Recent Tab" picked from the menu
 flips to the previous tab. In the terminal ⌃- no longer reaches the shell
 (readline's undo), as in VS Code.
+(D255: a mouse's side buttons go back and forward too.)
 
 ### D100. Dock menu and Open Recent: recent folders
 
@@ -5793,3 +5795,31 @@ at ⌘Q: a window closed before quitting doesn't come back.
 `shell.lastWindowClosed` closes the run's only window, checks its host and
 workspace go, and opens another.
 
+### D255. Imports follow a file moved or renamed in Orbit; a mouse's side buttons go back and forward
+
+Renaming `greeter.ts` in the explorer, or dragging it into another folder,
+left every `import … from "./greeter"` broken, where Cursor fixes them.
+Servers that take part in renames say so in `workspace.fileOperations`
+(typescript-language-server, vtsls, rust-analyzer, Dart's…); Orbit now
+says it supports `willRename` / `didRename`. Every move made in Orbit (a
+rename, a drop, cut and paste, undoing one) is announced by `Workspace`
+as `lastMoves`, a batch per main-actor turn: undoing a drop moves its
+items one by one. Moves a server's own edit makes (a file rename inside a
+symbol rename) aren't, so they aren't fixed twice. The language manager
+asks each running server whose filters match (`willRenameFiles`), applies
+its edit as any other (open files through the editor, one undo step each;
+the rest on disk), then tells it the move happened (`didRenameFiles`).
+
+The move has already happened when the servers hear of it, as with VS
+Code's TypeScript: the explorer's moves stay synchronous, and the server
+hasn't seen the files change yet, so it answers from the old tree. It
+names the moved files where they were; their edits are applied where they
+went. Undoing the move moves the files back and the imports follow again.
+Files → Moving Files → "Update imports when files move" (on by default)
+turns it off; the servers still hear of the moves.
+
+A mouse's side buttons (3 and 4) go back and forward through the
+location history (D99), as in Xcode and VS Code; over the browser pane
+they go through its own history while it has one.
+`languages.moveUpdatesImports` renames a file the stress run's fake
+server takes part in and notes whether its importer followed.

@@ -37,6 +37,19 @@ public struct WorkspaceEdit: Sendable, Hashable {
         steps.allSatisfy { if case .edit(_, let edits) = $0 { edits.isEmpty } else { false } }
     }
 
+    /// The same edit with some files at another place (`moved` returns nil for the rest).
+    public func relocated(_ moved: (URL) -> URL?) -> WorkspaceEdit {
+        func place(_ url: URL) -> URL { moved(url) ?? url }
+        return WorkspaceEdit(steps: steps.map { step in
+            switch step {
+            case .edit(let url, let edits): .edit(place(url), edits)
+            case .create(let url, let overwrite, let ignore): .create(place(url), overwrite: overwrite, ignoreIfExists: ignore)
+            case .rename(let from, let to, let overwrite, let ignore): .rename(place(from), to: place(to), overwrite: overwrite, ignoreIfExists: ignore)
+            case .delete(let url, let recursive, let ignore): .delete(place(url), recursive: recursive, ignoreIfNotExists: ignore)
+            }
+        })
+    }
+
     /// Files it touches: edited, created, renamed (both names) or deleted.
     public var touchedFiles: Set<URL> {
         steps.reduce(into: []) { urls, step in

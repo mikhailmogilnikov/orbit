@@ -29,6 +29,7 @@ public final class ExplorerPlugin: OrbitPlugin {
             items: { [
                 SettingsItem("hidden", "Show hidden files", keywords: ["dotfiles", "dot files", ".env"]),
                 SettingsItem("ignored", "Show git-ignored files", keywords: [".gitignore", "build output", "node_modules"]),
+                SettingsItem("updatesImports", "Update imports when files move", keywords: ["rename", "move", "imports", "references", "willRenameFiles"]),
                 SettingsItem("excluded", "Excluded files", keywords: ["exclude", "files.exclude", "hide", "glob", "pattern"]),
             ] }
         ) {

@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- Moving or renaming a file in Orbit fixes the imports of it, where its language server can tell (TypeScript, rust-analyzer, Dart…); a mouse's side buttons go back and forward (D255)
 - Orbit keeps running when its last window closes, as Xcode and Cursor do; the Dock icon, File and Settings work with no window (D254)
 - The Explorer follows the open file (its folders open, it scrolls into view) and has Collapse Folders; a tab closes on a middle click and its menu has Close to the Right, Close All, Copy Path and Reveal in Explorer (D253)
 - Copying, cutting and pasting files and folders in the Explorer (⌘C ⌘X ⌘V) works, with Finder too; a folder pasted on itself goes beside it (D252)
@@ -368,8 +369,6 @@ tried by hand are in [manual-checks.md](manual-checks.md).
 - Squiggles move with edits until the server republishes. A server that
   fails stays off until Restart Language Servers or reopening the folder.
   Go to Symbol in Project only asks servers already running.
-- Renaming a file in the explorer doesn't ask servers to update imports
-  (`workspace/willRenameFiles`).
 - One server per file type. RubyGems / NuGet / opam packages can't be
   installed (Ruby is found on PATH only).
 - Vue: `.ts` files importing components don't see their props (their
@@ -391,7 +390,7 @@ tried by hand are in [manual-checks.md](manual-checks.md).
   only while it's loaded in the explorer or holds an open file (D239). A file
   opened by two paths is one buffer, under the path it was first opened by.
 - Location history: moving a tab between sides records passing through the
-  tab left behind; no mouse back / forward buttons. Open Quickly doesn't
+  tab left behind. Open Quickly doesn't
   open preview tabs.
 - Markdown preview: no side-by-side view; preview tabs aren't restored on
   launch; code colors follow a theme change only after the next edit.

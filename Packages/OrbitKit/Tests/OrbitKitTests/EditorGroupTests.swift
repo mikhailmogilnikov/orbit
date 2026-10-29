@@ -120,6 +120,24 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: b.path))
     }
 
+    /// D255: moves made in Orbit go out together for the language servers;
+    /// copies and a server's own renames don't.
+    @Test func movesAreAnnouncedInOneBatch() async throws {
+        let (workspace, a, b, c) = try makeWorkspace()
+        let root = workspace.root!
+        let folder = root.appendingPathComponent("lib")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let renamed = try workspace.renameItem(a, to: "renamed.txt")
+        workspace.moveItems([b], into: folder)
+        workspace.moveItems([c], into: folder, copy: true)
+        try workspace.moveItem(renamed, to: root.appendingPathComponent("quiet.txt"), announced: false)
+        #expect(workspace.lastMoves == nil)
+        for _ in 0..<100 where workspace.lastMoves == nil { await Task.yield() }
+        let moves = try #require(workspace.lastMoves)
+        #expect(moves.items.map(\.from) == [a.standardizedFileURL, b.standardizedFileURL])
+        #expect(moves.items.map(\.to) == [renamed, folder.appendingPathComponent("b.txt").standardizedFileURL])
+    }
+
     @Test func renamesCarryTabsAndRefuseTakenNames() throws {
         let (workspace, a, b, _) = try makeWorkspace()
         let root = workspace.root!

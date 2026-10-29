@@ -119,6 +119,11 @@ public final class Preferences {
         didSet { UserDefaults.standard.set(showsIgnoredFiles, forKey: Keys.showsIgnoredFiles) }
     }
 
+    /// Moving or renaming a file in Orbit fixes the imports of it (D255).
+    public var updatesImportsOnMove: Bool {
+        didSet { UserDefaults.standard.set(updatesImportsOnMove, forKey: Keys.updatesImportsOnMove) }
+    }
+
     /// Globs hidden from the file tree, Open Quickly and Find in Project (D178).
     public var excludedFiles: [String] {
         didSet {
@@ -193,6 +198,7 @@ public final class Preferences {
         static let indentSpaces = "orbit.indentSpaces"
         static let showsHiddenFiles = "orbit.showsHiddenFiles"
         static let showsIgnoredFiles = "orbit.showsIgnoredFiles"
+        static let updatesImportsOnMove = "orbit.updatesImportsOnMove"
         static let excludedFiles = "orbit.excludedFiles"
         static let lightTheme = "orbit.lightTheme"
         static let darkTheme = "orbit.darkTheme"
@@ -232,6 +238,7 @@ public final class Preferences {
         darkIconThemeID = defaults.string(forKey: Keys.darkIconTheme) ?? legacyIcons
         showsHiddenFiles = defaults.object(forKey: Keys.showsHiddenFiles) as? Bool ?? true
         showsIgnoredFiles = defaults.object(forKey: Keys.showsIgnoredFiles) as? Bool ?? true
+        updatesImportsOnMove = defaults.object(forKey: Keys.updatesImportsOnMove) as? Bool ?? true
         excludedFiles = defaults.stringArray(forKey: Keys.excludedFiles) ?? []
         fileExclusions = PathFilter(exclude: excludedFiles.joined(separator: ","))
     }

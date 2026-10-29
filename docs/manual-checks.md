@@ -164,6 +164,11 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Explorer, search and windows
 
+- Imports following a move (D255): in a TypeScript project, rename a file
+  imported elsewhere and drag one into another folder; the imports change
+  (open and closed files), ⌘Z in the explorer moves it back and they change
+  back; the setting off leaves them. A mouse's side buttons go back and
+  forward between files.
 - No window open (D254): close the last one, Orbit stays in the Dock; the
   Dock icon opens a welcome window; File → New Window, Open Folder… (⌘O),
   Open Recent and Settings… (⌘,) work from the menu bar; ⌘Q still asks
