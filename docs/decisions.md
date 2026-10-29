@@ -260,6 +260,7 @@ fully superseded entries live in [decisions-archive.md](decisions-archive.md).
 - D248. The stress run's gallery of every panel and pane, and timings against a baseline
 - D249. Faster typing and tab switches: the text's bytes searched and copied in bulk, the last tabs' editors kept
 - D250. A long file's first screen colored from a parse of its start; where opening files and Settings spend their time
+- D251. Zed's default file types (`.env.*`); wrapped text keeps its place on screen as TextKit lays out above it
 
 ### D1. Native SwiftUI/AppKit, macOS 26+
 Goal is minimal memory/battery and an Apple-native feel. Targeting macOS 26
@@ -1528,6 +1529,8 @@ room, on a capsule in the theme's hint colors, made only for the viewport.
   drawing is unverified on a Mac.
 
 ### D71. Syntax highlighting is Zed's languages, imported; nothing built in
+
+(D251: Zed's default `file_types` come with them, globs that win over suffixes.)
 
 Context: highlighting had three hand-made layers — 20 grammars linked into
 the app (STTextView-Plugin-Neon's, with their nvim-style queries), a list of
@@ -5688,3 +5691,36 @@ Found on the way to the 0.4.3 release (`make stress-full` failed):
   different plugins to cover (Terminal: one with the editor and Agents,
   one without) and the sum asked for what some never took. It asks for
   what every copy covers.
+
+### D251. Zed's default file types (`.env.*`); wrapped text keeps its place on screen as TextKit lays out above it
+
+`.env.development`, `.env.local` and `.env.example` had no colors: Env's
+one suffix is `.env`, which only `.env` itself matched. Zed gets the rest
+from its default settings, `file_types` (`"Env": [".env.*"]`, JSONC for
+`tsconfig*.json` and `.vscode/**/*.json`, Markdown for `.cursorrules` and
+the like), which win over a language's suffixes. `make import-grammars`
+reads them from `assets/settings/default.json` at the pinned commit (the
+sparse checkout takes it too) into `fileTypes`; the catalog matches a glob
+with a `/` against the path and any other against the file name, before
+the suffixes. The table got them by running the importer's function on it,
+not the whole import: that ranks extensions by today's download counts and
+would reorder it. A suffix with its own dot (`.env`) now also matches
+`production.env` (it was compared with `..env`).
+
+Markdown jumped while scrolling, the line numbers with it, with lines
+wrapped: TextKit 2 lays out what's on screen and estimates the rest, and a
+paragraph above the screen laid out for real moved the text by its
+estimate's error. A stress step reads 80 screens down a wrapped Markdown
+file, jumps to its end and scrolls up 100 points at a time: the text moved
+by 18–54 points more than scrolled in 26 of 80 steps. `OrbitTextView`
+keeps the topmost laid-out paragraph on screen where it was across each
+layout (Apple's TextKit 2 sample adjusts the viewport the same way):
+7 of 80 now. The rest are passes where TextKit replaced that paragraph's
+fragment with one not laid out yet; carrying it to the next pass, or
+laying it out on the spot, made TextKit re-estimate the whole file and
+move it by thousands of points. Laying the whole text out in idle slices
+was tried first and dropped: TextKit doesn't keep it, its height went on
+changing (53 000–59 000 points for the same file). STTextView keeps the
+estimated height from the frame while a scroll gesture lasts, so the
+scroller doesn't follow it either.
+

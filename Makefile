@@ -83,7 +83,7 @@ ZED_EXTENSIONS_COMMIT := c63c15ce892e8ea02d0be53ae5d2526105e03519
 import-grammars:
 	@tmp=$$(mktemp -d) && \
 	git init -q $$tmp/zed && \
-	git -C $$tmp/zed sparse-checkout set --no-cone /Cargo.toml /Cargo.lock /crates/grammars/ && \
+	git -C $$tmp/zed sparse-checkout set --no-cone /Cargo.toml /Cargo.lock /crates/grammars/ /assets/settings/default.json && \
 	git -C $$tmp/zed fetch -q --depth 1 --filter=blob:none https://github.com/zed-industries/zed.git $(ZED_COMMIT) && \
 	git -C $$tmp/zed checkout -q FETCH_HEAD && \
 	git init -q $$tmp/catalog && \

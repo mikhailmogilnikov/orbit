@@ -262,6 +262,9 @@
     }
    ],
    "autocloseBefore": "}",
+   "fileTypes": [
+    ".env.*"
+   ],
    "id": "env"
   },
   {
@@ -554,6 +557,12 @@
     }
    ],
    "autocloseBefore": ",]}",
+   "fileTypes": [
+    "**/.zed/*.json",
+    "**/.vscode/**/*.json",
+    "**/{zed,Zed}/{settings,keymap,tasks,debug}.json",
+    "tsconfig*.json"
+   ],
    "id": "jsonc"
   },
   {
@@ -594,6 +603,12 @@
    "autocloseBefore": ";:.,=}])>",
    "aliases": [
     "md"
+   ],
+   "fileTypes": [
+    ".rules",
+    ".cursorrules",
+    ".windsurfrules",
+    ".clinerules"
    ],
    "id": "markdown"
   },

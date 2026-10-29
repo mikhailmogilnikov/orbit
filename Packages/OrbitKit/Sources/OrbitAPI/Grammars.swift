@@ -22,6 +22,10 @@ public struct SyntaxLanguage: Codable, Sendable, Hashable {
     /// Zed's queries, pinned to a commit: what to color, and where other languages are embedded.
     public var highlights: String
     public var injections: String?
+    /// Globs that win over every suffix, Zed's default `file_types`
+    /// (`.env.*`, `tsconfig*.json`): one with a `/` matches the path, any
+    /// other the file name.
+    public var fileTypes: [String]?
     /// A regex for the first line when no suffix matches (shebangs).
     public var firstLine: String?
     public var aliases: [String]?
@@ -41,7 +45,7 @@ public struct SyntaxLanguage: Codable, Sendable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, id, grammar, suffixes, highlights, injections, firstLine, aliases, lineComments, blockComment, brackets, autocloseBefore
+        case name, id, grammar, suffixes, highlights, injections, fileTypes, firstLine, aliases, lineComments, blockComment, brackets, autocloseBefore
         case zedExtension = "extension"
     }
 }
@@ -65,6 +69,8 @@ public struct GrammarCatalog: Sendable {
     public let grammars: [String: GrammarRepository]
     /// Suffix → positions in `languages`.
     private let suffixIndex: [String: [Int]]
+    /// `fileTypes` as regexes, in the languages' order.
+    private let fileTypes: [(pattern: NSRegularExpression, matchesPath: Bool, index: Int)]
     /// Lowercased name or suffix, alias, grammar → position (`language(named:)` runs per injection).
     private let nameIndex: [String: Int]
 
@@ -76,6 +82,11 @@ public struct GrammarCatalog: Sendable {
             for suffix in Set(language.suffixes) { index[suffix, default: []].append(position) }
         }
         suffixIndex = index
+        fileTypes = languages.enumerated().flatMap { position, language in
+            (language.fileTypes ?? []).compactMap { glob in
+                Self.regex(glob: glob).map { ($0, glob.contains("/"), position) }
+            }
+        }
         var names: [String: Int] = [:]
         // Later passes don't override earlier ones: name/suffix, then aliases, then grammar.
         for (position, language) in languages.enumerated() {
@@ -113,6 +124,13 @@ public struct GrammarCatalog: Sendable {
     /// with none, a first-line pattern.
     public func language(for url: URL, firstLine: @autoclosure () -> String? = nil) -> SyntaxLanguage? {
         let fileName = url.lastPathComponent
+        // `.env.development` has no suffix of Env's: Zed's `file_types` say it is one (D250).
+        for fileType in fileTypes {
+            let subject = fileType.matchesPath ? url.path : fileName
+            if fileType.pattern.firstMatch(in: subject, range: NSRange(subject.startIndex..., in: subject)) != nil {
+                return languages[fileType.index]
+            }
+        }
         // `.zshrc`'s extension is `zshrc` here, unlike `pathExtension`.
         let candidates = [fileName.split(separator: ".", omittingEmptySubsequences: false).last.map(String.init) ?? "", fileName, url.path]
         // A suffix matches a candidate equal to it or ending in `.<suffix>`, so only
@@ -122,6 +140,8 @@ public struct GrammarCatalog: Sendable {
             var keys = [Substring(candidate)]
             var rest = Substring(candidate)
             while let dot = rest.firstIndex(of: ".") {
+                // With its dot too: a suffix may have one (`.env`).
+                keys.append(rest[dot...])
                 rest = rest[rest.index(after: dot)...]
                 keys.append(rest)
             }
@@ -144,9 +164,41 @@ public struct GrammarCatalog: Sendable {
 
     private static func matchLength(_ language: SyntaxLanguage, _ candidates: [String]) -> Int {
         language.suffixes.reduce(0) { length, suffix in
-            let match = candidates.first { $0 == suffix || $0.hasSuffix("." + suffix) }
+            // A suffix with its dot (`.env`) is one already: `production.env`.
+            let ending = suffix.hasPrefix(".") ? suffix : "." + suffix
+            let match = candidates.first { $0 == suffix || $0.hasSuffix(ending) }
             return max(length, match?.count ?? 0)
         }
+    }
+
+    /// A `file_types` glob as a regex: `*` and `?` within a path component,
+    /// `**/` any folders, `{a,b}` either.
+    static func regex(glob: String) -> NSRegularExpression? {
+        var pattern = glob.contains("/") ? "(?:^|/)" : "^"
+        var rest = Substring(glob)
+        var inBraces = false
+        while let character = rest.first {
+            if rest.hasPrefix("**/") {
+                pattern += "(?:.*/)?"
+                rest = rest.dropFirst(3)
+                continue
+            }
+            if rest.hasPrefix("**") {
+                pattern += ".*"
+                rest = rest.dropFirst(2)
+                continue
+            }
+            switch character {
+            case "*": pattern += "[^/]*"
+            case "?": pattern += "[^/]"
+            case "{": pattern += "(?:"; inBraces = true
+            case "}" where inBraces: pattern += ")"; inBraces = false
+            case "," where inBraces: pattern += "|"
+            default: pattern += NSRegularExpression.escapedPattern(for: String(character))
+            }
+            rest = rest.dropFirst()
+        }
+        return try? NSRegularExpression(pattern: pattern + "$")
     }
 
     /// For a language another one embeds, as an injection query or a code fence

@@ -1,7 +1,7 @@
 #if DEBUG
 import AppKit
 import OrbitAPI
-import STTextView
+@_spi(Plugins) import STTextView
 
 /// The editor's part of a stress run (D244): files that are hard to show
 /// and edit, editing as a person (and a bad day) would, and the text on
@@ -63,6 +63,48 @@ enum EditorStress {
             guard let textView = editor()?.textView else { return }
             let length = textView.documentText.length
             textView.scrollRangeToVisible(NSRange(location: run.chance(0.3) ? length : run.int(0...length), length: 0))
+        })
+        // D251: wrapped Markdown scrolled up 100 points at a time from its end,
+        // where above the screen is estimated: a line on screen moves by 100.
+        // What moves otherwise is noted (it was 26 of 80 steps, by 18–54 points).
+        stress.add(StressStep("editor.wrappedScroll", weight: 1) { run in
+            let wrapped = options.wrapsLines
+            options.wrapsLines = true
+            defer { options.wrapsLines = wrapped }
+            await run.open("docs/long.md")
+            guard let textView = editor()?.textView, let scrollView = textView.enclosingScrollView else { return }
+            // Read some way down first: laid out there, estimated past it.
+            for _ in 0..<80 {
+                let origin = scrollView.contentView.bounds.origin
+                scrollView.contentView.scroll(to: NSPoint(x: origin.x, y: origin.y + 100))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+                scrollView.layoutSubtreeIfNeeded()
+            }
+            textView.scrollRangeToVisible(NSRange(location: textView.documentText.length, length: 0))
+            await run.settle()
+            let content = textView.textContentManager
+            // A paragraph in the middle of the screen: where it starts, and how far below the top.
+            @MainActor func middle() -> (location: Int, y: CGFloat)? {
+                let visible = textView.visibleRect
+                guard let fragment = textView.textLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: visible.midY - textView.contentFrame.minY)) else { return nil }
+                return (content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location),
+                        fragment.layoutFragmentFrame.minY + textView.contentFrame.minY - visible.minY)
+            }
+            var jumps: [String] = []
+            for step in 0..<80 {
+                let origin = scrollView.contentView.bounds.origin
+                guard let before = middle(), origin.y > 100 else { break }
+                scrollView.contentView.scroll(to: NSPoint(x: origin.x, y: origin.y - 100))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+                scrollView.layoutSubtreeIfNeeded()
+                await run.settle()
+                guard let location = content.location(content.documentRange.location, offsetBy: before.location),
+                      let fragment = textView.textLayoutManager.textLayoutFragment(for: location) else { continue }
+                let now = fragment.layoutFragmentFrame.minY + textView.contentFrame.minY - textView.visibleRect.minY
+                let jump = now - before.y - 100
+                if abs(jump) > 1 { jumps.append("\(step): \(Int(jump))") }
+            }
+            run.note("text moved by more or less than scrolled: \(jumps.count) of 80 steps \(jumps.prefix(8).joined(separator: ", "))")
         })
         stress.add(StressStep("editor.option", weight: 2) { run in
             guard let option = run.pick(EditorOptions.Option.allCases) else { return }
@@ -233,6 +275,18 @@ enum EditorStress {
         })
     }
 
+    /// Prose with long lines, emphasis and code, as a README or a design doc.
+    private static let longMarkdown = (0..<300).map { index in
+        let words = (0..<(20 + index * 7 % 90)).map { "word\($0 % 13)" }.joined(separator: " ")
+        return switch index % 6 {
+        case 0: "## Section \(index)\n\n\(words) with **bold \(index)** and *italics* in a long line.\n"
+        case 1: "- \(words)\n- a short item with `code`\n"
+        case 2: "```swift\nlet value\(index) = compute(\(index)) // \(words)\n```\n"
+        case 3: "> \(words) _quoted_ and **strong**\n"
+        default: "\(words) and a [link](https://example.com/\(index)) at the end.\n"
+        }
+    }.joined(separator: "\n")
+
     private static let snippets = [
         "a", "Hello, stress ", "\n", "\t", "    ", "{", "}", "()", "\"", "'", "`", "//", "/* */", "<div>", "</div>",
         "☃", "👩‍👩‍👧", "🏳️‍🌈", "שלום", "مرحبا", "e\u{301}", "漢字", "\u{200B}", "\r\n",
@@ -251,6 +305,7 @@ enum EditorStress {
     ]
 
     private static func addFiles(to stress: StressRegistry) {
+        stress.addFile("docs/long.md", longMarkdown)
         stress.addFile("empty.txt", "")
         stress.addFile("one-line.txt", "no newline at the end")
         // Shorter than the window, like the file 0.4.0 crashed on (D237).

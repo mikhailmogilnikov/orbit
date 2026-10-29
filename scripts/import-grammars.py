@@ -11,6 +11,9 @@ Reads, at pinned commits:
     Zed's API only says which extensions provide languages and how popular
     they are (the order ties are broken in).
 
+Zed's default settings (`assets/settings/default.json`) add `file_types`:
+globs that win over a language's suffixes (`.env.*` is Env).
+
 Writes Packages/OrbitKit/Sources/OrbitAPI/Resources/Grammars.json. Queries
 stay on GitHub, fetched when a language is installed. Run with
 `make import-grammars`.
@@ -277,6 +280,20 @@ def zed_languages(zed, commit, work):
     return languages, grammars
 
 
+def jsonc(text):
+    """JSON with comments and trailing commas, as Zed's settings are."""
+    text = re.sub(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', lambda m: m.group(1) or "", text, flags=re.S)
+    return json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
+
+
+def add_file_types(languages, default_settings):
+    """Zed's default `file_types` (language name → globs) onto the languages."""
+    file_types = jsonc(Path(default_settings).read_text()).get("file_types", {})
+    for language in languages:
+        if language["name"] in file_types:
+            language["fileTypes"] = file_types[language["name"]]
+
+
 # --- The extension catalog --------------------------------------------------------
 
 
@@ -399,6 +416,7 @@ def main():
         elif {language["highlights"], language.get("injections")} & missing:
             skipped[language["name"]] = "queries aren't reachable"
     languages = [language for language in languages if language["name"] not in skipped]
+    add_file_types(languages, zed / "assets/settings/default.json")
     for grammar in grammars.values():
         for field in ("version", "crate", "inCrate"):
             grammar.pop(field, None)

@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- `.env.development` and other `.env.*` files are colored as Env, as in Zed, with Zed's other default file types (`tsconfig*.json`, `.vscode/**/*.json`, `.cursorrules`); wrapped Markdown no longer jumps under the pointer in most passes while scrolling (D251)
 - Opening the agents' inspector with a new chat in the smallest window, or opening a folder again there after Close Folder, no longer crashes (a wide sidebar narrows to what a narrow window leaves); the editor no longer applies the Mac's smart quotes and corrections to code, nor types into a tab's old document when the tab is closed and reopened at once, nor keeps a core busy for minutes coloring a long file whose top opens something never closed; Settings → Checkpoints no longer counts the stress run's and the tests' checkpoints, and the checkpoints of folders that are gone are deleted; stress runs keep their copies' crash reports, past macOS' 25 a day (D250)
 - A long file opens colored: its first screen is colored from a parse of its start, in ~75 ms instead of drawn gray at ~90 (D250)
 - Faster typing and tab switches (D249): a key press in a 6 000-line file takes 9 ms instead of 31, a tab switch draws the other file in ~35 ms, and the last four tabs keep their editors, scrolled, laid out and with their undo; a huge paste at many carets no longer freezes the git markers for 20 s
@@ -326,6 +327,10 @@ Everything below is known to be missing; nothing here is in progress.
 ## Known limitations
 What works differently than you'd expect today. Things built but not yet
 tried by hand are in [manual-checks.md](manual-checks.md).
+
+- Wrapped text can still move by a line or three while scrolling up through
+  a part of a long file not laid out yet: 7 of 80 steps in the stress run's
+  measure, down from 26 (D251).
 
 - An agent turn in a project of 20 000 files takes about 11 s before it
   starts: the checkpoint snapshots the whole tree (D245). The UI stays

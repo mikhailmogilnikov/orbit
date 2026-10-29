@@ -1121,6 +1121,42 @@ final class OrbitTextView: STTextView {
     /// A color for the caret's line in place of the theme's (agent changes, D236).
     var caretLineHighlight: ((Int) -> NSColor?)?
 
+    /// TextKit 2 lays out what's on screen and estimates the rest; laid out for
+    /// real, wrapped paragraphs above the screen got their own heights and
+    /// moved the text under the user (18–54 points scrolling up a long
+    /// Markdown file, the line numbers with it; D251). The paragraph at the
+    /// top keeps its place on screen, as in Apple's TextKit 2 sample.
+    override func layout() {
+        let anchor = isKeepingAnchor ? nil : topParagraph()
+        super.layout()
+        // Not laid out after the pass (TextKit replaced its fragment): left as is.
+        guard let anchor, let fragment = textLayoutManager.textLayoutFragment(for: anchor.location),
+              fragment.state == .layoutAvailable else { return }
+        let shift = fragment.layoutFragmentFrame.minY - anchor.y
+        guard abs(shift) > 0.5 else { return }
+        let visible = visibleRect
+        isKeepingAnchor = true
+        scroll(NSPoint(x: visible.minX, y: visible.minY + shift))
+        isKeepingAnchor = false
+    }
+
+    private var isKeepingAnchor = false
+
+    /// The topmost paragraph on screen that is laid out (scrolled up, the top
+    /// one may only be estimated yet), and where it starts in the text.
+    private func topParagraph() -> (location: NSTextLocation, y: CGFloat)? {
+        let visible = visibleRect
+        guard visible.minY > 0 else { return nil }
+        var y = visible.minY - contentFrame.minY
+        while y < visible.maxY - contentFrame.minY {
+            guard let fragment = textLayoutManager.textLayoutFragment(for: CGPoint(x: 0, y: y)) else { return nil }
+            let frame = fragment.layoutFragmentFrame
+            if fragment.state == .layoutAvailable { return (fragment.rangeInElement.location, frame.minY) }
+            y = max(y + 1, frame.maxY + 0.5)
+        }
+        return nil
+    }
+
     // STTextView reads this each time it rebuilds the highlight (caret moves, layout).
     override var selectedLineHighlightColor: NSColor {
         get { caretLineHighlight?(textSelection.location) ?? super.selectedLineHighlightColor }

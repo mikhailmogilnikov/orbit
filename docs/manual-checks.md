@@ -85,6 +85,10 @@ code actions, rename, formatting and its corner note, the agent registry
 
 ## Editor
 
+- Wrapped Markdown scrolled with a trackpad (D251): no jumps under the
+  pointer, the line numbers with their lines; scrolled up from the end of
+  a long file, and after Go to Line in the middle. `.env.development`
+  colored as `.env` is.
 - Kept editors (D249): switching back to one of the last four tabs shows it
   at once, scrolled where it was, with the caret and ⌘Z of its edits; after
   switching the appearance (dark/light), the color theme or the code font

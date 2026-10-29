@@ -28,6 +28,20 @@ import Testing
         #expect(name("/p/run", firstLine: "#!/usr/bin/env python3") == "Python")
     }
 
+    /// Zed's default `file_types` win over suffixes (D250).
+    @Test func picksLanguagesByZedsFileTypes() {
+        #expect(name("/p/.env") == "Env")
+        #expect(name("/p/.env.development") == "Env")
+        #expect(name("/p/.env.local") == "Env")
+        #expect(name("/p/production.env") == "Env")
+        #expect(name("/p/tsconfig.app.json") == "JSONC")
+        #expect(name("/p/.vscode/settings.json") == "JSONC")
+        #expect(name("/p/.vscode/a/b.json") == "JSONC")
+        #expect(name("/p/vscode/settings.json") == "JSON")
+        #expect(name("/p/.cursorrules") == "Markdown")
+        #expect(name("/p/environment.ts") == "TypeScript")
+    }
+
     @Test func picksEmbeddedLanguagesByName() {
         #expect(catalog.language(named: "typescript")?.name == "TypeScript")
         #expect(catalog.language(named: "js")?.name == "JavaScript")
